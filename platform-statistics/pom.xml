@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>cn.edu.gpnu</groupId>
+        <artifactId>teacher-cert-platform</artifactId>
+        <version>1.0.0-SNAPSHOT</version>
+    </parent>
+    <artifactId>platform-statistics</artifactId>
+    <description>统计查询与报表（Phase 11）</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>cn.edu.gpnu</groupId>
+            <artifactId>platform-common</artifactId>
+        </dependency>
+    </dependencies>
+</project>

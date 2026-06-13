@@ -4,14 +4,14 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 进行中任务：（无）
+- 进行中任务：Phase 0 — T-003 boot 配置续（MyBatis-Plus/Jackson）→ T-004 Flyway → T-005 docker-compose
 - 阻塞项：（无）
-- 最近更新：2026-06-13（规划阶段产出 plan/tasks/docs/AGENTS/PROGRESS/DEVLOG）
+- 最近更新：2026-06-13（Phase 0 骨架 `mvn package` 构建通过；T-001/T-002 完成）
 
 ## 阶段汇总
 | Phase | 名称 | 优先级 | 任务数 | 完成 | 状态 |
 |---|---|---|---|---|---|
-| 0 | 工程脚手架与基础设施 | P0 | 10 | 0 | 待开始 |
+| 0 | 工程脚手架与基础设施 | P0 | 10 | 2 | 进行中 |
 | 1 | 基础数据与字典 | P0 | 12 | 0 | 待开始 |
 | 2 | 账号角色权限 | P0 | 7 | 0 | 待开始 |
 | 3 | 基本信息 | P0 | 9 | 0 | 待开始 |
@@ -30,10 +30,10 @@
 
 ---
 
-## Phase 0 · 工程脚手架与基础设施 — 0/10
-- [ ] T-001 创建 Maven 父工程与 8 子模块骨架
-- [ ] T-002 platform-common 基础设施（Result/异常/枚举/注解）
-- [ ] T-003 platform-boot 启动与全局配置
+## Phase 0 · 工程脚手架与基础设施 — 2/10
+- [x] T-001 创建 Maven 父工程与 8 子模块骨架
+- [x] T-002 platform-common 基础设施（Result/异常/枚举/注解）
+- [~] T-003 platform-boot 启动与全局配置（启动/health/doc/cors/全局异常 已完成；MyBatis-Plus/Jackson(Long→String)/数据源 待续）
 - [ ] T-004 Flyway 接入 + 基础表 V1（audit_log/file_object/sys_param）
 - [ ] T-005 本地依赖 docker-compose（mysql/redis/minio）
 - [ ] T-006 platform-file MinIO 文件服务
