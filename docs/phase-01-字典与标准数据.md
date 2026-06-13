@@ -57,8 +57,15 @@
 - [x] Flyway 启动迁移通过，`flyway_schema_history` 显示 V1/V2 `success=1`。
 - [x] 反例验证通过：重复 `sys_dict_type.type_code`、重复 `(type_code,item_code,year_version)` 均被唯一约束拒绝，临时验证数据无残留。
 
+### T-012 字典接口验收记录
+- [x] 字典类型/字典项新增、修改、删除接口已实现，Controller 只做入参/返回，业务校验在 `DictService`。
+- [x] 写操作已标注 `@AuditLog(bizType = "dict", ...)`，查询接口已标注 `@DataScope`。
+- [x] `/api/dict/{typeCode}/items` 默认只返回启用项，并通过 Redis key `dict:items:{typeCode}` 缓存。
+- [x] 维护字典项后即时删除对应 Redis 缓存，再查返回更新值并重新写缓存。
+- [x] 反例验证通过：重复 `(type_code,item_code,year_version)` 返回业务错误；有子项时删除字典类型、修改类型编码均返回业务错误。
+
 ## 8. 测试用例
-- T-DICT-1：维护字典项后再查 → 返回更新值（缓存刷新）。
+- T-DICT-1：维护字典项后再查 → 返回更新值（缓存刷新）。✅ T-012 已验证：`initial-value` → `updated-value`，缓存 `1 → 0 → 1`。
 - T-REGION-1：`path("440106")` → 返回"广东省广州市天河区"。
 - T-SUBJ-1：`segment=初级中学` → 返回 28 项。
 - T-SUBJ-2（反例）：尝试把某"类别节点"作为任教学科保存 → 后端拒绝（为 Phase 4 联动校验铺垫）。

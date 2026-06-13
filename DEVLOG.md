@@ -15,6 +15,14 @@
 
 ---
 
+## [2026-06-13] T-012 字典管理 CRUD + Redis 缓存
+- 做了什么：新增字典类型/字典项实体、DTO/VO、Mapper、`DictService` 与 `/api/dict` 接口；接入 Redis，`GET /api/dict/{typeCode}/items` 走 `dict:items:{typeCode}` 缓存；维护字典项后删除缓存；写操作接 `@AuditLog`，查询入口接 `@DataScope`。
+- 关键决策与理由：缓存用 `StringRedisTemplate` + Jackson JSON，避免引入额外缓存抽象；`onlyEnabled` 默认 true，满足按类型取启用项；有子项的字典类型禁止删除或修改编码，避免产生孤儿字典项。
+- 问题与解决：`platform-system` 编译期需要 Redis/Jackson 类型，已在模块 POM 显式声明依赖；一次重打包失败由运行中的 jar 占用导致，停止临时 Java 进程后重新 `mvn package` 通过。
+- 与规格的偏差/疑问：无。权限点 `dict:view`/`dict:manage` 认证鉴权将在 Phase 2 RBAC 接入，T-012 先提供接口与切面标注。
+- 测试：`mvn -B -ntp -DskipTests package` 9 模块 SUCCESS；启动后 `/api/health`=200；T-DICT-1 接口验证通过：首次查询写缓存、更新后缓存 `1→0`、再查返回 `updated-value` 并重新写缓存；反例：重复字典项、有子项删除类型、有子项修改类型编码均返回业务错误；中文值写入/查询成功；审计日志产生 5 条 dict 记录；验证数据与缓存已清理，临时后端已停止。
+- 下一步：T-013 字典标准值种子。
+
 ## [2026-06-13] T-011 字典/区划/学科/组织表
 - 做了什么：创建分支 `feature/phase01-T011-dict-schema`；新增 Flyway `V2__dict.sql`，建 `sys_dict_type`、`sys_dict_item`、`sys_region`、`teaching_subject`、`sys_college`、`sys_major`、`major_training_goal`、`training_goal_config` 8 张表；更新 `PROGRESS.md` 与 `docs/phase-01-字典与标准数据.md` 的 T-011 验收记录。
 - 关键决策与理由：T-011 仅交付表结构，不提前写 V3/V4 种子，避免越界到 T-013/T-017；带年度版本的唯一键统一使用非空默认 `GLOBAL`，避免 MySQL 唯一索引允许多个 `NULL` 导致重复项绕过；学校/专业/区划等代码字段均用 `VARCHAR`，符合文本化红线。
