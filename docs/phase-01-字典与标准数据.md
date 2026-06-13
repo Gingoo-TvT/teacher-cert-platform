@@ -132,12 +132,23 @@
 - [x] 反例验证通过：`path?code=449999` 返回“行政区划不存在或已停用”，`path?code=44010601` 返回“行政区划代码必须为6位数字”，`children?parent=999999` 返回业务错误。
 - [x] 后端 `mvn -B -ntp -DskipTests package` 通过；前端 `vue-tsc --noEmit` 和 `vite build` 通过（保留既有 Naive UI 大 chunk 警告）。
 
+### T-021 任教学科库页与选择组件验收记录
+- [x] 新增 `frontend/src/api/subject.ts`，封装学科查询、导入、可选校验、最近使用查询/记录接口；请求只传字典/标准库编码，不传中文显示值。
+- [x] 新增 `SubjectSelect.vue`，按学段和年度加载学科，支持关键词远程搜索、分类过滤、最近使用，类别节点可见但禁选。
+- [x] 新增 `SubjectManageView.vue`，支持学段字典加载、学科列表查询、分类/关键词/年度筛选、选择校验、Excel 导入与错误明细展示，并接入 `/system/subjects` 路由和菜单。
+- [x] 学段候选来自 `teaching_segment` 字典；学科候选来自 `/api/subject`，未在前端硬编码业务标准值。
+- [x] 验证通过：`/system/subjects` 返回 200；幼儿园 1 项且仅“幼儿园”；小学 23 项、初中 28 项、高中/中职文化课 27 项。
+- [x] 验证通过：`keyword=电子商务` 命中 `sv_ecommerce` 与 `sv_cat_finance_commerce`，类别节点 `selectable=false`；分类 `sv_cat_finance_commerce` 返回 4 项。
+- [x] 反例验证通过：选择类别节点返回“任教学科类别节点不可选择”；跨学段选择 `sv_ecommerce`、自由填写不存在学科均返回“任教学科不属于当前学段或未启用”。
+- [x] 导入反例验证通过：非法学段 Excel 返回 `failCount=1`，错误定位第 2 行 `segment_code`，原因为“任教学段编码不在 teaching_segment 字典中”。
+- [x] 后端 `mvn -B -ntp -DskipTests package` 通过；前端 `vue-tsc --noEmit` 和 `vite build` 通过（保留既有 Naive UI 大 chunk 警告）。
+
 ## 8. 测试用例
 - T-DICT-1：维护字典项后再查 → 返回更新值（缓存刷新）。✅ T-012 已验证：`initial-value` → `updated-value`，缓存 `1 → 0 → 1`。
 - T-REGION-1：`path("440106")` → 返回"广东省广州市天河区"。✅ T-015 已用正式广东种子复验；T-020 已在前端代理与页面入口复验。
-- T-SUBJ-1：`segment=初级中学` → 返回 28 项。✅ T-017 已验证。
-- T-SUBJ-2（反例）：尝试把某"类别节点"作为任教学科保存 → 后端拒绝。✅ T-017 已验证。
-- T-SUBJ-3：`keyword=电子商务` 命中具体学科，类别父节点返回但 `selectable=false` 不可选。✅ T-017 已验证。
+- T-SUBJ-1：`segment=初级中学` → 返回 28 项。✅ T-017 已验证；T-021 已在前端代理复验。
+- T-SUBJ-2（反例）：尝试把某"类别节点"作为任教学科保存 → 后端拒绝。✅ T-017 已验证；T-021 已在选择组件/API 复验。
+- T-SUBJ-3：`keyword=电子商务` 命中具体学科，类别父节点返回但 `selectable=false` 不可选。✅ T-017 已验证；T-021 已在页面查询复验。
 - T-GOAL-1：专业A 配置[小学教师,初中教师] → 查询返回两项。✅ T-018 已验证，重复保存同一组和移除后恢复同一培养目标均通过。
 
 ## 9. DoD

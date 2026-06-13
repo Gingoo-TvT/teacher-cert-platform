@@ -15,6 +15,14 @@
 
 ---
 
+## [2026-06-14] T-021 任教学科库页 + 选择组件
+- 做了什么：新增 `frontend/src/api/subject.ts`、`SubjectSelect.vue` 和 `SubjectManageView.vue`；接入 `/system/subjects` 路由与“基础数据/任教学科库”菜单；页面支持学段/年度/分类/关键词查询、学科选择校验、最近使用、Excel 导入与错误明细展示。
+- 关键决策与理由：学段选项从 `teaching_segment` 字典加载，学科候选从 `/api/subject` 加载，前端不硬编码业务标准值；类别节点继续在候选中展示但禁选，和后端 `selectable=false`、`validateSelectable` 硬约束保持一致；最近使用只在通过后端校验后记录。
+- 问题与解决：运行验证时先用错中职学段编码 `secondary_vocational`，实际字典/种子编码为 `secondary_vocational_school`；前端实现本身不写死学段编码，验证脚本改用字典标准编码后通过。页面分类名称解析优先使用类别节点，避免同一 `categoryNode` 下具体学科排在前面时显示成子学科名。
+- 与规格的偏差/疑问：无。完整中职专业课仍按 T-017 记录的确认单第 13 项，以学校模板导入补齐；T-021 完成 AT-05 的标准库和类别禁选前端基础，后续 Phase 4 还需在培养信息表单中复用并校验。
+- 测试：后端 `mvn -B -ntp -DskipTests package` 9 模块 SUCCESS；前端 `npm --prefix frontend run type-check` 与 `npm --prefix frontend run build` 通过；启动后端与 Vite dev，`/system/subjects` 返回 200；幼儿园 1、小学 23、初中 28、高中/中职文化课 27；`keyword=电子商务` 命中 `sv_ecommerce` 与 `sv_cat_finance_commerce`，类别节点 `selectable=false`；分类 `sv_cat_finance_commerce` 返回 4 项；选择 `sv_ecommerce` 校验与最近使用记录成功；选择类别节点、跨学段、自由填写不存在学科均返回业务错误；非法学段 Excel 导入返回 `failCount=1` 且错误定位第 2 行 `segment_code`。
+- 下一步：T-022 学校/学院/专业维护页。
+
 ## [2026-06-14] T-020 行政区划维护 + 级联组件
 - 做了什么：新增 `frontend/src/api/region.ts`、可复用 `RegionCascader.vue` 和 `RegionManageView.vue`；接入 `/system/regions` 路由与“基础数据/行政区划”菜单；页面支持区划下级浏览、代码反查完整文本、路径标签展示和级联选择回显。
 - 关键决策与理由：T-020 不新增 Flyway 和后端接口，复用 T-014/T-015 已有只读区划接口；当前后端没有区划新增/编辑/删除/停用接口，因此页面按只读维护/查看口径交付，避免做没有审计日志支撑的前端伪 CRUD；区划代码全链路保持字符串。
