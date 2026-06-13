@@ -83,6 +83,7 @@ git -C "$REPO" add -A && git -C "$REPO" commit -m "feat(T-0xx): ..."
 ## 7. 待确认事项（不阻塞开发，已设默认值并参数化）
 见 `docs/待确认事项确认单.md`（20 项）。重点：**证书序列作用域默认 `SCHOOL_YEAR_SEGMENT`**（`sys_param.cert.seq.scope`），上线前需学校书面确认（与需求 9.1 文字/示例冲突的裁定）。
 
-## 8. 验收基线
+## 8. 验收基线 与 阶段复核闸门
+- **每个 Phase 完工后 codex 不自行置完成**：置「待复核」，由 **Claude 按 `docs/REVIEW-GATE.md` 复核**通过才算完成（产出 `docs/reviews/phase-NN-review.md`，PASS 才放行下一阶段）。
 - 每阶段对照 `docs/phase-NN` 验收清单 + `docs/README.md` §4 的 **AT-01~AT-14 追溯矩阵**；状态在 `PROGRESS.md` 的「AT 跟踪」表登记；Phase 14 整体复验。
 - 全局 DoD 见 `AGENTS.md` §12（提交前逐条勾）。
