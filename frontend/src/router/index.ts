@@ -17,6 +17,12 @@ const routes: RouteRecordRaw[] = [
         name: 'dashboard',
         component: () => import('@/views/DashboardView.vue'),
         meta: { title: '首页' }
+      },
+      {
+        path: 'system/dicts',
+        name: 'dictManage',
+        component: () => import('@/views/system/DictManageView.vue'),
+        meta: { title: '字典管理' }
       }
     ]
   },

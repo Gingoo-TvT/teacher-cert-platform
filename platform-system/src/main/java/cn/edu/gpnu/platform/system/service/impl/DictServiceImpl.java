@@ -267,7 +267,7 @@ public class DictServiceImpl implements DictService {
         entity.setParentCode(trimToNull(request.getParentCode()));
         entity.setSort(defaultInt(request.getSort(), 0));
         entity.setStatus(defaultInt(request.getStatus(), ENABLED));
-        entity.setExtJson(trimToNull(request.getExtJson()));
+        entity.setExtJson(normalizeExtJson(request.getExtJson()));
     }
 
     private DictTypeVO toTypeVO(SysDictType entity) {
@@ -306,6 +306,19 @@ public class DictServiceImpl implements DictService {
     private String normalizeYearVersion(String yearVersion) {
         String normalized = trimToNull(yearVersion);
         return normalized == null ? DEFAULT_YEAR_VERSION : normalized;
+    }
+
+    private String normalizeExtJson(String extJson) {
+        String normalized = trimToNull(extJson);
+        if (normalized == null) {
+            return null;
+        }
+        try {
+            objectMapper.readTree(normalized);
+            return normalized;
+        } catch (Exception e) {
+            throw new BizException("扩展JSON格式不正确");
+        }
     }
 
     private String trimToNull(String value) {

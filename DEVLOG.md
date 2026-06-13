@@ -15,6 +15,14 @@
 
 ---
 
+## [2026-06-14] T-019 字典管理页
+- 做了什么：新增 `frontend/src/api/dict.ts` 与 `DictManageView.vue`；接入 `/system/dicts` 路由和侧栏菜单；页面支持字典类型/字典项双栏维护、搜索、启停、年度版本、排序、父级编码、扩展 JSON 校验和保存后刷新。
+- 关键决策与理由：管理页查询字典项固定传 `onlyEnabled=false`，确保停用项仍可维护；开发态暂不对按钮挂 `v-perm`，因为 Phase 2 前登录页不加载权限，直接挂会隐藏管理按钮；使用现有 Naive UI 和 Axios 封装，不新增前端依赖。
+- 问题与解决：运行反例发现后端 `extJson` 非法 JSON 会落到 MySQL JSON 字段并返回 500，已在 `DictServiceImpl` 增加 `objectMapper.readTree` 业务校验，返回“扩展JSON格式不正确”；`NInputNumber` 严格类型可能返回 null，页面表单状态改为非空 UI state，再组装 API payload。
+- 与规格的偏差/疑问：无。权限点 `dict:view`/`dict:manage` 的真实按钮权限与菜单权限仍等待 Phase 2 RBAC 接入，本任务只完成页面入口和维护闭环。
+- 测试：后端 `mvn -B -ntp -DskipTests package` 9 模块 SUCCESS；前端 `npm --prefix frontend run type-check` 与 `npm --prefix frontend run build` 通过（保留既有 Naive UI chunk 警告）；启动后端与 Vite dev，`/system/dicts` 返回 200，`/api/health` 代理成功；接口验证新增类型/项、重复类型编码、重复 `(typeCode,itemCode,yearVersion)`、非法 `extJson`、有项删除类型被拒、更新项值后缓存刷新、停用后默认查询隐藏且管理查询可见，临时数据已按逻辑删除清理。
+- 下一步：T-020 行政区划维护 + 级联组件。
+
 ## [2026-06-14] T-018 学校/学院/专业 + 多培养目标 + 联动配置
 - 做了什么：新增学院、专业、专业培养目标、培养目标联动配置实体/Mapper/DTO/VO、`OrganizationService` 与 `/api/college`、`/api/major`、`/api/training-goal-config` 接口；专业详情带学院名称与培养目标列表；写接口接 `@AuditLog`，查询接口接 `@DataScope`。
 - 关键决策与理由：T-018 不新增 Flyway，复用 T-011 的 V2 表；`training_goal_config` 存字典 `item_code`，展示名由字典翻译；V2 未定义外键和 JSON schema，引用完整性由 service 校验；多培养目标替换采用“更新/恢复现有关系 + 软删移除项”，避免逻辑删除行仍占唯一键导致重复保存失败。

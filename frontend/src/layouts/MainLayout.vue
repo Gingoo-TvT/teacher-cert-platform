@@ -1,13 +1,28 @@
 <script setup lang="ts">
-import { useRouter } from 'vue-router'
+import { computed } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import type { MenuOption } from 'naive-ui'
 
 const router = useRouter()
+const route = useRoute()
 const userStore = useUserStore()
+const activeMenu = computed(() => String(route.name || 'dashboard'))
 
-// 菜单占位（Phase 2 接入动态权限菜单）
-const menuOptions: MenuOption[] = [{ label: '首页', key: 'dashboard' }]
+const menuOptions: MenuOption[] = [
+  { label: '首页', key: 'dashboard' },
+  {
+    label: '基础数据',
+    key: 'baseData',
+    children: [{ label: '字典管理', key: 'dictManage' }]
+  }
+]
+
+function handleMenuUpdate(key: string) {
+  if (router.hasRoute(key)) {
+    router.push({ name: key })
+  }
+}
 
 function handleLogout() {
   userStore.logout()
@@ -26,7 +41,7 @@ function handleLogout() {
     </n-layout-header>
     <n-layout has-sider style="height: calc(100vh - 50px)">
       <n-layout-sider bordered :width="220" content-style="padding: 12px 0">
-        <n-menu :options="menuOptions" />
+        <n-menu :value="activeMenu" :options="menuOptions" @update:value="handleMenuUpdate" />
       </n-layout-sider>
       <n-layout-content content-style="padding: 20px">
         <router-view />
