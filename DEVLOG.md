@@ -15,6 +15,14 @@
 
 ---
 
+## [2026-06-13] T-013 字典标准值种子
+- 做了什么：新增 Flyway `V3__dict_seed.sql`，创建 17 个字典类型，预置学校 `10588/广东技术师范大学`、省码 `44/广东`，以及 plan §5.2 明确给出的标准字典项。
+- 关键决策与理由：种子使用 `INSERT ... ON DUPLICATE KEY UPDATE`，可重跑且不手改库；`exemption_subject`、`exemption_basis`、`cert_issuer` 仅创建类型、不插业务项，依据确认单第 12 项“免考依据/可免科目：字典维护，初始置空”和 plan 中“学校维护”口径。
+- 问题与解决：PowerShell/MySQL CLI 中文比较会受控制台编码影响，逐字一致性由 gpt-5.5/xhigh 只读 subagent 对 UTF-8 文件核对，运行侧改用 type_code/item_code/数量与 HEX 抽查验证，避免编码误判。
+- 与规格的偏差/疑问：`plan.md §5.2` 的 `exemption_subject` 行示例写有“幼儿园：综合素质（幼儿园）、保教知识与能力”，但确认单第 12 项裁定初始置空；按确认单默认值实现，后续由学校提供清单维护。
+- 测试：`mvn -B -ntp -DskipTests package` 9 模块 SUCCESS；启动后 `/api/health`=200；`flyway_schema_history` 显示 V1/V2/V3 `success=1`；运行侧校验 17 个类型、学校/省码、明确值数量（5/4/4/5/2/5/5/2/2/4/4/9）通过；HEX 抽查确认全角括号与 `课件/板书` 落库。
+- 下一步：T-014 行政区划三级联动。
+
 ## [2026-06-13] T-012 字典管理 CRUD + Redis 缓存
 - 做了什么：新增字典类型/字典项实体、DTO/VO、Mapper、`DictService` 与 `/api/dict` 接口；接入 Redis，`GET /api/dict/{typeCode}/items` 走 `dict:items:{typeCode}` 缓存；维护字典项后删除缓存；写操作接 `@AuditLog`，查询入口接 `@DataScope`。
 - 关键决策与理由：缓存用 `StringRedisTemplate` + Jackson JSON，避免引入额外缓存抽象；`onlyEnabled` 默认 true，满足按类型取启用项；有子项的字典类型禁止删除或修改编码，避免产生孤儿字典项。
