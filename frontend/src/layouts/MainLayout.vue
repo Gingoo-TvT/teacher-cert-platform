@@ -14,7 +14,10 @@ const menuOptions: MenuOption[] = [
   {
     label: '基础数据',
     key: 'baseData',
-    children: [{ label: '字典管理', key: 'dictManage' }]
+    children: [
+      { label: '字典管理', key: 'dictManage' },
+      { label: '行政区划', key: 'regionManage' }
+    ]
   }
 ]
 

@@ -122,9 +122,19 @@
 - [x] 验证通过：新增类型/项、重复类型编码、重复 `(typeCode,itemCode,yearVersion)`、类型有项时删除被拒、更新项值后默认查询即时返回新值、停用后默认查询隐藏但管理查询可见。
 - [x] 前端 `vue-tsc --noEmit` 和 `vite build` 通过；Vite dev 访问 `/system/dicts` 返回 200，`/api/health` 代理到后端成功。
 
+### T-020 行政区划维护页与级联组件验收记录
+- [x] 新增 `frontend/src/api/region.ts`，封装 `/api/region/children` 与 `/api/region/path`，区划代码字段保持 `String`。
+- [x] 新增可复用 `RegionCascader.vue`，支持远程懒加载省→市→区县、选择后回传末级代码、路径节点和完整文本；传入已有代码时通过 `path` 接口回显完整路径。
+- [x] 新增 `RegionManageView.vue`，支持区划下级浏览、代码反查完整文本、路径标签展示，并接入 `/system/regions` 路由和“基础数据/行政区划”菜单。
+- [x] 直筒地市口径已处理：东莞市等查询无下级时，级联组件将当前市级节点作为可选择末级，不伪造第三级数据。
+- [x] 当前后端只提供查询接口，页面按只读维护/查看口径实现；未新增前端 CRUD，以避免绕过缺失的后端写接口和审计日志。
+- [x] 验证通过：`/system/regions` 返回 200；`path?code=440106` 返回 `广东省广州市天河区`；`children?parent=440000` 返回 21 个市，`children?parent=440100` 返回 11 个区且包含 `440106`，`children?parent=441900` 返回空数组。
+- [x] 反例验证通过：`path?code=449999` 返回“行政区划不存在或已停用”，`path?code=44010601` 返回“行政区划代码必须为6位数字”，`children?parent=999999` 返回业务错误。
+- [x] 后端 `mvn -B -ntp -DskipTests package` 通过；前端 `vue-tsc --noEmit` 和 `vite build` 通过（保留既有 Naive UI 大 chunk 警告）。
+
 ## 8. 测试用例
 - T-DICT-1：维护字典项后再查 → 返回更新值（缓存刷新）。✅ T-012 已验证：`initial-value` → `updated-value`，缓存 `1 → 0 → 1`。
-- T-REGION-1：`path("440106")` → 返回"广东省广州市天河区"。✅ T-015 已用正式广东种子复验。
+- T-REGION-1：`path("440106")` → 返回"广东省广州市天河区"。✅ T-015 已用正式广东种子复验；T-020 已在前端代理与页面入口复验。
 - T-SUBJ-1：`segment=初级中学` → 返回 28 项。✅ T-017 已验证。
 - T-SUBJ-2（反例）：尝试把某"类别节点"作为任教学科保存 → 后端拒绝。✅ T-017 已验证。
 - T-SUBJ-3：`keyword=电子商务` 命中具体学科，类别父节点返回但 `selectable=false` 不可选。✅ T-017 已验证。

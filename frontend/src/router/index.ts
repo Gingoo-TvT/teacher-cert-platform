@@ -23,6 +23,12 @@ const routes: RouteRecordRaw[] = [
         name: 'dictManage',
         component: () => import('@/views/system/DictManageView.vue'),
         meta: { title: '字典管理' }
+      },
+      {
+        path: 'system/regions',
+        name: 'regionManage',
+        component: () => import('@/views/system/RegionManageView.vue'),
+        meta: { title: '行政区划' }
       }
     ]
   },

@@ -15,6 +15,14 @@
 
 ---
 
+## [2026-06-14] T-020 行政区划维护 + 级联组件
+- 做了什么：新增 `frontend/src/api/region.ts`、可复用 `RegionCascader.vue` 和 `RegionManageView.vue`；接入 `/system/regions` 路由与“基础数据/行政区划”菜单；页面支持区划下级浏览、代码反查完整文本、路径标签展示和级联选择回显。
+- 关键决策与理由：T-020 不新增 Flyway 和后端接口，复用 T-014/T-015 已有只读区划接口；当前后端没有区划新增/编辑/删除/停用接口，因此页面按只读维护/查看口径交付，避免做没有审计日志支撑的前端伪 CRUD；区划代码全链路保持字符串。
+- 问题与解决：东莞/中山等无区县子节点的地市会返回空 children，组件在懒加载到空数组时将当前节点置为可选末级，不伪造第三级区划；Naive UI 大 chunk 警告为既有全量组件库打包警告，本任务未扩大处理范围。
+- 与规格的偏差/疑问：`tasks.md` 写“维护页”，但 Phase 1 后端接口清单仅有区划查询接口，无写接口；本任务按只读维护/查看页实现，并记录边界，后续如需区划 CRUD 应单独补后端写接口、权限和 `@AuditLog`。
+- 测试：后端 `mvn -B -ntp -DskipTests package` 9 模块 SUCCESS；前端 `npm --prefix frontend run type-check` 与 `npm --prefix frontend run build` 通过；启动后端与 Vite dev，`/system/regions` 返回 200；`path?code=440106` 返回 `广东省广州市天河区`；`children?parent=440000` 返回 21 个市，`children?parent=440100` 返回 11 个区且包含 `440106`，`children?parent=441900` 返回空数组；反例 `path?code=449999`、`path?code=44010601`、`children?parent=999999` 均返回业务错误。
+- 下一步：T-021 任教学科库页 + 选择组件。
+
 ## [2026-06-14] T-019 字典管理页
 - 做了什么：新增 `frontend/src/api/dict.ts` 与 `DictManageView.vue`；接入 `/system/dicts` 路由和侧栏菜单；页面支持字典类型/字典项双栏维护、搜索、启停、年度版本、排序、父级编码、扩展 JSON 校验和保存后刷新。
 - 关键决策与理由：管理页查询字典项固定传 `onlyEnabled=false`，确保停用项仍可维护；开发态暂不对按钮挂 `v-perm`，因为 Phase 2 前登录页不加载权限，直接挂会隐藏管理按钮；使用现有 Naive UI 和 Axios 封装，不新增前端依赖。
