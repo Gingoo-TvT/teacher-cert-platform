@@ -2,6 +2,7 @@
 
 后端 **Java 17 + Spring Boot 3 + MyBatis-Plus + MySQL + Flyway + MinIO**；前端 **Vue 3 + Vite + TypeScript + Naive UI**。
 
+> 🚀 **接手 / 继续开发先读 [HANDOFF.md](HANDOFF.md)**（现状·环境·一键命令·从哪开始）。
 > 📌 开工必读 **[AGENTS.md](AGENTS.md)**；总体方案 [plan.md](plan.md)（含 §15 增补）；任务清单 [tasks.md](tasks.md)；阶段设计与验收 [docs/](docs/)；进度 [PROGRESS.md](PROGRESS.md)；日志 [DEVLOG.md](DEVLOG.md)；待学校确认项 [docs/待确认事项确认单.md](docs/待确认事项确认单.md)。
 
 ## 环境要求
