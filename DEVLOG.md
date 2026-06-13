@@ -15,6 +15,14 @@
 
 ---
 
+## [2026-06-13] T-015 行政区划种子
+- 做了什么：新增 Flyway `V4__region_seed.sql`，预置广东省县级以上行政区划数据：省级 1 条、地级市 21 条、县级区划 122 条；同步更新 Phase 1 文档验收记录，并将后续任教学科种子版本从 `V4__subject_seed.sql` 顺延为 `V5__subject_seed.sql`。
+- 关键决策与理由：区划 `code/parent_code` 全部按字符串写入，保持文本化口径；种子使用 `ON DUPLICATE KEY UPDATE` 保持幂等；东莞市、中山市按县级以上行政区划口径作为无区县级子节点的地级市处理，不伪造第三级节点。
+- 问题与解决：本地文档只给出“广东省三级数据完整可联动”和 `440106` 示例，没有完整区划清单；按 T-015 的 GB/T 2260 口径补充广东县级以上数据，并在文档记录直筒子市处理口径。Flyway 版本因 T-015 占用 V4，已同步更新 `tasks.md` 与 Phase 1 文档，T-017 改用 V5。
+- 与规格的偏差/疑问：无。东莞/中山无区县级子节点属于县级以上行政区划数据口径差异，已记录在验收说明。
+- 测试：`mvn -B -ntp -DskipTests package` 9 模块 SUCCESS；启动后 `/api/health`=200；`flyway_schema_history` 显示 V4 `region seed` success=1；DB 校验广东 `level=1/2/3` 数量为 `1/21/122`；`children?parent=440000` 返回 21 个市，`children?parent=440100` 返回 11 个区且含 `440106/天河区`；`path?code=440106` 返回“广东省广州市天河区”，UTF-8 HEX 为 `E5B9BFE4B89CE79C81E5B9BFE5B79EE5B882E5A4A9E6B2B3E58CBA`；反例 `449999`、`44010601`、`parent=999999` 均返回业务错误；临时后端已停止。
+- 下一步：T-016 任教学科标准库服务 + 导入器。
+
 ## [2026-06-13] T-014 行政区划三级联动
 - 做了什么：新增 `SysRegion`、`SysRegionMapper`、`RegionService`、`RegionController` 与区划 VO；实现 `/api/region/children` 和 `/api/region/path`；补 `CorsConfig` 的 JSON UTF-8 charset，确保 HTTP 中文响应可被客户端正确识别。
 - 关键决策与理由：区划 `code/parentCode` 全链路 `String`，避免前导零和编码语义丢失；`parent` 为空查省级，传父级查下级；`path` 拼 root→leaf 的完整文本，供后续生源地导出复用；预留 `validateTriplet` 给 Phase 3/10 生源地校验。
