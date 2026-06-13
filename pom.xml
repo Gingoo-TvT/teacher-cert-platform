@@ -65,4 +65,13 @@
             <dependency><groupId>io.jsonwebtoken</groupId><artifactId>jjwt-jackson</artifactId><version>${jjwt.version}</version></dependency>
         </dependencies>
     </dependencyManagement>
+
+    <!-- 所有子模块通用依赖：Lombok（编译期，optional 不向下游传递） -->
+    <dependencies>
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+    </dependencies>
 </project>

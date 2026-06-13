@@ -16,5 +16,9 @@
             <groupId>cn.edu.gpnu</groupId>
             <artifactId>platform-common</artifactId>
         </dependency>
+        <dependency>
+            <groupId>io.minio</groupId>
+            <artifactId>minio</artifactId>
+        </dependency>
     </dependencies>
 </project>

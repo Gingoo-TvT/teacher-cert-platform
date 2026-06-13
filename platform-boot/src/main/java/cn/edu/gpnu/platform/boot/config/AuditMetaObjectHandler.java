@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.handlers.MetaObjectHandler;
 import org.apache.ibatis.reflection.MetaObject;
 import org.springframework.stereotype.Component;
 
+import cn.edu.gpnu.platform.common.context.UserContext;
 import java.time.LocalDateTime;
 
 /**
@@ -32,7 +33,7 @@ public class AuditMetaObjectHandler implements MetaObjectHandler {
      * 当前用户 id。Phase 2 接入 SecurityContext 后替换；现阶段返回系统账号 0。
      */
     private Long currentUserId() {
-        // TODO: 待 Phase 2 接入登录上下文(确认单无关)
-        return 0L;
+        // Phase 2 登录后由拦截器写入 UserContext；未登录(系统操作)回退 0
+        return UserContext.getUserIdOrSystem();
     }
 }

@@ -16,5 +16,9 @@
             <groupId>cn.edu.gpnu</groupId>
             <artifactId>platform-common</artifactId>
         </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-aop</artifactId>
+        </dependency>
     </dependencies>
 </project>

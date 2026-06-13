@@ -17,8 +17,24 @@
             <artifactId>platform-common</artifactId>
         </dependency>
         <dependency>
+            <groupId>cn.edu.gpnu</groupId>
+            <artifactId>platform-system</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>cn.edu.gpnu</groupId>
+            <artifactId>platform-security</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>cn.edu.gpnu</groupId>
+            <artifactId>platform-file</artifactId>
+        </dependency>
+        <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-aop</artifactId>
         </dependency>
         <dependency>
             <groupId>com.github.xiaoymin</groupId>
