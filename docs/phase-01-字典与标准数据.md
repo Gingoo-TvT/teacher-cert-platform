@@ -87,6 +87,15 @@
 - [x] Flyway 启动迁移通过，`flyway_schema_history` 显示 V4 `region seed` 且 `success=1`。
 - [x] 反例验证通过：`path?code=449999`、`path?code=44010601`、`children?parent=999999` 均返回业务错误。
 
+### T-016 任教学科服务与导入器验收记录
+- [x] 新增 `TeachingSubjectService`、`TeachingSubjectController`、实体/Mapper/VO/导入结果 DTO，提供 `/api/subject` 查询、`/api/subject/import` 导入、`/api/subject/validate` 可选校验、`/api/subject/recent` 最近使用接口。
+- [x] 查询支持 `segment`、`keyword`、`category`、`yearVersion`；返回 `selectable=false` 标记类别节点不可选，供前端置灰。
+- [x] 导入器使用 FastExcel，所有单元按字符串读取；校验必填、学段字典合法性、状态值、同文件 `subject_code + year_version` 重复；有错误时整批不入库。
+- [x] 写操作 `import/recent` 已标注 `@AuditLog`；查询/校验/最近使用查询已标注 `@DataScope(alias = "teaching_subject")`。
+- [x] 最近使用按 Redis `subject:recent:{userId}:{yearVersion}:{segmentCode}` 保存，记录前复用可选校验，查询时回表过滤停用/删除/类别节点。
+- [x] 运行验证通过：临时 Excel 导入 3 条 `T016_IMPORT` 数据成功；错误 Excel 返回学段非法与文件内重复两条错误且无 `T016_BAD` 入库；`keyword=电子商务` 命中具体学科和类别节点，其中类别节点 `selectable=false`；跨学段、自由填写不存在学科、类别节点选择/记录最近使用均返回业务错误；临时数据和缓存已清理。
+- [x] 数量型验收（幼儿园1/小学23/初中28/高中·中职文化课27）依赖 T-017 `V5__subject_seed.sql` 正式种子，T-016 已完成服务与导入能力。
+
 ## 8. 测试用例
 - T-DICT-1：维护字典项后再查 → 返回更新值（缓存刷新）。✅ T-012 已验证：`initial-value` → `updated-value`，缓存 `1 → 0 → 1`。
 - T-REGION-1：`path("440106")` → 返回"广东省广州市天河区"。✅ T-015 已用正式广东种子复验。

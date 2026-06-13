@@ -15,6 +15,14 @@
 
 ---
 
+## [2026-06-13] T-016 任教学科标准库服务 + 导入器
+- 做了什么：新增 `TeachingSubject` 实体、Mapper、`TeachingSubjectService` 与 `/api/subject` 接口；实现按学段/关键词/类别/年度查询、FastExcel 导入、可选校验、最近使用记录；导入结果返回 `total/successCount/failCount/errors`。
+- 关键决策与理由：接口补可选 `yearVersion` 参数，以满足“学科库支持年度版本”验收；类别节点不从结果中过滤，而是返回 `selectable=false`，让前端置灰，同时后端 `validateSelectable` 和最近使用记录硬拒绝类别节点；最近使用当前不新增表，按 Redis key `subject:recent:{userId}:{yearVersion}:{segmentCode}` 保存，因 T-016 既有 schema 未定义持久化表。
+- 问题与解决：父 POM 锁定 `cn.idev.excel:fastexcel:1.1.0`，实际读写 API 位于传递依赖 `fastexcel-core`；已在 `platform-system` 声明 `fastexcel` 并通过编译。PowerShell 直写中文 SQL 会污染编码，运行验证改用 UTF-8 `.xlsx` + 导入接口，并用 DB HEX 确认中文正确。
+- 与规格的偏差/疑问：`AGENTS.md` 表格写 EasyExcel/FastExcel 3.x，但父 POM 和 HANDOFF 锁定 FastExcel 1.1.0，本任务按父 POM 锁定版本实现；完整学科数量验收依赖 T-017 `V5__subject_seed.sql`，T-016 先交付服务与导入器。
+- 测试：`mvn -B -ntp -DskipTests package` 9 模块 SUCCESS；启动后 `/api/health`=200；临时 Excel 导入 3 条 `T016_IMPORT` 数据成功，HEX 验证“电子商务/电子商务类/幼儿园” UTF-8 正确；错误 Excel 返回“学段非法”和“文件内重复”两条错误且无 `T016_BAD` 入库；`keyword=电子商务` 命中具体学科和类别节点，类别节点 `selectable=false`；跨学段、自由填写不存在学科、类别节点选择/记录最近使用均返回业务错误；`subject:recent` Redis 仅保存具体学科；临时数据、审计日志、Redis key 已清理，临时后端已停止。
+- 下一步：T-017 任教学科种子（示例库）。
+
 ## [2026-06-13] T-015 行政区划种子
 - 做了什么：新增 Flyway `V4__region_seed.sql`，预置广东省县级以上行政区划数据：省级 1 条、地级市 21 条、县级区划 122 条；同步更新 Phase 1 文档验收记录，并将后续任教学科种子版本从 `V4__subject_seed.sql` 顺延为 `V5__subject_seed.sql`。
 - 关键决策与理由：区划 `code/parent_code` 全部按字符串写入，保持文本化口径；种子使用 `ON DUPLICATE KEY UPDATE` 保持幂等；东莞市、中山市按县级以上行政区划口径作为无区县级子节点的地级市处理，不伪造第三级节点。
