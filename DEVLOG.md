@@ -15,6 +15,14 @@
 
 ---
 
+## [2026-06-14] T-017 任教学科种子（示例库）
+- 做了什么：新增 Flyway `V5__subject_seed.sql`，预置 `GLOBAL` 年度任教学科示例库：幼儿园 1、小学 23、初级中学 28、高级中学/中职文化课 27、中职专业课示例 10（含 3 个类别节点、7 个具体学科）。
+- 关键决策与理由：`subject_code` 使用学段前缀命名，避免同名学科跨学段触发 `(subject_code, year_version)` 唯一键冲突；类别节点 `is_category=1` 且 `category_node=subject_code`，具体学科 `is_category=0` 并归到父类别；种子用 `ON DUPLICATE KEY UPDATE` 保持幂等。
+- 问题与解决：本地文档只明确数量和少量示例，没有给出小学 23、初中 28、高中 27 的完整逐项清单，也未给完整中职 358 项/107 类别清单；按确认单第 13 项“以模板为基准导入字典，年度版本”处理，T-017 只作为基础验收示例库，完整库待学校提供模板后通过 T-016 导入器导入。
+- 与规格的偏差/疑问：无阻塞。普通学段为满足数量验收补足了示例项；完整中职专业课不伪造为官方完整库。
+- 测试：`mvn -B -ntp -DskipTests package` 9 模块 SUCCESS；启动后 Flyway V5 `subject seed` success=1；DB 校验 `kindergarten/primary_school/junior_middle_school/senior_middle_school` 数量为 `1/23/28/27`，中职示例 10 且 3 个类别节点；无 `(subject_code, year_version)` 重复；接口验证幼儿园仅“幼儿园”、初中 28、小学包含 `书法/舞蹈/心理健康教育/体育与健康`、高中包含 `思想政治/通用技术`；`keyword=电子商务` 命中类别与具体学科且类别 `selectable=false`；选择类别节点、跨学段、自由填写不存在学科均返回业务错误，选择 `sv_ecommerce` 成功；临时后端已停止。
+- 下一步：T-018 学校/学院/专业 + 多培养目标 + 联动配置。
+
 ## [2026-06-13] T-016 任教学科标准库服务 + 导入器
 - 做了什么：新增 `TeachingSubject` 实体、Mapper、`TeachingSubjectService` 与 `/api/subject` 接口；实现按学段/关键词/类别/年度查询、FastExcel 导入、可选校验、最近使用记录；导入结果返回 `total/successCount/failCount/errors`。
 - 关键决策与理由：接口补可选 `yearVersion` 参数，以满足“学科库支持年度版本”验收；类别节点不从结果中过滤，而是返回 `selectable=false`，让前端置灰，同时后端 `validateSelectable` 和最近使用记录硬拒绝类别节点；最近使用当前不新增表，按 Redis key `subject:recent:{userId}:{yearVersion}:{segmentCode}` 保存，因 T-016 既有 schema 未定义持久化表。
