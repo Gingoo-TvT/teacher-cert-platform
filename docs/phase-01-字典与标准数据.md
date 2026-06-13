@@ -48,8 +48,8 @@
 - [x] 幼儿园学段仅返回"幼儿园"一项。
 - [x] **中职专业课类别节点不可被选择**（接口标记 + 前端置灰）（AT-05 基础）。
 - [x] 学科库支持关键词搜索与年度版本；导入新版本后可按年度启用。
-- [ ] 一个专业可配置多个培养目标；保存后可查询。
-- [ ] `training_goal_config` 可维护，培养目标可查出默认/可选 学段与实习地点。
+- [x] 一个专业可配置多个培养目标；保存后可查询。
+- [x] `training_goal_config` 可维护，培养目标可查出默认/可选 学段与实习地点。
 
 ### T-011 数据库验收记录
 - [x] `V2__dict.sql` 已创建 8 张表：`sys_dict_type`、`sys_dict_item`、`sys_region`、`teaching_subject`、`sys_college`、`sys_major`、`major_training_goal`、`training_goal_config`。
@@ -105,13 +105,22 @@
 - [x] `keyword=电子商务` 命中 `sv_ecommerce` 具体学科和 `sv_cat_finance_commerce` 类别节点，其中类别节点 `selectable=false`；`validate` 选择类别节点、跨学段学科、自由填写不存在学科均返回业务错误，选择 `sv_ecommerce` 成功。
 - [x] 完整中职专业课 358 项/107 类别节点本地未给完整清单，按确认单第 13 项保留为学校模板导入，不在种子中伪造完整库。
 
+### T-018 学校/学院/专业与联动配置验收记录
+- [x] 新增学院、专业、专业培养目标、培养目标联动配置实体/Mapper/DTO/VO/Service/Controller；Controller 仅使用 DTO/VO，不直接暴露 Entity。
+- [x] `/api/college`、`/api/major` 支持列表、新增、修改、删除；专业详情返回学院名称和已配置培养目标；`yearVersion` 空值默认 `GLOBAL`，入参长度按 V2 表结构校验。
+- [x] `/api/major/{id}/training-goals` 支持整体替换多培养目标；重复保存同一组、移除后再恢复同一培养目标均通过，不触发逻辑删除唯一键冲突。
+- [x] `/api/training-goal-config` 可维护并返回培养目标默认/可选任教学段、默认/可选实习地点，返回值存储和展示均使用字典 `item_code`。
+- [x] 写操作已标注 `@AuditLog`；查询接口已标注 `@DataScope`；V2 无外键/JSON schema 约束，引用完整性由服务层校验。
+- [x] 反例验证通过：重复学院编码、重复 `(internal_major_code, yearVersion)`、停用/不存在学院下新增专业、非法培养目标编码、默认学段不在 allowed、使用中文显示值作为学段编码、超长 `yearVersion` 均返回业务错误。
+- [x] 逻辑删除唯一键口径已验证：删除后的学院/专业同编码重建返回业务错误，不落数据库重复键 500；临时业务数据接口可见计数为 0，仅保留软删历史。
+
 ## 8. 测试用例
 - T-DICT-1：维护字典项后再查 → 返回更新值（缓存刷新）。✅ T-012 已验证：`initial-value` → `updated-value`，缓存 `1 → 0 → 1`。
 - T-REGION-1：`path("440106")` → 返回"广东省广州市天河区"。✅ T-015 已用正式广东种子复验。
 - T-SUBJ-1：`segment=初级中学` → 返回 28 项。✅ T-017 已验证。
 - T-SUBJ-2（反例）：尝试把某"类别节点"作为任教学科保存 → 后端拒绝。✅ T-017 已验证。
 - T-SUBJ-3：`keyword=电子商务` 命中具体学科，类别父节点返回但 `selectable=false` 不可选。✅ T-017 已验证。
-- T-GOAL-1：专业A 配置[小学教师,初中教师] → 查询返回两项。
+- T-GOAL-1：专业A 配置[小学教师,初中教师] → 查询返回两项。✅ T-018 已验证，重复保存同一组和移除后恢复同一培养目标均通过。
 
 ## 9. DoD
 字典/区划/学科/组织/联动配置全部可维护、可联动、可缓存、可按年度版本；接口在 Swagger 可调；导入器对示例库可用。

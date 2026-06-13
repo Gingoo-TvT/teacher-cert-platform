@@ -15,6 +15,14 @@
 
 ---
 
+## [2026-06-14] T-018 学校/学院/专业 + 多培养目标 + 联动配置
+- 做了什么：新增学院、专业、专业培养目标、培养目标联动配置实体/Mapper/DTO/VO、`OrganizationService` 与 `/api/college`、`/api/major`、`/api/training-goal-config` 接口；专业详情带学院名称与培养目标列表；写接口接 `@AuditLog`，查询接口接 `@DataScope`。
+- 关键决策与理由：T-018 不新增 Flyway，复用 T-011 的 V2 表；`training_goal_config` 存字典 `item_code`，展示名由字典翻译；V2 未定义外键和 JSON schema，引用完整性由 service 校验；多培养目标替换采用“更新/恢复现有关系 + 软删移除项”，避免逻辑删除行仍占唯一键导致重复保存失败。
+- 问题与解决：subagent 复核发现 `major_training_goal` 先删后插会被 `(major_id, training_goal_code)` 唯一键挡住，已改为读取含 deleted 的历史行后恢复/停用；学院/专业同类逻辑删除唯一键问题改为创建/更新前按含 deleted 口径检测并返回业务错误；`yearVersion` 超过 V2 `VARCHAR(16)` 曾触发数据库截断，已按表结构补 DTO 长度校验。
+- 与规格的偏差/疑问：无新规格偏差。DataScope 当前仍是 Phase 0 骨架切面，T-018 已按红线完成标注，真实范围过滤依赖 Phase 2 T-025 落地；中职教师默认学段/实习地点未写种子，联动配置通过接口维护，后续 Phase 4 使用时按字典配置读取。
+- 测试：`mvn -B -ntp -DskipTests package` 9 模块 SUCCESS；启动后 `/api/health`=UP，Flyway 校验 V1-V5 且无新迁移；接口正例验证新增学院/专业、专业配置 `[primary_school_teacher,junior_middle_school_teacher]` 查询返回两项、重复保存同一组和移除后恢复均通过、保存/查询 `primary_school_teacher` 联动配置可返回默认/可选学段与实习地点；反例验证重复学院编码、重复 `(internal_major_code, yearVersion)`、停用/不存在学院、非法培养目标、默认学段不在 allowed、中文显示值作为学段编码、超长 `yearVersion`、逻辑删除后同编码重建均返回业务错误；审计日志出现 `college:create`、`major:create`、`major:replaceTrainingGoals`、`trainingGoalConfig:save`；临时业务数据接口可见计数为 0。
+- 下一步：T-019 字典管理页。
+
 ## [2026-06-14] T-017 任教学科种子（示例库）
 - 做了什么：新增 Flyway `V5__subject_seed.sql`，预置 `GLOBAL` 年度任教学科示例库：幼儿园 1、小学 23、初级中学 28、高级中学/中职文化课 27、中职专业课示例 10（含 3 个类别节点、7 个具体学科）。
 - 关键决策与理由：`subject_code` 使用学段前缀命名，避免同名学科跨学段触发 `(subject_code, year_version)` 唯一键冲突；类别节点 `is_category=1` 且 `category_node=subject_code`，具体学科 `is_category=0` 并归到父类别；种子用 `ON DUPLICATE KEY UPDATE` 保持幂等。
