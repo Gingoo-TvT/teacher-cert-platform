@@ -15,6 +15,19 @@
 
 ---
 
+## [2026-06-13] Phase 0 完成（T-003~T-010）
+- 做了什么：
+  - DB 链路：MyBatis-Plus(分页/乐观锁/逻辑删除/自动填充) + MySQL + Flyway V1(sys_param/audit_log/file_object + 17 参数种子) + Jackson Long→String。
+  - docker-compose.dev（mysql/redis/minio）。
+  - platform-file：MinIO 客户端 + FileService(上传/预签名/删除/秒传) + FileController。
+  - 切面：AuditLogAspect(boot, 写 audit_log) + DataScopeAspect(security, 骨架) + UserContext(common)。
+  - 前端：Vue3+Vite+TS+Naive UI 脚手架（router 守卫 + Pinia + Axios 封装 + v-perm + 登录/首页/404）。
+  - CI：GitHub Actions(后端 mvn + 前端 vite build) + .editorconfig + .gitattributes(LF 规范)。
+- 验证（全部通过）：`mvn package` 9 模块 SUCCESS；运行 Flyway migrate v1、4 表、sys_param 17 行、/api/health=UP、/doc.html=200；MinIO bucket 自动建 + 文件 上传→预签名→下载 内容一致；前端 `npm install` + `vite build`(2864 模块) 成功。
+- 问题与解决：①Lombok optional 不向子模块传递 → 父 POM 统一声明；②MinioConfig @PostConstruct 调 @Bean 循环依赖 → 改独立 client 初始化 bucket。
+- 注意：前端 2 个 npm 漏洞(dev 依赖)，后续 `npm audit`；naive-ui 全量导入主包偏大，后续按需引入。
+- 下一步：Phase 1 字典与标准数据（T-011 表 → 种子 → 学科库/区划 → 前端字典页）。
+
 ## [2026-06-13] Phase 0 · Maven 骨架构建通过（T-001/T-002）
 - 做了什么：父 POM + 8 子模块；`platform-common` 核心(Result/ResultCode/PageResult/BizException/BaseEntity/@AuditLog/@DataScope)；`platform-boot`(PlatformApplication/OpenApiConfig/CorsConfig/GlobalExceptionHandler/HealthController/application.yml)。
 - 验证：`mvn -B -ntp -DskipTests package` → **BUILD SUCCESS**（9 模块），产出可运行 jar `platform-boot/target/teacher-cert-platform.jar`。

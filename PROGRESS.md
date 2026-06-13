@@ -4,14 +4,15 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 进行中任务：Phase 0 — T-003 boot 配置续（MyBatis-Plus/Jackson）→ T-004 Flyway → T-005 docker-compose
+- 进行中任务：（无）— **Phase 0 已完成**
 - 阻塞项：（无）
-- 最近更新：2026-06-13（Phase 0 骨架 `mvn package` 构建通过；T-001/T-002 完成）
+- 最近更新：2026-06-13（**Phase 0 全部完成**：后端 DB/MinIO 运行验证通过、前端构建通过、CI 就绪）
+- 下一步：Phase 1 基础数据与字典（T-011+）
 
 ## 阶段汇总
 | Phase | 名称 | 优先级 | 任务数 | 完成 | 状态 |
 |---|---|---|---|---|---|
-| 0 | 工程脚手架与基础设施 | P0 | 10 | 2 | 进行中 |
+| 0 | 工程脚手架与基础设施 | P0 | 10 | 10 | ✅ 完成 |
 | 1 | 基础数据与字典 | P0 | 12 | 0 | 待开始 |
 | 2 | 账号角色权限 | P0 | 7 | 0 | 待开始 |
 | 3 | 基本信息 | P0 | 9 | 0 | 待开始 |
@@ -26,21 +27,21 @@
 | 12 | 通知 | P1 | 3 | 0 | 待开始 |
 | 13 | 系统管理与审计 | P0 | 5 | 0 | 待开始 |
 | 14 | 非功能/部署/验收 | P2+收口 | 6 | 0 | 待开始 |
-| | **合计** | | **114** | **0** | |
+| | **合计** | | **114** | **10** | |
 
 ---
 
-## Phase 0 · 工程脚手架与基础设施 — 2/10
+## Phase 0 · 工程脚手架与基础设施 — 10/10 ✅
 - [x] T-001 创建 Maven 父工程与 8 子模块骨架
-- [x] T-002 platform-common 基础设施（Result/异常/枚举/注解）
-- [~] T-003 platform-boot 启动与全局配置（启动/health/doc/cors/全局异常 已完成；MyBatis-Plus/Jackson(Long→String)/数据源 待续）
-- [ ] T-004 Flyway 接入 + 基础表 V1（audit_log/file_object/sys_param）
-- [ ] T-005 本地依赖 docker-compose（mysql/redis/minio）
-- [ ] T-006 platform-file MinIO 文件服务
-- [ ] T-007 审计切面 + 数据权限切面骨架
-- [ ] T-008 前端工程脚手架
-- [ ] T-009 路由权限框架与按钮指令
-- [ ] T-010 CI 与代码规范
+- [x] T-002 platform-common 基础设施（Result/异常/枚举/注解/上下文）
+- [x] T-003 platform-boot 启动与全局配置（MyBatis-Plus/Jackson Long→String/数据源）
+- [x] T-004 Flyway 接入 + 基础表 V1（已验证 migrate + 17 参数种子）
+- [x] T-005 本地依赖 docker-compose（mysql/redis/minio 已起）
+- [x] T-006 platform-file MinIO 文件服务（上传/预签名/下载验证通过）
+- [x] T-007 审计切面 + 数据权限切面骨架（AuditLogAspect + DataScopeAspect）
+- [x] T-008 前端工程脚手架（Vue3+Vite+TS+Naive UI，构建通过）
+- [x] T-009 路由权限框架与按钮指令（守卫 + v-perm）
+- [x] T-010 CI 与代码规范（GitHub Actions + .editorconfig + .gitattributes）
 
 ## Phase 1 · 基础数据与字典 — 0/12
 - [ ] T-011 字典/区划/学科/组织表

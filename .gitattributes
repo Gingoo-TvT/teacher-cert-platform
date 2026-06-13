@@ -1,0 +1,14 @@
+# 统一以 LF 存储文本（消除 Windows CRLF 警告），Windows 脚本保留 CRLF
+* text=auto eol=lf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+*.sh  text eol=lf
+# 二进制
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.pdf binary
+*.xlsx binary
+*.docx binary
+*.jar binary
