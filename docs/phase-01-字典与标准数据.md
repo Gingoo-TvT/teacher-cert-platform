@@ -50,6 +50,13 @@
 - [ ] 一个专业可配置多个培养目标；保存后可查询。
 - [ ] `training_goal_config` 可维护，培养目标可查出默认/可选 学段与实习地点。
 
+### T-011 数据库验收记录
+- [x] `V2__dict.sql` 已创建 8 张表：`sys_dict_type`、`sys_dict_item`、`sys_region`、`teaching_subject`、`sys_college`、`sys_major`、`major_training_goal`、`training_goal_config`。
+- [x] 表结构覆盖 `parent_code/year_version/ext_json/sort/status`、三级区划、任教学科类别节点、专业试点标识、多培养目标与培养目标联动配置字段。
+- [x] 关键唯一索引与查询索引已创建；`year_version` 默认 `GLOBAL` 且非空，避免 MySQL 唯一键被 `NULL` 绕过。
+- [x] Flyway 启动迁移通过，`flyway_schema_history` 显示 V1/V2 `success=1`。
+- [x] 反例验证通过：重复 `sys_dict_type.type_code`、重复 `(type_code,item_code,year_version)` 均被唯一约束拒绝，临时验证数据无残留。
+
 ## 8. 测试用例
 - T-DICT-1：维护字典项后再查 → 返回更新值（缓存刷新）。
 - T-REGION-1：`path("440106")` → 返回"广东省广州市天河区"。

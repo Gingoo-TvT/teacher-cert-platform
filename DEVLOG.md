@@ -15,6 +15,14 @@
 
 ---
 
+## [2026-06-13] T-011 字典/区划/学科/组织表
+- 做了什么：创建分支 `feature/phase01-T011-dict-schema`；新增 Flyway `V2__dict.sql`，建 `sys_dict_type`、`sys_dict_item`、`sys_region`、`teaching_subject`、`sys_college`、`sys_major`、`major_training_goal`、`training_goal_config` 8 张表；更新 `PROGRESS.md` 与 `docs/phase-01-字典与标准数据.md` 的 T-011 验收记录。
+- 关键决策与理由：T-011 仅交付表结构，不提前写 V3/V4 种子，避免越界到 T-013/T-017；带年度版本的唯一键统一使用非空默认 `GLOBAL`，避免 MySQL 唯一索引允许多个 `NULL` 导致重复项绕过；学校/专业/区划等代码字段均用 `VARCHAR`，符合文本化红线。
+- 问题与解决：验证时发现年度版本若可空会削弱唯一约束，已改为 `NOT NULL DEFAULT 'GLOBAL'`；临时启动后端触发 Flyway 后已停止 8080 进程，避免遗留后台服务。
+- 与规格的偏差/疑问：无。完整字典标准值、行政区划种子、任教学科示例库按任务拆分留给 T-013/T-015/T-017。
+- 测试：`mvn -B -ntp -DskipTests package` 9 模块 SUCCESS；启动后 `/api/health`=200；`flyway_schema_history` 显示 V1/V2 `success=1`；information_schema 验证 8 张表与关键索引存在；反例：重复 `sys_dict_type.type_code`、重复 `(type_code,item_code,year_version)` 均触发 `ERROR 1062 Duplicate entry`，临时验证数据计数为 0。
+- 下一步：T-012 字典管理 CRUD + Redis 缓存。
+
 ## [2026-06-13] Phase 0 完成（T-003~T-010）
 - 做了什么：
   - DB 链路：MyBatis-Plus(分页/乐观锁/逻辑删除/自动填充) + MySQL + Flyway V1(sys_param/audit_log/file_object + 17 参数种子) + Jackson Long→String。
