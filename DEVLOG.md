@@ -15,6 +15,14 @@
 
 ---
 
+## [2026-06-13] T-014 行政区划三级联动
+- 做了什么：新增 `SysRegion`、`SysRegionMapper`、`RegionService`、`RegionController` 与区划 VO；实现 `/api/region/children` 和 `/api/region/path`；补 `CorsConfig` 的 JSON UTF-8 charset，确保 HTTP 中文响应可被客户端正确识别。
+- 关键决策与理由：区划 `code/parentCode` 全链路 `String`，避免前导零和编码语义丢失；`parent` 为空查省级，传父级查下级；`path` 拼 root→leaf 的完整文本，供后续生源地导出复用；预留 `validateTriplet` 给 Phase 3/10 生源地校验。
+- 问题与解决：初次 HTTP 验证时 PowerShell 将 JSON 中文误解码，数据库 UTF-8 HEX 正确；通过为 Jackson JSON converter 增加 `application/json;charset=UTF-8` 支持解决。
+- 与规格的偏差/疑问：无。T-014 使用临时区划数据验证接口，正式广东省种子在 T-015 落地。
+- 测试：`mvn -B -ntp -DskipTests package` 9 模块 SUCCESS；启动后 `/api/health`=200；临时插入 `440000/440100/440106` 验证 children 省→市→区县、叶子空列表、path 3 级路径；`fullName` UTF-8 HEX 对应“广东省广州市天河区”；反例 `449999`、`44010601`、`parent=999999` 均返回业务错误；验证数据已清理，临时后端已停止。
+- 下一步：T-015 行政区划种子。
+
 ## [2026-06-13] T-013 字典标准值种子
 - 做了什么：新增 Flyway `V3__dict_seed.sql`，创建 17 个字典类型，预置学校 `10588/广东技术师范大学`、省码 `44/广东`，以及 plan §5.2 明确给出的标准字典项。
 - 关键决策与理由：种子使用 `INSERT ... ON DUPLICATE KEY UPDATE`，可重跑且不手改库；`exemption_subject`、`exemption_basis`、`cert_issuer` 仅创建类型、不插业务项，依据确认单第 12 项“免考依据/可免科目：字典维护，初始置空”和 plan 中“学校维护”口径。

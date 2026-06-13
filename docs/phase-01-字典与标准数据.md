@@ -71,9 +71,16 @@
 - [x] `exemption_subject`、`exemption_basis`、`cert_issuer` 按确认单第 12 项和 plan“学校维护”口径仅建类型、初始置空。
 - [x] Flyway 启动迁移通过，`flyway_schema_history` 显示 V3 `success=1`；运行侧按 type_code/item_code 数量校验通过。
 
+### T-014 行政区划接口验收记录
+- [x] `RegionService` 已实现 `children(parent)`、`path(code)`、`fullName(code)`、`validateTriplet(province, city, county)`。
+- [x] `/api/region/children?parent=` 支持 parent 为空查省级、传父级查下级；叶子区县返回空列表。
+- [x] `/api/region/path?code=` 返回 root→leaf 节点与完整文本；临时验证 `440106` 返回 3 级路径，UTF-8 HEX 对应“广东省广州市天河区”。
+- [x] 查询接口已标注 `@DataScope(alias = "sys_region")`；区划代码全链路 `String`，不做数值转换。
+- [x] 反例验证通过：不存在代码、非 6 位代码、不存在 parent 均返回业务错误。
+
 ## 8. 测试用例
 - T-DICT-1：维护字典项后再查 → 返回更新值（缓存刷新）。✅ T-012 已验证：`initial-value` → `updated-value`，缓存 `1 → 0 → 1`。
-- T-REGION-1：`path("440106")` → 返回"广东省广州市天河区"。
+- T-REGION-1：`path("440106")` → 返回"广东省广州市天河区"。✅ T-014 已用临时数据验证，T-015 种子后复验。
 - T-SUBJ-1：`segment=初级中学` → 返回 28 项。
 - T-SUBJ-2（反例）：尝试把某"类别节点"作为任教学科保存 → 后端拒绝（为 Phase 4 联动校验铺垫）。
 - T-SUBJ-3：`keyword=电子商务` 在中职专业课命中具体学科，不命中其类别父节点为可选。
