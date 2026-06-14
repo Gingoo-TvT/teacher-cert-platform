@@ -15,6 +15,31 @@
 
 ---
 
+## [2026-06-14] Phase 2 待复核小结（T-024~T-029）
+- 做了什么：在 `feature/phase02-T024-authentication` 上完成 Phase 2 剩余任务：认证/JWT/验证码/refresh/失败锁定/首次改密、RBAC 权限校验、数据范围真过滤、系统用户/角色/权限/数据范围接口、前端真实登录/强制改密/动态菜单与账号权限管理页。修复 `@PreAuthorize` 抛出的 `AccessDeniedException` 被兜底为 500 的问题，补 403 映射；修复过期/无效 JWT 在 filter 中抛出 servlet error 的问题；修复 MyBatis-Plus 默认不写 null 导致账号解锁后 `locked_until` 未清空的问题。
+- 关键决策与理由：运行期验证不再从 Codex 启动 8080/5173 常驻服务；Phase 2 反例改用 `@SpringBootTest(webEnvironment=RANDOM_PORT)` 集成测试承载，测试进程自然退出，不继承长期 stdout/stderr 管道。
+- 问题与解决：错密锁定测试后发现 `test_sys_admin.locked_until` 残留，已在登录成功、锁定过期、改密、重置密码和测试清理中改用 `LambdaUpdateWrapper#set(..., null)` 显式清空。
+- 与规格的偏差/疑问：无业务规格变更。按阶段闸门仅将 Phase 2 置「待复核」，不自行置 ✅；AT-13 记为 Codex 自测通过、待 Claude 复核。
+- 测试：`mvn -B -ntp -pl platform-boot -am -Dtest=Phase2SecurityIT -Dsurefire.failIfNoSpecifiedTests=false test` 通过（2 tests）；`mvn -B -ntp package` 通过；`npm --prefix frontend run type-check` 通过；`npm --prefix frontend run build` 通过（仅 Vite 既有 large chunk warning）；DB 核验 V7/V8 success、7 角色、52 权限、104 角色权限映射、关键矩阵正反例通过；`Get-NetTCPConnection -LocalPort 8080,5173` 无监听。
+- 下一步：提交 Phase 2 待复核版本，交 Claude 按 `docs/REVIEW-GATE.md` 独立复核 AT-13 与 §15.1 矩阵。
+
+## [2026-06-14] 运行期自测防卡死规则与脚本
+- 做了什么：确认 Codex/headless exec 会等待子进程 stdout/stderr 管道 EOF；若直接启动 `java -jar`、`vite dev` 等常驻服务，服务继承管道且不退出，会导致 Codex 一直 working。新增 `scripts/dev-serve.sh` / `scripts/dev-stop.sh` 与 PowerShell 等价脚本 `scripts/dev-serve.ps1` / `scripts/dev-stop.ps1`，统一用后台进程、日志重定向、健康检查、PID 文件管理常驻服务。同步更新 `AGENTS.md §6.1` 硬规则与 `HANDOFF.md` 本机操作说明。
+- 关键决策与理由：保留 Bash 脚本以匹配 Git Bash 工作流，同时补 PowerShell fallback；本机当前 Git Bash 启动出现 `Bash/Service/CreateInstance/E_ACCESSDENIED`，仅 Bash 脚本无法覆盖 Windows 受限场景。脚本只管理临时目录中记录的命名服务 PID，不扫描和误杀无关进程。
+- 问题与解决：本轮曾遗留后端 `java` PID 27544，经 `jcmd VM.command_line` 确认为本仓库 jar 后停止；未确认归属的 `node` 进程没有监听 5173，未做误杀。
+- 修正：后续实测表明由 Codex/exec 直接调用 `dev-serve.ps1` 仍会卡住当前命令链路；因此规则已收紧为 **Codex/exec 内禁止启动任何常驻服务或包装启动脚本**，`dev-serve.*` 仅供外部终端/watchdog/Claude 复核环境使用。
+- 与规格的偏差/疑问：无业务规格变更；这是执行流程与本机开发安全规则补丁。
+- 测试：`dev-serve.ps1` / `dev-stop.ps1` PowerShell AST 解析通过；`dev-stop.ps1 backend/frontend` 在无服务时正确返回；`Get-NetTCPConnection -LocalPort 8080,5173` 无监听。Git Bash 当前因 `E_ACCESSDENIED` 无法执行 `bash -n`，已记录使用 PowerShell fallback。
+- 下一步：继续 Phase 2；Codex 内只允许运行会自然退出的一次性命令，`scripts/dev-serve.*` 仅供外部终端/watchdog/Claude 复核环境使用。
+
+## [2026-06-14] Phase 2 中途交接记录（T-024~T-029 未完成）
+- 做了什么：继续推进 Phase 2。已在 working tree 落下认证/JWT/验证码/锁定、RBAC 鉴权、`DataScopeContext` 真过滤、系统用户/角色/权限/数据范围接口、`/api/phase2/probe` 探针接口；`mvn -B -ntp -DskipTests package` 通过。为修复本地 Flyway checksum mismatch，执行了 **仅本地开发库** 的 V8 回退（删除 `id>=800000000000000000` 的 RBAC 种子数据 + `flyway_schema_history.version='8'`），随后按最新 `V8__rbac_seed.sql` 重迁移。
+- 关键决策与理由：本地 Phase 1 没保留启用学院数据，原先 `V8` 用 `MIN(sys_college)` 绑定测试账号会得到 `NULL`，导致学院范围反例不稳定。已改 `V8__rbac_seed.sql`，新增 Phase 2 专用测试学院 `PHASE2_COLLEGE_A/B`，并将学生/学院教务员/学院负责人/评审教师测试账号显式绑定到学院 A，确保 AT-13 可重复验证。
+- 问题与解决：PowerShell / 工具层多次把 `Start-Process` 显示为 `aborted`，但后台 `java` 进程实际已成功启动。已确认后续续做时必须先查 `Get-Process java`、`netstat :8080`、`backend.out.log`，避免重复启动把验证环境搅乱。
+- 与规格的偏差/疑问：当前后端主体实现已接近 T-027，但 **仍未完成整阶段反例验证、前端真实登录与系统安全管理页、docs/phase-02 勾选、分任务提交与 Phase 2 待复核收尾**，因此不能标记任何后续任务完成。
+- 测试：`mvn -B -ntp -DskipTests package` SUCCESS；`/api/health`=200；`flyway_schema_history` 当前 V8 checksum=`-193563120`；DB 核验 7 角色、52 权限、104 角色权限映射；测试账号 `test_student/test_college_clerk/test_college_auditor/test_review_teacher` 已绑定 `college_id=800000000000000201`；`test_student` 使用 `ChangeMe123!` + 验证码登录成功，返回 `mustChangePwd=true`。
+- 下一步：下个 Codex 先跑完 Phase 2 反例（401/403/首次改密/refresh/错密锁定/学生仅本人/学院 A 查不到学院 B），再补前端 `LoginView`、`stores/user.ts`、`router/index.ts`、`MainLayout.vue` 和 T-029 管理页，最后更新 `PROGRESS/docs/phase-02/DEVLOG` 并按任务循环提交。
+
 ## [2026-06-14] T-023 RBAC 表
 - 做了什么：新增 `V7__rbac.sql`，创建 `sys_user`、`sys_role`、`sys_user_role`、`sys_permission`、`sys_role_permission`、`sys_user_data_scope`；`PROGRESS.md` Phase 2 置为进行中，T-023 置完成；`docs/phase-02-认证与权限.md` 记录 T-023 验收。
 - 关键决策与理由：迁移版本严格按磁盘 max+1 使用 V7，未修改 V1~V6；`sys_user` 增加 `must_change_pwd`、`failed_login_count`、`locked_until` 支撑 T-024 首次改密和登录锁定；`sys_role_permission.scope_type` 保存 `SELF/COLLEGE/SCHOOL/SYSTEM/LOGIN_ALL/ASSIGNED`，用于 T-025 解释 §15.1 的本/院/校/系/✓/分配范围。

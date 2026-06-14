@@ -1,6 +1,7 @@
 package cn.edu.gpnu.platform.system.service.impl;
 
 import cn.edu.gpnu.platform.common.context.UserContext;
+import cn.edu.gpnu.platform.common.context.DataScopeContext;
 import cn.edu.gpnu.platform.common.exception.BizException;
 import cn.edu.gpnu.platform.system.dto.CollegeSaveRequest;
 import cn.edu.gpnu.platform.system.dto.MajorSaveRequest;
@@ -66,6 +67,7 @@ public class OrganizationServiceImpl implements OrganizationService {
         if (status != null) {
             wrapper.eq(SysCollege::getStatus, status);
         }
+        applyCollegeDataScope(wrapper);
         return collegeMapper.selectList(wrapper).stream().map(this::toCollegeVO).toList();
     }
 
@@ -136,12 +138,15 @@ public class OrganizationServiceImpl implements OrganizationService {
                     .or()
                     .like(SysMajor::getSecondDisciplineName, normalizedKeyword));
         }
+        applyMajorDataScope(wrapper);
         return majorMapper.selectList(wrapper).stream().map(this::toMajorVO).toList();
     }
 
     @Override
     public MajorVO getMajor(Long id) {
-        return toMajorVO(requireMajor(id));
+        SysMajor major = requireMajor(id);
+        assertMajorVisible(major);
+        return toMajorVO(major);
     }
 
     @Override
@@ -302,6 +307,53 @@ public class OrganizationServiceImpl implements OrganizationService {
         entity.setName(normalizeRequired(request.getName(), "学院名称不能为空"));
         entity.setSort(defaultInt(request.getSort(), 0));
         entity.setStatus(defaultInt(request.getStatus(), ENABLED));
+    }
+
+    private void applyCollegeDataScope(LambdaQueryWrapper<SysCollege> wrapper) {
+        DataScopeContext.Scope scope = DataScopeContext.get();
+        if (scope == null || scope.allSchool()) {
+            return;
+        }
+        if (scope.getScopeType() == DataScopeContext.ScopeType.COLLEGE && !scope.getCollegeIds().isEmpty()) {
+            wrapper.in(SysCollege::getId, scope.getCollegeIds());
+            return;
+        }
+        if (scope.getScopeType() == DataScopeContext.ScopeType.NONE
+                || scope.getScopeType() == DataScopeContext.ScopeType.SELF
+                || scope.getScopeType() == DataScopeContext.ScopeType.ASSIGNED) {
+            wrapper.eq(SysCollege::getId, -1L);
+        }
+    }
+
+    private void applyMajorDataScope(LambdaQueryWrapper<SysMajor> wrapper) {
+        DataScopeContext.Scope scope = DataScopeContext.get();
+        if (scope == null || scope.allSchool()) {
+            return;
+        }
+        if (scope.getScopeType() == DataScopeContext.ScopeType.COLLEGE) {
+            if (!scope.getMajorIds().isEmpty()) {
+                wrapper.in(SysMajor::getId, scope.getMajorIds());
+                return;
+            }
+            if (!scope.getCollegeIds().isEmpty()) {
+                wrapper.in(SysMajor::getCollegeId, scope.getCollegeIds());
+                return;
+            }
+        }
+        wrapper.eq(SysMajor::getId, -1L);
+    }
+
+    private void assertMajorVisible(SysMajor major) {
+        DataScopeContext.Scope scope = DataScopeContext.get();
+        if (scope == null || scope.allSchool()) {
+            return;
+        }
+        if (scope.getScopeType() == DataScopeContext.ScopeType.COLLEGE) {
+            if (scope.getMajorIds().contains(major.getId()) || scope.getCollegeIds().contains(major.getCollegeId())) {
+                return;
+            }
+        }
+        throw new BizException(cn.edu.gpnu.platform.common.api.ResultCode.FORBIDDEN.getCode(), "无权访问该专业");
     }
 
     private void fillMajor(SysMajor entity, MajorSaveRequest request) {

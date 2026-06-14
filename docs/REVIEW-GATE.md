@@ -29,7 +29,7 @@
 | D4 | 红线合规 | AGENTS §1：文本化/不硬编码/留痕/逻辑删除/Flyway/数据范围/后端校验/权限点/不擅改需求 |
 | D5 | 代码质量 | 分层/命名/统一 Result/异常/事务/注释/无魔法值（可跑 `/code-review`） |
 | D6 | 安全 | 脱敏/鉴权/无越权明文/无密钥入库/文件视频访问受控（可跑 `/security-review`） |
-| D7 | 构建与运行 | `mvn package` 绿、应用起得来、前端 `vite build` 绿、本阶段冒烟通过 |
+| D7 | 构建与运行 | `mvn package` 绿、应用可在外部终端/复核环境启动、前端 `vite build` 绿、本阶段冒烟通过；不得让 Codex/headless exec 启动常驻服务 |
 | D8 | 测试 | 单元 + **反例** 齐备且通过；核心规则覆盖；CI 绿 |
 | D9 | 数据库 | Flyway 幂等、版本号递增不复用、表/索引/注释、种子正确 |
 | D10 | 回归 | 重跑既有阶段冒烟（健康/登录/既有接口），未破坏 |
@@ -38,7 +38,7 @@
 ## 4. 复核方法（建议步骤）
 1. **取增量**：`git -C <repo> log --oneline`；`git diff <上阶段末commit>..HEAD --stat` 看改动面。
 2. **构建**：`mvn -B -ntp -DskipTests package`；`npm --prefix frontend run build`（命令见 `HANDOFF.md` §3）。
-3. **起依赖+应用**：`docker compose -f docker-compose.dev.yml up -d`；`java -jar ...`；跑本阶段冒烟 + **反例**（§6）。
+3. **起依赖+应用**：`docker compose -f docker-compose.dev.yml up -d`；如需启动后端/前端常驻服务，必须在外部终端或复核 harness 中用 `scripts/dev-serve.*` 启动并重定向日志，禁止由 Codex/headless exec 执行 `java -jar`、`npm run dev`、`vite dev` 或包装启动脚本；随后跑本阶段冒烟 + **反例**（§6）。
 4. **数据核验**：`docker exec tcp-mysql mysql -uroot -proot123 teacher_cert -e "..."` 查表/数据。
 5. **读码**：对 D1/D4/D5/D6 抽查关键类（校验器、状态机、证书编号、导入导出、切面、数据权限）。
 6. **专项 skill**：`/code-review`（质量/缺陷）、`/security-review`（安全）对本阶段 diff。

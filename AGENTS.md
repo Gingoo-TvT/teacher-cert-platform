@@ -101,6 +101,32 @@
 - 覆盖率：核心模块行覆盖 ≥80%。
 - CI（T-010）必过：lint + 编译 + 测试。**红灯不合并。**
 
+### 6.1 运行期自测防卡死（硬规则）
+- **禁止**以前台或继承当前标准输出/错误管道的方式启动常驻服务（如 `java -jar`、`npm run dev`、`vite dev`）。Headless 调度方会一直等待 stdout/stderr EOF，服务不退出就会导致 Codex/exec 无限空转。
+- **Codex/exec 内同样禁止**调用任何会启动常驻服务的包装脚本，即使脚本内部重定向日志也不作为安全依据。`scripts/dev-serve.sh` / `scripts/dev-serve.ps1` 仅供外部人工终端、watchdog 或 Claude 复核环境使用。
+- 运行期验证只能三选一：
+  1. 运行会自然退出的一次性命令，例如 `mvn -B -ntp -DskipTests package`、`npm --prefix frontend run build`、`npm --prefix frontend run type-check`。
+  2. 由外部终端运行 `scripts/dev-serve.sh` / `scripts/dev-serve.ps1` 后，Codex 只执行会自然退出的 HTTP/DB/CLI 检查；完成后必须由外部或 Codex 的 `scripts/dev-stop.*` 停服务。
+  3. 对需要长时间常驻应用的反例验证，默认交给 Claude 阶段复核执行，Codex 只记录未本地运行的原因。
+- 外部终端启动后端示例（严禁由 Codex/exec 执行）：
+  ```bash
+  export JAVA_HOME="/c/Program Files/Eclipse Adoptium/jdk-17.0.19.10-hotspot"
+  export JWT_SECRET="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  bash scripts/dev-serve.sh backend http://127.0.0.1:8080/api/health "$JAVA_HOME/bin/java" -jar platform-boot/target/teacher-cert-platform.jar
+  bash scripts/dev-stop.sh backend
+  ```
+- 外部终端启动前端示例（严禁由 Codex/exec 执行）：
+  ```bash
+  bash scripts/dev-serve.sh frontend http://127.0.0.1:5173 npm --prefix frontend run dev -- --host 127.0.0.1
+  bash scripts/dev-stop.sh frontend
+  ```
+- 外部 PowerShell fallback（Git Bash 不可用时，严禁由 Codex/exec 执行）：
+  ```powershell
+  $env:JWT_SECRET = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
+  .\scripts\dev-serve.ps1 backend http://127.0.0.1:8080/api/health 'C:\Program Files\Eclipse Adoptium\jdk-17.0.19.10-hotspot\bin\java.exe' -jar platform-boot\target\teacher-cert-platform.jar
+  .\scripts\dev-stop.ps1 backend
+  ```
+
 ---
 
 ## 7. 任务执行标准流程（每个任务严格照此 Loop）
@@ -162,6 +188,7 @@
 - [ ] 单元测试 + **反例** 通过；主接口集成测试通过
 - [ ] 该 phase 验收清单逐条 `- [x]`；相关 AT 自测记录归档
 - [ ] Swagger 更新，`/doc.html` 可调
+- [ ] Codex/exec 未直接启动常驻服务；若外部启动过后端/前端，已通过 `scripts/dev-stop.*` 或外部 watchdog 停止，且未遗留 8080/5173 监听进程
 - [ ] `PROGRESS.md` 置 ✅、`DEVLOG.md` 追加、PR 按模板
 - [ ] lint/CI 全绿，未破坏既有回归
 

@@ -1,14 +1,14 @@
-# HANDOFF.md — 交接说明（codex 接手必读）
+# HANDOFF.md — 交接说明（接手必读）
 
-> 目的：让 codex 在**本机（Windows + Git Bash）** 无障碍接手，从 **Phase 2** 继续开发。
-> 顺序：先读本文件 → 再按 `AGENTS.md` §0 读其余文档 → 开始 `tasks.md` 的 **T-023**。
+> 目的：让后续 codex / Claude 在**本机（Windows + Git Bash）** 无障碍接手。
+> 顺序：先读本文件 → 再按 `AGENTS.md` §0 读其余文档。当前 Phase 2 已由 Codex 自测完成，下一步是 Claude 复核。
 
 ---
 
 ## 1. 当前状态（截至 2026-06-14）
-- **Phase 0 与 Phase 1 全部完成，并通过 Claude 阶段复核**（Phase 1 复核 PASS：`docs/reviews/phase-01-review.md`）；**从 Phase 2 开始**，Phase 2~14 未开始。
+- **Phase 0 与 Phase 1 全部完成，并通过 Claude 阶段复核**（Phase 1 复核 PASS：`docs/reviews/phase-01-review.md`）；**Phase 2 已由 Codex 自测完成并置「待复核」**，等待 Claude 按 `docs/REVIEW-GATE.md` 复核。
 - 待确认事项 20 项**已于 2026-06-14 书面确认**（`docs/待确认事项确认单.md`）：唯一取值变更 `validate.name.mode`→`loose`（迁移 `V6`），其余采用既有默认值。
-- 仓库：本地 git，分支 `main`，**无远程（私有，未开源）**，working tree 干净。
+- 仓库：本地 git，**无远程（私有，未开源）**；当前工作分支为 `feature/phase02-T024-authentication`。
 - 提交链：
   ```
   08c638f 前端脚手架 + CI [T-008/009/010]   ← Phase 0 完成
@@ -18,6 +18,37 @@
   6948682 规划基线
   ```
 - 已验证（详见 `DEVLOG.md`）：后端 `mvn package` 9 模块 SUCCESS；运行后 Flyway 迁移 v1、4 张表、`sys_param` 17 行、`/api/health`=UP、`/doc.html`=200；MinIO 上传→预签名→下载 内容一致；前端 `vite build` 通过。
+
+### Phase 2 待复核状态（2026-06-14 22:33 CST）
+- 当前工作分支：`feature/phase02-T024-authentication`。
+- T-023 已提交；T-024~T-029 代码已完成并通过 Codex 自测，`PROGRESS.md` Phase 2 状态为「待复核」（不得由 Codex 自行置 ✅）。
+- Codex 本轮未启动任何常驻 8080/5173 服务；`Get-NetTCPConnection -LocalPort 8080,5173` 无监听。
+- Flyway 当前版本：`V8` 已成功应用，`flyway_schema_history.version=8` 的 checksum 为 `-193563120`。
+- 为保证 AT-13 可重复验证，`V8__rbac_seed.sql` 已新增 Phase 2 专用测试学院：
+  - `PHASE2_COLLEGE_A` → `id=800000000000000201`
+  - `PHASE2_COLLEGE_B` → `id=800000000000000202`
+  - `test_student/test_college_clerk/test_college_auditor/test_review_teacher` 已绑定学院 A。
+- 当前后端已具备：
+  - 认证：`/api/auth/captcha`、`/api/auth/login`、`/api/auth/refresh`、`/api/auth/change-pwd`、`/api/auth/me`
+  - JWT + BCrypt + 首次改密拦截 + 登录失败锁定参数化
+  - `@PreAuthorize` 权限校验
+  - `DataScopeContext` / `DataScopeAspect` / `DataScopeService` 真正落地
+  - 系统管理接口：`/api/system/user|role|permission/tree`
+  - 探针接口：`/api/phase2/probe/*` 用于 401/403/AT-13 反例验证
+- 当前前端已具备：
+  - `frontend/src/views/LoginView.vue` 真实验证码登录 + 首次强制改密弹窗
+  - `stores/user.ts` / `router/index.ts` / `layouts/MainLayout.vue` 已接入真实 `me`、refresh、权限守卫与动态菜单
+  - `frontend/src/views/system/SecurityManageView.vue` 覆盖用户/角色/权限/数据范围页
+- 当前自测证据：
+  - `mvn -B -ntp -pl platform-boot -am -Dtest=Phase2SecurityIT -Dsurefire.failIfNoSpecifiedTests=false test` 通过（2 tests，随机端口，自然退出）
+  - `mvn -B -ntp package` 通过
+  - `npm --prefix frontend run type-check` 通过
+  - `npm --prefix frontend run build` 通过（仅 Vite large chunk warning）
+  - DB 核验 7 角色、52 权限、104 角色权限映射；关键矩阵正反例通过；测试账号锁定状态已清理
+- 下一步：
+  1. 提交当前 Phase 2 待复核版本（若尚未提交）。
+  2. 交 Claude 按 `docs/REVIEW-GATE.md` 复核 AT-13、§15.1 矩阵和越权反例。
+  3. 若 Claude 退回，只修 Blocker/Major 并重交；PASS 后才可置 Phase 2 为 ✅ 并进入 Phase 3。
 
 ## 2. 环境与工具链（本机特性，务必注意）
 | 项 | 值 |
@@ -41,15 +72,25 @@ REPO="C:/Users/wenbibuhaoqwq/Desktop/teacher-cert-platform"
 # 启动依赖（MySQL/Redis/MinIO）
 docker compose -f "$REPO/docker-compose.dev.yml" up -d
 
-# 后端：构建 + 运行（Flyway 自动迁移）
+# 后端：构建；运行期服务必须在 Codex 外部终端启动
 "$MVN" -f "$REPO/pom.xml" -B -ntp -DskipTests package
-"$JAVA_HOME/bin/java" -jar "$REPO/platform-boot/target/teacher-cert-platform.jar"
+export JWT_SECRET="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+cd "$REPO"
+# 下列 dev-serve 命令只能在外部 Git Bash 窗口执行，禁止由 Codex/exec 直接调用：
+bash scripts/dev-serve.sh backend http://127.0.0.1:8080/api/health "$JAVA_HOME/bin/java" -jar "$REPO/platform-boot/target/teacher-cert-platform.jar"
 #   健康 curl http://localhost:8080/api/health   文档 http://localhost:8080/doc.html
+bash scripts/dev-stop.sh backend
 
-# 前端
+# 前端；dev 服务同样只能在 Codex 外部终端启动
 npm --prefix "$REPO/frontend" install
-npm --prefix "$REPO/frontend" run dev          # http://localhost:5173
+bash "$REPO/scripts/dev-serve.sh" frontend http://127.0.0.1:5173 npm --prefix "$REPO/frontend" run dev -- --host 127.0.0.1
+bash "$REPO/scripts/dev-stop.sh" frontend
 npm --prefix "$REPO/frontend" run build
+
+# 如 Git Bash 因系统资源/权限异常不可用，可用 PowerShell 等价脚本：
+# $env:JWT_SECRET='0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
+# .\scripts\dev-serve.ps1 backend http://127.0.0.1:8080/api/health 'C:\Program Files\Eclipse Adoptium\jdk-17.0.19.10-hotspot\bin\java.exe' -jar platform-boot\target\teacher-cert-platform.jar
+# .\scripts\dev-stop.ps1 backend
 
 # DB 查看 / 停依赖
 docker exec tcp-mysql mysql -uroot -proot123 teacher_cert -e "SHOW TABLES;"
@@ -65,14 +106,14 @@ git -C "$REPO" add -A && git -C "$REPO" commit -m "feat(T-0xx): ..."
 - **Lombok 已在父 POM 统一声明**——新模块用 Lombok 无需再加依赖。
 - 版本锁定在**父 pom**：Spring Boot 3.2.11 / MyBatis-Plus 3.5.7 / Knife4j 4.5.0 / FastExcel 1.1.0 / MinIO 8.5.12 / jjwt 0.12.6；Flyway 随 Boot = 9.22.x（MySQL 原生支持）。
 - DB：库 `teacher_cert`，`root`/`root123`；MinIO `minioadmin`/`minioadmin123`，bucket `teacher-cert`。
-- **Flyway 迁移**：`platform-boot/src/main/resources/db/migration/`，**V1~V6 已用**（V1 base / V2 dict / V3 dict_seed / V4 region_seed / V5 subject_seed / V6 confirmed_params）→ **下一个从 `V7__rbac.sql` 起**（Phase 2）；版本号以**磁盘 max+1** 为准、不改已发布脚本、种子幂等。
+- **Flyway 迁移**：`platform-boot/src/main/resources/db/migration/`，**V1~V8 已用**（V1 base / V2 dict / V3 dict_seed / V4 region_seed / V5 subject_seed / V6 confirmed_params / V7 rbac / V8 rbac_seed）→ **后续从 `V9__student.sql` 起**（Phase 3）；版本号以**磁盘 max+1** 为准、不改已发布脚本、种子幂等。
 - 实体继承 `BaseEntity`（id/审计字段/逻辑删除自动）；Mapper 放 `**/mapper`（已 `@MapperScan("cn.edu.gpnu.platform.**.mapper")`）；统一返回 `Result`；写操作 `@AuditLog`；列表/导出/统计查询 `@DataScope`；当前用户取 `UserContext`。
 - **文本化字段全链路 String + Excel `@`**（学校代码/学号/证件号/出生日期/证书编号/有效期限）——AT-01 生命线，勿用数值/日期类型。
 
-## 5. 从这里开始 → Phase 2（账号角色权限，T-023~T-029）
-1. 读 `AGENTS.md`（红线+流程，含 §4「迁移版本以磁盘为准」）→ `docs/phase-02-认证与权限.md` → `plan.md` §5.1 / **§15.1 权限矩阵（权限点唯一来源，R8 冻结）**。
-2. **迁移从 `V7__rbac.sql` 起**（V1~V6 已占用）：`V7__rbac.sql`（sys_user/sys_role/sys_user_role/sys_permission/sys_role_permission/sys_user_data_scope）→ `V8__rbac_seed.sql`（7 角色 + §15.1 全部权限点 + 角色-权限映射 + 超管账号）→ 认证（登录/JWT/验证码/锁定）→ 授权（RBAC + **数据范围真落地**：把 Phase 0/1 的 `@DataScope`/`DataScopeAspect` 骨架变为真过滤，AT-13）→ 用户/角色/权限/数据范围 管理接口 → 登录页/管理页。
-3. 每个任务按 `AGENTS.md` §7 循环；**整阶段完工置「待复核」交 Claude 按 `docs/REVIEW-GATE.md` 复核（勿自置 ✅）**。Phase 2 复核必过 AT-13（数据范围）+ §15.1 矩阵逐格 + 越权反例。
+## 5. 当前复核入口 → Phase 2（账号角色权限，T-023~T-029）
+1. 读 `AGENTS.md` → `docs/REVIEW-GATE.md` → `docs/phase-02-认证与权限.md` → `plan.md §15.1`。
+2. 复核重点：AT-13（学生仅本人、学院仅授权范围、无权限 403）、§15.1 矩阵逐格、首次改密、错密锁定、refresh、前端真实登录与权限菜单。
+3. 若需要启动后端/前端做运行期验证，必须在 Codex 外部终端或 Claude 复核 harness 中启动；Codex/headless exec 禁止执行 `java -jar`、`npm run dev`、`vite dev` 或 `scripts/dev-serve.*`。
 
 ## 6. 已知坑与规避（别重复踩）
 - Lombok `optional` 不向子模块传递 → 已在父 POM 解决。
@@ -80,6 +121,12 @@ git -C "$REPO" add -A && git -C "$REPO" commit -m "feat(T-0xx): ..."
 - Write 工具不一定建父目录 → 新源码包先 `mkdir -p`。
 - Bash 执行含空格路径（JAVA_HOME）务必加引号。
 - `target/`、`node_modules/`、`dist/`、`.env` 已被 `.gitignore` 排除；`.gitattributes` 统一 LF（CRLF 警告已消除）。
+- **坑④（后端启动看似卡住）**：本机 `Start-Process` / 工具层经常显示 `aborted`，但 `java` 进程其实已经在后台成功启动。**不要重复盲启**；每次启动后先自检：
+  - `Get-Process java`
+  - `netstat -ano | Select-String ':8080'`
+  - `Get-Content -Tail 100 backend.out.log`
+- **坑⑤（2分钟无反馈必须自检）**：如果后端启动或接口验证超过 2 分钟没有反馈，必须立刻检查 `java` 进程、`8080` 端口、`backend.out.log/backend.err.log`，不要继续空等。
+- **坑⑥（Codex/exec 常驻服务管道卡死）**：禁止直接执行 `java -jar`、`npm run dev`、`vite dev` 这类常驻服务。它们会继承 headless exec 的 stdout/stderr 管道，服务不退出则 EOF 永不到，表现为 Codex 一直 working 且不再发请求。也不要让 Codex/exec 调用包装启动脚本启动常驻服务；`scripts/dev-serve.sh` / `scripts/dev-serve.ps1` 只供外部人工终端、watchdog 或 Claude 复核环境使用。Codex 本轮只能跑会自然退出的一次性命令；若遗留服务导致卡住，可在外部运行 `~/Desktop/codex-watchdog.sh` 兜底。
 
 ## 7. 待确认事项（不阻塞开发，已设默认值并参数化）
 见 `docs/待确认事项确认单.md`（20 项，**已于 2026-06-14 书面确认**）。结论：除**姓名校验改 `loose` 放宽**（#15，`V6` 落地）外均采用既有默认值；**证书序列作用域确认 `SCHOOL_YEAR_SEGMENT`**（按学段，与示例一致，已解决需求 9.1 文字/示例冲突）。待学校后续提供（不阻塞）：完整中职专业课库、免考依据/可免科目清单（#12/#13，模板导入）；性能指标 #19 仍待提供。

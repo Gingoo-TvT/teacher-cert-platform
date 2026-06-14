@@ -10,6 +10,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -28,7 +29,8 @@ public class TrainingGoalConfigController {
     private final OrganizationService organizationService;
 
     @Operation(summary = "查询培养目标联动配置")
-    @DataScope(alias = "training_goal_config")
+    @PreAuthorize("@pms.has('dict:view') or @pms.has('major:manage')")
+    @DataScope(alias = "training_goal_config", permission = "dict:view")
     @GetMapping
     public Result<List<TrainingGoalConfigVO>> list(@RequestParam(value = "trainingGoalCode", required = false)
                                                    String trainingGoalCode) {
@@ -36,6 +38,7 @@ public class TrainingGoalConfigController {
     }
 
     @Operation(summary = "保存培养目标联动配置")
+    @PreAuthorize("@pms.has('major:manage')")
     @AuditLog(bizType = "trainingGoalConfig", operation = "save")
     @PutMapping
     public Result<Void> save(@Valid @RequestBody TrainingGoalConfigSaveRequest request) {

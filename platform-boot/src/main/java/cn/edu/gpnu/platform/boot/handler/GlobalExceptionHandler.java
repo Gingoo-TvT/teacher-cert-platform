@@ -4,9 +4,12 @@ import cn.edu.gpnu.platform.common.api.Result;
 import cn.edu.gpnu.platform.common.api.ResultCode;
 import cn.edu.gpnu.platform.common.exception.BizException;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 /**
@@ -29,6 +32,14 @@ public class GlobalExceptionHandler {
         FieldError fe = e.getBindingResult().getFieldError();
         String msg = fe == null ? "参数校验失败" : fe.getField() + ": " + fe.getDefaultMessage();
         return Result.fail(ResultCode.BAD_REQUEST.getCode(), msg);
+    }
+
+    /** 方法级权限异常：@PreAuthorize 等在 MVC 内抛出时也应返回 403 */
+    @ResponseStatus(HttpStatus.FORBIDDEN)
+    @ExceptionHandler(AccessDeniedException.class)
+    public Result<Void> handleAccessDenied(AccessDeniedException e) {
+        log.warn("权限异常: {}", e.getMessage());
+        return Result.fail(ResultCode.FORBIDDEN);
     }
 
     /** 兜底 */

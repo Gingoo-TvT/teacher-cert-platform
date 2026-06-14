@@ -22,25 +22,31 @@ const routes: RouteRecordRaw[] = [
         path: 'system/dicts',
         name: 'dictManage',
         component: () => import('@/views/system/DictManageView.vue'),
-        meta: { title: '字典管理' }
+        meta: { title: '字典管理', perms: ['dict:manage'] }
       },
       {
         path: 'system/regions',
         name: 'regionManage',
         component: () => import('@/views/system/RegionManageView.vue'),
-        meta: { title: '行政区划' }
+        meta: { title: '行政区划', perms: ['region:manage'] }
       },
       {
         path: 'system/subjects',
         name: 'subjectManage',
         component: () => import('@/views/system/SubjectManageView.vue'),
-        meta: { title: '任教学科库' }
+        meta: { title: '任教学科库', perms: ['subject:manage'] }
       },
       {
         path: 'system/organizations',
         name: 'organizationManage',
         component: () => import('@/views/system/OrganizationManageView.vue'),
-        meta: { title: '组织与专业' }
+        meta: { title: '组织与专业', perms: ['college:manage', 'major:manage'] }
+      },
+      {
+        path: 'system/security',
+        name: 'securityManage',
+        component: () => import('@/views/system/SecurityManageView.vue'),
+        meta: { title: '账号权限', perms: ['system:user:manage', 'system:role:manage', 'system:perm:manage'] }
       }
     ]
   },
@@ -57,12 +63,26 @@ const router = createRouter({
   routes
 })
 
-// 登录守卫（Phase 2 接入菜单/按钮权限）
-router.beforeEach((to) => {
+router.beforeEach(async (to) => {
   const userStore = useUserStore()
-  if (to.meta.public) return true
+  if (to.meta.public) {
+    if (to.name === 'login' && userStore.token) return { name: 'dashboard' }
+    return true
+  }
   if (!userStore.token) {
     return { name: 'login', query: { redirect: to.fullPath } }
+  }
+  if (!userStore.initialized) {
+    try {
+      await userStore.loadMe()
+    } catch {
+      userStore.logout()
+      return { name: 'login', query: { redirect: to.fullPath } }
+    }
+  }
+  const perms = to.meta.perms as string[] | undefined
+  if (perms?.length && !userStore.hasAnyPerm(perms)) {
+    return { name: 'dashboard' }
   }
   return true
 })

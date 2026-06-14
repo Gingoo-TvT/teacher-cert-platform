@@ -1,14 +1,23 @@
-import axios, { type AxiosInstance } from 'axios'
+import axios, { type AxiosError, type AxiosInstance, type InternalAxiosRequestConfig } from 'axios'
 import { useUserStore } from '@/stores/user'
+
+declare module 'axios' {
+  interface AxiosRequestConfig {
+    skipAuthRefresh?: boolean
+    retried?: boolean
+  }
+}
 
 const request: AxiosInstance = axios.create({
   baseURL: import.meta.env.VITE_API_BASE || '/api',
   timeout: 30000
 })
 
+let refreshPromise: Promise<string> | null = null
+
 // 请求拦截：注入 token
 request.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token')
+  const token = localStorage.getItem('accessToken') || localStorage.getItem('token')
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
   }
@@ -24,11 +33,28 @@ request.interceptors.response.use(
     }
     return data
   },
-  (error) => {
-    if (error.response && error.response.status === 401) {
+  async (error: AxiosError) => {
+    const response = error.response
+    const config = error.config as InternalAxiosRequestConfig | undefined
+    if (response?.status === 401 && config && !config.skipAuthRefresh && !config.retried) {
       const userStore = useUserStore()
-      userStore.logout()
+      if (userStore.refreshToken) {
+        try {
+          config.retried = true
+          refreshPromise = refreshPromise || userStore.refreshSession()
+          const token = await refreshPromise
+          refreshPromise = null
+          config.headers.Authorization = `Bearer ${token}`
+          return request(config)
+        } catch {
+          refreshPromise = null
+          userStore.logout()
+        }
+      } else {
+        userStore.logout()
+      }
       window.location.href = '/login'
+      return Promise.reject(new Error('登录已过期，请重新登录'))
     }
     return Promise.reject(error)
   }

@@ -11,6 +11,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -31,7 +32,8 @@ public class TeachingSubjectController {
     private final TeachingSubjectService teachingSubjectService;
 
     @Operation(summary = "查询任教学科标准库")
-    @DataScope(alias = "teaching_subject")
+    @PreAuthorize("@pms.has('dict:view') or @pms.has('subject:manage')")
+    @DataScope(alias = "teaching_subject", permission = "dict:view")
     @GetMapping
     public Result<List<TeachingSubjectVO>> list(@RequestParam(value = "segment", required = false) String segment,
                                                 @RequestParam(value = "keyword", required = false) String keyword,
@@ -41,6 +43,7 @@ public class TeachingSubjectController {
     }
 
     @Operation(summary = "导入任教学科标准库")
+    @PreAuthorize("@pms.has('subject:import')")
     @AuditLog(bizType = "subject", operation = "import")
     @PostMapping("/import")
     public Result<SubjectImportResult> importSubjects(@RequestParam("file") MultipartFile file,
@@ -50,7 +53,8 @@ public class TeachingSubjectController {
     }
 
     @Operation(summary = "校验任教学科可选")
-    @DataScope(alias = "teaching_subject")
+    @PreAuthorize("@pms.has('dict:view') or @pms.has('subject:manage')")
+    @DataScope(alias = "teaching_subject", permission = "dict:view")
     @PostMapping("/validate")
     public Result<Void> validateSelectable(@Valid @RequestBody SubjectSelectRequest request) {
         teachingSubjectService.validateSelectable(request.getSegmentCode(), request.getSubjectCode(), request.getYearVersion());
@@ -58,6 +62,7 @@ public class TeachingSubjectController {
     }
 
     @Operation(summary = "记录最近使用任教学科")
+    @PreAuthorize("@pms.has('dict:view')")
     @AuditLog(bizType = "subject", operation = "recent")
     @PostMapping("/recent")
     public Result<Void> recordRecent(@Valid @RequestBody SubjectSelectRequest request) {
@@ -66,7 +71,8 @@ public class TeachingSubjectController {
     }
 
     @Operation(summary = "查询最近使用任教学科")
-    @DataScope(alias = "teaching_subject")
+    @PreAuthorize("@pms.has('dict:view')")
+    @DataScope(alias = "teaching_subject", permission = "dict:view")
     @GetMapping("/recent")
     public Result<List<TeachingSubjectVO>> recent(@RequestParam("segment") String segment,
                                                   @RequestParam(value = "yearVersion", required = false) String yearVersion) {

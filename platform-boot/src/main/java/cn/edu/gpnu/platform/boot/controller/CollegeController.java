@@ -10,6 +10,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -31,7 +32,8 @@ public class CollegeController {
     private final OrganizationService organizationService;
 
     @Operation(summary = "查询学院")
-    @DataScope(alias = "sys_college")
+    @PreAuthorize("@pms.has('college:manage') or @pms.has('student:view')")
+    @DataScope(alias = "sys_college", permission = "student:view")
     @GetMapping
     public Result<List<CollegeVO>> list(@RequestParam(value = "keyword", required = false) String keyword,
                                         @RequestParam(value = "status", required = false) Integer status) {
@@ -39,6 +41,7 @@ public class CollegeController {
     }
 
     @Operation(summary = "新增学院")
+    @PreAuthorize("@pms.has('college:manage')")
     @AuditLog(bizType = "college", operation = "create")
     @PostMapping
     public Result<Long> create(@Valid @RequestBody CollegeSaveRequest request) {
@@ -46,6 +49,7 @@ public class CollegeController {
     }
 
     @Operation(summary = "修改学院")
+    @PreAuthorize("@pms.has('college:manage')")
     @AuditLog(bizType = "college", operation = "update")
     @PutMapping("/{id}")
     public Result<Void> update(@PathVariable Long id, @Valid @RequestBody CollegeSaveRequest request) {
@@ -54,6 +58,7 @@ public class CollegeController {
     }
 
     @Operation(summary = "删除学院")
+    @PreAuthorize("@pms.has('college:manage')")
     @AuditLog(bizType = "college", operation = "delete")
     @DeleteMapping("/{id}")
     public Result<Void> delete(@PathVariable Long id) {

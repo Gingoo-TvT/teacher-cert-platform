@@ -12,6 +12,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -33,7 +34,8 @@ public class MajorController {
     private final OrganizationService organizationService;
 
     @Operation(summary = "查询专业")
-    @DataScope(alias = "sys_major")
+    @PreAuthorize("@pms.has('major:manage') or @pms.has('student:view')")
+    @DataScope(alias = "sys_major", permission = "student:view")
     @GetMapping
     public Result<List<MajorVO>> list(@RequestParam(value = "collegeId", required = false) Long collegeId,
                                       @RequestParam(value = "yearVersion", required = false) String yearVersion,
@@ -44,13 +46,15 @@ public class MajorController {
     }
 
     @Operation(summary = "查询专业详情")
-    @DataScope(alias = "sys_major")
+    @PreAuthorize("@pms.has('major:manage') or @pms.has('student:view')")
+    @DataScope(alias = "sys_major", permission = "student:view")
     @GetMapping("/{id}")
     public Result<MajorVO> get(@PathVariable Long id) {
         return Result.ok(organizationService.getMajor(id));
     }
 
     @Operation(summary = "新增专业")
+    @PreAuthorize("@pms.has('major:manage')")
     @AuditLog(bizType = "major", operation = "create")
     @PostMapping
     public Result<Long> create(@Valid @RequestBody MajorSaveRequest request) {
@@ -58,6 +62,7 @@ public class MajorController {
     }
 
     @Operation(summary = "修改专业")
+    @PreAuthorize("@pms.has('major:manage')")
     @AuditLog(bizType = "major", operation = "update")
     @PutMapping("/{id}")
     public Result<Void> update(@PathVariable Long id, @Valid @RequestBody MajorSaveRequest request) {
@@ -66,6 +71,7 @@ public class MajorController {
     }
 
     @Operation(summary = "删除专业")
+    @PreAuthorize("@pms.has('major:manage')")
     @AuditLog(bizType = "major", operation = "delete")
     @DeleteMapping("/{id}")
     public Result<Void> delete(@PathVariable Long id) {
@@ -74,13 +80,15 @@ public class MajorController {
     }
 
     @Operation(summary = "查询专业培养目标")
-    @DataScope(alias = "major_training_goal")
+    @PreAuthorize("@pms.has('major:manage') or @pms.has('student:view')")
+    @DataScope(alias = "major_training_goal", permission = "student:view")
     @GetMapping("/{id}/training-goals")
     public Result<List<TrainingGoalVO>> trainingGoals(@PathVariable Long id) {
         return Result.ok(organizationService.getMajorTrainingGoals(id));
     }
 
     @Operation(summary = "替换专业培养目标")
+    @PreAuthorize("@pms.has('major:manage')")
     @AuditLog(bizType = "major", operation = "replaceTrainingGoals")
     @PutMapping("/{id}/training-goals")
     public Result<Void> replaceTrainingGoals(@PathVariable Long id,

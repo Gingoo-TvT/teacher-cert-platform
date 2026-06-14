@@ -17,4 +17,7 @@ public @interface DataScope {
 
     /** 数据表别名（用于拼接 SQL 条件），默认空 */
     String alias() default "";
+
+    /** 该查询需要的权限点；为空时仅按当前用户角色范围解释 */
+    String permission() default "";
 }

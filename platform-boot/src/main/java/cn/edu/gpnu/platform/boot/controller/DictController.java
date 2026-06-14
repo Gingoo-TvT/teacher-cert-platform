@@ -12,6 +12,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -33,14 +34,16 @@ public class DictController {
     private final DictService dictService;
 
     @Operation(summary = "查询字典类型")
-    @DataScope(alias = "sys_dict_type")
+    @PreAuthorize("@pms.has('dict:view')")
+    @DataScope(alias = "sys_dict_type", permission = "dict:view")
     @GetMapping("/types")
     public Result<List<DictTypeVO>> listTypes() {
         return Result.ok(dictService.listTypes());
     }
 
     @Operation(summary = "按类型查询启用字典项")
-    @DataScope(alias = "sys_dict_item")
+    @PreAuthorize("@pms.has('dict:view')")
+    @DataScope(alias = "sys_dict_item", permission = "dict:view")
     @GetMapping("/{typeCode}/items")
     public Result<List<DictItemVO>> listItems(@PathVariable String typeCode,
                                               @RequestParam(value = "onlyEnabled", defaultValue = "true") Boolean onlyEnabled) {
@@ -48,6 +51,7 @@ public class DictController {
     }
 
     @Operation(summary = "新增字典类型")
+    @PreAuthorize("@pms.has('dict:manage')")
     @AuditLog(bizType = "dict", operation = "createType")
     @PostMapping("/type")
     public Result<Long> createType(@Valid @RequestBody DictTypeSaveRequest request) {
@@ -55,6 +59,7 @@ public class DictController {
     }
 
     @Operation(summary = "修改字典类型")
+    @PreAuthorize("@pms.has('dict:manage')")
     @AuditLog(bizType = "dict", operation = "updateType")
     @PutMapping("/type/{id}")
     public Result<Void> updateType(@PathVariable Long id, @Valid @RequestBody DictTypeSaveRequest request) {
@@ -63,6 +68,7 @@ public class DictController {
     }
 
     @Operation(summary = "删除字典类型")
+    @PreAuthorize("@pms.has('dict:manage')")
     @AuditLog(bizType = "dict", operation = "deleteType")
     @DeleteMapping("/type/{id}")
     public Result<Void> deleteType(@PathVariable Long id) {
@@ -71,6 +77,7 @@ public class DictController {
     }
 
     @Operation(summary = "新增字典项")
+    @PreAuthorize("@pms.has('dict:manage')")
     @AuditLog(bizType = "dict", operation = "createItem")
     @PostMapping("/item")
     public Result<Long> createItem(@Valid @RequestBody DictItemSaveRequest request) {
@@ -78,6 +85,7 @@ public class DictController {
     }
 
     @Operation(summary = "修改字典项")
+    @PreAuthorize("@pms.has('dict:manage')")
     @AuditLog(bizType = "dict", operation = "updateItem")
     @PutMapping("/item/{id}")
     public Result<Void> updateItem(@PathVariable Long id, @Valid @RequestBody DictItemSaveRequest request) {
@@ -86,6 +94,7 @@ public class DictController {
     }
 
     @Operation(summary = "删除字典项")
+    @PreAuthorize("@pms.has('dict:manage')")
     @AuditLog(bizType = "dict", operation = "deleteItem")
     @DeleteMapping("/item/{id}")
     public Result<Void> deleteItem(@PathVariable Long id) {
