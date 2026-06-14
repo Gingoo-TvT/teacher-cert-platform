@@ -82,10 +82,10 @@
 | `file.maxSize.video` | `2147483648`(2GB) | 视频单文件上限 | Phase 7 |
 | `file.maxSize.material` | `52428800`(50MB) | 材料单附件上限 | Phase 5 |
 | `review.return.target` | `FIRST_REVIEW` | 复审退回目标态 | Phase 3/5/6 |
-| `validate.name.mode` | `strict` | 姓名校验模式 | Phase 3 |
+| `validate.name.mode` | `loose` | 姓名校验模式（确认单#15 放宽，V6 落地；原默认 strict） | Phase 3 |
 | `validate.idcard.checksum` | `false` | 身份证校验码开关 | Phase 3 |
 | `student.autoCreateAccount` | `true` | 导入即开通学生账号 | Phase 3 |
 | `student.defaultPwd` | `idcard6`(证件号后6位) | 学生初始密码规则 | Phase 3 |
 | `current_assessment_year` | 当前年 | 当前考核年度 | 全局 |
 
-> 以上默认值若学校另有口径，改 `sys_param` 即可，无需改代码。开放项见 `待确认事项确认单.md`。
+> 以上默认值若学校另有口径，改 `sys_param` 即可，无需改代码。开放项见 `待确认事项确认单.md`（**20 项已于 2026-06-14 确认**；唯一取值变更 `validate.name.mode`→`loose`，见 `V6__confirmed_params.sql`）。

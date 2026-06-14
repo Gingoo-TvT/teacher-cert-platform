@@ -3,7 +3,7 @@
 > 优先级 P1 · 依赖：Phase 2，及各业务 Phase 的触发点 · 任务：T-101~T-103 · plan §M12
 > 目标：站内信通知，覆盖提交/退回/评审分配/导出完成四类触发，预留邮件/短信通道。
 
-## 1. 数据库（V15__notification.sql）
+## 1. 数据库（V17__notification.sql）
 `notification`：user_id, type, title, content, biz_type, biz_id, read_flag, created_at。
 
 ## 2. 触发点

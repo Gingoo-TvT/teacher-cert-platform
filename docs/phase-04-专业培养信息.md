@@ -6,7 +6,7 @@
 ## 1. 范围
 二级学科代码/名称、校内专业代码/名称、学历层次、培养目标（多选一）、实习组织方式/地点、任教学段、任教学科、面试组织方式、测试结论；联动与两级审核。
 
-## 2. 数据库（V8__training.sql）
+## 2. 数据库（V10__training.sql）
 `training_profile`：student_id, assessment_year, second_discipline_code/name, internal_major_code/name, education_level, training_goal, internship_org_mode, internship_location, teaching_segment, teaching_subject_id, interview_org_mode, ability_test_conclusion, status, locked。
 - 与学生**按考核年度一对多**；唯一约束 `(student_id, assessment_year)`。
 

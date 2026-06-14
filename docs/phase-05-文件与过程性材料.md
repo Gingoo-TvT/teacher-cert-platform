@@ -6,7 +6,7 @@
 ## 1. 范围
 受限附件上传（PDF/JPG/JPEG/PNG）、在线预览、替换规则、初/复审（通过/退回/不通过）、四类聚合"合格"、批量下载与清单元数据。
 
-## 2. 数据库（V9__material.sql）
+## 2. 数据库（V11__material.sql）
 `process_material`：student_id, assessment_year, category(材料类别字典), file_id, file_name, file_path, uploader_id, upload_time, first_review_status/reviewer/time/comment, second_review_status/reviewer/time/comment, status, deleted。
 - 四类材料：思想品德及师德素养、教师教育课程学业、教育实习实践、专业能力及技能培训。
 - 每类支持**单个或多个**文件（多行）。

@@ -6,7 +6,7 @@
 ## 1. 范围
 编号生成（含序列作用域+分布式锁+查重）、有效期计算、前置条件聚合校验、状态机 C、签发、作废/重开、编号导入/更正、字段锁定。
 
-## 2. 数据库（V13__certificate.sql）
+## 2. 数据库（V15__certificate.sql）
 - `certificate`：student_id, assessment_year, cert_no(18位,唯一), training_goal, teaching_segment, teaching_subject, education_level, issuer, issue_date(文本), valid_until(文本), status, void_reason, reissue_origin_cert_no, locked。
 - `cert_sequence`：scope_key, current_seq。
 - 唯一索引 `certificate(cert_no)`。

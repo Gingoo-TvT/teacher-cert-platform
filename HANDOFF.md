@@ -1,12 +1,13 @@
 # HANDOFF.md — 交接说明（codex 接手必读）
 
-> 目的：让 codex 在**本机（Windows + Git Bash）** 无障碍接手，从 **Phase 1** 继续开发。
-> 顺序：先读本文件 → 再按 `AGENTS.md` §0 读其余文档 → 开始 `tasks.md` 的 **T-011**。
+> 目的：让 codex 在**本机（Windows + Git Bash）** 无障碍接手，从 **Phase 2** 继续开发。
+> 顺序：先读本文件 → 再按 `AGENTS.md` §0 读其余文档 → 开始 `tasks.md` 的 **T-023**。
 
 ---
 
-## 1. 当前状态（截至 2026-06-13）
-- **Phase 0 全部完成（T-001~T-010），并通过构建 + 运行验证**；Phase 1~14 未开始。
+## 1. 当前状态（截至 2026-06-14）
+- **Phase 0 与 Phase 1 全部完成，并通过 Claude 阶段复核**（Phase 1 复核 PASS：`docs/reviews/phase-01-review.md`）；**从 Phase 2 开始**，Phase 2~14 未开始。
+- 待确认事项 20 项**已于 2026-06-14 书面确认**（`docs/待确认事项确认单.md`）：唯一取值变更 `validate.name.mode`→`loose`（迁移 `V6`），其余采用既有默认值。
 - 仓库：本地 git，分支 `main`，**无远程（私有，未开源）**，working tree 干净。
 - 提交链：
   ```
@@ -64,14 +65,14 @@ git -C "$REPO" add -A && git -C "$REPO" commit -m "feat(T-0xx): ..."
 - **Lombok 已在父 POM 统一声明**——新模块用 Lombok 无需再加依赖。
 - 版本锁定在**父 pom**：Spring Boot 3.2.11 / MyBatis-Plus 3.5.7 / Knife4j 4.5.0 / FastExcel 1.1.0 / MinIO 8.5.12 / jjwt 0.12.6；Flyway 随 Boot = 9.22.x（MySQL 原生支持）。
 - DB：库 `teacher_cert`，`root`/`root123`；MinIO `minioadmin`/`minioadmin123`，bucket `teacher-cert`。
-- **Flyway 迁移**：`platform-boot/src/main/resources/db/migration/`，V1 已用 → **下一个从 `V2__*.sql` 起**，版本号严格递增、不改已发布脚本、种子幂等。
+- **Flyway 迁移**：`platform-boot/src/main/resources/db/migration/`，**V1~V6 已用**（V1 base / V2 dict / V3 dict_seed / V4 region_seed / V5 subject_seed / V6 confirmed_params）→ **下一个从 `V7__rbac.sql` 起**（Phase 2）；版本号以**磁盘 max+1** 为准、不改已发布脚本、种子幂等。
 - 实体继承 `BaseEntity`（id/审计字段/逻辑删除自动）；Mapper 放 `**/mapper`（已 `@MapperScan("cn.edu.gpnu.platform.**.mapper")`）；统一返回 `Result`；写操作 `@AuditLog`；列表/导出/统计查询 `@DataScope`；当前用户取 `UserContext`。
 - **文本化字段全链路 String + Excel `@`**（学校代码/学号/证件号/出生日期/证书编号/有效期限）——AT-01 生命线，勿用数值/日期类型。
 
-## 5. 从这里开始 → Phase 1（基础数据与字典，T-011~T-022）
-1. 读 `AGENTS.md`（红线+流程）→ `docs/phase-01-字典与标准数据.md`（数据库/接口/规则/**验收清单**/**测试用例**）→ `plan.md` §5.2 / §6.1 / 附录B。
-2. 顺序：`V2__dict.sql`（`sys_dict_type`/`sys_dict_item`/`sys_region`/`teaching_subject`/`sys_college`/`sys_major`/`major_training_goal`/`training_goal_config`）→ `V3__dict_seed.sql`（17 类字典标准值，**逐字对齐需求**）→ `V4__subject_seed.sql`（学科库示例）→ 字典/区划/学科库 服务与接口（Redis 缓存）→ 前端字典/区划/学科库/组织页。
-3. 每个任务按 `AGENTS.md` §7 循环：建分支 `feature/phase01-Txxx-...` → `PROGRESS.md` 置 `[~]` → 写迁移+代码 → `mvn package` + 运行验证（含反例）→ 勾 `docs/phase-01` 验收清单 → 写 `DEVLOG.md` → 提交。
+## 5. 从这里开始 → Phase 2（账号角色权限，T-023~T-029）
+1. 读 `AGENTS.md`（红线+流程，含 §4「迁移版本以磁盘为准」）→ `docs/phase-02-认证与权限.md` → `plan.md` §5.1 / **§15.1 权限矩阵（权限点唯一来源，R8 冻结）**。
+2. **迁移从 `V7__rbac.sql` 起**（V1~V6 已占用）：`V7__rbac.sql`（sys_user/sys_role/sys_user_role/sys_permission/sys_role_permission/sys_user_data_scope）→ `V8__rbac_seed.sql`（7 角色 + §15.1 全部权限点 + 角色-权限映射 + 超管账号）→ 认证（登录/JWT/验证码/锁定）→ 授权（RBAC + **数据范围真落地**：把 Phase 0/1 的 `@DataScope`/`DataScopeAspect` 骨架变为真过滤，AT-13）→ 用户/角色/权限/数据范围 管理接口 → 登录页/管理页。
+3. 每个任务按 `AGENTS.md` §7 循环；**整阶段完工置「待复核」交 Claude 按 `docs/REVIEW-GATE.md` 复核（勿自置 ✅）**。Phase 2 复核必过 AT-13（数据范围）+ §15.1 矩阵逐格 + 越权反例。
 
 ## 6. 已知坑与规避（别重复踩）
 - Lombok `optional` 不向子模块传递 → 已在父 POM 解决。
@@ -81,7 +82,7 @@ git -C "$REPO" add -A && git -C "$REPO" commit -m "feat(T-0xx): ..."
 - `target/`、`node_modules/`、`dist/`、`.env` 已被 `.gitignore` 排除；`.gitattributes` 统一 LF（CRLF 警告已消除）。
 
 ## 7. 待确认事项（不阻塞开发，已设默认值并参数化）
-见 `docs/待确认事项确认单.md`（20 项）。重点：**证书序列作用域默认 `SCHOOL_YEAR_SEGMENT`**（`sys_param.cert.seq.scope`），上线前需学校书面确认（与需求 9.1 文字/示例冲突的裁定）。
+见 `docs/待确认事项确认单.md`（20 项，**已于 2026-06-14 书面确认**）。结论：除**姓名校验改 `loose` 放宽**（#15，`V6` 落地）外均采用既有默认值；**证书序列作用域确认 `SCHOOL_YEAR_SEGMENT`**（按学段，与示例一致，已解决需求 9.1 文字/示例冲突）。待学校后续提供（不阻塞）：完整中职专业课库、免考依据/可免科目清单（#12/#13，模板导入）；性能指标 #19 仍待提供。
 
 ## 8. 验收基线 与 阶段复核闸门
 - **每个 Phase 完工后 codex 不自行置完成**：置「待复核」，由 **Claude 按 `docs/REVIEW-GATE.md` 复核**通过才算完成（产出 `docs/reviews/phase-NN-review.md`，PASS 才放行下一阶段）。

@@ -7,8 +7,8 @@
 登录/JWT/验证码/失败锁定/首次改密；用户/角色/权限/数据范围管理；菜单与按钮权限；`@DataScope` 接入真实用户范围。
 
 ## 2. 数据库（V5/V6 迁移）
-- `V5__rbac.sql`：`sys_user`(username,password_hash,real_name,work_no,status,user_type,college_id,student_id,...)、`sys_role`、`sys_user_role`、`sys_permission`(code,name,type[menu/button/data],parent_id,path,sort)、`sys_role_permission`、`sys_user_data_scope`(user_id,college_id,major_id)。
-- `V6__rbac_seed.sql`：7 角色 + §15.1 全部权限点 + 角色-权限映射 + 超管账号 + 各角色测试账号。
+- `V7__rbac.sql`：`sys_user`(username,password_hash,real_name,work_no,status,user_type,college_id,student_id,...)、`sys_role`、`sys_user_role`、`sys_permission`(code,name,type[menu/button/data],parent_id,path,sort)、`sys_role_permission`、`sys_user_data_scope`(user_id,college_id,major_id)。
+- `V8__rbac_seed.sql`：7 角色 + §15.1 全部权限点 + 角色-权限映射 + 超管账号 + 各角色测试账号。
 
 ## 3. 角色与权限（plan §15.1 矩阵为唯一依据）
 7 角色：`STUDENT/COLLEGE_CLERK/COLLEGE_AUDITOR/REVIEW_TEACHER/ACADEMIC_ADMIN/CERT_ISSUER/SYS_ADMIN`。

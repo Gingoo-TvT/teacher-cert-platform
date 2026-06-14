@@ -6,7 +6,7 @@
 ## 1. 范围
 学生 CRUD + 批量录入、本人确认/补充、四类证件校验、出生日期一致、姓名校验、生源地三级、脱敏、两级审核（状态机 A）、关键字段锁定、导入即开通学生账号。
 
-## 2. 数据库（V7__student.sql）
+## 2. 数据库（V9__student.sql）
 `student`：student_no, name, gender, id_card_type, id_card_no, birth_date(文本), identity_type, source_province/city/county, source_full, college_id, grade, class_name, status, locked, 审计列。
 - **文本化**：`id_card_no`/`student_no`/`birth_date` 均 VARCHAR。
 - 索引：`student(student_no)` 唯一、`student(id_card_no)`、`student(college_id)`。
@@ -16,7 +16,7 @@
 |---|---|---|---|
 | `IdCardValidator` | 居民身份证 `^\d{17}[\dXx]$`；港澳台居住证 `^\d{17}[\dXx]$`（末位校验码可X）；港澳通行证 `^[A-Za-z]\d{8}$`；台胞证 `^\d{8}$`。`validate.idcard.checksum=true` 时身份证加 MOD11-2 | "证件类型与号码不匹配" | V-05/AT-03 |
 | `BirthDateValidator` | 身份证/港澳台居住证：取号码第 7–14 位 YYYYMMDD，与 `birth_date` 归一(zero-pad)比对 | "出生日期与证件号码不一致" | V-06/AT-03 |
-| `NameValidator` | `strict`=`^[一-龥·]{2,}$`；`loose`=禁空格/数字/A-Za-z/除"·"外ASCII标点 | "姓名格式异常" | V-04 |
+| `NameValidator` | `strict`=`^[一-龥·]{2,}$`；`loose`=禁空格/数字/A-Za-z/除"·"外ASCII标点（**确认单#15 已确认默认 `loose` 放宽**，`sys_param.validate.name.mode=loose`，V6） | "姓名格式异常" | V-04 |
 
 ## 4. 接口清单
 | 方法 | 路径 | 权限 | 说明 |

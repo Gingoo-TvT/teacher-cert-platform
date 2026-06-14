@@ -6,7 +6,7 @@
 ## 1. 范围
 考试组织方式、测试成绩（导入/手工，文本）、测试结论、免考联动应考科目、最终确认与锁定。
 
-## 2. 数据库（V12__test.sql）
+## 2. 数据库（V14__test.sql）
 `ability_test_result`：student_id, assessment_year, exam_org_mode(面试组织方式字典), exam_subjects(应考科目), score(文本), conclusion(合格/不合格/免考/待确认), exemption_relation, confirm_status, locked。
 - 与学生**按年度一对一**。`score` 为 VARCHAR（文本导出）。
 

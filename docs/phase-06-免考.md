@@ -6,7 +6,7 @@
 ## 1. 范围
 按学段配置可免科目、多科任选、每科独立佐证材料、依据字典+说明、每科二级审核、应考科目联动。
 
-## 2. 数据库（V10__exemption.sql）
+## 2. 数据库（V12__exemption.sql）
 - `exemption_request`：student_id, assessment_year, subject(免考科目), basis(依据), remark, first_review_*, second_review_*, final_status，deleted。一名学生**多科多行**。
 - `exemption_material`：exemption_request_id, file_id, file_name。每科**独立**佐证。
 

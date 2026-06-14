@@ -6,7 +6,7 @@
 ## 1. 范围
 26 列模型与文本格式、模板下载（内置下拉+补 H 表头）、预校验（不入库）、确认导入（4 策略+批次+回滚）、异常报告、5 类导出、导出审计。
 
-## 2. 数据库（V14__exchange.sql）
+## 2. 数据库（V16__exchange.sql）
 `import_export_batch`、`import_error_detail`、`import_record_ref`（plan §5.3/§15.3）。
 
 ## 3. 26 列模型与文本化（AT-01/AT-02）

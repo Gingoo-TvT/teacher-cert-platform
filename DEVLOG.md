@@ -15,6 +15,13 @@
 
 ---
 
+## [2026-06-14] 待确认事项落地（学校书面确认）+ 迁移版本顺延
+- 做了什么：`docs/待确认事项确认单.md` 20 项按学校 2026-06-14 书面确认回填；新增 `V6__confirmed_params.sql`（**唯一取值变更**：`validate.name.mode` strict→loose，确认单#15 放宽，兼容少数民族/外文姓名）；其余 19 项确认采用既有默认值，无需改参数。同步更新 `docs/README.md §6`、`docs/phase-03`（NameValidator 默认 loose）、`HANDOFF.md`（状态/起点/迁移）。
+- 迁移版本顺延：发现 `tasks.md`/phase 文档存在版本漂移——codex 早前插入 `V4__region_seed` 使 subject_seed 顺延 V5，但下游 RBAC 仍标 `V5__rbac.sql`（与 subject_seed 冲突），且 student/training/… 全部 off-by-one。本次统一顺延：RBAC→V7、rbac_seed→V8、student→V9、…、notification→V17（磁盘 V1–V6 + 计划 V7–V17 连续无冲突）。并把 `AGENTS.md §4`/`HANDOFF §4` 改为「**迁移版本以磁盘 max+1 为准，文档编号指示性**」，避免再漂移。
+- 关键确认结论：证书序列作用域 `SCHOOL_YEAR_SEGMENT`（按学段，与示例一致，解决需求 9.1 文字/示例冲突）；姓名 `loose`；身份证不加 MOD11-2；复审退回「待初审」；学生导入即开通（用户名=学号/初始密码=证件后6位）；部署 docker-compose 校内。待学校后续提供（不阻塞）：完整中职专业课库、免考依据/可免科目清单（#12/#13，模板导入）；性能指标(#19)仍待提供。
+- 测试：重打 jar（确认 V6 已打入 `BOOT-INF/classes/db/migration/`）→ 启动 Flyway「Migrating … to version 6 - confirmed params / Successfully applied 1 migration, now at v6」、`flyway_schema_history` V6 `success=1`、DB `validate.name.mode=loose`。✅
+- 下一步：交接 codex 从 Phase 2（`V7__rbac.sql`）开始；Claude 阶段复核。
+
 ## [2026-06-14] Phase 1 复核通过（Claude · REVIEW-GATE）
 - 做了什么：按 `docs/REVIEW-GATE.md` 独立复核 Phase 1（T-011~T-022），产出 `docs/reviews/phase-01-review.md`，判定 **PASS**（无 Blocker、无 Major）。
 - 独立复跑：①干净重建 `mvn clean package` 9 模块 SUCCESS + 前端 `type-check`/`vite build` 通过；②子代理按 UTF-8 代码点核对 V3 字典 vs `plan §5.2` → 12 类逐字一致、17 类型、3 类型（免考依据/科目/签发人）正确置空；③启动应用（Flyway 校验 5 迁移、schema v5、`/api/health`=UP）后运行 **15 条反例/关键用例全过**：字典逐字（全角括号）、区划完整文本、学科计数 1/23/28/27、中职类别节点禁选「任教学科类别节点不可选择」、跨学段/自由填写被拒、缓存刷新 rv1→rv2 无残留、重复学院编码被拒「学院编码已存在」。

@@ -112,7 +112,7 @@
 ## Phase 2 · 账号、角色与权限（M02）
 
 **T-023 · [DB] RBAC 表**  ← 依赖：T-004
-产出：`V5__rbac.sql`：`sys_user`(student_id)、`sys_role`、`sys_user_role`、`sys_permission`、`sys_role_permission`、`sys_user_data_scope`。
+产出：`V7__rbac.sql`：`sys_user`(student_id)、`sys_role`、`sys_user_role`、`sys_permission`、`sys_role_permission`、`sys_user_data_scope`。
 验收：表结构符合 plan §5.1。
 
 **T-024 · [BE] 认证：登录/JWT/验证码/锁定**  ← 依赖：T-023
@@ -124,7 +124,7 @@
 验收：越权接口 403（AT-13）。
 
 **T-026 · [DB] 角色与权限点种子（§15.1 矩阵）**  ← 依赖：T-023
-产出：`V6__rbac_seed.sql`：7 角色 + §15.1 全部权限点 + 角色-权限映射 + 超管账号。
+产出：`V8__rbac_seed.sql`：7 角色 + §15.1 全部权限点 + 角色-权限映射 + 超管账号。
 验收：各角色权限与 §15.1 矩阵逐项一致。
 
 **T-027 · [BE] 用户/角色/权限/数据范围 管理接口**  ← 依赖：T-025
@@ -144,7 +144,7 @@
 ## Phase 3 · 基本信息管理（M03）
 
 **T-030 · [DB] student 表**  ← 依赖：T-004
-产出：`V7__student.sql`：plan §5.3 `student`（证件类型/号码、出生日期文本、身份类型、生源地三级+完整、状态、locked）+ 唯一/普通索引。
+产出：`V9__student.sql`：plan §5.3 `student`（证件类型/号码、出生日期文本、身份类型、生源地三级+完整、状态、locked）+ 唯一/普通索引。
 验收：身份证号、学号字段为 VARCHAR。
 
 **T-031 · [BE] 证件号码校验器（4 类）**  ← 依赖：T-002
@@ -184,7 +184,7 @@
 ## Phase 4 · 专业培养信息（M04）
 
 **T-039 · [DB] training_profile 表**  ← 依赖：T-030
-产出：`V8__training.sql`：plan §5.3 `training_profile`（按考核年度一对多）。
+产出：`V10__training.sql`：plan §5.3 `training_profile`（按考核年度一对多）。
 验收：含培养目标/学段/学科/面试方式/测试结论字段。
 
 **T-040 · [BE] 专业代码校验器**  ← 依赖：T-002
@@ -212,7 +212,7 @@
 验收：超限/非法类型被拒；预览鉴权有效。
 
 **T-045 · [DB] process_material 表**  ← 依赖：T-030
-产出：`V9__material.sql`：plan §5.3 `process_material`（四类、初/复审字段、状态）。
+产出：`V11__material.sql`：plan §5.3 `process_material`（四类、初/复审字段、状态）。
 验收：category 受 `material_category` 字典约束。
 
 **T-046 · [BE] 材料上传/替换/删除（含锁规则）**  ← 依赖：T-045,T-044
@@ -244,7 +244,7 @@
 ## Phase 6 · 免考信息管理（M06）
 
 **T-052 · [DB] exemption_request / exemption_material 表**  ← 依赖：T-030
-产出：`V10__exemption.sql`：免考申请（多科多行）+ 每科佐证材料。
+产出：`V12__exemption.sql`：免考申请（多科多行）+ 每科佐证材料。
 验收：一名学生可多科免考。
 
 **T-053 · [BE] 免考申请（多科 + 每科佐证 + 依据字典）**  ← 依赖：T-052,T-044
@@ -276,7 +276,7 @@
 验收：超时长容差被拒并提示（§6.11）。
 
 **T-059 · [DB] video_review / video_review_task 表**  ← 依赖：T-030
-产出：`V11__video.sql`：视频主表 + 评审任务表（每教师一行、维度分 JSON、是否提交、提交时间）。
+产出：`V13__video.sql`：视频主表 + 评审任务表（每教师一行、维度分 JSON、是否提交、提交时间）。
 验收：唯一约束 `(video_review_id,reviewer_id)`。
 
 **T-060 · [BE] 评审任务分配（默认2，可配多专家）**  ← 依赖：T-059
@@ -316,7 +316,7 @@
 ## Phase 8 · 教师职业能力测试结果（M08）
 
 **T-068 · [DB] ability_test_result 表**  ← 依赖：T-030
-产出：`V12__test.sql`：应考科目、成绩(文本)、结论、免考关系、确认状态、locked。
+产出：`V14__test.sql`：应考科目、成绩(文本)、结论、免考关系、确认状态、locked。
 验收：成绩字段 VARCHAR。
 
 **T-069 · [BE] 测试结果录入/导入 + 免考联动**  ← 依赖：T-068,T-054
@@ -336,7 +336,7 @@
 ## Phase 9 · 证书编号与证书管理（M09）
 
 **T-072 · [DB] certificate / cert_sequence 表**  ← 依赖：T-030
-产出：`V13__certificate.sql`：证书表（编号唯一、关键字段、状态、作废/重开字段）+ 序列表（scope_key+current_seq）。
+产出：`V15__certificate.sql`：证书表（编号唯一、关键字段、状态、作废/重开字段）+ 序列表（scope_key+current_seq）。
 验收：`cert_no` 唯一索引。
 
 **T-073 · [BE] 证书编号生成器（18位 + 作用域 + 锁）**  ← 依赖：T-072
@@ -388,7 +388,7 @@
 验收：内容符合 §15.6/AT-14。
 
 **T-084 · [DB] import_export_batch / import_error_detail / import_record_ref**  ← 依赖：T-004
-产出：`V14__exchange.sql`：批次、异常明细、回滚追溯表。
+产出：`V16__exchange.sql`：批次、异常明细、回滚追溯表。
 验收：表结构符合 plan §5.3/§15.3。
 
 **T-085 · [BE] 确认导入（策略 + 批次 + 事务）**  ← 依赖：T-082,T-084
@@ -455,7 +455,7 @@
 ## Phase 12 · 通知提醒（M12，P1）
 
 **T-101 · [DB] notification 表**  ← 依赖：T-004
-产出：`V15__notification.sql`。 验收：建表成功。
+产出：`V17__notification.sql`。 验收：建表成功。
 
 **T-102 · [BE] 站内信服务 + 触发点接入**  ← 依赖：T-101
 产出：通知服务 + 在 提交/退回/评审分配/导出完成 等节点发通知；预留邮件/短信通道接口。
