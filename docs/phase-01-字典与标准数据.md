@@ -41,7 +41,7 @@
 - 学校/学院/专业维护页（多培养目标、联动配置编辑、试点标识、年度版本）。
 
 ## 7. 验收清单
-- [ ] 17 类字典标准值与需求报告逐字一致（抽查身份类型 5 项、实习地点 5 项含括号、测试结论 4 项）。
+- [x] 17 类字典标准值与需求报告逐字一致（抽查身份类型 5 项、实习地点 5 项含括号、测试结论 4 项）。
 - [x] 字典取值走缓存；维护后缓存即时刷新（改一项→再查为新值）。
 - [x] 行政区划省→市→区县三级联动；区县反查返回完整文本（如"广东省广州市天河区"）。
 - [x] 任教学科按学段返回正确数量（幼儿园1/小学23/初中28/高中·中职文化课27）。
@@ -143,13 +143,23 @@
 - [x] 导入反例验证通过：非法学段 Excel 返回 `failCount=1`，错误定位第 2 行 `segment_code`，原因为“任教学段编码不在 teaching_segment 字典中”。
 - [x] 后端 `mvn -B -ntp -DskipTests package` 通过；前端 `vue-tsc --noEmit` 和 `vite build` 通过（保留既有 Naive UI 大 chunk 警告）。
 
+### T-022 学校/学院/专业维护页验收记录
+- [x] 新增 `frontend/src/api/organization.ts`，封装学院、专业、专业培养目标、培养目标联动配置接口；ID 使用字符串类型承接后端 Long→String JSON 契约。
+- [x] 新增 `OrganizationManageView.vue`，支持学校字典展示、学院 CRUD、专业 CRUD、试点标识、年度版本、专业多培养目标维护和培养目标联动配置编辑。
+- [x] 页面候选来自 `school`、`training_goal`、`teaching_segment`、`internship_location` 字典；保存时只提交 `item_code`，不提交中文显示值。
+- [x] 停用学院仍可查看，但“新增专业”入口按启用状态禁用并在函数入口二次拦截；后端仍保留“学院不存在或已停用”硬约束。
+- [x] 接入 `/system/organizations` 路由和“基础数据/组织与专业”菜单；Vite dev 访问 `/system/organizations` 返回 200，前端代理 `/api/dict/school/items` 与 `/api/college` 正常。
+- [x] 正例验证通过：创建学院/专业返回 Long id JSON 字符串；专业配置 `[primary_school_teacher,junior_middle_school_teacher]` 后详情与培养目标接口均返回两项；`primary_school_teacher` 联动配置可保存并按编码查询。
+- [x] 反例验证通过：重复学院编码、重复 `(internal_major_code, yearVersion)`、停用学院下新增专业、中文显示值作为培养目标、默认学段不在 allowed、中文显示值作为学段编码、超长 `yearVersion` 均返回业务错误。
+- [x] 后端 `mvn -B -ntp -DskipTests package` 通过；前端 `npm --prefix frontend run type-check` 与 `npm --prefix frontend run build` 通过（保留既有 Naive UI 大 chunk 警告）；临时验证数据已删除，临时服务已停止。
+
 ## 8. 测试用例
 - T-DICT-1：维护字典项后再查 → 返回更新值（缓存刷新）。✅ T-012 已验证：`initial-value` → `updated-value`，缓存 `1 → 0 → 1`。
 - T-REGION-1：`path("440106")` → 返回"广东省广州市天河区"。✅ T-015 已用正式广东种子复验；T-020 已在前端代理与页面入口复验。
 - T-SUBJ-1：`segment=初级中学` → 返回 28 项。✅ T-017 已验证；T-021 已在前端代理复验。
 - T-SUBJ-2（反例）：尝试把某"类别节点"作为任教学科保存 → 后端拒绝。✅ T-017 已验证；T-021 已在选择组件/API 复验。
 - T-SUBJ-3：`keyword=电子商务` 命中具体学科，类别父节点返回但 `selectable=false` 不可选。✅ T-017 已验证；T-021 已在页面查询复验。
-- T-GOAL-1：专业A 配置[小学教师,初中教师] → 查询返回两项。✅ T-018 已验证，重复保存同一组和移除后恢复同一培养目标均通过。
+- T-GOAL-1：专业A 配置[小学教师,初中教师] → 查询返回两项。✅ T-018 已验证，重复保存同一组和移除后恢复同一培养目标均通过；T-022 已在组织与专业页面/API 复验。
 
 ## 9. DoD
 字典/区划/学科/组织/联动配置全部可维护、可联动、可缓存、可按年度版本；接口在 Swagger 可调；导入器对示例库可用。

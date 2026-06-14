@@ -15,6 +15,14 @@
 
 ---
 
+## [2026-06-14] T-022 学校/学院/专业维护页
+- 做了什么：新增 `frontend/src/api/organization.ts` 与 `OrganizationManageView.vue`；接入 `/system/organizations` 路由和“基础数据/组织与专业”菜单；页面支持学校字典展示、学院维护、专业维护、试点标识、年度版本、专业多培养目标和培养目标联动配置编辑。
+- 关键决策与理由：学校、培养目标、任教学段、实习地点候选均从字典接口加载，保存时只提交 `item_code`，保持“不硬编码”和“文本化编码”口径；ID 在前端按 `string` 接收，已复核后端 `JacksonConfig` 将 `Long` 序列化为字符串，避免 JS 大整数精度风险；停用学院可查看但前端禁用新增专业入口，后端仍保留硬约束。
+- 问题与解决：重启后 Docker 容器未运行，已重新 `docker compose up -d`；PowerShell 环境同时存在 `PATH/Path`，`Start-Process` 会报重复键，后续通过规整环境变量和 Node 绝对路径完成前端 dev 验证。subagent 提醒停用学院仍可发起新增专业，已增加 `canCreateMajor` 和函数入口拦截。
+- 与规格的偏差/疑问：无。T-022 不新增 Flyway 和后端代码，复用 T-018 已完成且带 `@AuditLog`/`@DataScope` 的组织接口。
+- 测试：后端 `mvn -B -ntp -DskipTests package` 9 模块 SUCCESS；前端 `npm --prefix frontend run type-check` 与 `npm --prefix frontend run build` 通过；启动后 `/api/health`=UP，`/system/organizations` 返回 200，Vite 代理 `/api/dict/school/items` 与 `/api/college` 正常；API 正例验证新增学院/专业、Long id 字符串返回、专业配置 `[primary_school_teacher,junior_middle_school_teacher]` 查询返回两项、联动配置保存与查询成功；反例验证重复学院、重复专业、停用学院下新增专业、中文显示值作为培养目标/学段、默认学段不在 allowed、超长 `yearVersion` 均返回业务错误；临时数据已清理，临时服务已停止。
+- 下一步：提交 T-022；执行 Phase 1 待复核闸门。
+
 ## [2026-06-14] T-021 任教学科库页 + 选择组件
 - 做了什么：新增 `frontend/src/api/subject.ts`、`SubjectSelect.vue` 和 `SubjectManageView.vue`；接入 `/system/subjects` 路由与“基础数据/任教学科库”菜单；页面支持学段/年度/分类/关键词查询、学科选择校验、最近使用、Excel 导入与错误明细展示。
 - 关键决策与理由：学段选项从 `teaching_segment` 字典加载，学科候选从 `/api/subject` 加载，前端不硬编码业务标准值；类别节点继续在候选中展示但禁选，和后端 `selectable=false`、`validateSelectable` 硬约束保持一致；最近使用只在通过后端校验后记录。

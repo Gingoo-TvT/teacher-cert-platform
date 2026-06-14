@@ -17,7 +17,8 @@ const menuOptions: MenuOption[] = [
     children: [
       { label: '字典管理', key: 'dictManage' },
       { label: '行政区划', key: 'regionManage' },
-      { label: '任教学科库', key: 'subjectManage' }
+      { label: '任教学科库', key: 'subjectManage' },
+      { label: '组织与专业', key: 'organizationManage' }
     ]
   }
 ]

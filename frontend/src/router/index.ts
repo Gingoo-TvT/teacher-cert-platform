@@ -35,6 +35,12 @@ const routes: RouteRecordRaw[] = [
         name: 'subjectManage',
         component: () => import('@/views/system/SubjectManageView.vue'),
         meta: { title: '任教学科库' }
+      },
+      {
+        path: 'system/organizations',
+        name: 'organizationManage',
+        component: () => import('@/views/system/OrganizationManageView.vue'),
+        meta: { title: '组织与专业' }
       }
     ]
   },
