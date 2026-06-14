@@ -15,6 +15,14 @@
 
 ---
 
+## [2026-06-14] T-023 RBAC 表
+- 做了什么：新增 `V7__rbac.sql`，创建 `sys_user`、`sys_role`、`sys_user_role`、`sys_permission`、`sys_role_permission`、`sys_user_data_scope`；`PROGRESS.md` Phase 2 置为进行中，T-023 置完成；`docs/phase-02-认证与权限.md` 记录 T-023 验收。
+- 关键决策与理由：迁移版本严格按磁盘 max+1 使用 V7，未修改 V1~V6；`sys_user` 增加 `must_change_pwd`、`failed_login_count`、`locked_until` 支撑 T-024 首次改密和登录锁定；`sys_role_permission.scope_type` 保存 `SELF/COLLEGE/SCHOOL/SYSTEM/LOGIN_ALL/ASSIGNED`，用于 T-025 解释 §15.1 的本/院/校/系/✓/分配范围。
+- 问题与解决：Phase 文档标题仍写“V5/V6 迁移”，与 HANDOFF/任务要求的 V7/V8 冲突；按 AGENTS §4“迁移版本以磁盘 max+1 为准”和本轮用户要求执行，并在记录中说明。Windows 环境仍存在 `Path/PATH` 重复键，`Start-Process` 初次失败；规整当前进程环境后以后端 detached + `backend.out.log`/`backend.err.log` 方式完成启动验证。
+- 与规格的偏差/疑问：无阻塞。V8 需包含各角色测试账号，但账号命名/默认绑定学院专业未在规格中定义；后续 T-026 按确认单默认值实现并继续记录。
+- 测试：`mvn -B -ntp -DskipTests package` 9 模块 SUCCESS；启动后 `/api/health` 返回 UP；日志显示 Flyway `Migrating schema teacher_cert to version "7 - rbac"` 且成功；Docker MySQL 只读核验 `sys_user/sys_role/sys_permission/sys_user_data_scope` 存在，`flyway_schema_history` V1~V7 `success=1`；临时后端进程已停止。
+- 下一步：T-024 认证：登录/JWT/验证码/锁定。
+
 ## [2026-06-14] 待确认事项落地（学校书面确认）+ 迁移版本顺延
 - 做了什么：`docs/待确认事项确认单.md` 20 项按学校 2026-06-14 书面确认回填；新增 `V6__confirmed_params.sql`（**唯一取值变更**：`validate.name.mode` strict→loose，确认单#15 放宽，兼容少数民族/外文姓名）；其余 19 项确认采用既有默认值，无需改参数。同步更新 `docs/README.md §6`、`docs/phase-03`（NameValidator 默认 loose）、`HANDOFF.md`（状态/起点/迁移）。
 - 迁移版本顺延：发现 `tasks.md`/phase 文档存在版本漂移——codex 早前插入 `V4__region_seed` 使 subject_seed 顺延 V5，但下游 RBAC 仍标 `V5__rbac.sql`（与 subject_seed 冲突），且 student/training/… 全部 off-by-one。本次统一顺延：RBAC→V7、rbac_seed→V8、student→V9、…、notification→V17（磁盘 V1–V6 + 计划 V7–V17 连续无冲突）。并把 `AGENTS.md §4`/`HANDOFF §4` 改为「**迁移版本以磁盘 max+1 为准，文档编号指示性**」，避免再漂移。

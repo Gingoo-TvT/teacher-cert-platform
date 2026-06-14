@@ -60,6 +60,14 @@
 ## 9. DoD
 登录认证 + 7 角色矩阵 + 数据范围 + 菜单/按钮权限全链路可用；AT-13 自测通过并归档。
 
-## 10. 风险
+## 10. 任务验收记录
+### T-023 RBAC 表
+- [x] 新增 `V7__rbac.sql`，版本号按磁盘 max+1 从 V7 起，未修改 V1~V6。
+- [x] 建表覆盖 `sys_user`、`sys_role`、`sys_user_role`、`sys_permission`、`sys_role_permission`、`sys_user_data_scope`，字段与 `plan.md §5.1` 对齐。
+- [x] `sys_user` 预留 `student_id`、`college_id`、`must_change_pwd`、`failed_login_count`、`locked_until`，支撑 T-024 登录锁定与首次改密。
+- [x] `sys_role_permission.scope_type` 记录 §15.1 矩阵范围（SELF/COLLEGE/SCHOOL/SYSTEM/LOGIN_ALL/ASSIGNED），支撑 T-025 数据范围解释。
+- [x] `mvn -B -ntp -DskipTests package` 通过；启动应用后 Flyway 从 V6 迁移到 V7，`flyway_schema_history` V7 `success=1`。
+
+## 11. 风险
 - `@DataScope` 必须覆盖**所有**业务列表/导出查询，遗漏即越权（贯穿后续每个 Phase 的回归项）。
 - 权限点命名一经定稿（§15.1）即冻结，后续 Phase 引用同一套编码，避免分叉。
