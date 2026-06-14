@@ -15,6 +15,14 @@
 
 ---
 
+## [2026-06-14] Phase 1 复核通过（Claude · REVIEW-GATE）
+- 做了什么：按 `docs/REVIEW-GATE.md` 独立复核 Phase 1（T-011~T-022），产出 `docs/reviews/phase-01-review.md`，判定 **PASS**（无 Blocker、无 Major）。
+- 独立复跑：①干净重建 `mvn clean package` 9 模块 SUCCESS + 前端 `type-check`/`vite build` 通过；②子代理按 UTF-8 代码点核对 V3 字典 vs `plan §5.2` → 12 类逐字一致、17 类型、3 类型（免考依据/科目/签发人）正确置空；③启动应用（Flyway 校验 5 迁移、schema v5、`/api/health`=UP）后运行 **15 条反例/关键用例全过**：字典逐字（全角括号）、区划完整文本、学科计数 1/23/28/27、中职类别节点禁选「任教学科类别节点不可选择」、跨学段/自由填写被拒、缓存刷新 rv1→rv2 无残留、重复学院编码被拒「学院编码已存在」。
+- 维度结论：D1~D11 全过。
+- Minor backlog（不阻断放行）：审计切面前后态字段未填（**Phase 3 开工前必须接入**，AT-12 生命线）；`toMajorVO` N+1；dict 删除计数口径；无 dup-key 专用异常 handler；RegionCascader `check-strategy=all`（UX）；**V5 学科为示例合成、非官方库（上线前以官方库按模板导入替换，确认单#13）**。
+- 放行：`PROGRESS.md` Phase 1 → ✅ 已复核；AT-05 首验（P1 基础）记 ✅；main 快进合并至复核提交（本地私有、无远程/不 push）；准予开始 Phase 2。
+- 下一步：Phase 2（T-023 RBAC 表起）由 codex 实现，Claude 阶段复核。
+
 ## [2026-06-14] Phase 1 待复核小结
 - 做了什么：Phase 1（T-011~T-022）全部完成，覆盖字典/区划/任教学科/组织专业/培养目标联动配置的 Flyway 迁移、标准种子、后端接口、缓存、导入器和前端维护页；`PROGRESS.md` 已将 Phase 1 置为“待复核”，未自行标记 ✅。
 - 关键决策与理由：所有字典标准值按 `plan.md §5.2/附录B` 和阶段文档核对；学校、省码、培养目标、学段、实习地点均走字典或参数，不在前端硬编码业务值；T-020 区划页因后端仅定义查询接口，按只读维护/查看页交付并记录边界。
