@@ -5,17 +5,17 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 进行中任务：Phase 2（T-023~T-029）**待复核**（退回项已修复；本轮补修 COLLEGE 数据范围 SQL `IN` 右值括号）
+- 当前阶段：**Phase 3 基本信息（T-030~T-038）待开始**；Phase 0/1/2 均已复核通过。
 - 阻塞项：无
-- 最近更新：2026-06-16（Codex 修复学院范围用户查真实 `sys_user` 表返回 0 条的问题；`mvn -B -ntp verify` GREEN，Failsafe 自动跑 `Phase2SecurityIT` 2/2 通过）
-- 下一步：Claude 按 `docs/REVIEW-GATE.md` 只复核 Phase 2 增量 + 回归，重点复核 AT-13 数据范围真实表隔离
+- 最近更新：2026-06-16（Claude 复核 Phase 2 → **✅ PASS**：独立 `mvn verify` 绿、`Phase2SecurityIT` 2/2、AT-13 真实表隔离生效；已合并 main · `docs/reviews/phase-02-review.md`）
+- 下一步：启动 Phase 3 —— 先 `T-030 student 表`，按 AGENTS §7 任务循环；迁移从磁盘 max+1（下一个 `V9`）
 
 ## 阶段汇总
 | Phase | 名称 | 优先级 | 任务数 | 完成 | 状态 |
 |---|---|---|---|---|---|
 | 0 | 工程脚手架与基础设施 | P0 | 10 | 10 | ✅ 已复核(自建自验) |
 | 1 | 基础数据与字典 | P0 | 12 | 12 | ✅ 已复核(Claude 06-14) |
-| 2 | 账号角色权限 | P0 | 7 | 7 | 待复核(Codex 06-16) |
+| 2 | 账号角色权限 | P0 | 7 | 7 | ✅ 已复核(Claude 06-16) |
 | 3 | 基本信息 | P0 | 9 | 0 | 待开始 |
 | 4 | 专业培养信息 | P0 | 5 | 0 | 待开始 |
 | 5 | 文件 + 过程性材料 | P0 | 8 | 0 | 待开始 |
@@ -58,7 +58,7 @@
 - [x] T-021 任教学科库页 + 选择组件（分支：`feature/phase01-T021-subject-page`）
 - [x] T-022 学校/学院/专业维护页（分支：`feature/phase01-T022-organization-page`）
 
-## Phase 2 · 账号角色权限 — 7/7 待复核（Codex 2026-06-16 · docs/reviews/phase-02-review.md）
+## Phase 2 · 账号角色权限 — 7/7 ✅ 已复核（Claude 2026-06-16，PASS · docs/reviews/phase-02-review.md）
 > 退回项已按增量修复并重交；本轮补修学院范围 `IN` 表达式缺少括号导致真实 `sys_user` 过滤返回 0 条的问题。`mvn -B -ntp verify` GREEN，Failsafe 自动跑 `Phase2SecurityIT` 2/2 通过。
 - [x] T-023 RBAC 表（分支：`feature/phase02-T023-rbac-schema`）
 - [x] T-024 认证：登录/JWT/验证码/锁定（分支：`feature/phase02-T024-authentication`）
@@ -194,5 +194,5 @@
 | AT-10 | 18位编号连续不重 | P9 | [ ] | [ ] |
 | AT-11 | 有效期规则 | P9 | [ ] | [ ] |
 | AT-12 | 审核全留痕 | P13 | [ ] | [ ] |
-| AT-13 | 数据范围权限 | P2 | [~] P2自测通过，待Claude复核 | [ ] |
+| AT-13 | 数据范围权限 | P2 | [✅] P2复核通过(Claude 06-16) | [ ] |
 | AT-14 | 异常报告 | P10 | [ ] | [ ] |

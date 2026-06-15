@@ -15,6 +15,11 @@
 
 ---
 
+## [2026-06-16] Phase 2 复核通过（Claude · REVIEW-GATE）✅
+- 做了什么：第 3 轮复核 Phase 2 退回修复增量。独立 `mvn -B -ntp clean package` 绿 + `mvn -B -ntp verify` 绿（Failsafe 自动跑 `Phase2SecurityIT` **2/2 通过**）；读码核 `DataScopeSqlHandler`/拦截器/CORS/Failsafe/CI；DB 核 §15.1 与数据范围真实表隔离。
+- 结论：**PASS**。B1 数据范围经 `DataPermissionInterceptor + ParenthesedExpressionList` 在真实 `sys_user/sys_college/sys_major` 表上行级隔离生效（学院A 只见本院、学生只见本人、教务处全校）；M1 CORS 白名单、M3 反例接 CI、M4 探针真实表、M2/m7 均已修；§15.1 零误差、认证安全无回归。
+- 放行：`PROGRESS.md` Phase 2 置 ✅ 已复核、AT-13 首验通过；合并 `main`（本地私有，无远程）；启动 Phase 3。轮次1 的 7 个 Minor 转 backlog。
+
 ## [2026-06-16] Phase 2 退回复修：学院数据范围真实表过滤
 - 做了什么：在上一轮未提交修复基础上，只修 `Phase2SecurityIT.phase2AuthRbacAndDataScope` 第 113 行失败；`DataScopeSqlHandler` 的 COLLEGE 分支改用 JSQLParser `ParenthesedExpressionList` 构造 `IN (...)` 右值，保留 MyBatis-Plus `DataPermissionInterceptor + DataScopeSqlHandler` 方向。
 - 关键决策与理由：按要求先临时打印运行期 `scopeType/collegeIds/expression`。诊断结果为 `scopeType=COLLEGE`、`collegeIds=[800000000000000201]`，并非上下文为空或走 `denyExpression`；实际 SQL 片段为 `sys_user.college_id IN 800000000000000201`，少括号导致 MySQL 语法错，接口落为 0 条。

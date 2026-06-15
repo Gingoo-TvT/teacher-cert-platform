@@ -8,12 +8,21 @@
 | 被复核提交 | `f529983`（T-024~T-029）、`d07876f`（T-023） |
 | 增量基线 | `bd6fd8c..HEAD`（86 文件，+5047/-107） |
 | 迁移 | 新增 `V7__rbac.sql`、`V8__rbac_seed.sql`；V1–V6 未改动 ✓ |
-| **判定** | **❌ 退回（CHANGES REQUESTED）** |
-| 计数 | **Blocker × 1 · Major × 4 · Minor × 7** |
+| **判定（轮次1 · 06-15）** | ❌ 退回（CHANGES REQUESTED） |
+| 计数（轮次1） | Blocker × 1 · Major × 4 · Minor × 7 |
+| **最终判定（轮次3 · 06-16）** | **✅ PASS — 退回项已修复，复核增量+回归通过** |
 
 ---
 
-## 一、结论
+## 〇、复核轮次 2–3（2026-06-16）：退回项已修复 → ✅ PASS
+- **B1 数据范围真实落地**：改用 MyBatis-Plus `DataPermissionInterceptor` + `DataScopeSqlHandler`（读 `DataScopeContext` + `@DataScope.alias`，对 sys_user/sys_college/sys_major/major_training_goal 真实注入行级条件）。轮次2 曾因 `IN` 右值缺括号（`college_id IN 201` 语法错）致学院范围返 0 条；轮次3 用 `ParenthesedExpressionList` 渲染 `IN (201)` 修复。读码确认：无 `@DataScope` 不注入、全校放行、SELF/COLLEGE 正确、JSqlParser 对象+数值构造无注入。
+- **M1 CORS** 收敛为白名单 `${CORS_ALLOWED_ORIGINS}`（去通配）；**M2** 用户列表接真过滤、角色/权限列表去误导注解；**M3** 加 `maven-failsafe-plugin` + CI 改跑 `mvn verify`（反例进 CI）；**M4** 探针改查真实 `sys_user` 表 + `@Profile("!prod")`；**m7** 仅 COLLEGE 时填 collegeIds。
+- **独立验证**：`mvn -B -ntp clean package` 绿；`mvn -B -ntp verify` 绿，**Failsafe 自动跑 `Phase2SecurityIT` 2/2 通过**（匿名 401、无权 403、学院A 教务员只见本院学生=1 且不含学院B、学生只见本人、教务处全校=2、5 次错密锁定、token 过期、refresh）；§15.1 种子(V8) 未改无回归；提交 `0952d36`、工作树干净、remote 空。
+- 结论：**AT-13 在真实表上隔离生效，红线达标 → PASS**，合并 main 放行 Phase 3。轮次1 的 7 个 Minor 转 backlog。
+
+---
+
+## 一、结论（轮次1 退回时的记录，保留备查）
 
 Phase 2 的**权限矩阵（§15.1）实现零误差、认证安全链路干净、学院/专业的真实数据范围过滤正确**——这部分质量很高，且 `Phase2SecurityIT` 反例**经复核方强制执行 2/2 通过**（401/403/锁定/过期/refresh 在真实 DB+种子上成立）。
 
