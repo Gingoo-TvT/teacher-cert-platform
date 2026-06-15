@@ -40,7 +40,7 @@ public class SystemSecurityController {
 
     @Operation(summary = "用户列表")
     @PreAuthorize("@pms.has('system:user:manage')")
-    @DataScope(permission = "system:user:manage")
+    @DataScope(alias = "sys_user", permission = "system:user:manage")
     @GetMapping("/user")
     public Result<PageResult<UserVO>> listUsers(@RequestParam(value = "keyword", required = false) String keyword,
                                                 @RequestParam(value = "status", required = false) String status,
@@ -103,7 +103,6 @@ public class SystemSecurityController {
 
     @Operation(summary = "角色列表")
     @PreAuthorize("@pms.has('system:role:manage')")
-    @DataScope(permission = "system:role:manage")
     @GetMapping("/role")
     public Result<List<RoleVO>> listRoles(@RequestParam(value = "keyword", required = false) String keyword) {
         return Result.ok(securityAdminService.listRoles(keyword));
@@ -137,7 +136,6 @@ public class SystemSecurityController {
 
     @Operation(summary = "角色权限列表")
     @PreAuthorize("@pms.has('system:role:manage')")
-    @DataScope(permission = "system:role:manage")
     @GetMapping("/role/{id}/permissions")
     public Result<List<PermissionVO>> rolePermissions(@PathVariable Long id) {
         return Result.ok(securityAdminService.rolePermissions(id));
@@ -155,7 +153,6 @@ public class SystemSecurityController {
 
     @Operation(summary = "权限树")
     @PreAuthorize("@pms.has('system:perm:manage')")
-    @DataScope(permission = "system:perm:manage")
     @GetMapping("/permission/tree")
     public Result<List<PermissionVO>> permissionTree() {
         return Result.ok(securityAdminService.permissionTree());

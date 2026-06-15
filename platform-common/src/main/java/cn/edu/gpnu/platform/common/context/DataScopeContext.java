@@ -32,6 +32,7 @@ public final class DataScopeContext {
         private Long userId;
         private Long collegeId;
         private Long studentId;
+        private String alias;
         private Set<Long> collegeIds = new LinkedHashSet<>();
         private Set<Long> majorIds = new LinkedHashSet<>();
 
@@ -65,6 +66,14 @@ public final class DataScopeContext {
 
         public void setStudentId(Long studentId) {
             this.studentId = studentId;
+        }
+
+        public String getAlias() {
+            return alias;
+        }
+
+        public void setAlias(String alias) {
+            this.alias = alias;
         }
 
         public Set<Long> getCollegeIds() {

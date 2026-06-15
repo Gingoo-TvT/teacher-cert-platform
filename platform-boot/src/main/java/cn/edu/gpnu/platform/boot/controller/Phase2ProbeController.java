@@ -8,6 +8,7 @@ import cn.edu.gpnu.platform.security.vo.DataScopeProbeVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.annotation.Profile;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -19,6 +20,7 @@ import java.util.List;
 
 @Tag(name = "Phase2权限验证")
 @RestController
+@Profile("!prod")
 @RequestMapping("/api/phase2/probe")
 @RequiredArgsConstructor
 public class Phase2ProbeController {
@@ -27,7 +29,7 @@ public class Phase2ProbeController {
 
     @Operation(summary = "AT-13 学生列表数据范围验证")
     @PreAuthorize("@pms.has('student:view')")
-    @DataScope(permission = "student:view")
+    @DataScope(alias = "sys_user", permission = "student:view")
     @GetMapping("/students")
     public Result<List<DataScopeProbeVO>> students() {
         return Result.ok(probeService.listStudents());
@@ -35,7 +37,7 @@ public class Phase2ProbeController {
 
     @Operation(summary = "AT-13 学生本人访问验证")
     @PreAuthorize("@pms.has('student:view')")
-    @DataScope(permission = "student:view")
+    @DataScope(alias = "sys_user", permission = "student:view")
     @GetMapping("/students/{studentId}")
     public Result<DataScopeProbeVO> student(@PathVariable Long studentId) {
         return Result.ok(probeService.getStudent(studentId));

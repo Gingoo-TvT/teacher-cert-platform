@@ -31,12 +31,14 @@ public class DataScopeServiceImpl implements DataScopeService {
         scope.setStudentId(current.getStudentId());
         List<String> scopeTypes = rolePermissionMapper.selectScopeTypes(current.getUserId(), permissionCode);
         scope.setScopeType(bestScope(scopeTypes));
-        LinkedHashSet<Long> collegeIds = new LinkedHashSet<>(userDataScopeMapper.selectCollegeIds(current.getUserId()));
-        if (current.getCollegeId() != null) {
-            collegeIds.add(current.getCollegeId());
+        if (scope.getScopeType() == DataScopeContext.ScopeType.COLLEGE) {
+            LinkedHashSet<Long> collegeIds = new LinkedHashSet<>(userDataScopeMapper.selectCollegeIds(current.getUserId()));
+            if (current.getCollegeId() != null) {
+                collegeIds.add(current.getCollegeId());
+            }
+            scope.setCollegeIds(collegeIds);
+            scope.setMajorIds(new LinkedHashSet<>(userDataScopeMapper.selectMajorIds(current.getUserId())));
         }
-        scope.setCollegeIds(collegeIds);
-        scope.setMajorIds(new LinkedHashSet<>(userDataScopeMapper.selectMajorIds(current.getUserId())));
         return scope;
     }
 

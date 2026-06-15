@@ -9,6 +9,28 @@ jobs:
   backend:
     name: 后端构建
     runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root123
+          MYSQL_DATABASE: teacher_cert
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot123"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -16,8 +38,10 @@ jobs:
           distribution: temurin
           java-version: '17'
           cache: maven
-      - name: mvn package
-        run: mvn -B -ntp -DskipTests package
+      - name: mvn verify
+        env:
+          JWT_SECRET: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+        run: mvn -B -ntp verify
 
   frontend:
     name: 前端构建

@@ -15,6 +15,14 @@
 
 ---
 
+## [2026-06-16] Phase 2 退回复修：学院数据范围真实表过滤
+- 做了什么：在上一轮未提交修复基础上，只修 `Phase2SecurityIT.phase2AuthRbacAndDataScope` 第 113 行失败；`DataScopeSqlHandler` 的 COLLEGE 分支改用 JSQLParser `ParenthesedExpressionList` 构造 `IN (...)` 右值，保留 MyBatis-Plus `DataPermissionInterceptor + DataScopeSqlHandler` 方向。
+- 关键决策与理由：按要求先临时打印运行期 `scopeType/collegeIds/expression`。诊断结果为 `scopeType=COLLEGE`、`collegeIds=[800000000000000201]`，并非上下文为空或走 `denyExpression`；实际 SQL 片段为 `sys_user.college_id IN 800000000000000201`，少括号导致 MySQL 语法错，接口落为 0 条。
+- 问题与解决：将 `InExpression` 右值从裸 `ExpressionList` 改为 `ParenthesedExpressionList` 后，学院教务员按 `college_id IN (800000000000000201)` 过滤，可见学院 A 本院学生且不含学院 B；SELF/SCHOOL/无 `@DataScope` 分支未改。临时 `DATA_SCOPE_DEBUG` 已移除。
+- 与规格的偏差/疑问：无业务规格变更。`PROGRESS.md` Phase 2 重新置「待复核」，未置 ✅。
+- 测试：`mvn -B -ntp -pl platform-boot -am "-Dtest=Phase2SecurityIT" "-Dsurefire.failIfNoSpecifiedTests=false" test` 通过（2 tests）；`mvn -B -ntp verify` 通过，Failsafe 自动跑 `Phase2SecurityIT` 2/2 通过（clerk=1、不含学院B；student本人=1；academic全校=2）。
+- 下一步：交 Claude 只复核 Phase 2 增量 + 回归。
+
 ## [2026-06-14] Phase 2 待复核小结（T-024~T-029）
 - 做了什么：在 `feature/phase02-T024-authentication` 上完成 Phase 2 剩余任务：认证/JWT/验证码/refresh/失败锁定/首次改密、RBAC 权限校验、数据范围真过滤、系统用户/角色/权限/数据范围接口、前端真实登录/强制改密/动态菜单与账号权限管理页。修复 `@PreAuthorize` 抛出的 `AccessDeniedException` 被兜底为 500 的问题，补 403 映射；修复过期/无效 JWT 在 filter 中抛出 servlet error 的问题；修复 MyBatis-Plus 默认不写 null 导致账号解锁后 `locked_until` 未清空的问题。
 - 关键决策与理由：运行期验证不再从 Codex 启动 8080/5173 常驻服务；Phase 2 反例改用 `@SpringBootTest(webEnvironment=RANDOM_PORT)` 集成测试承载，测试进程自然退出，不继承长期 stdout/stderr 管道。

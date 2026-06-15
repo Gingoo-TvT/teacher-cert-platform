@@ -31,6 +31,7 @@ public class DataScopeAspect {
     @Around(value = "scope(dataScope)", argNames = "pjp,dataScope")
     public Object around(ProceedingJoinPoint pjp, DataScope dataScope) throws Throwable {
         DataScopeContext.Scope scope = dataScopeService.resolve(dataScope.permission());
+        scope.setAlias(dataScope.alias());
         DataScopeContext.set(scope);
         if (log.isDebugEnabled()) {
             log.debug("DataScope 拦截 {} alias={} permission={} scope={}",

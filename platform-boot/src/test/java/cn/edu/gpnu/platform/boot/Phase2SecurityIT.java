@@ -3,6 +3,7 @@ package cn.edu.gpnu.platform.boot;
 import cn.edu.gpnu.platform.PlatformApplication;
 import cn.edu.gpnu.platform.system.entity.SysUser;
 import cn.edu.gpnu.platform.system.mapper.SysUserMapper;
+import cn.edu.gpnu.platform.system.mapper.SysUserRoleMapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -35,6 +36,11 @@ class Phase2SecurityIT {
 
     private static final String INITIAL_PASSWORD = "ChangeMe123!";
     private static final String CHANGED_PASSWORD = "Changed123!";
+    private static final long PHASE2_COLLEGE_A = 800000000000000201L;
+    private static final long PHASE2_COLLEGE_B = 800000000000000202L;
+    private static final long STUDENT_ROLE_ID = 800000000000000001L;
+    private static final long PHASE2_STUDENT_B_USER_ID = 800000000000003009L;
+    private static final long PHASE2_STUDENT_B_ROLE_ID = 800000000000004009L;
 
     @LocalServerPort
     private int port;
@@ -49,12 +55,17 @@ class Phase2SecurityIT {
     private SysUserMapper userMapper;
 
     @Autowired
+    private SysUserRoleMapper userRoleMapper;
+
+    @Autowired
     private PasswordEncoder passwordEncoder;
 
     @BeforeEach
     @AfterEach
     void resetSeedUsers() {
+        ensureSecondCollegeStudent();
         resetUser("test_student", true);
+        resetUser("test_student_b", true);
         resetUser("test_college_clerk", true);
         resetUser("test_academic_admin", true);
         resetUser("test_cert_issuer", true);
@@ -82,6 +93,7 @@ class Phase2SecurityIT {
         assertThat(ownStudents.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(json(ownStudents).at("/data").size()).isEqualTo(1);
         assertThat(json(ownStudents).at("/data/0/studentId").asLong()).isEqualTo(9001L);
+        assertThat(json(ownStudents).at("/data/0/collegeId").asLong()).isEqualTo(PHASE2_COLLEGE_A);
 
         ResponseEntity<String> otherStudent = exchange("/api/phase2/probe/students/9002", HttpMethod.GET, changedStudent.accessToken(), null);
         assertThat(otherStudent.getStatusCode()).isEqualTo(HttpStatus.OK);
@@ -99,7 +111,8 @@ class Phase2SecurityIT {
         ResponseEntity<String> clerkStudents = exchange("/api/phase2/probe/students", HttpMethod.GET, changedClerk.accessToken(), null);
         assertThat(clerkStudents.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(json(clerkStudents).at("/data").size()).isEqualTo(1);
-        assertThat(json(clerkStudents).at("/data/0/collegeId").asLong()).isEqualTo(800000000000000201L);
+        assertThat(json(clerkStudents).at("/data/0/collegeId").asLong()).isEqualTo(PHASE2_COLLEGE_A);
+        assertThat(json(clerkStudents).at("/data").toString()).doesNotContain(String.valueOf(PHASE2_COLLEGE_B));
 
         LoginResult academic = login("test_academic_admin", INITIAL_PASSWORD);
         assertThat(academic.permissions().toString()).contains("cert:generate");
@@ -111,6 +124,7 @@ class Phase2SecurityIT {
         allSchool = exchange("/api/phase2/probe/students", HttpMethod.GET, changedAcademic.accessToken(), null);
         assertThat(allSchool.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(json(allSchool).at("/data").size()).isEqualTo(2);
+        assertThat(json(allSchool).at("/data").toString()).contains(String.valueOf(PHASE2_COLLEGE_B));
 
         LoginResult issuer = login("test_cert_issuer", INITIAL_PASSWORD);
         assertThat(issuer.permissions().toString()).contains("cert:issue").doesNotContain("cert:generate");
@@ -227,6 +241,31 @@ class Phase2SecurityIT {
                 .eq(SysUser::getId, user.getId())
                 .set(SysUser::getLockedUntil, null)
                 .set(SysUser::getLastLoginAt, null));
+    }
+
+    private void ensureSecondCollegeStudent() {
+        SysUser user = userMapper.selectByUsername("test_student_b");
+        if (user == null) {
+            user = new SysUser();
+            user.setId(PHASE2_STUDENT_B_USER_ID);
+            user.setUsername("test_student_b");
+        }
+        user.setPasswordHash(passwordEncoder.encode(INITIAL_PASSWORD));
+        user.setRealName("学生测试账号B");
+        user.setStatus("ENABLED");
+        user.setUserType("STUDENT");
+        user.setCollegeId(PHASE2_COLLEGE_B);
+        user.setStudentId(9002L);
+        user.setMustChangePwd(1);
+        user.setFailedLoginCount(0);
+        user.setLockedUntil(null);
+        user.setLastLoginAt(null);
+        if (userMapper.selectByUsername("test_student_b") == null) {
+            userMapper.insert(user);
+        } else {
+            userMapper.updateById(user);
+        }
+        userRoleMapper.upsert(PHASE2_STUDENT_B_ROLE_ID, user.getId(), STUDENT_ROLE_ID, 0L);
     }
 
     private record LoginResult(String accessToken, String refreshToken, boolean mustChangePwd, String permissions) {
