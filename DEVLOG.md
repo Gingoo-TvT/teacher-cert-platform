@@ -15,6 +15,12 @@
 
 ---
 
+## [2026-06-17] Phase 5 复核通过（Claude · REVIEW-GATE）✅
+- 做了什么：独立复核 Phase 5 增量。`mvn -B -ntp verify` GREEN（`Phase5MaterialIT 4/4` + 回归 `Phase2 2/2`+`Phase3 7/7`+`Phase4 5/5` = 18/18）、`type-check`/`build` 绿；读码核 AT-06 聚合/上传校验/替换锁/数据范围读写/可编辑态守卫回填。
+- 结论：**PASS**（一轮）。AT-06（四类缺一/不通过→不合格、全过→合格）、上传限制、替换锁、两级三态审核、process_material 读+写数据范围、MinIO 复用全过；**可编辑态守卫 backlog 跨 material+student+training 真收口**（带回归反例，清除 Phase3/4 同类 Minor）；V11/治理文档未动。
+- 放行：PROGRESS Phase 5 置 ✅、AT-06 首验通过；合并 `main`（本地私有，无远程）；启动 Phase 6。
+- backlog（不阻断，6 Minor）：类别合格口径是否配 sys_param、material:view 权限点种子、跨院写返 404 vs 403 等。
+
 ## [2026-06-17] Phase 5 待复核小结（T-044~T-051）
 - 做了什么：从 `main` 切出 `feature/phase05-T044-process-material`，完成 `V11__process_material.sql`、过程性材料实体/DTO/VO/Mapper/Service/Controller，材料上传/预览/替换/删除、初审/复审、AT-06 四类聚合合格判定、批量下载 ZIP+清单；前端新增过程性材料页面与菜单入口。
 - 关键决策与理由：材料业务放 `platform-business` 并复用 `platform-file` 的 MinIO `FileService`/预签名/对象读取；上传大小与 MIME 白名单走 `sys_param`，读侧复用 `DataScopeSqlHandler` 新增 `process_material` 表规则，写侧按 student 归属学院/本人硬校验。

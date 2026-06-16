@@ -5,10 +5,10 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**Phase 5 文件 + 过程性材料（T-044~T-051）待复核**；Phase 0/1/2/3/4 已复核通过。
-- 阻塞项：无
-- 最近更新：2026-06-17（Phase 5 已完成并待复核：`V11__process_material.sql`，AT-06 四类合格判定、上传限制、读+写数据范围、通过后禁替换、批量下载清单、可编辑态守卫收口均纳入 `mvn verify`；前端 `type-check/build` 绿）
-- 下一步：交 Claude 按 `docs/REVIEW-GATE.md` 复核 Phase 5。
+- 当前阶段：**Phase 6 免考（T-052~T-056）待开始**；Phase 0/1/2/3/4/5 已复核通过。
+- 阻塞项：无（可编辑态守卫 backlog 已于 Phase 5 收口）
+- 最近更新：2026-06-17（Claude 复核 Phase 5 → **✅ PASS**：AT-06 四类合格判定/上传限制/替换锁/三态审核/读+写数据范围 全过，可编辑态守卫跨 material+student+training 收口；独立 `mvn verify` 18/18 绿、type-check/build 绿；已合并 main · `docs/reviews/phase-05-review.md`）
+- 下一步：启动 Phase 6 —— 先 `T-052 exemption_request/material 表`，迁移从磁盘 max+1（下一个 `V12`）；按 AGENTS §7
 
 ## 阶段汇总
 | Phase | 名称 | 优先级 | 任务数 | 完成 | 状态 |
@@ -18,7 +18,7 @@
 | 2 | 账号角色权限 | P0 | 7 | 7 | ✅ 已复核(Claude 06-16) |
 | 3 | 基本信息 | P0 | 9 | 9 | ✅ 已复核(Claude 06-16) |
 | 4 | 专业培养信息 | P0 | 5 | 5 | ✅ 已复核(Claude 06-16) |
-| 5 | 文件 + 过程性材料 | P0 | 8 | 8 | 待复核 |
+| 5 | 文件 + 过程性材料 | P0 | 8 | 8 | ✅ 已复核(Claude 06-17) |
 | 6 | 免考 | P0 | 5 | 0 | 待开始 |
 | 7 | 视频评审 | P0 | 11 | 0 | 待开始 |
 | 8 | 测试结果 | P0 | 4 | 0 | 待开始 |
@@ -90,7 +90,8 @@
 - [x] T-042 培养信息 CRUD + 多培养目标 + 两级审核
 - [x] T-043 专业培养信息表单
 
-## Phase 5 · 文件 + 过程性材料 — 8/8 待复核
+## Phase 5 · 文件 + 过程性材料 — 8/8 ✅ 已复核（Claude 2026-06-17，PASS · docs/reviews/phase-05-review.md）
+> 可编辑态守卫 backlog 已收口（material + 回填 student/training + 回归反例），Phase3/4 同类 Minor 一并清除。
 > `V11__process_material.sql` 落地 process_material 表与材料白名单参数；材料模块复用 platform-file 的 MinIO 上传/预签名/对象读取，process_material 接入 Phase 2 数据权限规则；`Phase5MaterialIT` 覆盖 AT-06、上传限制、通过后禁替换、读写数据范围、批量下载清单。同步收口 student/training/material 可编辑态守卫：仅 DRAFT/FIRST_REJECTED/SECOND_REJECTED 可写，在审/已通过/locked 拒绝。
 - [x] T-044 通用附件上传（PDF/图片）+ 大小限制（分支：`feature/phase05-T044-process-material`）
 - [x] T-045 process_material 表
@@ -192,7 +193,7 @@
 | AT-03 | 证件 + 出生日期 | P3 | [✅] P3复核通过(Claude 06-16)：四类证件正反例、身份证出生日期不一致拦截、港澳/台胞证不校验日期 | [ ] |
 | AT-04 | 专业代码 0401/0451/0453 | P4 | [✅] P4复核通过(Claude 06-16)：教育类研究生非法前缀拒绝、0401/0451/0453 放行 | [ ] |
 | AT-05 | 学段→学科联动禁自由填 | P1/P4 | [✅] P4复核通过(Claude 06-16)：学段-学科联动、自由填/中职类别节点拒绝、培养目标-地点联动 | [ ] |
-| AT-06 | 四类材料全过才合格 | P5 | [~] P5自测通过：四类缺一不合格、某类不通过不合格、四类全复审通过合格；待 Claude 复核 | [ ] |
+| AT-06 | 四类材料全过才合格 | P5 | [✅] P5复核通过(Claude 06-17)：四类缺一/某类不通过→不合格、四类全通过→合格 | [ ] |
 | AT-07 | 多科免考 + 每科佐证二级审核 | P6 | [ ] | [ ] |
 | AT-08 | 视频≥2教师独立评审 + 复评 | P7 | [ ] | [ ] |
 | AT-09 | 证书前置条件 | P9 | [ ] | [ ] |
