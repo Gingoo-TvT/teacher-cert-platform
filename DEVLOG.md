@@ -15,6 +15,12 @@
 
 ---
 
+## [2026-06-16] Phase 4 复核通过（Claude · REVIEW-GATE）✅
+- 做了什么：独立复核 Phase 4 增量。`mvn -B -ntp verify` GREEN（`Phase4TrainingIT 4/4` + `Phase3StudentIT 6/6`(含新 confirm 反例) + `Phase2SecurityIT 2/2` = 12/12）、`type-check`/`build` 绿；读码核 `MajorCodeValidator`/`TrainingLinkValidator`/写侧 `allowedCollegeId`/`training_profile` 数据范围规则/Phase3 confirm backlog 修复。
+- 结论：**PASS**（一轮）。AT-04（专业代码 0401/0451/0453）、AT-05（学段-学科联动禁自由填、中职类别节点拒绝）、培养目标-实习地点联动、读+写两侧数据范围、状态机A 全过；Phase 3 confirm backlog 已闭环；V10/治理文档未动。
+- 放行：PROGRESS Phase 4 置 ✅、AT-04/AT-05 首验通过；合并 `main`（本地私有，无远程）；启动 Phase 5。
+- backlog（不阻断）：training/student「可编辑态守卫」统一化（在审/锁定记录禁写非关键字段）+ TrainingStatus.of 未知值应抛错（3 Minor）。
+
 ## [2026-06-16] Phase 4 待复核小结（T-039~T-043）
 - 做了什么：从 `main` 切出 `feature/phase04-T039-training-profile`，新增 `V10__training_profile.sql`、专业培养信息实体/DTO/VO/Mapper/Service/Controller、`MajorCodeValidator` 与培养目标/学段/学科/实习地点联动校验，`training_profile` 接入 Phase 2 数据权限规则；前端新增专业培养信息表单与菜单路由；顺带修复 Phase 3 backlog：学生 confirm 不再写请求中的 `collegeId`。
 - 关键决策与理由：培养信息属于 `platform-business`，写侧用 `DataScopeService.resolve("training:edit"/"training:confirm")` 做硬校验，全校放行、学院仅授权学院、学生仅本人；读侧继续复用 `DataPermissionInterceptor + DataScopeSqlHandler`，`training_profile` 院范围走 `college_id`，本人走 `student_id`；专业/培养目标/学段/地点/学科均从字典与 Phase 1 标准库/配置表取数。
