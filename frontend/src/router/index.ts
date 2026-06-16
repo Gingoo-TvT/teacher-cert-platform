@@ -83,6 +83,12 @@ const routes: RouteRecordRaw[] = [
         name: 'videoReview',
         component: () => import('@/views/video/VideoReviewView.vue'),
         meta: { title: '视频评审', perms: ['video:upload', 'video:score', 'video:assign', 'video:arbitrate', 'video:confirm', 'video:play'] }
+      },
+      {
+        path: 'tests',
+        name: 'testResultManage',
+        component: () => import('@/views/test-result/TestResultManageView.vue'),
+        meta: { title: '测试结果', perms: ['student:view', 'test:edit', 'test:import', 'test:confirm'] }
       }
     ]
   },

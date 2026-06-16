@@ -29,6 +29,6 @@ public enum ExemptionStatus {
         return Arrays.stream(values())
                 .filter(item -> item.name().equals(value))
                 .findFirst()
-                .orElse(DRAFT);
+                .orElseThrow(() -> new cn.edu.gpnu.platform.common.exception.BizException("未知免考状态: " + value));
     }
 }

@@ -15,6 +15,14 @@
 
 ---
 
+## [2026-06-17] Phase 8 待复核小结（T-068~T-071）
+- 做了什么：从 `main` 切出 `feature/phase08-T068-test-result`，完成 `V14__test.sql`、`ability_test_result` 实体/DTO/VO/Mapper/Service/Controller、测试结果录入/修改/轻量导入、免考联动应考科目、确认锁定、有效性查询；前端新增测试结果 API、管理页、路由与菜单。
+- 关键决策与理由：`score` 全链路 `String/VARCHAR`，只做外层空白规整、不做数值/日期转换；应考科目直接复用 Phase 6 `ExemptionService.examSubjects(studentId, year, segment)`，只按 `finalStatus=PASSED` 剔除免考科目；`ability_test_result` 接入 `DataScopeSqlHandler`，写侧 collegeId 固定取 student 实体并按 `test:edit/import/confirm` 硬校验。
+- 跨阶段复检顺手项已清理：`ExemptionStatus.of()` 未知值改 fail-closed 抛错；删除 `StudentServiceImpl.fill` 中 `enforceWriteScope=false && !existing` 的未校验 collegeId 死分支；V14 幂等补种 `material:view` 权限并授予学生/学院/教务处查看范围。
+- 与规格的偏差/疑问：全量 26 列预校验/批次/回滚仍按 Phase 10 实现；本阶段提供 JSON 批量导入与 xls/xlsx/csv 轻量文件导入，字段保持文本。
+- 测试：`docker compose -f docker-compose.dev.yml up -d` 后，`mvn -B -ntp verify` 通过，Failsafe 自动跑 Phase2~Phase8 共 33 tests；`Phase8TestResultIT` 4/4 覆盖 B 科免考通过剔除、成绩文本前导零/长串读写一致、待确认有效性为否、确认锁定拒改、免考结论不覆盖过程性、院/本人读范围和跨院写 403；`npm --prefix frontend run type-check` 与 `npm --prefix frontend run build` 通过。
+- 下一步：Phase 8 已在 `PROGRESS.md` 置「待复核」，交 Claude 按 `docs/REVIEW-GATE.md` 复核，未自行置 ✅。
+
 ## [2026-06-17] Phase 7 复核通过（Claude · REVIEW-GATE，2轮 PASS）✅
 - 做了什么：复核 B1/B2 修复增量（单提交 `75b7fa7`，4 文件）。`mvn -B -ntp verify` GREEN **29/29**（Phase7 7/7，新增重传拒绝 + 3 评委结算反例 + 回归 Phase2~6 共 22）；读 B1/B2 diff 与新反例逐条核。
 - 结论：**PASS**。B1 重传守卫三入口（`initUpload` 秒传前 / `merge` / `upsertReviewAfterValidation`）：REVIEWING/NEED_REVIEW/已结算/已有任务 拒绝重传，反例证 status/videoFileId/taskCount 不变（不串分、不卡死）；B2 `settleIfReady` 泛化 N 评委（`allPairDiffWithin`+`sameConclusion`），N=2 不变、N=3 结算 82；`of()` 改 fail-closed、`locked()` 不再死代码。未动迁移/治理/已通过逻辑，前端未改。

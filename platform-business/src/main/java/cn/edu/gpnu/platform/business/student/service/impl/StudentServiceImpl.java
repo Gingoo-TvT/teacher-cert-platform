@@ -233,8 +233,6 @@ public class StudentServiceImpl implements StudentService {
         entity.setSourceFull(trimToNull(request.getSourceFull()));
         if (enforceWriteScope) {
             entity.setCollegeId(allowedCollegeId(request.getCollegeId()));
-        } else if (!existing) {
-            entity.setCollegeId(request.getCollegeId());
         }
         entity.setGrade(trimToNull(request.getGrade()));
         entity.setClassName(trimToNull(request.getClassName()));
