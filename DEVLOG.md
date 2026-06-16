@@ -15,6 +15,11 @@
 
 ---
 
+## [2026-06-17] Phase 7 复核通过（Claude · REVIEW-GATE，2轮 PASS）✅
+- 做了什么：复核 B1/B2 修复增量（单提交 `75b7fa7`，4 文件）。`mvn -B -ntp verify` GREEN **29/29**（Phase7 7/7，新增重传拒绝 + 3 评委结算反例 + 回归 Phase2~6 共 22）；读 B1/B2 diff 与新反例逐条核。
+- 结论：**PASS**。B1 重传守卫三入口（`initUpload` 秒传前 / `merge` / `upsertReviewAfterValidation`）：REVIEWING/NEED_REVIEW/已结算/已有任务 拒绝重传，反例证 status/videoFileId/taskCount 不变（不串分、不卡死）；B2 `settleIfReady` 泛化 N 评委（`allPairDiffWithin`+`sameConclusion`），N=2 不变、N=3 结算 82；`of()` 改 fail-closed、`locked()` 不再死代码。未动迁移/治理/已通过逻辑，前端未改。
+- 放行：PROGRESS Phase 7 置 ✅、AT-08 首验通过；合并 `main`（本地私有，无远程，不 push）；启动 Phase 8。Minor 维持 backlog；跨阶段复检顺手项并入 Phase 8 派发。
+
 ## [2026-06-17] Phase 7 复核退回修复（B1/B2）
 - 做了什么：修复 `docs/reviews/phase-07-review.md` 退回项 B1/B2。B1：在 `initUpload` 秒传分支、断点会话入口、`merge` 与 `upsertReviewAfterValidation` 兜底处统一执行视频重传守卫；同一学生/年度已有评审任务，或状态不属于 `WAIT_UPLOAD/VALIDATING/VALIDATION_FAILED/WAIT_REVIEW且无任务` 时拒绝重传，避免 REVIEWING/NEED_REVIEW 被学生再传重置并串用陈旧任务分。B2：`settleIfReady` 去掉两评委硬编码，按 `video.reviewerCount` 个初评做全体两两分差 ≤ 阈值且结论全一致时均分结算，否则进入 NEED_REVIEW，N=2 行为保持不变。
 - 关键决策与理由：选择泛化 N 评委结算而不是限制配置，保持 T-060/确认单#11 的“可配多专家”能力；`VideoReviewStatus` 新增 `reuploadable()`，并把 `VideoReviewStatus.of()`/`VideoUploadStatus.of()` 未知值 fail-open 改为抛错，避免脏状态被当作可上传态。

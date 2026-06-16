@@ -9,11 +9,24 @@
 | 增量基线 | `6b58173..HEAD`（约 35 文件；business 27 / boot 4 / frontend 4） |
 | 迁移 | 新增 `V13__video.sql`；V1–V12 未改动 ✓ |
 | **判定（轮次1 · 06-17）** | **❌ 退回（CHANGES REQUESTED）** |
-| 计数 | **Blocker × 1 · Major × 1 · Minor × 7（入 backlog）** |
+| 计数（轮次1） | **Blocker × 1 · Major × 1 · Minor × 7（入 backlog）** |
+| **最终判定（轮次2 · 06-17）** | **✅ PASS — B1/B2 已修，增量+回归通过（mvn verify 29/29）** |
 
 ---
 
-## 一、结论
+## 〇、复核轮次 2（2026-06-17）：B1/B2 已修复 → ✅ PASS
+
+codex 在原分支单提交 `75b7fa7` 修复，增量仅 4 文件（`VideoReviewServiceImpl` +53 / `VideoReviewStatus` +9 / `VideoUploadStatus` +2 / IT +71），未动迁移(V1–V13)与治理文档、未动已通过逻辑。
+
+- **B1（Blocker）已闭环**：新增 `ensureReuploadable(review)`——`status.locked() || !status.reuploadable() || taskCount>0` 即拒绝重传；`reuploadable()`={WAIT_UPLOAD,VALIDATING,VALIDATION_FAILED,WAIT_REVIEW}。挂在**三处入口**：`initUpload`（在 `getByMd5` 秒传之前 :108）、`merge`(:200)、`upsertReviewAfterValidation`(:474)。故 REVIEWING/NEED_REVIEW/已结算/已确认 或**已有任务**时重传一律被拒，杜绝"以陈旧分结算 / 永久卡死"。反例 `reuploadIsRejectedAfterReviewTasksExistOrNeedReview`：REVIEWING 下秒传 init 与 merge 均返 1000「评审进行中不可重新上传」且 status/videoFileId/taskCount 不变；NEED_REVIEW 下秒传亦拒、状态/任务不变。
+- **B2（Major）已闭环**：`settleIfReady` 去掉 `!=2` 硬编码，改为取前 `video.reviewerCount` 个初评，`allPairDiffWithin(threshold) && sameConclusion` → 均分结算，否则 NEED_REVIEW；N=2 行为不变、N≥3 可结算。反例：reviewerCount=3、80/82/84 → REVIEW_COMPLETED、终分 82、PASS。
+- **Minor 收口**：`VideoReviewStatus.of()`/`VideoUploadStatus.of()` 未知值改为抛错（fail-closed），`locked()` 由 `ensureReuploadable` 实际调用（不再死代码）。其余 Minor（arbitrate 忽略 conclusion、FAST_HIT 死代码、格式/时长声明可信、list 非真分页、前端 quickHash、collegeArbitrate/confirm/跨范围播放 403 覆盖）维持 backlog。
+- **独立验证**：`mvn -B -ntp verify` GREEN，**29/29**（Phase2 2 + Phase3 7 + Phase4 5 + Phase5 4 + Phase6 4 + Phase7 7，新增重传拒绝 + 3 评委结算反例）；前端未改动（沿用上一轮 type-check/build 绿）；V1–V13 与 AGENTS/REVIEW-GATE/HANDOFF/tasks 未动；remote 空、工作树干净；单提交 `75b7fa7`。
+- 结论：B1/B2 闭环、AT-08 头部与双盲/数据范围生命线未回归 → **PASS**，合并 `main` 放行 Phase 8。
+
+---
+
+## 一、结论（轮次1 退回时的记录，保留备查）
 
 Phase 7 主体质量很高，AT-08 头部全部到位且反例充分：**双盲"提交前互不可见"在接口层硬屏蔽**（`toVO` 过滤非本人任务 + `toTaskVO` 仅 owner/管理可见分 + 全量明细端点 `tasks()` 受 `video:assign/arbitrate/confirm` 把关；REVIEW_TEACHER 仅 `video:score/play`=ASSIGNED 触达不到）——三路代理 + IT 负向断言（`doesNotContain("\"score\":85")`）共同证明，**无泄漏路径**；分片上传 init/chunk/merge/progress + 断点续传 + MD5 秒传、服务端校验（MP4/大小/时长容差）、状态机B 分差结算（≤阈值且结论一致→均分；分差>阈值/结论冲突→需复评）、第三专家**两两最小对**（85/60/81→83）、`sys_param` 即改即生效、读+写+ASSIGNED 数据范围、鉴权播放（无 token→401、预签名限时、水印）均正确；大文件**不进内存**（MinIO 服务端 `composeObject`，回退路径顺序流式不缓冲整文件）；权限点 V8 §15.1 预种齐全、`@AuditLog` 覆盖全部写端点；V13 迁移幂等、V1–V12 与治理文档未改；`mvn verify` 28/28、type-check/build 绿。
 

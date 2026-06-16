@@ -5,10 +5,10 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**Phase 7 视频评审（T-057~T-067）待复核**；Phase 0~6 已复核通过。
+- 当前阶段：**Phase 8 测试结果（T-068~T-071）待开始**；Phase 0~7 已复核通过。
 - 阻塞项：无
-- 最近更新：2026-06-17（Phase 7 复核退回 B1/B2 已修：REVIEWING/NEED_REVIEW 重传/秒传拒绝且任务不变；`video.reviewerCount=3` 可正常集齐结算；`mvn verify` 29/29，`type-check`/`build` 通过）
-- 下一步：交 Claude 按 `docs/REVIEW-GATE.md` 复核 Phase 7 B1/B2 增量 + 回归
+- 最近更新：2026-06-17（Phase 7 复核通过 PASS·2轮：B1 重传守卫 + B2 多评委结算 已修并补反例，`mvn verify` 29/29；跨阶段复检亦通过，授权面/迁移/参数齐整。详见 docs/reviews/phase-07-review.md）
+- 下一步：启动 Phase 8（测试结果，消费免考应考口径 + 视频终评），派发提示词含跨阶段复检顺手项
 
 ## 阶段汇总
 | Phase | 名称 | 优先级 | 任务数 | 完成 | 状态 |
@@ -20,7 +20,7 @@
 | 4 | 专业培养信息 | P0 | 5 | 5 | ✅ 已复核(Claude 06-16) |
 | 5 | 文件 + 过程性材料 | P0 | 8 | 8 | ✅ 已复核(Claude 06-17) |
 | 6 | 免考 | P0 | 5 | 5 | ✅ 已复核(Claude 06-17) |
-| 7 | 视频评审 | P0 | 11 | 11 | 待复核 |
+| 7 | 视频评审 | P0 | 11 | 11 | ✅ 已复核(Claude 06-17·2轮) |
 | 8 | 测试结果 | P0 | 4 | 0 | 待开始 |
 | 9 | 证书 | P0 | 8 | 0 | 待开始 |
 | 10 | 导入导出与预校验 | P0 | 12 | 0 | 待开始 |
@@ -111,8 +111,8 @@
 - [x] T-055 免考申请页（学生端）
 - [x] T-056 免考审核页
 
-## Phase 7 · 视频评审 — 11/11 待复核（退回 B1/B2 已修）
-> 退回项已按增量修复：B1 在 init 秒传/断点会话/merge/upsert 统一挂重传守卫，已有任务或 REVIEWING/NEED_REVIEW/REVIEW_COMPLETED/CONFIRMED 等状态拒绝重传；B2 `settleIfReady` 泛化为按 `video.reviewerCount` 个初评做全体两两分差与结论一致判断，N=2 行为不变、N=3 可正常结算。`Phase7VideoReviewIT` 已补重传拒绝和 3 评委结算反例；`mvn verify` 29/29、前端 `type-check`/`build` 通过，重交 Claude 复核。
+## Phase 7 · 视频评审 — 11/11 ✅ 已复核（Claude 2026-06-17，PASS·2轮 · docs/reviews/phase-07-review.md）
+> 轮次1退回 B1（重传未挂可编辑态守卫）+ B2（reviewerCount>2 结算卡死）；轮次2 单提交 `75b7fa7` 已闭环：B1 三入口重传守卫（已有任务/REVIEWING/NEED_REVIEW/已结算 拒绝，不串分不卡死）、B2 `settleIfReady` 泛化 N 评委（N=2 不变、N=3 结算 82）、of() 改 fail-closed；`Phase7VideoReviewIT` 7/7 含重传拒绝 + 3 评委结算反例，`mvn verify` 29/29、前端绿。Minor 维持 backlog。
 - [x] T-057 分片上传服务（init/chunk/merge）（分支：`feature/phase07-T057-video-review`）
 - [x] T-058 视频校验（格式/大小/时长）
 - [x] T-059 video_review/task 表
@@ -198,7 +198,7 @@
 | AT-05 | 学段→学科联动禁自由填 | P1/P4 | [✅] P4复核通过(Claude 06-16)：学段-学科联动、自由填/中职类别节点拒绝、培养目标-地点联动 | [ ] |
 | AT-06 | 四类材料全过才合格 | P5 | [✅] P5复核通过(Claude 06-17)：四类缺一/某类不通过→不合格、四类全通过→合格 | [ ] |
 | AT-07 | 多科免考 + 每科佐证二级审核 | P6 | [✅] P6复核通过(Claude 06-17)：三科 PASS/REJECT/FAIL 并存互不影响、漏佐证拒提交、仅复审通过移出应考、不覆盖过程性、读+写数据范围 全绿 | [ ] |
-| AT-08 | 视频≥2教师独立评审 + 复评 | P7 | [~] P7自测通过：接口层互不可见、分差>阈值/结论冲突需复评、thirdExpert 两两最小对、鉴权播放反例、读+写数据范围；待 Claude 复核 | [ ] |
+| AT-08 | 视频≥2教师独立评审 + 复评 | P7 | [✅] P7复核通过(Claude 06-17·2轮)：接口层互不可见、分差>阈值/结论冲突需复评、thirdExpert 两两最小对、N 评委结算、重传守卫、鉴权播放、读+写数据范围 全绿 | [ ] |
 | AT-09 | 证书前置条件 | P9 | [ ] | [ ] |
 | AT-10 | 18位编号连续不重 | P9 | [ ] | [ ] |
 | AT-11 | 有效期规则 | P9 | [ ] | [ ] |
