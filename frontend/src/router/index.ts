@@ -71,6 +71,12 @@ const routes: RouteRecordRaw[] = [
         name: 'materialManage',
         component: () => import('@/views/material/MaterialManageView.vue'),
         meta: { title: '过程性材料', perms: ['material:upload', 'material:firstReview', 'material:secondReview', 'material:batchDownload'] }
+      },
+      {
+        path: 'exemptions',
+        name: 'exemptionManage',
+        component: () => import('@/views/exemption/ExemptionManageView.vue'),
+        meta: { title: '免考管理', perms: ['exemption:apply', 'exemption:firstReview', 'exemption:secondReview'] }
       }
     ]
   },

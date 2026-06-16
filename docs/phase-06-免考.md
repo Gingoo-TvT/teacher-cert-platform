@@ -21,23 +21,25 @@
 | 方法 | 路径 | 权限 | 说明 |
 |---|---|---|---|
 | GET | `/api/exemption/subjects?segment=` | `dict:view` | 该学段可免科目 |
-| POST | `/api/exemption` | `exemption:apply` | 申请（多科，每科带佐证） |
+| POST | `/api/exemption` | `exemption:apply` | 申请（多科） |
 | PUT | `/api/exemption/{id}` | `exemption:apply` | 修改（通过前） |
+| POST | `/api/exemption/{id}/materials` | `exemption:apply` | 上传单科佐证 |
 | POST | `/api/exemption/{id}/first-review` | `exemption:firstReview` | 单科初审 |
 | POST | `/api/exemption/{id}/second-review` | `exemption:secondReview` | 单科复审 |
 | GET | `/api/exemption/{studentId}?year=` | `student:view` | 学生免考清单与状态 |
+| GET | `/api/exemption/exam-subjects/{studentId}?year=&segment=` | `student:view` | 应考科目口径（复审通过科目移出） |
 
 ## 5. 前端
 - 学生端：多科选择、每科佐证上传、依据填写、提交（校验每科佐证齐全）。
 - 教务员/副院长：按科审核、退回原因、状态展示。
 
 ## 6. 验收清单（AT-07）
-- [ ] 可选**一科或多科**免考；每科可独立上传佐证。
-- [ ] 某科未上传佐证 → 该科不能提交。
-- [ ] 每科**独立**二级审核，互不影响（构造：A 科通过、B 科退回、C 科不通过并存）。
-- [ ] 免考复审通过的科目 → 从应考科目清单移除（与 Phase 8 联动验证）。
-- [ ] 免考结果**不**改变过程性考核结论（独立）。
-- [ ] 审核留痕完整。
+- [x] 可选**一科或多科**免考；每科可独立上传佐证。
+- [x] 某科未上传佐证 → 该科不能提交。
+- [x] 每科**独立**二级审核，互不影响（构造：A 科通过、B 科退回、C 科不通过并存）。
+- [x] 免考复审通过的科目 → 从应考科目清单移除（与 Phase 8 联动验证）。
+- [x] 免考结果**不**改变过程性考核结论（独立）。
+- [x] 审核留痕完整。
 
 ## 7. 测试用例
 - T-EX-1：选 2 科，各传佐证 → 提交成功；其中一科漏传佐证 → 拒。

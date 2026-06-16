@@ -15,6 +15,14 @@
 
 ---
 
+## [2026-06-17] Phase 6 待复核小结（T-052~T-056）
+- 做了什么：从 `main` 切出 `feature/phase06-T052-exemption`，完成 `V12__exemption.sql`、免考申请/佐证实体 DTO/VO/Mapper/Service/Controller，多科免考申请、每科独立佐证上传/替换/删除/预览、提交、初审/复审三态、复审通过应考口径移出；前端新增免考管理页、API、菜单与路由。
+- 关键决策与理由：免考属 `platform-business`，佐证复用 `platform-file` 的 MinIO `FileService`；读侧把 `exemption_request`/`exemption_material` 加入 `DataScopeSqlHandler`，写侧按 `student` 实体归属用 `DataScopeService.resolve(...)` 硬校验，避免 request 覆盖 collegeId；Phase 8 表未建前，以 `included_in_exam` 与 `/api/exemption/exam-subjects` 作为应考科目口径预留。
+- 问题与解决：确认单 #12 说明可免科目/免考依据后续模板导入，本阶段在 `V12` 留 TODO 并放入示例字典值用于联调和反例；最初目标 IT 的 helper 重复提交导致状态机正确拒绝，已改为显式 `submit -> firstReview -> secondReview` 流转。
+- 与规格的偏差/疑问：无阻塞。`ability_test_result` 仍属 Phase 8，本阶段不建表、不覆盖过程性材料结论，仅提供应考口径接口供 Phase 8 消费。
+- 测试：`docker compose -f docker-compose.dev.yml up -d` 后，`mvn -B -ntp verify` 通过，Failsafe 自动跑 `Phase2SecurityIT` 2/2 + `Phase3StudentIT` 7/7 + `Phase4TrainingIT` 5/5 + `Phase5MaterialIT` 4/4 + `Phase6ExemptionIT` 4/4（合计 22 tests）；覆盖 AT-07 多科 A 通过/B 退回/C 不通过互不影响、漏佐证拒提交、通过科目移出应考、不覆盖过程性结论、可编辑态守卫、读写数据范围；`npm --prefix frontend run type-check` 与 `npm --prefix frontend run build` 通过。
+- 下一步：Phase 6 已在 `PROGRESS.md` 置「待复核」，交 Claude 按 `docs/REVIEW-GATE.md` 复核，未自行置 ✅。
+
 ## [2026-06-17] Phase 5 复核通过（Claude · REVIEW-GATE）✅
 - 做了什么：独立复核 Phase 5 增量。`mvn -B -ntp verify` GREEN（`Phase5MaterialIT 4/4` + 回归 `Phase2 2/2`+`Phase3 7/7`+`Phase4 5/5` = 18/18）、`type-check`/`build` 绿；读码核 AT-06 聚合/上传校验/替换锁/数据范围读写/可编辑态守卫回填。
 - 结论：**PASS**（一轮）。AT-06（四类缺一/不通过→不合格、全过→合格）、上传限制、替换锁、两级三态审核、process_material 读+写数据范围、MinIO 复用全过；**可编辑态守卫 backlog 跨 material+student+training 真收口**（带回归反例，清除 Phase3/4 同类 Minor）；V11/治理文档未动。
