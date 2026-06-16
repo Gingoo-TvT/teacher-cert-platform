@@ -233,7 +233,7 @@ onMounted(async () => {
       </n-space>
       <n-button type="primary" @click="openDrawer()">新增学生</n-button>
     </n-space>
-    <n-data-table :columns="columns" :data="records" :loading="loading" :row-key="(row) => row.id" :scroll-x="1220" />
+    <n-data-table :columns="columns" :data="records" :loading="loading" :row-key="(row: Student) => row.id" :scroll-x="1220" />
   </n-space>
 
   <n-drawer v-model:show="drawerVisible" :width="520">

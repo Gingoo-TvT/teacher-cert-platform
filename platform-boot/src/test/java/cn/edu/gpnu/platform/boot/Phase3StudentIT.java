@@ -156,6 +156,34 @@ class Phase3StudentIT {
     }
 
     @Test
+    void collegeClerkCannotWriteStudentOutsideAuthorizedCollege() throws Exception {
+        LoginResult academic = readyLogin("test_academic_admin");
+        LoginResult clerk = readyLogin("test_college_clerk");
+
+        String crossCreateNo = uniqueNo("P3CROSSCREATE");
+        ResponseEntity<String> crossCreate = exchange("/api/student", HttpMethod.POST, clerk.accessToken(),
+                student(crossCreateNo, "跨院新增", "hm_travel_permit", uniqueTravelPermit("C"), "2001/1/2", COLLEGE_B));
+        assertThat(crossCreate.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(json(crossCreate).at("/code").asInt()).isEqualTo(403);
+        assertThat(studentMapper.selectCount(new LambdaQueryWrapper<Student>()
+                .eq(Student::getStudentNo, crossCreateNo)
+                .eq(Student::getCollegeId, COLLEGE_B))).isZero();
+        assertThat(userMapper.selectByUsername(crossCreateNo)).isNull();
+
+        long ownStudentId = create(academic.accessToken(), student(uniqueNo("P3CROSSUPDATE"), "跨院修改",
+                "hm_travel_permit", uniqueTravelPermit("U"), "2001/1/2", COLLEGE_A));
+        String movedNo = uniqueNo("P3MOVED");
+        ResponseEntity<String> crossUpdate = exchange("/api/student/" + ownStudentId, HttpMethod.PUT, clerk.accessToken(),
+                student(movedNo, "跨院修改", "hm_travel_permit", uniqueTravelPermit("V"), "2001/1/2", COLLEGE_B));
+        assertThat(crossUpdate.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(json(crossUpdate).at("/code").asInt()).isEqualTo(403);
+        Student after = studentMapper.selectById(ownStudentId);
+        assertThat(after.getCollegeId()).isEqualTo(COLLEGE_A);
+        assertThat(after.getStudentNo()).isNotEqualTo(movedNo);
+        assertThat(userMapper.selectByUsername(movedNo)).isNull();
+    }
+
+    @Test
     void createdStudentAccountCanLoginWithInitialPassword() throws Exception {
         LoginResult academic = readyLogin("test_academic_admin");
         String studentNo = uniqueNo("P3LOGIN");

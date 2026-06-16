@@ -15,6 +15,7 @@ import cn.edu.gpnu.platform.business.student.vo.StudentPlainIdCardVO;
 import cn.edu.gpnu.platform.business.student.vo.StudentVO;
 import cn.edu.gpnu.platform.common.api.PageResult;
 import cn.edu.gpnu.platform.common.api.ResultCode;
+import cn.edu.gpnu.platform.common.context.DataScopeContext;
 import cn.edu.gpnu.platform.common.context.UserContext;
 import cn.edu.gpnu.platform.common.exception.BizException;
 import cn.edu.gpnu.platform.system.entity.SysRole;
@@ -22,6 +23,7 @@ import cn.edu.gpnu.platform.system.entity.SysUser;
 import cn.edu.gpnu.platform.system.mapper.SysRoleMapper;
 import cn.edu.gpnu.platform.system.mapper.SysUserMapper;
 import cn.edu.gpnu.platform.system.mapper.SysUserRoleMapper;
+import cn.edu.gpnu.platform.system.service.DataScopeService;
 import cn.edu.gpnu.platform.system.service.ParamService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
@@ -47,6 +49,7 @@ public class StudentServiceImpl implements StudentService {
     private final SysRoleMapper roleMapper;
     private final SysUserRoleMapper userRoleMapper;
     private final PasswordEncoder passwordEncoder;
+    private final DataScopeService dataScopeService;
     private final ParamService paramService;
     private final IdCardValidator idCardValidator;
     private final BirthDateValidator birthDateValidator;
@@ -84,7 +87,7 @@ public class StudentServiceImpl implements StudentService {
     @Transactional(rollbackFor = Exception.class)
     public Long create(StudentSaveRequest request) {
         Student entity = new Student();
-        fill(entity, request, false);
+        fill(entity, request, false, true);
         entity.setStatus(StudentStatus.DRAFT.name());
         entity.setLocked(0);
         studentMapper.insert(entity);
@@ -105,7 +108,7 @@ public class StudentServiceImpl implements StudentService {
     @Transactional(rollbackFor = Exception.class)
     public void update(Long id, StudentSaveRequest request) {
         Student entity = requireStudent(id);
-        fill(entity, request, true);
+        fill(entity, request, true, true);
         studentMapper.updateById(entity);
         ensureStudentAccount(entity);
     }
@@ -125,7 +128,7 @@ public class StudentServiceImpl implements StudentService {
     public StudentVO confirm(StudentConfirmRequest request) {
         Long studentId = currentStudentId();
         Student entity = requireStudent(studentId);
-        fill(entity, request, true);
+        fill(entity, request, true, false);
         studentMapper.updateById(entity);
         return toVO(entity, false);
     }
@@ -201,7 +204,7 @@ public class StudentServiceImpl implements StudentService {
         return new StudentPlainIdCardVO(entity.getId(), entity.getIdCardNo());
     }
 
-    private void fill(Student entity, StudentSaveRequest request, boolean existing) {
+    private void fill(Student entity, StudentSaveRequest request, boolean existing, boolean enforceWriteScope) {
         if (existing && entity.getLocked() != null && entity.getLocked() == 1 && criticalChanged(entity, request)) {
             throw new BizException("关键字段已锁定，不能修改");
         }
@@ -227,9 +230,27 @@ public class StudentServiceImpl implements StudentService {
         entity.setSourceCity(trimToNull(request.getSourceCity()));
         entity.setSourceCounty(trimToNull(request.getSourceCounty()));
         entity.setSourceFull(trimToNull(request.getSourceFull()));
-        entity.setCollegeId(request.getCollegeId());
+        entity.setCollegeId(enforceWriteScope ? allowedCollegeId(request.getCollegeId()) : request.getCollegeId());
         entity.setGrade(trimToNull(request.getGrade()));
         entity.setClassName(trimToNull(request.getClassName()));
+    }
+
+    private Long allowedCollegeId(Long requestedCollegeId) {
+        if (requestedCollegeId == null) {
+            throw new BizException("学院不能为空");
+        }
+        DataScopeContext.Scope scope = dataScopeService.resolve("student:edit");
+        if (scope == null) {
+            throw new BizException(ResultCode.FORBIDDEN.getCode(), "无权操作该学院学生");
+        }
+        if (scope.allSchool()) {
+            return requestedCollegeId;
+        }
+        if (scope.getScopeType() == DataScopeContext.ScopeType.COLLEGE
+                && scope.getCollegeIds().contains(requestedCollegeId)) {
+            return requestedCollegeId;
+        }
+        throw new BizException(ResultCode.FORBIDDEN.getCode(), "无权操作该学院学生");
     }
 
     private boolean criticalChanged(Student entity, StudentSaveRequest request) {

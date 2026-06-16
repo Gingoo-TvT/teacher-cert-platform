@@ -15,6 +15,14 @@
 
 ---
 
+## [2026-06-16] Phase 3 退回复修：写侧数据范围硬校验
+- 做了什么：按 `docs/reviews/phase-03-review.md` 只修 M1/M2/M3；`StudentServiceImpl` 在 create/batchCreate/update 写侧用 `DataScopeService.resolve("student:edit")` 做学院范围硬校验，COLLEGE 账号只能写入授权学院，SCHOOL/SYSTEM/LOGIN_ALL 放行；前端 `StudentManageView` 的 `row-key` 补 `Student` 类型。
+- 关键决策与理由：校验放在 service 层，确保 create、batchCreate、update 共用同一规则，且 `ensureStudentAccount` 只会基于已校验的 `collegeId` 开通学生账号；学生本人 confirm 不纳入本次 `student:edit` 写侧校验，避免扩大退回范围。
+- 问题与解决：原实现读侧 `@DataScope` 已生效，但写侧 `request.collegeId` 可被院级账号直接覆盖，导致跨学院建/迁学生并开账号；新增 `Phase3StudentIT.collegeClerkCannotWriteStudentOutsideAuthorizedCollege` 验证学院A教务员 create/update 指向学院B 被 403 拒绝，且学生和账号均不落库。
+- 与规格的偏差/疑问：Minor 未处理，继续进 backlog。`PROGRESS.md` Phase 3 已重新置「待复核」，未置 ✅。
+- 测试：`npm --prefix frontend run type-check` 通过；`npm --prefix frontend run build` 通过；`mvn -B -ntp verify` 通过，Failsafe 自动跑 `Phase2SecurityIT` 2/2 + `Phase3StudentIT` 5/5（合计 7 tests）。
+- 下一步：交 Claude 只复核 Phase 3 退回复修增量 + 回归。
+
 ## [2026-06-16] Phase 3 待复核小结（T-030~T-038）
 - 做了什么：从 `main` 切出 `feature/phase03-T030-student-basic-info`，完成 `V9__student.sql`、首个 `platform-business` 业务模块接入、学生基本信息 CRUD/简单批量录入/本人确认、四类证件校验、出生日期一致性、姓名参数化校验、脱敏、两级审核、字段锁定、学生账号自动开通、student 表接入 Phase 2 数据范围拦截器，以及教务员/学生端前端页面与菜单路由。
 - 关键决策与理由：`student_no/id_card_no/birth_date` 全链路按 `String/VARCHAR` 处理，出生日期比较只做归一不改存储文本；姓名校验读取 `sys_param.validate.name.mode`；数据范围复用 `DataPermissionInterceptor + DataScopeSqlHandler`，新增 `student` 表规则，COLLEGE 走 `college_id IN (...)`，SELF 走 `student.id = current.studentId`。
