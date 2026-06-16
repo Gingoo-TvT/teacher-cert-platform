@@ -15,6 +15,14 @@
 
 ---
 
+## [2026-06-16] Phase 4 待复核小结（T-039~T-043）
+- 做了什么：从 `main` 切出 `feature/phase04-T039-training-profile`，新增 `V10__training_profile.sql`、专业培养信息实体/DTO/VO/Mapper/Service/Controller、`MajorCodeValidator` 与培养目标/学段/学科/实习地点联动校验，`training_profile` 接入 Phase 2 数据权限规则；前端新增专业培养信息表单与菜单路由；顺带修复 Phase 3 backlog：学生 confirm 不再写请求中的 `collegeId`。
+- 关键决策与理由：培养信息属于 `platform-business`，写侧用 `DataScopeService.resolve("training:edit"/"training:confirm")` 做硬校验，全校放行、学院仅授权学院、学生仅本人；读侧继续复用 `DataPermissionInterceptor + DataScopeSqlHandler`，`training_profile` 院范围走 `college_id`，本人走 `student_id`；专业/培养目标/学段/地点/学科均从字典与 Phase 1 标准库/配置表取数。
+- 问题与解决：首次 `mvn verify` 中 Phase4 测试姓名含 ASCII `A/B`，触发 Phase 3 姓名校验，已改纯中文测试姓名，不改业务规则；本地 V10 已应用后未再修改迁移脚本，避免 Flyway checksum 变化。Phase3 confirm 自助换学院反例已加入 `Phase3StudentIT`。
+- 与规格的偏差/疑问：无阻塞。企业实习按培养目标 `secondary_vocational_school_teacher` 限制，海外实习按校内专业名称“汉语国际教育专业”限制；完整中职专业课库仍沿用 Phase 1 确认单#13 的示例库/模板导入口径。
+- 测试：`mvn -B -ntp verify` 通过，Failsafe 自动跑 `Phase2SecurityIT` 2/2 + `Phase3StudentIT` 6/6 + `Phase4TrainingIT` 4/4（合计 12 tests）；覆盖 AT-04 非法前缀拒绝/合法前缀放行、普通师范试点专业匹配、AT-05 自由填学科拒绝/类别节点拒绝/联动 options、企业/海外地点限制、多培养目标保存、两级审核、锁定拒改、写侧跨院 403、training_profile 列表学院/学生数据范围；`npm --prefix frontend run type-check` 与 `npm --prefix frontend run build` 通过。
+- 下一步：Phase 4 已在 `PROGRESS.md` 置「待复核」，交 Claude 按 `docs/REVIEW-GATE.md` 复核，未自行置 ✅。
+
 ## [2026-06-16] Phase 3 复核通过（Claude · REVIEW-GATE，2 轮）✅
 - 做了什么：第 2 轮复核 Phase 3 退回复修增量。独立 `mvn -B -ntp verify` GREEN（`Phase3StudentIT 5/5` 含新跨院反例 + `Phase2SecurityIT 2/2` 回归）、`npm run type-check` 与 `build` 绿；读码核 `allowedCollegeId` 写侧范围校验、`StudentConfirmRequest`、新反例。
 - 结论：**PASS**。M1/M2（create/batchCreate/update 写侧 collegeId 按数据范围硬校验，跨院 403 且不落库/不开账号）+ M3（前端 type-check）已闭环；AT-03/AT-01/读写两侧数据范围/状态机A/字段锁定/脱敏/留痕全过；治理文档与 V9 未动。

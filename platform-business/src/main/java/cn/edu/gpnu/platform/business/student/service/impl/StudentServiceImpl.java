@@ -230,7 +230,11 @@ public class StudentServiceImpl implements StudentService {
         entity.setSourceCity(trimToNull(request.getSourceCity()));
         entity.setSourceCounty(trimToNull(request.getSourceCounty()));
         entity.setSourceFull(trimToNull(request.getSourceFull()));
-        entity.setCollegeId(enforceWriteScope ? allowedCollegeId(request.getCollegeId()) : request.getCollegeId());
+        if (enforceWriteScope) {
+            entity.setCollegeId(allowedCollegeId(request.getCollegeId()));
+        } else if (!existing) {
+            entity.setCollegeId(request.getCollegeId());
+        }
         entity.setGrade(trimToNull(request.getGrade()));
         entity.setClassName(trimToNull(request.getClassName()));
     }

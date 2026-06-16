@@ -156,6 +156,23 @@ class Phase3StudentIT {
     }
 
     @Test
+    void studentConfirmCannotMoveOwnCollege() throws Exception {
+        LoginResult student = readyLogin("test_student");
+        Student before = studentMapper.selectById(9001L);
+        assertThat(before.getCollegeId()).isEqualTo(COLLEGE_A);
+
+        Map<String, Object> changedCollege = student(before.getStudentNo(), before.getName(), before.getIdCardType(),
+                before.getIdCardNo(), before.getBirthDate(), COLLEGE_B);
+        ResponseEntity<String> response = exchange("/api/student/confirm", HttpMethod.POST, student.accessToken(), changedCollege);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(json(response).at("/code").asInt()).isEqualTo(0);
+        assertThat(json(response).at("/data/collegeId").asLong()).isEqualTo(COLLEGE_A);
+
+        Student after = studentMapper.selectById(9001L);
+        assertThat(after.getCollegeId()).isEqualTo(COLLEGE_A);
+    }
+
+    @Test
     void collegeClerkCannotWriteStudentOutsideAuthorizedCollege() throws Exception {
         LoginResult academic = readyLogin("test_academic_admin");
         LoginResult clerk = readyLogin("test_college_clerk");

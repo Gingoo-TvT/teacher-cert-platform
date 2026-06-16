@@ -33,7 +33,8 @@ const rawMenuOptions: AppMenuOption[] = [
     key: 'studentInfo',
     children: [
       { label: '学生基本信息', key: 'studentManage', perms: ['student:view'] },
-      { label: '本人基本信息', key: 'studentSelf', perms: ['student:confirm'] }
+      { label: '本人基本信息', key: 'studentSelf', perms: ['student:confirm'] },
+      { label: '专业培养信息', key: 'trainingManage', perms: ['student:view', 'training:confirm'] }
     ]
   },
   {
