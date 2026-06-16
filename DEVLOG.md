@@ -15,6 +15,11 @@
 
 ---
 
+## [2026-06-17] Phase 7 复核退回（Claude · REVIEW-GATE）❌
+- 做了什么：独立复核 Phase 7 增量（单提交 `6318470`）。`mvn -B -ntp verify` GREEN（`Phase7VideoReviewIT 6/6` + 回归 Phase2~6 共 22 = 28/28）、前端 `type-check`/`build` 绿；全读 1062 行 `VideoReviewServiceImpl` + 控制器 + 状态机 + V13 + IT；三路独立代理（数据范围 PASS；业务/质量各独立判出 B1/B2）。
+- 结论：**退回**。AT-08 头部全过且生命线稳：双盲"提交前互不可见"接口层硬屏蔽（无泄漏路径）、状态机B 分差/结论冲突→需复评、第三专家两两最小对 85/60/81→83、鉴权播放 401/限时预签名/水印、读+写+ASSIGNED 数据范围、大文件不进内存、权限 V8 预种、V1–V12/治理未改。**但 B1（Blocker）重传未挂可编辑态守卫**：REVIEWING/NEED_REVIEW（locked=0）下学生再传/秒传静默重置评审且不清任务 → 以陈旧分结算或永久卡死，击穿"唯一终分"；**B2（Major）`settleIfReady` 硬编码 2** 与可配 `video.reviewerCount` 矛盾（设 3 卡死）。
+- 退回处理：PROGRESS Phase 7 置 **复核退回**、不并 main、不置 ✅、AT-08 维持 `[~]`；codex 原分支修 B1/B2 + 补反例（重传被拒/正确重置不串分、N 评委结算），重交后只复核增量+回归。Minor×7 入 backlog（arbitrate 忽略 conclusion、死代码、of() 容错许可态、格式/时长声明可信、list 非真分页、前端 quickHash 整文件+非 MD5、覆盖面）。
+
 ## [2026-06-17] Phase 7 待复核小结（T-057~T-067）
 - 做了什么：从 `main` 切出 `feature/phase07-T057-video-review`，完成 `V13__video.sql`、分片上传会话/分片/video_review/video_review_task 表，视频上传 init/chunk/merge/progress、秒传/断点续传、MP4/大小/时长校验、评审任务分配、9 维独立评分、分差结算、第三专家/学院仲裁、结果确认、鉴权播放与动态水印；前端新增视频评审页、API、路由与菜单。
 - 关键决策与理由：视频业务放 `platform-business` 并复用 `platform-file` MinIO；大文件合并优先 MinIO `composeObject`，测试小分片 fallback 仍按流拼接避免整文件入内存；合格线/分差阈值/评审人数/时长容差/视频上限/仲裁模式/播放过期时间均走 `sys_param`，V13 幂等补种；`video_review`/`video_review_task`/`video_upload_session` 接入 `DataScopeSqlHandler`，评审教师按 `reviewer_id` 只能看自己任务。
