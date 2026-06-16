@@ -5,10 +5,10 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**Phase 8 测试结果（T-068~T-071）待复核**；Phase 0~7 已复核通过。
+- 当前阶段：**Phase 9 证书（T-072~T-079）待开始**；Phase 0~8 已复核通过。
 - 阻塞项：无
-- 最近更新：2026-06-17（Phase 8 完成：V14 测试结果、免考联动、确认锁定、前端页、反例与跨阶段小清理；分支 `feature/phase08-T068-test-result`）
-- 下一步：等待 Claude 按 `docs/REVIEW-GATE.md` 复核 Phase 8，未自行置 ✅
+- 最近更新：2026-06-17（Phase 8 复核通过 PASS·一轮：免考联动/成绩文本AT-01/结论有效性契约/确认锁定/读写数据范围 全绿，`mvn verify` 33/33；三项跨阶段顺手清理已闭环。详见 docs/reviews/phase-08-review.md）
+- 下一步：启动 Phase 9（证书，AT-09 前置条件 / AT-10 18位编号连续不重 / AT-11 有效期 首验）
 
 ## 阶段汇总
 | Phase | 名称 | 优先级 | 任务数 | 完成 | 状态 |
@@ -21,7 +21,7 @@
 | 5 | 文件 + 过程性材料 | P0 | 8 | 8 | ✅ 已复核(Claude 06-17) |
 | 6 | 免考 | P0 | 5 | 5 | ✅ 已复核(Claude 06-17) |
 | 7 | 视频评审 | P0 | 11 | 11 | ✅ 已复核(Claude 06-17·2轮) |
-| 8 | 测试结果 | P0 | 4 | 4 | 待复核 |
+| 8 | 测试结果 | P0 | 4 | 4 | ✅ 已复核(Claude 06-17) |
 | 9 | 证书 | P0 | 8 | 0 | 待开始 |
 | 10 | 导入导出与预校验 | P0 | 12 | 0 | 待开始 |
 | 11 | 统计报表 | P1 | 9 | 0 | 待开始 |
@@ -125,7 +125,8 @@
 - [x] T-066 视频评审页（评审教师）
 - [x] T-067 视频评审管理页（学院）
 
-## Phase 8 · 测试结果 — 4/4 待复核
+## Phase 8 · 测试结果 — 4/4 ✅ 已复核（Claude 2026-06-17，PASS·一轮 · docs/reviews/phase-08-review.md）
+> 复核结论：四项验收齐绿（免考联动剔除应考/成绩文本 AT-01/结论有效性契约/确认锁定/免考≠过程性独立）+ 读+写数据范围；三项跨阶段顺手清理（`ExemptionStatus.of()` fail-closed、`StudentServiceImpl` 死分支删除、`material:view` 补种授权）已闭环且回归无破坏；`mvn verify` 33/33；7 个 Minor 入 backlog。
 > `V14__test.sql` 落地 ability_test_result、exam_org_mode 字典与 material:view 权限补种；测试结果模块复用 Phase 6 `/api/exemption/exam-subjects` 应考口径，score 全链路 String，ability_test_result 接入 Phase 2 数据权限规则。`Phase8TestResultIT` 覆盖免考通过科目剔除、成绩文本前导零/长串保留、待确认有效性为否、确认锁定拒改、免考结论不覆盖过程性、读写数据范围与跨院写 403；`mvn verify` 33/33、前端 type-check/build 通过。
 - [x] T-068 ability_test_result 表（分支：`feature/phase08-T068-test-result`）
 - [x] T-069 测试结果录入/导入 + 免考联动

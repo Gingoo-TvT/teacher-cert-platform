@@ -15,6 +15,11 @@
 
 ---
 
+## [2026-06-17] Phase 8 复核通过（Claude · REVIEW-GATE）✅
+- 做了什么：独立复核 Phase 8 增量（单提交 `6fca8cb`）。`mvn -B -ntp verify` GREEN **33/33**（`Phase8TestResultIT 4/4` + 回归 Phase2~7 共 29）、前端 `type-check`/`build` 绿；读 V14 + service + 控制器 + 枚举 + IT + 清理两文件；两路独立代理（业务/数据范围/导入 · 质量/迁移/前端/清理）均 PASS。
+- 结论：**PASS**（一轮）。免考联动（复用 Phase6 exam-subjects，PASSED 科目剔除应考）、成绩文本 AT-01（`FastExcel useScientificFormat(false)`，21 位前导零往返一致）、结论有效性契约（合格/免考有效，为 Phase9 预留）、确认锁定守卫、免考≠过程性（独立）、读+写数据范围（写侧 collegeId 取自实体、跨院 403、学生无写权）全过。三项跨阶段顺手清理 C1（`ExemptionStatus.of()` fail-closed）/C2（`StudentServiceImpl` 死分支删除）/C3（`material:view` 补种授权）经代理逐条确认落地且回归无破坏。V1–V13/治理未改，PROGRESS 未自 ✅。
+- 放行：PROGRESS Phase 8 置 ✅、AT-01 采集侧续接 P8；合并 `main`（本地私有，无远程，不 push）；启动 Phase 9。7 Minor 入 backlog（exam_subjects 快照陈旧、importFile 无行数上限、CSV 公式注入留 Phase10 导出侧、审批留痕工作流前向、material:view 暂无消费方、list 非真分页、validity/importFile 覆盖面）。
+
 ## [2026-06-17] Phase 8 待复核小结（T-068~T-071）
 - 做了什么：从 `main` 切出 `feature/phase08-T068-test-result`，完成 `V14__test.sql`、`ability_test_result` 实体/DTO/VO/Mapper/Service/Controller、测试结果录入/修改/轻量导入、免考联动应考科目、确认锁定、有效性查询；前端新增测试结果 API、管理页、路由与菜单。
 - 关键决策与理由：`score` 全链路 `String/VARCHAR`，只做外层空白规整、不做数值/日期转换；应考科目直接复用 Phase 6 `ExemptionService.examSubjects(studentId, year, segment)`，只按 `finalStatus=PASSED` 剔除免考科目；`ability_test_result` 接入 `DataScopeSqlHandler`，写侧 collegeId 固定取 student 实体并按 `test:edit/import/confirm` 硬校验。
