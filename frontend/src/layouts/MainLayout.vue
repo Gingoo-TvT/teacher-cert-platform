@@ -36,7 +36,8 @@ const rawMenuOptions: AppMenuOption[] = [
       { label: '本人基本信息', key: 'studentSelf', perms: ['student:confirm'] },
       { label: '专业培养信息', key: 'trainingManage', perms: ['student:view', 'training:confirm'] },
       { label: '过程性材料', key: 'materialManage', perms: ['material:upload', 'material:firstReview', 'material:secondReview', 'material:batchDownload'] },
-      { label: '免考管理', key: 'exemptionManage', perms: ['exemption:apply', 'exemption:firstReview', 'exemption:secondReview'] }
+      { label: '免考管理', key: 'exemptionManage', perms: ['exemption:apply', 'exemption:firstReview', 'exemption:secondReview'] },
+      { label: '视频评审', key: 'videoReview', perms: ['video:upload', 'video:score', 'video:assign', 'video:arbitrate', 'video:confirm', 'video:play'] }
     ]
   },
   {

@@ -41,7 +41,8 @@ public class DataScopeSqlHandler implements MultiDataPermissionHandler {
         return switch (scope.getScopeType()) {
             case COLLEGE -> collegeExpression(table, rule, scope);
             case SELF -> selfExpression(table, rule, scope);
-            case ASSIGNED, NONE -> denyExpression(table, rule);
+            case ASSIGNED -> assignedExpression(table, rule, scope);
+            case NONE -> denyExpression(table, rule);
             default -> null;
         };
     }
@@ -72,6 +73,13 @@ public class DataScopeSqlHandler implements MultiDataPermissionHandler {
         if (rule.studentColumn != null && scope.getStudentId() != null) {
             return equalsExpression(column(table, rule.studentColumn), scope.getStudentId());
         }
+        if (rule.userColumn != null && scope.getUserId() != null) {
+            return equalsExpression(column(table, rule.userColumn), scope.getUserId());
+        }
+        return denyExpression(table, rule);
+    }
+
+    private Expression assignedExpression(Table table, Rule rule, DataScopeContext.Scope scope) {
         if (rule.userColumn != null && scope.getUserId() != null) {
             return equalsExpression(column(table, rule.userColumn), scope.getUserId());
         }
@@ -127,6 +135,9 @@ public class DataScopeSqlHandler implements MultiDataPermissionHandler {
         rules.put("process_material", new Rule("id", "college_id", null, "student_id", null));
         rules.put("exemption_request", new Rule("id", "college_id", null, "student_id", null));
         rules.put("exemption_material", new Rule("id", "college_id", null, "student_id", null));
+        rules.put("video_review", new Rule("id", "college_id", null, "student_id", null));
+        rules.put("video_review_task", new Rule("id", "college_id", null, "student_id", "reviewer_id"));
+        rules.put("video_upload_session", new Rule("id", "college_id", null, "student_id", null));
         rules.put("sys_college", new Rule("id", "id", null, null, null));
         rules.put("sys_major", new Rule("id", "college_id", "id", null, null));
         rules.put("major_training_goal", new Rule("id", null, "major_id", null, null));

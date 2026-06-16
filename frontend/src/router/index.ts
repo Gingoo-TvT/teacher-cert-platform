@@ -77,6 +77,12 @@ const routes: RouteRecordRaw[] = [
         name: 'exemptionManage',
         component: () => import('@/views/exemption/ExemptionManageView.vue'),
         meta: { title: '免考管理', perms: ['exemption:apply', 'exemption:firstReview', 'exemption:secondReview'] }
+      },
+      {
+        path: 'videos',
+        name: 'videoReview',
+        component: () => import('@/views/video/VideoReviewView.vue'),
+        meta: { title: '视频评审', perms: ['video:upload', 'video:score', 'video:assign', 'video:arbitrate', 'video:confirm', 'video:play'] }
       }
     ]
   },

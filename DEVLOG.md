@@ -15,6 +15,14 @@
 
 ---
 
+## [2026-06-17] Phase 7 待复核小结（T-057~T-067）
+- 做了什么：从 `main` 切出 `feature/phase07-T057-video-review`，完成 `V13__video.sql`、分片上传会话/分片/video_review/video_review_task 表，视频上传 init/chunk/merge/progress、秒传/断点续传、MP4/大小/时长校验、评审任务分配、9 维独立评分、分差结算、第三专家/学院仲裁、结果确认、鉴权播放与动态水印；前端新增视频评审页、API、路由与菜单。
+- 关键决策与理由：视频业务放 `platform-business` 并复用 `platform-file` MinIO；大文件合并优先 MinIO `composeObject`，测试小分片 fallback 仍按流拼接避免整文件入内存；合格线/分差阈值/评审人数/时长容差/视频上限/仲裁模式/播放过期时间均走 `sys_param`，V13 幂等补种；`video_review`/`video_review_task`/`video_upload_session` 接入 `DataScopeSqlHandler`，评审教师按 `reviewer_id` 只能看自己任务。
+- 问题与解决：Phase 1 已存在 `video_score_dimension` 字典项，V13 只补 9 维 `ext_json` 权重而不重复造字典；提交前互不可见在服务层按当前 reviewer 过滤任务详情，管理/结算视图才返回全量评分；播放接口先做登录、权限和数据范围校验，再发限时预签名 URL 与水印信息。
+- 与规格的偏差/疑问：IT 按要求不真传 2GB，使用小文件/小分片验证协议、秒传、续传，用元数据边界覆盖格式/大小/时长规则；9 维权重按 plan §15.5 默认值落地，后续学校正式模板可继续覆盖字典扩展字段。
+- 测试：`docker compose -f docker-compose.dev.yml up -d` 后，`mvn -B -ntp verify` 通过，Failsafe 自动跑 Phase2~Phase7 共 28 tests；`Phase7VideoReviewIT` 覆盖分片成功/秒传/断点续传、非 MP4/时长超容差拒绝、教师 A 提交后教师 B 看不到 A 分数意见、分差≤阈值结算、分差>阈值需复评、结论冲突需复评、thirdExpert 85/60/81→83、sys_param 改参生效、鉴权播放反例、院/学生/评审教师数据范围与写侧跨院 403；`npm --prefix frontend run type-check` 与 `npm --prefix frontend run build` 通过。
+- 下一步：Phase 7 已在 `PROGRESS.md` 置「待复核」，交 Claude 按 `docs/REVIEW-GATE.md` 复核 AT-08，未自行置 ✅。
+
 ## [2026-06-17] Phase 6 复核通过（Claude · REVIEW-GATE）✅
 - 做了什么：独立复核 Phase 6 增量（单提交 `df13e97`）。`mvn -B -ntp verify` GREEN（`Phase6ExemptionIT 4/4` + 回归 Phase2 2/2 + Phase3 7/7 + Phase4 5/5 + Phase5 4/4 = 22/22）、前端 `type-check`/`build` 绿；读码核 AT-07 五条 + 读写数据范围 + 可编辑态守卫 + 权限种子；三路独立代理复核均 PASS。
 - 结论：**PASS**（一轮）。AT-07：三科 PASS/REJECT/FAIL 并存互不影响、漏佐证按科拒提、仅复审通过移出应考（`includedInExam=0` 唯一写在 `secondReview` PASS）、免考不写过程性表（不覆盖）、读+写数据范围（写侧 collegeId 取自 student 实体、跨学生/跨院 403 且不建行）；可编辑态守卫复用；`exemption:*` 权限点 V8 §15.1 预种无缺口；V1–V11/治理文档未动；PROGRESS 未自 ✅。
