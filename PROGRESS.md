@@ -5,10 +5,10 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**Phase 3 基本信息（T-030~T-038）待复核**；Phase 0/1/2 均已复核通过。
-- 阻塞项：无
-- 最近更新：2026-06-16（Codex 完成 Phase 3 → `mvn -B -ntp verify` GREEN、`Phase2SecurityIT` 2/2 + `Phase3StudentIT` 4/4；`npm --prefix frontend run build` 通过；Phase 3 已置「待复核」）
-- 下一步：Claude 按 `docs/REVIEW-GATE.md` 复核 Phase 3（AT-03、AT-01、student 表数据范围、状态机、字段锁定）
+- 当前阶段：**Phase 3 基本信息（T-030~T-038）复核退回**（写侧数据范围未硬校验 + 前端 type-check）；Phase 0/1/2 已复核通过。
+- 阻塞项：M1/M2 写侧 collegeId 跨学院未拦；M3 前端 `type-check` 红
+- 最近更新：2026-06-16（Claude 复核 Phase 3 → **退回**：AT-03/AT-01/读侧 AT-13/状态机/锁定 全过、独立 `mvn verify` 绿，但 create/update 写侧 collegeId 不校验 + `type-check` 不过 · `docs/reviews/phase-03-review.md`）
+- 下一步：codex 修 M1/M2(写侧数据范围硬校验)/M3(type-check) + 补「跨学院写入被拒」反例 → 重交 → Claude 只复核增量+回归
 
 ## 阶段汇总
 | Phase | 名称 | 优先级 | 任务数 | 完成 | 状态 |
@@ -16,7 +16,7 @@
 | 0 | 工程脚手架与基础设施 | P0 | 10 | 10 | ✅ 已复核(自建自验) |
 | 1 | 基础数据与字典 | P0 | 12 | 12 | ✅ 已复核(Claude 06-14) |
 | 2 | 账号角色权限 | P0 | 7 | 7 | ✅ 已复核(Claude 06-16) |
-| 3 | 基本信息 | P0 | 9 | 9 | 待复核 |
+| 3 | 基本信息 | P0 | 9 | 9 | 复核退回(Claude 06-16) |
 | 4 | 专业培养信息 | P0 | 5 | 0 | 待开始 |
 | 5 | 文件 + 过程性材料 | P0 | 8 | 0 | 待开始 |
 | 6 | 免考 | P0 | 5 | 0 | 待开始 |
@@ -68,7 +68,8 @@
 - [x] T-028 登录页
 - [x] T-029 用户/角色/权限/数据范围管理页
 
-## Phase 3 · 基本信息 — 9/9 待复核
+## Phase 3 · 基本信息 — 9/9 复核退回（Claude 2026-06-16 · docs/reviews/phase-03-review.md）
+> 退回项：M1/M2(create/update 写侧 collegeId 未按数据范围硬校验，院级账号可跨学院建/迁学生) + M3(前端 npm run type-check 失败·隐式 any)。AT-03/AT-01/读侧 AT-13/状态机A/字段锁定/脱敏/留痕 已过，无需返工。
 > `V9__student.sql` 落地 student 表；新增 platform-business 业务模块并接入 boot；`Phase3StudentIT` 覆盖 AT-03 四类证件/出生日期、AT-01 文本化、脱敏、锁定、简单批量录入/删除、账号开通和 student 表数据范围。`mvn -B -ntp verify` 通过，待 Claude 复核。
 - [x] T-030 student 表（分支：`feature/phase03-T030-student-basic-info`）
 - [x] T-031 证件号码校验器（4 类）
