@@ -5,10 +5,10 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**Phase 3 基本信息（T-030~T-038）待复核**；Phase 0/1/2 已复核通过。
-- 阻塞项：无
-- 最近更新：2026-06-16（Codex 修复 Phase 3 复核退回 M1/M2/M3：写侧 create/batchCreate/update collegeId 按 `student:edit` 数据范围硬校验，补学院A账号跨学院 create/update 被拒反例；`npm type-check/build` 与 `mvn verify` 全绿）
-- 下一步：Claude 按 `docs/REVIEW-GATE.md` 只复核 Phase 3 退回复修增量 + 回归
+- 当前阶段：**Phase 4 专业培养信息（T-039~T-043）待开始**；Phase 0/1/2/3 已复核通过。
+- 阻塞项：无（backlog：confirm 可改本人 collegeId，待快速补丁）
+- 最近更新：2026-06-16（Claude 复核 Phase 3 退回复修 → **✅ PASS**：独立 `mvn verify` 绿 `Phase3StudentIT 5/5`(含跨院反例)+`Phase2 2/2`回归、`type-check`/`build` 绿；已合并 main · `docs/reviews/phase-03-review.md`）
+- 下一步：启动 Phase 4 —— 先 `T-039 training_profile 表`，迁移从磁盘 max+1（下一个 `V10`）；按 AGENTS §7
 
 ## 阶段汇总
 | Phase | 名称 | 优先级 | 任务数 | 完成 | 状态 |
@@ -16,7 +16,7 @@
 | 0 | 工程脚手架与基础设施 | P0 | 10 | 10 | ✅ 已复核(自建自验) |
 | 1 | 基础数据与字典 | P0 | 12 | 12 | ✅ 已复核(Claude 06-14) |
 | 2 | 账号角色权限 | P0 | 7 | 7 | ✅ 已复核(Claude 06-16) |
-| 3 | 基本信息 | P0 | 9 | 9 | 待复核 |
+| 3 | 基本信息 | P0 | 9 | 9 | ✅ 已复核(Claude 06-16) |
 | 4 | 专业培养信息 | P0 | 5 | 0 | 待开始 |
 | 5 | 文件 + 过程性材料 | P0 | 8 | 0 | 待开始 |
 | 6 | 免考 | P0 | 5 | 0 | 待开始 |
@@ -68,7 +68,8 @@
 - [x] T-028 登录页
 - [x] T-029 用户/角色/权限/数据范围管理页
 
-## Phase 3 · 基本信息 — 9/9 待复核（退回 M1/M2/M3 已修）
+## Phase 3 · 基本信息 — 9/9 ✅ 已复核（Claude 2026-06-16，PASS·2轮 · docs/reviews/phase-03-review.md）
+> backlog（不阻断）：confirm 可改本人 collegeId（学生自助换学院）——建议快速补丁：confirm 不写 collegeId。
 > 复核退回项已修：create/batchCreate/update 写侧按 `student:edit` 解析数据范围，COLLEGE 账号只能写授权学院，跨学院 create/update 返回 403 且不创建学生/账号；前端 `row-key` 补类型，`npm type-check` 通过。AT-03/AT-01/读侧 AT-13/状态机A/字段锁定/脱敏/留痕 未返工。
 > `V9__student.sql` 落地 student 表；新增 platform-business 业务模块并接入 boot；`Phase3StudentIT` 覆盖 AT-03 四类证件/出生日期、AT-01 文本化、脱敏、锁定、简单批量录入/删除、账号开通、student 表读侧数据范围与写侧跨学院拦截。`mvn -B -ntp verify` 通过，待 Claude 复核。
 - [x] T-030 student 表（分支：`feature/phase03-T030-student-basic-info`）
@@ -186,7 +187,7 @@
 |---|---|---|---|---|
 | AT-01 | 文本字段导入导出一致 | P3/P10 | [~] P3采集侧自测通过：student_no/id_card_no/birth_date 为 VARCHAR，前导零/出生日期文本回显保留；P10 导入导出复验 | [ ] |
 | AT-02 | 26 列 + H 表头 | P10 | [ ] | [ ] |
-| AT-03 | 证件 + 出生日期 | P3 | [~] P3自测通过：四类证件正反例、身份证出生日期不一致拦截、港澳通行证/台胞证不做日期校验 | [ ] |
+| AT-03 | 证件 + 出生日期 | P3 | [✅] P3复核通过(Claude 06-16)：四类证件正反例、身份证出生日期不一致拦截、港澳/台胞证不校验日期 | [ ] |
 | AT-04 | 专业代码 0401/0451/0453 | P4 | [ ] | [ ] |
 | AT-05 | 学段→学科联动禁自由填 | P1/P4 | [~] P1基础✅ | [ ] |
 | AT-06 | 四类材料全过才合格 | P5 | [ ] | [ ] |

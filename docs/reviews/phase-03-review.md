@@ -8,12 +8,22 @@
 | 被复核提交 | `c99c8e3`（feat T-030~T-038，单提交） |
 | 增量基线 | `73f0f4c..HEAD`（约 28 文件；platform-business 14 / boot 5 / frontend 5 / system 2） |
 | 迁移 | 新增 `V9__student.sql`；V1–V8 未改动 ✓ |
-| **判定** | **❌ 退回（CHANGES REQUESTED）** |
-| 计数 | **Blocker × 0 · Major × 3 · Minor × 5** |
+| **判定（轮次1 · 06-16）** | ❌ 退回（CHANGES REQUESTED） |
+| 计数（轮次1） | Blocker × 0 · Major × 3 · Minor × 5 |
+| **最终判定（轮次2 · 06-16）** | **✅ PASS — 退回项已修复，复核增量+回归通过** |
 
 ---
 
-## 一、结论
+## 〇、复核轮次 2（2026-06-16）：退回项已修复 → ✅ PASS
+- **M1/M2 写侧数据范围硬校验**：`StudentServiceImpl` 新增 `DataScopeService` 依赖与 `allowedCollegeId()`，`fill(...,enforceWriteScope=true)` 用于 create/batchCreate/update：解析 `student:edit` 范围，全校放行、COLLEGE 仅放行授权学院、否则 403「无权操作该学院学生」。`Phase3StudentIT` 新增 `collegeClerkCannotWriteStudentOutsideAuthorizedCollege`：clerk 跨院 create → 403 且不建学生/账号；clerk 把本院学生 update 到他院 → 403 且记录仍在原院、不建账号。
+- **M3 前端类型**：`StudentManageView.vue` `row-key` 补类型；`npm run type-check`(vue-tsc) 通过。
+- **独立验证**：`mvn -B -ntp verify` GREEN — `Phase2SecurityIT 2/2`（回归）+ `Phase3StudentIT 5/5`（含新跨院反例）；`type-check` EXIT 0；`npm run build` 绿。迁移(V9)/治理文档(AGENTS/REVIEW-GATE)未动；单提交 `f3fface`，工作树干净，remote 空。
+- 结论：M1/M2/M3 已闭环，读写两侧数据范围 + AT-03/AT-01/状态机/锁定全过 → **PASS**，合并 main 放行 Phase 4。
+- **遗留入 backlog（须跟踪，不阻断）**：`StudentConfirmRequest extends StudentSaveRequest` 携带 collegeId，`confirm` 走 `enforceWriteScope=false` 且 collegeId 非 `criticalChanged` 字段 → 学生本人 `confirm` 可改自己的 collegeId（自助换学院，锁定后亦不被拦）。限本人记录、无跨租户读，影响有限。**建议快速补丁/Phase 4 起关闭**：confirm 不写 collegeId（保留实体原值），或把 collegeId 纳入学生不可改集合。
+
+---
+
+## 一、结论（轮次1 退回时的记录，保留备查）
 
 Phase 3 主体质量很高：**AT-03（四类证件校验，身份证出生日期一致性强制、港澳/台胞证正确不校验日期）、AT-01（学号/证件号/出生日期 全链路 String，`birth_date` 为 VARCHAR 非 DATE）头部验收全过**；**AT-13 数据范围的读侧已正确续接**到新 `student` 表（注册进 Phase 2 的 `DataScopeSqlHandler` 表规则，学院只见本院、学生只见本人，并有真实表反例）；两级审核状态机 A、字段锁定、脱敏、`@AuditLog` 留痕、failsafe 自动跑反例均到位。独立 `mvn verify` GREEN（Phase2 2/2 + Phase3 4/4）。
 

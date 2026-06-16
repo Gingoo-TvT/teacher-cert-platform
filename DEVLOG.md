@@ -15,6 +15,12 @@
 
 ---
 
+## [2026-06-16] Phase 3 复核通过（Claude · REVIEW-GATE，2 轮）✅
+- 做了什么：第 2 轮复核 Phase 3 退回复修增量。独立 `mvn -B -ntp verify` GREEN（`Phase3StudentIT 5/5` 含新跨院反例 + `Phase2SecurityIT 2/2` 回归）、`npm run type-check` 与 `build` 绿；读码核 `allowedCollegeId` 写侧范围校验、`StudentConfirmRequest`、新反例。
+- 结论：**PASS**。M1/M2（create/batchCreate/update 写侧 collegeId 按数据范围硬校验，跨院 403 且不落库/不开账号）+ M3（前端 type-check）已闭环；AT-03/AT-01/读写两侧数据范围/状态机A/字段锁定/脱敏/留痕全过；治理文档与 V9 未动。
+- 放行：`PROGRESS.md` Phase 3 置 ✅、AT-03 首验通过；合并 `main`（本地私有，无远程）；启动 Phase 4。
+- backlog（不阻断）：confirm 可改本人 collegeId（学生自助换学院）→ 建议快速补丁：confirm 不写 collegeId。
+
 ## [2026-06-16] Phase 3 退回复修：写侧数据范围硬校验
 - 做了什么：按 `docs/reviews/phase-03-review.md` 只修 M1/M2/M3；`StudentServiceImpl` 在 create/batchCreate/update 写侧用 `DataScopeService.resolve("student:edit")` 做学院范围硬校验，COLLEGE 账号只能写入授权学院，SCHOOL/SYSTEM/LOGIN_ALL 放行；前端 `StudentManageView` 的 `row-key` 补 `Student` 类型。
 - 关键决策与理由：校验放在 service 层，确保 create、batchCreate、update 共用同一规则，且 `ensureStudentAccount` 只会基于已校验的 `collegeId` 开通学生账号；学生本人 confirm 不纳入本次 `student:edit` 写侧校验，避免扩大退回范围。
