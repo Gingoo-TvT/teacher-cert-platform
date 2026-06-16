@@ -47,6 +47,18 @@ const routes: RouteRecordRaw[] = [
         name: 'securityManage',
         component: () => import('@/views/system/SecurityManageView.vue'),
         meta: { title: '账号权限', perms: ['system:user:manage', 'system:role:manage', 'system:perm:manage'] }
+      },
+      {
+        path: 'students',
+        name: 'studentManage',
+        component: () => import('@/views/student/StudentManageView.vue'),
+        meta: { title: '学生基本信息', perms: ['student:view'] }
+      },
+      {
+        path: 'student/self',
+        name: 'studentSelf',
+        component: () => import('@/views/student/StudentSelfView.vue'),
+        meta: { title: '本人基本信息', perms: ['student:confirm'] }
       }
     ]
   },

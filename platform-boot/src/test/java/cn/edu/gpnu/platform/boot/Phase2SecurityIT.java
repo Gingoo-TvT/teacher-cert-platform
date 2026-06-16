@@ -4,6 +4,7 @@ import cn.edu.gpnu.platform.PlatformApplication;
 import cn.edu.gpnu.platform.system.entity.SysUser;
 import cn.edu.gpnu.platform.system.mapper.SysUserMapper;
 import cn.edu.gpnu.platform.system.mapper.SysUserRoleMapper;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -63,6 +64,7 @@ class Phase2SecurityIT {
     @BeforeEach
     @AfterEach
     void resetSeedUsers() {
+        cleanupPhase3GeneratedAccounts();
         ensureSecondCollegeStudent();
         resetUser("test_student", true);
         resetUser("test_student_b", true);
@@ -266,6 +268,14 @@ class Phase2SecurityIT {
             userMapper.updateById(user);
         }
         userRoleMapper.upsert(PHASE2_STUDENT_B_ROLE_ID, user.getId(), STUDENT_ROLE_ID, 0L);
+    }
+
+    private void cleanupPhase3GeneratedAccounts() {
+        userMapper.delete(new LambdaQueryWrapper<SysUser>()
+                .eq(SysUser::getUserType, "STUDENT")
+                .and(w -> w.likeRight(SysUser::getUsername, "P3")
+                        .or()
+                        .likeRight(SysUser::getUsername, "00P3")));
     }
 
     private record LoginResult(String accessToken, String refreshToken, boolean mustChangePwd, String permissions) {

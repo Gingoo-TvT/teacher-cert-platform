@@ -24,4 +24,23 @@ public class ParamServiceImpl implements ParamService {
             return defaultValue;
         }
     }
+
+    @Override
+    public boolean getBoolean(String key, boolean defaultValue) {
+        String value = sysParamMapper.selectValue(key);
+        if (!StringUtils.hasText(value)) {
+            return defaultValue;
+        }
+        return switch (value.trim().toLowerCase()) {
+            case "true", "1", "yes", "y" -> true;
+            case "false", "0", "no", "n" -> false;
+            default -> defaultValue;
+        };
+    }
+
+    @Override
+    public String getString(String key, String defaultValue) {
+        String value = sysParamMapper.selectValue(key);
+        return StringUtils.hasText(value) ? value.trim() : defaultValue;
+    }
 }

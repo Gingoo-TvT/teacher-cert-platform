@@ -15,6 +15,14 @@
 
 ---
 
+## [2026-06-16] Phase 3 待复核小结（T-030~T-038）
+- 做了什么：从 `main` 切出 `feature/phase03-T030-student-basic-info`，完成 `V9__student.sql`、首个 `platform-business` 业务模块接入、学生基本信息 CRUD/简单批量录入/本人确认、四类证件校验、出生日期一致性、姓名参数化校验、脱敏、两级审核、字段锁定、学生账号自动开通、student 表接入 Phase 2 数据范围拦截器，以及教务员/学生端前端页面与菜单路由。
+- 关键决策与理由：`student_no/id_card_no/birth_date` 全链路按 `String/VARCHAR` 处理，出生日期比较只做归一不改存储文本；姓名校验读取 `sys_param.validate.name.mode`；数据范围复用 `DataPermissionInterceptor + DataScopeSqlHandler`，新增 `student` 表规则，COLLEGE 走 `college_id IN (...)`，SELF 走 `student.id = current.studentId`。
+- 问题与解决：完整 `mvn verify` 初次发现 Phase 2 旧探针被 Phase 3 集成测试动态创建的学生账号污染，学院教务员探针从期望 1 条变成多条；已在 Phase2/Phase3 IT 中清理 `P3%/00P3%` 测试造数，保证反例相互隔离，不改业务权限逻辑。
+- 与规格的偏差/疑问：批量导入按 Phase 3 文档说明留到 Phase 10 标准导入中心；本阶段提供单条录入与学生本人确认。Phase 3 已在 `PROGRESS.md` 置「待复核」，未置 ✅。
+- 测试：`mvn -B -ntp verify` 通过，Failsafe 自动跑 `Phase2SecurityIT` 2/2 + `Phase3StudentIT` 4/4；覆盖 AT-03 四类证件正反例、身份证出生日期不一致、港澳通行证/台胞证跳过日期校验、AT-01 前导零/文本出生日期、脱敏/明文权限、锁定拒改/拒删、简单批量录入、学院A/学生本人数据范围；`npm --prefix frontend run build` 通过（仅 Vite 既有 large chunk warning）。
+- 下一步：交 Claude 按 `docs/REVIEW-GATE.md` 复核 Phase 3。
+
 ## [2026-06-16] Phase 2 复核通过（Claude · REVIEW-GATE）✅
 - 做了什么：第 3 轮复核 Phase 2 退回修复增量。独立 `mvn -B -ntp clean package` 绿 + `mvn -B -ntp verify` 绿（Failsafe 自动跑 `Phase2SecurityIT` **2/2 通过**）；读码核 `DataScopeSqlHandler`/拦截器/CORS/Failsafe/CI；DB 核 §15.1 与数据范围真实表隔离。
 - 结论：**PASS**。B1 数据范围经 `DataPermissionInterceptor + ParenthesedExpressionList` 在真实 `sys_user/sys_college/sys_major` 表上行级隔离生效（学院A 只见本院、学生只见本人、教务处全校）；M1 CORS 白名单、M3 反例接 CI、M4 探针真实表、M2/m7 均已修；§15.1 零误差、认证安全无回归。

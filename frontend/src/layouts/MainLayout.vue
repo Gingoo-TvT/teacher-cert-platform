@@ -29,6 +29,14 @@ const rawMenuOptions: AppMenuOption[] = [
     ]
   },
   {
+    label: '基本信息',
+    key: 'studentInfo',
+    children: [
+      { label: '学生基本信息', key: 'studentManage', perms: ['student:view'] },
+      { label: '本人基本信息', key: 'studentSelf', perms: ['student:confirm'] }
+    ]
+  },
+  {
     label: '系统管理',
     key: 'systemManage',
     children: [{ label: '账号权限', key: 'securityManage', perms: ['system:user:manage', 'system:role:manage', 'system:perm:manage'] }]
