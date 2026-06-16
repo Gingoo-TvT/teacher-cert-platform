@@ -15,6 +15,13 @@
 
 ---
 
+## [2026-06-17] Phase 5 待复核小结（T-044~T-051）
+- 做了什么：从 `main` 切出 `feature/phase05-T044-process-material`，完成 `V11__process_material.sql`、过程性材料实体/DTO/VO/Mapper/Service/Controller，材料上传/预览/替换/删除、初审/复审、AT-06 四类聚合合格判定、批量下载 ZIP+清单；前端新增过程性材料页面与菜单入口。
+- 关键决策与理由：材料业务放 `platform-business` 并复用 `platform-file` 的 MinIO `FileService`/预签名/对象读取；上传大小与 MIME 白名单走 `sys_param`，读侧复用 `DataScopeSqlHandler` 新增 `process_material` 表规则，写侧按 student 归属学院/本人硬校验。
+- 问题与解决：用户口径中的四类材料名称与现有 `material_category` 字典/phase 文档不完全一致，本阶段按已落库标准字典四类实现并记录口径；批量下载清单采用 ZIP 内 `manifest.csv`，字段覆盖学号/姓名/类别/文件名/状态/审核人/审核时间。附带收口可编辑态守卫：student/training/material 仅 DRAFT/FIRST_REJECTED/SECOND_REJECTED 可写，在审/已通过/locked 拒绝，并补 Phase3/Phase4 反例。
+- 测试：`docker compose -f docker-compose.dev.yml up -d` 后，`mvn -B -ntp verify` 通过，Failsafe 自动跑 `Phase2SecurityIT` 2/2 + `Phase3StudentIT` 7/7 + `Phase4TrainingIT` 5/5 + `Phase5MaterialIT` 4/4（合计 18 tests）；覆盖 AT-06 缺一/不通过/全通过、上传类型/大小超限、通过后替换拒绝、material 读写数据范围、批量下载清单；`npm --prefix frontend run type-check` 与 `npm --prefix frontend run build` 通过。
+- 下一步：Phase 5 已在 `PROGRESS.md` 置「待复核」，交 Claude 按 `docs/REVIEW-GATE.md` 复核，未自行置 ✅。
+
 ## [2026-06-16] Phase 4 复核通过（Claude · REVIEW-GATE）✅
 - 做了什么：独立复核 Phase 4 增量。`mvn -B -ntp verify` GREEN（`Phase4TrainingIT 4/4` + `Phase3StudentIT 6/6`(含新 confirm 反例) + `Phase2SecurityIT 2/2` = 12/12）、`type-check`/`build` 绿；读码核 `MajorCodeValidator`/`TrainingLinkValidator`/写侧 `allowedCollegeId`/`training_profile` 数据范围规则/Phase3 confirm backlog 修复。
 - 结论：**PASS**（一轮）。AT-04（专业代码 0401/0451/0453）、AT-05（学段-学科联动禁自由填、中职类别节点拒绝）、培养目标-实习地点联动、读+写两侧数据范围、状态机A 全过；Phase 3 confirm backlog 已闭环；V10/治理文档未动。

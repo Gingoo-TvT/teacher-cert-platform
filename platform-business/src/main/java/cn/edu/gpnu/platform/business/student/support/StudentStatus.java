@@ -21,6 +21,10 @@ public enum StudentStatus {
         return label;
     }
 
+    public boolean editable() {
+        return this == DRAFT || this == FIRST_REJECTED || this == SECOND_REJECTED;
+    }
+
     public static StudentStatus of(String value) {
         return Arrays.stream(values())
                 .filter(item -> item.name().equals(value))

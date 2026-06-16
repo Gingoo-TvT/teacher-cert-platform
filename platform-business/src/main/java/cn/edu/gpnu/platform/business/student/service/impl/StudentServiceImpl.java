@@ -117,9 +117,7 @@ public class StudentServiceImpl implements StudentService {
     @Transactional(rollbackFor = Exception.class)
     public void delete(Long id) {
         Student entity = requireStudent(id);
-        if (entity.getLocked() != null && entity.getLocked() == 1) {
-            throw new BizException("关键字段已锁定，不能删除");
-        }
+        ensureEditable(entity, "删除");
         studentMapper.deleteById(id);
     }
 
@@ -205,6 +203,9 @@ public class StudentServiceImpl implements StudentService {
     }
 
     private void fill(Student entity, StudentSaveRequest request, boolean existing, boolean enforceWriteScope) {
+        if (existing) {
+            ensureEditable(entity, "修改");
+        }
         if (existing && entity.getLocked() != null && entity.getLocked() == 1 && criticalChanged(entity, request)) {
             throw new BizException("关键字段已锁定，不能修改");
         }
@@ -255,6 +256,15 @@ public class StudentServiceImpl implements StudentService {
             return requestedCollegeId;
         }
         throw new BizException(ResultCode.FORBIDDEN.getCode(), "无权操作该学院学生");
+    }
+
+    private void ensureEditable(Student entity, String operation) {
+        if (entity.getLocked() != null && entity.getLocked() == 1) {
+            throw new BizException("关键字段已锁定，不能" + operation);
+        }
+        if (!StudentStatus.of(entity.getStatus()).editable()) {
+            throw new BizException("当前状态不可编辑");
+        }
     }
 
     private boolean criticalChanged(Student entity, StudentSaveRequest request) {

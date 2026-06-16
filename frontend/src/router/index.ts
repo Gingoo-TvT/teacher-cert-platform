@@ -65,6 +65,12 @@ const routes: RouteRecordRaw[] = [
         name: 'trainingManage',
         component: () => import('@/views/training/TrainingManageView.vue'),
         meta: { title: '专业培养信息', perms: ['student:view', 'training:confirm'] }
+      },
+      {
+        path: 'materials',
+        name: 'materialManage',
+        component: () => import('@/views/material/MaterialManageView.vue'),
+        meta: { title: '过程性材料', perms: ['material:upload', 'material:firstReview', 'material:secondReview', 'material:batchDownload'] }
       }
     ]
   },

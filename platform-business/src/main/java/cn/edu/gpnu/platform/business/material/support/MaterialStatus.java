@@ -1,8 +1,8 @@
-package cn.edu.gpnu.platform.business.training.support;
+package cn.edu.gpnu.platform.business.material.support;
 
 import java.util.Arrays;
 
-public enum TrainingStatus {
+public enum MaterialStatus {
     DRAFT("草稿"),
     FIRST_REVIEW("待初审"),
     FIRST_REJECTED("初审退回"),
@@ -13,7 +13,7 @@ public enum TrainingStatus {
 
     private final String label;
 
-    TrainingStatus(String label) {
+    MaterialStatus(String label) {
         this.label = label;
     }
 
@@ -25,7 +25,7 @@ public enum TrainingStatus {
         return this == DRAFT || this == FIRST_REJECTED || this == SECOND_REJECTED;
     }
 
-    public static TrainingStatus of(String value) {
+    public static MaterialStatus of(String value) {
         return Arrays.stream(values())
                 .filter(item -> item.name().equals(value))
                 .findFirst()

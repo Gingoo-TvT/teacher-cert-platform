@@ -173,6 +173,21 @@ class Phase3StudentIT {
     }
 
     @Test
+    void studentInReviewCannotBeEditedOrConfirmed() throws Exception {
+        LoginResult academic = readyLogin("test_academic_admin");
+        long studentId = create(academic.accessToken(), student(uniqueNo("P3REVIEW"), "在审学生",
+                "hm_travel_permit", uniqueTravelPermit("R"), "2001/1/2", COLLEGE_A));
+        ResponseEntity<String> submit = exchange("/api/student/" + studentId + "/submit", HttpMethod.POST,
+                academic.accessToken(), Map.of());
+        assertThat(json(submit).at("/code").asInt()).isEqualTo(0);
+
+        ResponseEntity<String> update = exchange("/api/student/" + studentId, HttpMethod.PUT, academic.accessToken(),
+                student(uniqueNo("P3REVIEWNEW"), "在审改名", "hm_travel_permit", uniqueTravelPermit("E"), "2001/1/2", COLLEGE_A));
+        assertThat(json(update).at("/code").asInt()).isEqualTo(1000);
+        assertThat(json(update).at("/msg").asText()).contains("当前状态不可编辑");
+    }
+
+    @Test
     void collegeClerkCannotWriteStudentOutsideAuthorizedCollege() throws Exception {
         LoginResult academic = readyLogin("test_academic_admin");
         LoginResult clerk = readyLogin("test_college_clerk");

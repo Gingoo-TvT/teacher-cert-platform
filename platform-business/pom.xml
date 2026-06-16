@@ -21,6 +21,10 @@
             <artifactId>platform-system</artifactId>
         </dependency>
         <dependency>
+            <groupId>cn.edu.gpnu</groupId>
+            <artifactId>platform-file</artifactId>
+        </dependency>
+        <dependency>
             <groupId>com.baomidou</groupId>
             <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
         </dependency>

@@ -170,6 +170,26 @@ class Phase4TrainingIT {
     }
 
     @Test
+    void trainingProfileInReviewCannotBeSavedAgain() throws Exception {
+        LoginResult academic = readyLogin("test_academic_admin");
+        long studentId = createStudent(academic.accessToken(), student(uniqueNo("P4REVIEW"), "在审培养",
+                "normal_student", COLLEGE_A));
+        long profileId = save(academic.accessToken(), training(studentId, COLLEGE_A, YEAR,
+                "050101", "汉语言文学", "P4_NORMAL_A", "Phase4普通师范试点专业A", "bachelor",
+                "primary_school_teacher", "primary_secondary_school", "primary_school", "ps_chinese"));
+        ResponseEntity<String> submit = exchange("/api/training/" + profileId + "/submit", HttpMethod.POST,
+                academic.accessToken(), Map.of());
+        assertThat(json(submit).at("/code").asInt()).isEqualTo(0);
+
+        ResponseEntity<String> saveWhileReview = exchange("/api/training", HttpMethod.POST, academic.accessToken(),
+                training(studentId, COLLEGE_A, YEAR, "050101", "汉语言文学",
+                        "P4_NORMAL_A", "Phase4普通师范试点专业A", "bachelor",
+                        "primary_school_teacher", "primary_secondary_school", "primary_school", "ps_chinese"));
+        assertThat(json(saveWhileReview).at("/code").asInt()).isEqualTo(1000);
+        assertThat(json(saveWhileReview).at("/msg").asText()).contains("当前状态不可编辑");
+    }
+
+    @Test
     void writeScopeAndReadDataScopeUseTrainingProfileTable() throws Exception {
         LoginResult academic = readyLogin("test_academic_admin");
         LoginResult clerk = readyLogin("test_college_clerk");

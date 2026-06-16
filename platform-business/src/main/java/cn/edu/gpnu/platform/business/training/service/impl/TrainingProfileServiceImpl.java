@@ -93,6 +93,9 @@ public class TrainingProfileServiceImpl implements TrainingProfileService {
             entity.setStatus(TrainingStatus.DRAFT.name());
             entity.setLocked(0);
         }
+        if (existing) {
+            ensureEditable(entity);
+        }
         if (existing && entity.getLocked() != null && entity.getLocked() == 1 && criticalChanged(entity, request)) {
             throw new BizException("关键字段已锁定，不能修改");
         }
@@ -264,6 +267,15 @@ public class TrainingProfileServiceImpl implements TrainingProfileService {
             return requestedCollegeId;
         }
         throw new BizException(ResultCode.FORBIDDEN.getCode(), "无权操作该学院培养信息");
+    }
+
+    private void ensureEditable(TrainingProfile entity) {
+        if (entity.getLocked() != null && entity.getLocked() == 1) {
+            throw new BizException("关键字段已锁定，不能修改");
+        }
+        if (!TrainingStatus.of(entity.getStatus()).editable()) {
+            throw new BizException("当前状态不可编辑");
+        }
     }
 
     private boolean criticalChanged(TrainingProfile entity, TrainingProfileSaveRequest request) {
