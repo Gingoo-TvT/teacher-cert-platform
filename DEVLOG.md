@@ -15,6 +15,12 @@
 
 ---
 
+## [2026-06-17] Phase 6 复核通过（Claude · REVIEW-GATE）✅
+- 做了什么：独立复核 Phase 6 增量（单提交 `df13e97`）。`mvn -B -ntp verify` GREEN（`Phase6ExemptionIT 4/4` + 回归 Phase2 2/2 + Phase3 7/7 + Phase4 5/5 + Phase5 4/4 = 22/22）、前端 `type-check`/`build` 绿；读码核 AT-07 五条 + 读写数据范围 + 可编辑态守卫 + 权限种子；三路独立代理复核均 PASS。
+- 结论：**PASS**（一轮）。AT-07：三科 PASS/REJECT/FAIL 并存互不影响、漏佐证按科拒提、仅复审通过移出应考（`includedInExam=0` 唯一写在 `secondReview` PASS）、免考不写过程性表（不覆盖）、读+写数据范围（写侧 collegeId 取自 student 实体、跨学生/跨院 403 且不建行）；可编辑态守卫复用；`exemption:*` 权限点 V8 §15.1 预种无缺口；V1–V11/治理文档未动；PROGRESS 未自 ✅。
+- 放行：PROGRESS Phase 6 置 ✅、AT-07 首验通过；合并 `main`（本地私有，无远程，不 push）；启动 Phase 7（视频评审，AT-08）。
+- backlog（不阻断，8 Minor）：`ExemptionStatus.of()` 未知值 fail-open、`submit` 跳过 locked 检查、`list` 非真分页、404-vs-403 存在性探测、`ExemptionQuery.collegeId` 边界注释、`readPermission()` 口径、退回重提/初审 FAIL 测试覆盖、前端 segment 接线。
+
 ## [2026-06-17] Phase 6 待复核小结（T-052~T-056）
 - 做了什么：从 `main` 切出 `feature/phase06-T052-exemption`，完成 `V12__exemption.sql`、免考申请/佐证实体 DTO/VO/Mapper/Service/Controller，多科免考申请、每科独立佐证上传/替换/删除/预览、提交、初审/复审三态、复审通过应考口径移出；前端新增免考管理页、API、菜单与路由。
 - 关键决策与理由：免考属 `platform-business`，佐证复用 `platform-file` 的 MinIO `FileService`；读侧把 `exemption_request`/`exemption_material` 加入 `DataScopeSqlHandler`，写侧按 `student` 实体归属用 `DataScopeService.resolve(...)` 硬校验，避免 request 覆盖 collegeId；Phase 8 表未建前，以 `included_in_exam` 与 `/api/exemption/exam-subjects` 作为应考科目口径预留。
