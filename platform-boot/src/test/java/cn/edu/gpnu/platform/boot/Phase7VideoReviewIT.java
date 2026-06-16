@@ -228,11 +228,65 @@ class Phase7VideoReviewIT {
     }
 
     @Test
+    void reuploadIsRejectedAfterReviewTasksExistOrNeedReview() throws Exception {
+        LoginResult student = readyLogin("test_student");
+        LoginResult clerk = readyLogin("test_college_clerk");
+        LoginResult reviewerA = readyLogin("test_review_teacher");
+        LoginResult reviewerB = readyLogin("test_review_teacher_b");
+
+        String reviewingYear = "P7-RU-REV";
+        long reviewingId = uploadValidatedVideo(student.accessToken(), 9001L, reviewingYear);
+        byte[] replacement = mp4("replacement-before-reviewing");
+        String replacementMd5 = md5(replacement);
+        JsonNode replacementInit = initUpload(student.accessToken(), 9001L, reviewingYear,
+                "replacement.mp4", "video/mp4", replacement.length, 4, replacementMd5, 900);
+        String replacementUploadId = replacementInit.at("/uploadId").asText();
+        uploadAll(student.accessToken(), replacementUploadId, replacement, 4);
+
+        assign(clerk.accessToken(), reviewingId, 800000000000003005L, REVIEWER_B_USER_ID);
+        VideoReview beforeReviewing = reviewMapper.selectById(reviewingId);
+        Long beforeTaskCount = taskCount(reviewingId);
+
+        byte[] original = mp4(reviewingYear);
+        ResponseEntity<String> instantHit = exchange("/api/video/upload/init", HttpMethod.POST, student.accessToken(),
+                initBody(9001L, reviewingYear, "lesson-" + reviewingYear + ".mp4",
+                        "video/mp4", original.length, 4, md5(original), 900));
+        assertThat(json(instantHit).at("/code").asInt()).isEqualTo(1000);
+        assertThat(json(instantHit).at("/msg").asText()).contains("评审进行中不可重新上传");
+
+        ResponseEntity<String> mergeAgain = exchange("/api/video/upload/merge", HttpMethod.POST, student.accessToken(),
+                Map.of("uploadId", replacementUploadId, "durationSeconds", 900));
+        assertThat(json(mergeAgain).at("/code").asInt()).isEqualTo(1000);
+        assertThat(json(mergeAgain).at("/msg").asText()).contains("评审进行中不可重新上传");
+        VideoReview afterReviewing = reviewMapper.selectById(reviewingId);
+        assertThat(afterReviewing.getStatus()).isEqualTo("REVIEWING");
+        assertThat(afterReviewing.getVideoFileId()).isEqualTo(beforeReviewing.getVideoFileId());
+        assertThat(taskCount(reviewingId)).isEqualTo(beforeTaskCount);
+
+        String needReviewYear = "P7-RU-NEED";
+        long needReviewId = uploadValidatedVideo(student.accessToken(), 9001L, needReviewYear);
+        assign(clerk.accessToken(), needReviewId, 800000000000003005L, REVIEWER_B_USER_ID);
+        score(reviewerA.accessToken(), taskIdByReview(reviewerA.accessToken(), needReviewId), 85, "PASS");
+        score(reviewerB.accessToken(), taskIdByReview(reviewerB.accessToken(), needReviewId), 60, "PASS");
+        assertThat(reviewMapper.selectById(needReviewId).getStatus()).isEqualTo("NEED_REVIEW");
+        Long needReviewTaskCount = taskCount(needReviewId);
+        byte[] needReviewFile = mp4(needReviewYear);
+        ResponseEntity<String> needReviewReupload = exchange("/api/video/upload/init", HttpMethod.POST, student.accessToken(),
+                initBody(9001L, needReviewYear, "lesson-" + needReviewYear + ".mp4",
+                        "video/mp4", needReviewFile.length, 4, md5(needReviewFile), 900));
+        assertThat(json(needReviewReupload).at("/code").asInt()).isEqualTo(1000);
+        assertThat(json(needReviewReupload).at("/msg").asText()).contains("评审进行中不可重新上传");
+        assertThat(reviewMapper.selectById(needReviewId).getStatus()).isEqualTo("NEED_REVIEW");
+        assertThat(taskCount(needReviewId)).isEqualTo(needReviewTaskCount);
+    }
+
+    @Test
     void sysParamChangesAffectThresholdAndReviewerCount() throws Exception {
         LoginResult student = readyLogin("test_student");
         LoginResult clerk = readyLogin("test_college_clerk");
         LoginResult reviewerA = readyLogin("test_review_teacher");
         LoginResult reviewerB = readyLogin("test_review_teacher_b");
+        LoginResult reviewerC = readyLogin("test_review_teacher_c");
         updateParam("video.diffThreshold", "30");
         long reviewId = uploadValidatedVideo(student.accessToken(), 9001L, "P7-PARAM-DIFF");
         assign(clerk.accessToken(), reviewId, 800000000000003005L, REVIEWER_B_USER_ID);
@@ -242,10 +296,14 @@ class Phase7VideoReviewIT {
 
         updateParam("video.reviewerCount", "3");
         long threeReviewerId = uploadValidatedVideo(student.accessToken(), 9001L, "P7-PARAM-COUNT");
-        ResponseEntity<String> twoReviewers = exchange("/api/video/reviews/" + threeReviewerId + "/assign",
-                HttpMethod.POST, clerk.accessToken(), Map.of("reviewerIds", List.of(800000000000003005L, REVIEWER_B_USER_ID)));
-        assertThat(json(twoReviewers).at("/code").asInt()).isEqualTo(1000);
-        assertThat(json(twoReviewers).at("/msg").asText()).contains("video.reviewerCount");
+        assign(clerk.accessToken(), threeReviewerId, 800000000000003005L, REVIEWER_B_USER_ID, REVIEWER_C_USER_ID);
+        score(reviewerA.accessToken(), taskIdByReview(reviewerA.accessToken(), threeReviewerId), 80, "PASS");
+        score(reviewerB.accessToken(), taskIdByReview(reviewerB.accessToken(), threeReviewerId), 82, "PASS");
+        score(reviewerC.accessToken(), taskIdByReview(reviewerC.accessToken(), threeReviewerId), 84, "PASS");
+        VideoReview threeReviewerSettled = reviewMapper.selectById(threeReviewerId);
+        assertThat(threeReviewerSettled.getStatus()).isEqualTo("REVIEW_COMPLETED");
+        assertThat(threeReviewerSettled.getFinalScore()).isEqualTo(82);
+        assertThat(threeReviewerSettled.getFinalConclusion()).isEqualTo("PASS");
     }
 
     @Test
@@ -402,6 +460,11 @@ class Phase7VideoReviewIT {
             }
         }
         throw new AssertionError("task not found for review " + reviewId);
+    }
+
+    private Long taskCount(long reviewId) {
+        return taskMapper.selectCount(new LambdaQueryWrapper<VideoReviewTask>()
+                .eq(VideoReviewTask::getVideoReviewId, reviewId));
     }
 
     private HttpEntity<ByteArrayResource> resource(String filename, String contentType, byte[] content) {

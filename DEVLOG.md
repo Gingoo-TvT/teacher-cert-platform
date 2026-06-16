@@ -15,6 +15,14 @@
 
 ---
 
+## [2026-06-17] Phase 7 复核退回修复（B1/B2）
+- 做了什么：修复 `docs/reviews/phase-07-review.md` 退回项 B1/B2。B1：在 `initUpload` 秒传分支、断点会话入口、`merge` 与 `upsertReviewAfterValidation` 兜底处统一执行视频重传守卫；同一学生/年度已有评审任务，或状态不属于 `WAIT_UPLOAD/VALIDATING/VALIDATION_FAILED/WAIT_REVIEW且无任务` 时拒绝重传，避免 REVIEWING/NEED_REVIEW 被学生再传重置并串用陈旧任务分。B2：`settleIfReady` 去掉两评委硬编码，按 `video.reviewerCount` 个初评做全体两两分差 ≤ 阈值且结论全一致时均分结算，否则进入 NEED_REVIEW，N=2 行为保持不变。
+- 关键决策与理由：选择泛化 N 评委结算而不是限制配置，保持 T-060/确认单#11 的“可配多专家”能力；`VideoReviewStatus` 新增 `reuploadable()`，并把 `VideoReviewStatus.of()`/`VideoUploadStatus.of()` 未知值 fail-open 改为抛错，避免脏状态被当作可上传态。
+- 问题与解决：新增重传反例最初使用过长 assessmentYear 触发字段截断，已按 V13 字段约束缩短测试年度；业务断言验证 REVIEWING 下 init 秒传与 merge 均拒绝、任务数与视频文件 ID 不变，NEED_REVIEW 下秒传也拒绝。
+- 与规格的偏差/疑问：未改已通过的双盲、第三专家两两最小对、数据范围和鉴权逻辑；Minor 中仅低成本收紧 `of()` 未知值容错，其余继续按复核报告入 backlog。
+- 测试：`mvn -B -ntp -pl platform-boot -am "-Dtest=Phase7VideoReviewIT" "-Dsurefire.failIfNoSpecifiedTests=false" test` 通过，`Phase7VideoReviewIT` 7/7；`mvn -B -ntp verify` 通过，Failsafe 自动跑 Phase2~Phase7 共 29 tests（Phase7 7/7，含重传拒绝与 3 评委结算新增反例）；`npm --prefix frontend run type-check` 与 `npm --prefix frontend run build` 通过。
+- 下一步：Phase 7 已在 `PROGRESS.md` 重新置「待复核」，提交后交 Claude 只复核 B1/B2 增量 + 回归。
+
 ## [2026-06-17] Phase 7 复核退回（Claude · REVIEW-GATE）❌
 - 做了什么：独立复核 Phase 7 增量（单提交 `6318470`）。`mvn -B -ntp verify` GREEN（`Phase7VideoReviewIT 6/6` + 回归 Phase2~6 共 22 = 28/28）、前端 `type-check`/`build` 绿；全读 1062 行 `VideoReviewServiceImpl` + 控制器 + 状态机 + V13 + IT；三路独立代理（数据范围 PASS；业务/质量各独立判出 B1/B2）。
 - 结论：**退回**。AT-08 头部全过且生命线稳：双盲"提交前互不可见"接口层硬屏蔽（无泄漏路径）、状态机B 分差/结论冲突→需复评、第三专家两两最小对 85/60/81→83、鉴权播放 401/限时预签名/水印、读+写+ASSIGNED 数据范围、大文件不进内存、权限 V8 预种、V1–V12/治理未改。**但 B1（Blocker）重传未挂可编辑态守卫**：REVIEWING/NEED_REVIEW（locked=0）下学生再传/秒传静默重置评审且不清任务 → 以陈旧分结算或永久卡死，击穿"唯一终分"；**B2（Major）`settleIfReady` 硬编码 2** 与可配 `video.reviewerCount` 矛盾（设 3 卡死）。

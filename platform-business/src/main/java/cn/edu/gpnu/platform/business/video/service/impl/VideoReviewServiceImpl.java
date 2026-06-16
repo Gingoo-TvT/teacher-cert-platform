@@ -105,6 +105,7 @@ public class VideoReviewServiceImpl implements VideoReviewService {
         Student student = requireStudent(request.getStudentId());
         ensureCanWriteStudent(student, "video:upload");
         validateUploadMeta(request.getFileName(), request.getContentType(), request.getSize());
+        ensureReviewReuploadable(student.getId(), request.getAssessmentYear());
         FileObject existingFile = fileService.getByMd5(requiredTrim(request.getFileMd5(), "文件MD5不能为空"));
         if (existingFile != null) {
             VideoReview review = upsertReviewAfterValidation(student, request.getAssessmentYear(), existingFile,
@@ -196,6 +197,7 @@ public class VideoReviewServiceImpl implements VideoReviewService {
         VideoUploadSession session = requireSession(request.getUploadId());
         Student student = requireStudent(session.getStudentId());
         ensureCanWriteStudent(student, "video:upload");
+        ensureReviewReuploadable(student.getId(), session.getAssessmentYear());
         List<VideoUploadChunk> chunks = chunks(session.getUploadId());
         if (chunks.size() != session.getTotalChunks()) {
             throw new BizException("分片尚未全部上传");
@@ -469,8 +471,8 @@ public class VideoReviewServiceImpl implements VideoReviewService {
             review.setStudentId(student.getId());
             review.setCollegeId(student.getCollegeId());
             review.setAssessmentYear(requiredTrim(year, "考核年度不能为空"));
-        } else if (review.getLocked() != null && review.getLocked() == 1) {
-            throw new BizException("已结算或已确认的视频不可重传");
+        } else {
+            ensureReuploadable(review);
         }
         review.setVideoFileId(file.getId());
         review.setVideoFileName(file.getOriginalName());
@@ -485,6 +487,22 @@ public class VideoReviewServiceImpl implements VideoReviewService {
             reviewMapper.updateById(review);
         }
         return review;
+    }
+
+    private void ensureReviewReuploadable(Long studentId, String assessmentYear) {
+        VideoReview existing = existingReview(studentId, assessmentYear);
+        if (existing != null) {
+            ensureReuploadable(existing);
+        }
+    }
+
+    private void ensureReuploadable(VideoReview review) {
+        VideoReviewStatus status = VideoReviewStatus.of(review.getStatus());
+        Long taskCount = taskMapper.selectCount(new LambdaQueryWrapper<VideoReviewTask>()
+                .eq(VideoReviewTask::getVideoReviewId, review.getId()));
+        if (status.locked() || !status.reuploadable() || (taskCount != null && taskCount > 0)) {
+            throw new BizException("评审进行中不可重新上传");
+        }
     }
 
     private void validateMergedVideo(VideoReview review, FileObject file, Integer durationSeconds, boolean instantHit) {
@@ -620,15 +638,11 @@ public class VideoReviewServiceImpl implements VideoReviewService {
         if (submitted.size() < expected) {
             return;
         }
-        if (submitted.size() != 2) {
-            throw new BizException("当前仅支持两个初评教师自动结算");
-        }
-        VideoReviewTask a = submitted.get(0);
-        VideoReviewTask b = submitted.get(1);
-        int diff = Math.abs(a.getScore() - b.getScore());
+        List<VideoReviewTask> initialReviews = submitted.stream().limit(expected).toList();
         int threshold = paramService.getInt("video.diffThreshold", DEFAULT_DIFF_THRESHOLD);
-        if (diff <= threshold && sameConclusion(a, b)) {
-            int finalScore = Math.round((a.getScore() + b.getScore()) / 2.0f);
+        if (allPairDiffWithin(initialReviews, threshold) && sameConclusion(initialReviews)) {
+            int sum = initialReviews.stream().map(VideoReviewTask::getScore).mapToInt(Integer::intValue).sum();
+            int finalScore = Math.round(sum / (float) initialReviews.size());
             review.setFinalScore(finalScore);
             review.setFinalConclusion(conclusionByScore(finalScore));
             review.setStatus(VideoReviewStatus.REVIEW_COMPLETED.name());
@@ -681,8 +695,23 @@ public class VideoReviewServiceImpl implements VideoReviewService {
         return best;
     }
 
-    private boolean sameConclusion(VideoReviewTask a, VideoReviewTask b) {
-        return normalizeConclusion(a.getConclusion()).equals(normalizeConclusion(b.getConclusion()));
+    private boolean allPairDiffWithin(List<VideoReviewTask> tasks, int threshold) {
+        for (int i = 0; i < tasks.size(); i++) {
+            for (int j = i + 1; j < tasks.size(); j++) {
+                if (Math.abs(tasks.get(i).getScore() - tasks.get(j).getScore()) > threshold) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    private boolean sameConclusion(List<VideoReviewTask> tasks) {
+        if (tasks.isEmpty()) {
+            return false;
+        }
+        String first = normalizeConclusion(tasks.get(0).getConclusion());
+        return tasks.stream().allMatch(task -> first.equals(normalizeConclusion(task.getConclusion())));
     }
 
     private void fillScore(VideoReviewTask task, VideoScoreRequest request) {

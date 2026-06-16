@@ -26,10 +26,17 @@ public enum VideoReviewStatus {
         return this == REVIEW_COMPLETED || this == CONFIRMED;
     }
 
+    public boolean reuploadable() {
+        return this == WAIT_UPLOAD
+                || this == VALIDATING
+                || this == VALIDATION_FAILED
+                || this == WAIT_REVIEW;
+    }
+
     public static VideoReviewStatus of(String value) {
         return Arrays.stream(values())
                 .filter(item -> item.name().equals(value))
                 .findFirst()
-                .orElse(WAIT_UPLOAD);
+                .orElseThrow(() -> new IllegalArgumentException("未知视频评审状态: " + value));
     }
 }

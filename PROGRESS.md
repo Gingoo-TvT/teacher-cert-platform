@@ -5,10 +5,10 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**Phase 7 视频评审（T-057~T-067）复核退回**；Phase 0~6 已复核通过。
-- 阻塞项：Phase 7 须修 **B1**（重传未挂可编辑态守卫→以陈旧分结算/永久卡死，Blocker）+ **B2**（`video.reviewerCount`>2 结算卡死，Major），详见 `docs/reviews/phase-07-review.md`
-- 最近更新：2026-06-17（Phase 7 复核退回：AT-08 双盲/结算/复评/鉴权/数据范围 均过且 `mvn verify` 28/28 绿，但重传完整性 B1 + 多评委结算 B2 须修）
-- 下一步：codex 在原分支 `feature/phase07-T057-video-review` 修 B1/B2（补反例），重交后 Claude 只复核增量+回归
+- 当前阶段：**Phase 7 视频评审（T-057~T-067）待复核**；Phase 0~6 已复核通过。
+- 阻塞项：无
+- 最近更新：2026-06-17（Phase 7 复核退回 B1/B2 已修：REVIEWING/NEED_REVIEW 重传/秒传拒绝且任务不变；`video.reviewerCount=3` 可正常集齐结算；`mvn verify` 29/29，`type-check`/`build` 通过）
+- 下一步：交 Claude 按 `docs/REVIEW-GATE.md` 复核 Phase 7 B1/B2 增量 + 回归
 
 ## 阶段汇总
 | Phase | 名称 | 优先级 | 任务数 | 完成 | 状态 |
@@ -20,7 +20,7 @@
 | 4 | 专业培养信息 | P0 | 5 | 5 | ✅ 已复核(Claude 06-16) |
 | 5 | 文件 + 过程性材料 | P0 | 8 | 8 | ✅ 已复核(Claude 06-17) |
 | 6 | 免考 | P0 | 5 | 5 | ✅ 已复核(Claude 06-17) |
-| 7 | 视频评审 | P0 | 11 | 11 | 复核退回 |
+| 7 | 视频评审 | P0 | 11 | 11 | 待复核 |
 | 8 | 测试结果 | P0 | 4 | 0 | 待开始 |
 | 9 | 证书 | P0 | 8 | 0 | 待开始 |
 | 10 | 导入导出与预校验 | P0 | 12 | 0 | 待开始 |
@@ -111,8 +111,8 @@
 - [x] T-055 免考申请页（学生端）
 - [x] T-056 免考审核页
 
-## Phase 7 · 视频评审 — 11/11 复核退回（Claude 2026-06-17 · docs/reviews/phase-07-review.md）
-> 退回：双盲互不可见/状态机B 结算/第三专家两两最小对/鉴权播放/读+写数据范围 均过、`mvn verify` 28/28 绿、前端绿；须修 **B1**（重传未挂可编辑态守卫→以陈旧分结算或永久卡死，Blocker）+ **B2**（`video.reviewerCount`>2 结算硬编码 2→卡死，Major），Minor×7 入 backlog。原分支修复，复核增量后放行。
+## Phase 7 · 视频评审 — 11/11 待复核（退回 B1/B2 已修）
+> 退回项已按增量修复：B1 在 init 秒传/断点会话/merge/upsert 统一挂重传守卫，已有任务或 REVIEWING/NEED_REVIEW/REVIEW_COMPLETED/CONFIRMED 等状态拒绝重传；B2 `settleIfReady` 泛化为按 `video.reviewerCount` 个初评做全体两两分差与结论一致判断，N=2 行为不变、N=3 可正常结算。`Phase7VideoReviewIT` 已补重传拒绝和 3 评委结算反例；`mvn verify` 29/29、前端 `type-check`/`build` 通过，重交 Claude 复核。
 - [x] T-057 分片上传服务（init/chunk/merge）（分支：`feature/phase07-T057-video-review`）
 - [x] T-058 视频校验（格式/大小/时长）
 - [x] T-059 video_review/task 表

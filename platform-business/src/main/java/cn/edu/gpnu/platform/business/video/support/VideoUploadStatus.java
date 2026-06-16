@@ -12,6 +12,6 @@ public enum VideoUploadStatus {
         return Arrays.stream(values())
                 .filter(item -> item.name().equals(value))
                 .findFirst()
-                .orElse(UPLOADING);
+                .orElseThrow(() -> new IllegalArgumentException("未知视频上传状态: " + value));
     }
 }
