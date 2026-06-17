@@ -2,6 +2,7 @@ package cn.edu.gpnu.platform.business.training.service.impl;
 
 import cn.edu.gpnu.platform.business.student.entity.Student;
 import cn.edu.gpnu.platform.business.student.mapper.StudentMapper;
+import cn.edu.gpnu.platform.business.support.ReviewNotificationHelper;
 import cn.edu.gpnu.platform.business.training.dto.TrainingProfileSaveRequest;
 import cn.edu.gpnu.platform.business.training.dto.TrainingReviewRequest;
 import cn.edu.gpnu.platform.business.training.entity.TrainingProfile;
@@ -47,6 +48,7 @@ public class TrainingProfileServiceImpl implements TrainingProfileService {
     private final ParamService paramService;
     private final MajorCodeValidator majorCodeValidator;
     private final TrainingLinkValidator trainingLinkValidator;
+    private final ReviewNotificationHelper notificationHelper;
 
     @Override
     public PageResult<TrainingProfileVO> list(String keyword, String status, Long collegeId, String assessmentYear) {
@@ -117,8 +119,11 @@ public class TrainingProfileServiceImpl implements TrainingProfileService {
                 && status != TrainingStatus.SECOND_REJECTED) {
             throw new BizException("当前状态不可提交");
         }
-        entity.setStatus(returnTargetFromSecondRejected(status));
+        String targetStatus = returnTargetFromSecondRejected(status);
+        entity.setStatus(targetStatus);
         trainingProfileMapper.updateById(entity);
+        notificationHelper.notifySubmitted(entity.getCollegeId(), entity.getStudentId(), "专业培养信息",
+                targetStatus, "training_profile", entity.getId());
     }
 
     @Override
@@ -144,6 +149,13 @@ public class TrainingProfileServiceImpl implements TrainingProfileService {
         entity.setFirstReviewTime(LocalDateTime.now());
         entity.setFirstReviewComment(trimToNull(request.getComment()));
         trainingProfileMapper.updateById(entity);
+        if ("PASS".equals(action)) {
+            notificationHelper.notifyFirstReviewPassed(entity.getCollegeId(), entity.getStudentId(), "专业培养信息",
+                    "training_profile", entity.getId());
+        } else {
+            notificationHelper.notifyReturnedToStudent(entity.getStudentId(), "专业培养信息", action,
+                    "training_profile", entity.getId());
+        }
     }
 
     @Override
@@ -170,6 +182,10 @@ public class TrainingProfileServiceImpl implements TrainingProfileService {
         entity.setSecondReviewTime(LocalDateTime.now());
         entity.setSecondReviewComment(trimToNull(request.getComment()));
         trainingProfileMapper.updateById(entity);
+        if (!"PASS".equals(action)) {
+            notificationHelper.notifySecondReviewReturned(entity.getCollegeId(), entity.getStudentId(), "专业培养信息",
+                    action, "training_profile", entity.getId());
+        }
     }
 
     @Override

@@ -1,13 +1,16 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import type { MenuOption } from 'naive-ui'
+import { unreadNoticeCount } from '@/api/notice'
 
 const router = useRouter()
 const route = useRoute()
 const userStore = useUserStore()
 const activeMenu = computed(() => String(route.name || 'dashboard'))
+const unreadCount = ref(0)
+let noticeTimer: number | undefined
 
 interface AppMenuOption {
   label: string
@@ -43,7 +46,8 @@ const rawMenuOptions: AppMenuOption[] = [
       { label: '证书签发', key: 'certificateIssue', perms: ['cert:issue'] },
       { label: '导入预校验', key: 'exchangeImport', perms: ['exchange:template', 'exchange:prevalidate', 'exchange:import'] },
       { label: '导出中心', key: 'exchangeExport', perms: ['exchange:export:standard', 'exchange:export:full'] },
-      { label: '统计报表', key: 'statsReport', perms: ['stats:view'] }
+      { label: '统计报表', key: 'statsReport', perms: ['stats:view'] },
+      { label: '通知中心', key: 'noticeCenter', perms: ['notice:view'] }
     ]
   },
   {
@@ -55,6 +59,16 @@ const rawMenuOptions: AppMenuOption[] = [
 
 const menuOptions = computed<MenuOption[]>(() => rawMenuOptions.map(filterMenu).filter(Boolean) as MenuOption[])
 const displayName = computed(() => userStore.realName || userStore.username || '未命名用户')
+const canViewNotice = computed(() => userStore.hasPerm('notice:view'))
+
+onMounted(() => {
+  refreshUnread()
+  noticeTimer = window.setInterval(refreshUnread, 60000)
+})
+
+onBeforeUnmount(() => {
+  if (noticeTimer) window.clearInterval(noticeTimer)
+})
 
 function filterMenu(item: AppMenuOption): AppMenuOption | null {
   const visibleByPerm = !item.perms?.length || userStore.hasAnyPerm(item.perms)
@@ -66,6 +80,22 @@ function filterMenu(item: AppMenuOption): AppMenuOption | null {
 function handleMenuUpdate(key: string) {
   if (router.hasRoute(key)) {
     router.push({ name: key })
+  }
+}
+
+async function refreshUnread() {
+  if (!canViewNotice.value) return
+  try {
+    const res = await unreadNoticeCount()
+    unreadCount.value = Number(res.data || 0)
+  } catch {
+    unreadCount.value = 0
+  }
+}
+
+function openNoticeCenter() {
+  if (router.hasRoute('noticeCenter')) {
+    router.push({ name: 'noticeCenter' })
   }
 }
 
@@ -83,6 +113,9 @@ function handleLogout() {
     >
       <span style="font-weight: 600">师范生考核与教师职业能力证书管理平台</span>
       <n-space align="center" :size="12">
+        <n-badge v-if="canViewNotice" :value="unreadCount" :max="99" :show-zero="false">
+          <n-button quaternary @click="openNoticeCenter">通知</n-button>
+        </n-badge>
         <n-tag v-if="userStore.mustChangePwd" size="small" type="warning" bordered>初始密码</n-tag>
         <span class="user-name">{{ displayName }}</span>
         <n-button quaternary @click="handleLogout">退出登录</n-button>

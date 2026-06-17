@@ -25,6 +25,7 @@ import cn.edu.gpnu.platform.business.video.vo.VideoReviewTaskVO;
 import cn.edu.gpnu.platform.business.video.vo.VideoReviewVO;
 import cn.edu.gpnu.platform.business.video.vo.VideoUploadInitVO;
 import cn.edu.gpnu.platform.business.video.vo.VideoUploadProgressVO;
+import cn.edu.gpnu.platform.business.support.ReviewNotificationHelper;
 import cn.edu.gpnu.platform.common.api.PageResult;
 import cn.edu.gpnu.platform.common.api.ResultCode;
 import cn.edu.gpnu.platform.common.context.DataScopeContext;
@@ -98,6 +99,7 @@ public class VideoReviewServiceImpl implements VideoReviewService {
     private final MinioClient minioClient;
     private final MinioProperties minioProperties;
     private final ObjectMapper objectMapper;
+    private final ReviewNotificationHelper notificationHelper;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -299,6 +301,7 @@ public class VideoReviewServiceImpl implements VideoReviewService {
         }
         review.setStatus(VideoReviewStatus.REVIEWING.name());
         reviewMapper.updateById(review);
+        notificationHelper.notifyVideoAssigned(reviewerIds, review.getStudentId(), "video_review", review.getId());
     }
 
     @Override

@@ -15,6 +15,14 @@
 
 ---
 
+## [2026-06-17] Phase 12 待复核小结（T-101~T-103）
+- 做了什么：从 `main` 切出 `feature/phase12-T101-notification`，完成 `V18__notification.sql`、`notification` 实体/Mapper/VO、`NotificationService`、`NotifyChannel` 抽象、站内信落库通道、通知中心接口、前端通知中心、顶栏未读角标与轮询。
+- 触发点清单：已在 Phase3/4/5/6 状态流转处接入提交待初审/待复审提醒、退回/不通过提醒；Phase7 视频评审分配提醒评审教师；Phase10 导出完成提醒发起人。接收人通过学生关联账号、学院教务员/负责人角色、评审任务 reviewerId 与当前用户解析。
+- 关键决策与理由：通知能力放在 `platform-system`，业务模块只单向依赖系统服务，避免 notification 反向依赖 business；`NotificationService.send` 内部捕获通道异常，通知落库/通道失败不回滚也不中断审核、分配、导出等主业务。
+- 数据范围与前端结果：通知列表、未读计数、单条已读、全部已读均按当前登录 `user_id` 过滤；用户 A 不能读取或标记用户 B 通知。前端新增 `/api/notice` API、通知中心页面、菜单入口与未读角标，ID 仍按 string 处理。
+- 测试：`docker compose -f docker-compose.dev.yml up -d` 后，定向 `Phase12NotificationIT` 4/4 通过；`mvn -B -ntp verify` 通过，Failsafe 共 55 tests，覆盖材料提交待初审、退回、视频分配、导出完成、未读计数/标记已读、本人可见反例并回归 Phase2~11；`npm --prefix frontend run type-check` 与 `npm --prefix frontend run build` 通过。
+- 下一步：Phase 12 已在 `PROGRESS.md` 与 `docs/phase-12-通知.md` 置「待复核」，交 Claude 按 `docs/REVIEW-GATE.md` 复核触发点、本人可见与非破坏回归，未自行置 ✅。
+
 ## [2026-06-17] Phase 11 复核通过（Claude · REVIEW-GATE）✅
 - 做了什么：独立复核 Phase 11 增量（单提交 `37b60ef`，新模块 platform-statistics）。`mvn -B -ntp verify` GREEN **51/51**（`Phase11StatsIT 5/5` + 回归 Phase2~10 共 46）、前端 `npm install`(echarts) + type-check/build 绿；读 747 行 `StatsServiceImpl` + 控制器 + IT + 前端；一路独立代理 PASS（逐条确认 8 类统计 fail-closed 收敛、无跨院泄漏）。
 - 结论：**PASS**（一轮）。数据范围服务层强制（`resolveScope("stats:view")` + `scopedStudents`，空集/越范围→空、batch 按 operator/scopeJson），学院只见本院（IT 反例 学院A不含B）；材料完成率（四类全 PASSED）按类别 + 证书各状态 **与 DB 分组对账一致**（IT 双对账）；口径复用 Phase5/6/7/9 既有状态与 Phase3/4 校验器、分母 DENOMINATOR_RULE 文档化；异常可定位学生/字段；导出复用 `ExchangeExcelHelper` 文本 `@`；`stats:view` V8 预种无新迁移；新模块注册接入 boot 无环；V1–V17/治理未改、PROGRESS 未自 ✅。

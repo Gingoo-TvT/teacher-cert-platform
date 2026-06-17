@@ -57,6 +57,7 @@ import cn.edu.gpnu.platform.system.mapper.SysDictItemMapper;
 import cn.edu.gpnu.platform.system.mapper.SysMajorMapper;
 import cn.edu.gpnu.platform.system.mapper.TeachingSubjectMapper;
 import cn.edu.gpnu.platform.system.service.DataScopeService;
+import cn.edu.gpnu.platform.system.service.NotificationService;
 import cn.edu.gpnu.platform.system.service.ParamService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
@@ -120,6 +121,7 @@ public class ExchangeServiceImpl implements ExchangeService {
     private final SysMajorMapper majorMapper;
     private final TeachingSubjectMapper teachingSubjectMapper;
     private final DataScopeService dataScopeService;
+    private final NotificationService notificationService;
     private final ParamService paramService;
     private final NameValidator nameValidator;
     private final IdCardValidator idCardValidator;
@@ -1320,7 +1322,8 @@ public class ExchangeServiceImpl implements ExchangeService {
         batch.setBatchNo(nextBatchNo("EXP"));
         batch.setType(type);
         batch.setFileName(fileName);
-        batch.setOperatorId(UserContext.getUserIdOrSystem());
+        Long operatorId = UserContext.getUserIdOrSystem();
+        batch.setOperatorId(operatorId);
         batch.setOperateTime(LocalDateTime.now());
         batch.setTotal(total);
         batch.setSuccessCount(success);
@@ -1329,6 +1332,11 @@ public class ExchangeServiceImpl implements ExchangeService {
         batch.setStrategy(exportType);
         batch.setStatus(ExchangeBatchStatus.EXPORTED.name());
         batchMapper.insert(batch);
+        if ("export".equals(type)) {
+            notificationService.send(operatorId, "EXPORT_DONE", "导出完成",
+                    StringUtils.hasText(fileName) ? "导出完成：" + fileName : "导出完成",
+                    "import_export_batch", String.valueOf(batch.getId()));
+        }
     }
 
     private String nextBatchNo(String prefix) {

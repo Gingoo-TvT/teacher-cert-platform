@@ -15,6 +15,7 @@ import cn.edu.gpnu.platform.business.exemption.vo.ExemptionMaterialVO;
 import cn.edu.gpnu.platform.business.exemption.vo.ExemptionRequestVO;
 import cn.edu.gpnu.platform.business.student.entity.Student;
 import cn.edu.gpnu.platform.business.student.mapper.StudentMapper;
+import cn.edu.gpnu.platform.business.support.ReviewNotificationHelper;
 import cn.edu.gpnu.platform.common.api.PageResult;
 import cn.edu.gpnu.platform.common.api.ResultCode;
 import cn.edu.gpnu.platform.common.context.DataScopeContext;
@@ -61,6 +62,7 @@ public class ExemptionServiceImpl implements ExemptionService {
     private final FileService fileService;
     private final DataScopeService dataScopeService;
     private final ParamService paramService;
+    private final ReviewNotificationHelper notificationHelper;
 
     @Override
     public List<SysDictItem> subjects(String segment) {
@@ -215,9 +217,12 @@ public class ExemptionServiceImpl implements ExemptionService {
         if (materialCount(entity.getId()) <= 0) {
             throw new BizException("免考佐证不能为空");
         }
-        entity.setFinalStatus(returnTargetFromSecondRejected(status));
+        String targetStatus = returnTargetFromSecondRejected(status);
+        entity.setFinalStatus(targetStatus);
         entity.setIncludedInExam(1);
         requestMapper.updateById(entity);
+        notificationHelper.notifySubmitted(entity.getCollegeId(), entity.getStudentId(), "免考申请",
+                targetStatus, "exemption_request", entity.getId());
     }
 
     @Override
@@ -247,6 +252,13 @@ public class ExemptionServiceImpl implements ExemptionService {
         entity.setFirstReviewTime(LocalDateTime.now());
         entity.setFirstReviewComment(trimToNull(request.getComment()));
         requestMapper.updateById(entity);
+        if ("PASS".equals(action)) {
+            notificationHelper.notifyFirstReviewPassed(entity.getCollegeId(), entity.getStudentId(), "免考申请",
+                    "exemption_request", entity.getId());
+        } else {
+            notificationHelper.notifyReturnedToStudent(entity.getStudentId(), "免考申请", action,
+                    "exemption_request", entity.getId());
+        }
     }
 
     @Override
@@ -280,6 +292,10 @@ public class ExemptionServiceImpl implements ExemptionService {
         entity.setSecondReviewTime(LocalDateTime.now());
         entity.setSecondReviewComment(trimToNull(request.getComment()));
         requestMapper.updateById(entity);
+        if (!"PASS".equals(action)) {
+            notificationHelper.notifySecondReviewReturned(entity.getCollegeId(), entity.getStudentId(), "免考申请",
+                    action, "exemption_request", entity.getId());
+        }
     }
 
     @Override

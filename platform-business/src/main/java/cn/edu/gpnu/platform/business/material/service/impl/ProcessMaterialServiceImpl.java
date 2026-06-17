@@ -12,6 +12,7 @@ import cn.edu.gpnu.platform.business.material.vo.ProcessMaterialVO;
 import cn.edu.gpnu.platform.business.material.vo.ProcessStatusVO;
 import cn.edu.gpnu.platform.business.student.entity.Student;
 import cn.edu.gpnu.platform.business.student.mapper.StudentMapper;
+import cn.edu.gpnu.platform.business.support.ReviewNotificationHelper;
 import cn.edu.gpnu.platform.common.api.PageResult;
 import cn.edu.gpnu.platform.common.api.ResultCode;
 import cn.edu.gpnu.platform.common.context.DataScopeContext;
@@ -62,6 +63,7 @@ public class ProcessMaterialServiceImpl implements ProcessMaterialService {
     private final DataScopeService dataScopeService;
     private final ParamService paramService;
     private final MinioClient minioClient;
+    private final ReviewNotificationHelper notificationHelper;
 
     @Override
     public PageResult<ProcessMaterialVO> list(MaterialQuery query) {
@@ -135,8 +137,11 @@ public class ProcessMaterialServiceImpl implements ProcessMaterialService {
         if (!status.editable()) {
             throw new BizException("当前状态不可提交");
         }
-        entity.setStatus(returnTargetFromSecondRejected(status));
+        String targetStatus = returnTargetFromSecondRejected(status);
+        entity.setStatus(targetStatus);
         processMaterialMapper.updateById(entity);
+        notificationHelper.notifySubmitted(entity.getCollegeId(), entity.getStudentId(), "过程性材料",
+                targetStatus, "process_material", entity.getId());
     }
 
     @Override
@@ -165,6 +170,13 @@ public class ProcessMaterialServiceImpl implements ProcessMaterialService {
         entity.setFirstReviewTime(LocalDateTime.now());
         entity.setFirstReviewComment(trimToNull(request.getComment()));
         processMaterialMapper.updateById(entity);
+        if ("PASS".equals(action)) {
+            notificationHelper.notifyFirstReviewPassed(entity.getCollegeId(), entity.getStudentId(), "过程性材料",
+                    "process_material", entity.getId());
+        } else {
+            notificationHelper.notifyReturnedToStudent(entity.getStudentId(), "过程性材料", action,
+                    "process_material", entity.getId());
+        }
     }
 
     @Override
@@ -195,6 +207,10 @@ public class ProcessMaterialServiceImpl implements ProcessMaterialService {
         entity.setSecondReviewTime(LocalDateTime.now());
         entity.setSecondReviewComment(trimToNull(request.getComment()));
         processMaterialMapper.updateById(entity);
+        if (!"PASS".equals(action)) {
+            notificationHelper.notifySecondReviewReturned(entity.getCollegeId(), entity.getStudentId(), "过程性材料",
+                    action, "process_material", entity.getId());
+        }
     }
 
     @Override

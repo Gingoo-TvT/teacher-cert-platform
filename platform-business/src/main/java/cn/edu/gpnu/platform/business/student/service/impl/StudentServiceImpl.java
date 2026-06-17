@@ -11,6 +11,7 @@ import cn.edu.gpnu.platform.business.student.support.IdCardValidator;
 import cn.edu.gpnu.platform.business.student.support.NameValidator;
 import cn.edu.gpnu.platform.business.student.support.SensitiveMasker;
 import cn.edu.gpnu.platform.business.student.support.StudentStatus;
+import cn.edu.gpnu.platform.business.support.ReviewNotificationHelper;
 import cn.edu.gpnu.platform.business.student.vo.StudentPlainIdCardVO;
 import cn.edu.gpnu.platform.business.student.vo.StudentVO;
 import cn.edu.gpnu.platform.common.api.PageResult;
@@ -54,6 +55,7 @@ public class StudentServiceImpl implements StudentService {
     private final IdCardValidator idCardValidator;
     private final BirthDateValidator birthDateValidator;
     private final NameValidator nameValidator;
+    private final ReviewNotificationHelper notificationHelper;
 
     @Override
     public PageResult<StudentVO> list(String keyword, String status, Long collegeId, boolean plain) {
@@ -141,8 +143,11 @@ public class StudentServiceImpl implements StudentService {
             throw new BizException("当前状态不可提交");
         }
         ensureRequired(entity);
-        entity.setStatus(returnTargetFromSecondRejected(status));
+        String targetStatus = returnTargetFromSecondRejected(status);
+        entity.setStatus(targetStatus);
         studentMapper.updateById(entity);
+        notificationHelper.notifySubmitted(entity.getCollegeId(), entity.getId(), "学生基本信息",
+                targetStatus, "student", entity.getId());
     }
 
     @Override
@@ -168,6 +173,12 @@ public class StudentServiceImpl implements StudentService {
         entity.setFirstReviewTime(LocalDateTime.now());
         entity.setFirstReviewComment(trimToNull(request.getComment()));
         studentMapper.updateById(entity);
+        if ("PASS".equals(action)) {
+            notificationHelper.notifyFirstReviewPassed(entity.getCollegeId(), entity.getId(), "学生基本信息",
+                    "student", entity.getId());
+        } else {
+            notificationHelper.notifyReturnedToStudent(entity.getId(), "学生基本信息", action, "student", entity.getId());
+        }
     }
 
     @Override
@@ -194,6 +205,10 @@ public class StudentServiceImpl implements StudentService {
         entity.setSecondReviewTime(LocalDateTime.now());
         entity.setSecondReviewComment(trimToNull(request.getComment()));
         studentMapper.updateById(entity);
+        if (!"PASS".equals(action)) {
+            notificationHelper.notifySecondReviewReturned(entity.getCollegeId(), entity.getId(), "学生基本信息",
+                    action, "student", entity.getId());
+        }
     }
 
     @Override

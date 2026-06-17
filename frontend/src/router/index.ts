@@ -119,6 +119,12 @@ const routes: RouteRecordRaw[] = [
         name: 'statsReport',
         component: () => import('@/views/stats/StatsReportView.vue'),
         meta: { title: '统计报表', perms: ['stats:view'] }
+      },
+      {
+        path: 'notice',
+        name: 'noticeCenter',
+        component: () => import('@/views/notice/NoticeCenterView.vue'),
+        meta: { title: '通知中心', perms: ['notice:view'] }
       }
     ]
   },
