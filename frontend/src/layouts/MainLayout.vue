@@ -42,7 +42,8 @@ const rawMenuOptions: AppMenuOption[] = [
       { label: '证书管理', key: 'certificateManage', perms: ['cert:view', 'cert:generate', 'cert:correct', 'cert:void', 'cert:reissue'] },
       { label: '证书签发', key: 'certificateIssue', perms: ['cert:issue'] },
       { label: '导入预校验', key: 'exchangeImport', perms: ['exchange:template', 'exchange:prevalidate', 'exchange:import'] },
-      { label: '导出中心', key: 'exchangeExport', perms: ['exchange:export:standard', 'exchange:export:full'] }
+      { label: '导出中心', key: 'exchangeExport', perms: ['exchange:export:standard', 'exchange:export:full'] },
+      { label: '统计报表', key: 'statsReport', perms: ['stats:view'] }
     ]
   },
   {

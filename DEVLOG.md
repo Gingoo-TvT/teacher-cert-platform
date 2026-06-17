@@ -15,6 +15,14 @@
 
 ---
 
+## [2026-06-17] Phase 11 待复核小结（T-092~T-100）
+- 做了什么：从 `main` 切出 `feature/phase11-T092-statistics`，新增 `platform-statistics` 模块并接入 boot，完成 8 类统计服务、`/api/stats/{type}` 查询、`/api/stats/{type}/export` 导出、统计报表页（Vue3 + Naive UI + ECharts）、路由菜单和前端 API。
+- 关键决策与理由：本阶段未新增 V18 迁移，`stats:view` 已在 V8 预种并按 COLLEGE/SCHOOL 授权；聚合查询跨多张业务表且 `import_export_batch` 无 college_id，统计读侧采用服务层 `DataScopeService.resolve("stats:view")` 明确收敛范围，而不是为多表聚合另造拦截规则。
+- 统计口径：分母按 docs §6 默认“当前考核年度在册学生”；由于 `student` 表无年度字段，默认读取 `current_assessment_year` 参数并按当前数据范围内学生集合计，`assessment_year` 过滤应用于材料、免考、视频、测试、证书等带年度字段的业务表。
+- 业务结果：学院提交、材料完成率、免考、视频评审、证书生成、任教学段/学科交叉、异常数据、导入导出日志均可查可导出；Excel 导出复用 `ExchangeExcelHelper.writeTableWorkbook`，列格式保持文本 `@`；异常统计复用既有学生/培养/证书校验器定位学生和字段。
+- 测试：`docker compose -f docker-compose.dev.yml up -d` 后，定向 `Phase11StatsIT` 5/5 通过；`mvn -B -ntp verify` 通过，Failsafe 共 51 tests，覆盖材料完成率对账、证书状态对账、学院A不含学院B、异常定位、Excel文本格式导出并回归 Phase2~10；`npm --prefix frontend run type-check` 与 `npm --prefix frontend run build` 通过。
+- 下一步：Phase 11 已在 `PROGRESS.md` 与 `docs/phase-11-统计报表.md` 置「待复核」，交 Claude 按 `docs/REVIEW-GATE.md` 复核统计口径、对账一致性、数据范围与导出文本格式，未自行置 ✅。
+
 ## [2026-06-17] Phase 10 复核通过（Claude · REVIEW-GATE，2轮 PASS）✅
 - 做了什么：复核 B1/B2 修复增量（单提交 `e868997`，service +101 / IT +58）。`mvn -B -ntp verify` GREEN **46/46**（Phase10 6/6，新增 B1/B2 反例 + 回归 Phase2~9 共 40）；读 B1/B2 diff 与两条新反例逐条核；未动迁移(V1–V17)/治理/前端。
 - 结论：**PASS**。B1：`ensureCanUpdateExisting` 对已存在 student/training/certificate 先校验其当前 collegeId ∈ 调用者 `exchange:import` 写范围、再断言现有学院==目标，`applyStudent` 不再跨学院改写 collegeId → 学院 A 凭学号命中他院 B 学生被 `ensureCanImportCollege(B)` 拒（反例证 B 学生 collegeId/姓名/证件号 与证书学院 不变）。B2：`confirmImport` 去 `@Transactional`，每行 `TransactionTemplate(REQUIRES_NEW)` 独立事务 + `catch(Exception)`，坏行自身回滚、已成功行各自提交，`dbText` 防异常明细二次截断（反例证 83 字超长学号坏行 → code 0、成功1/失败1，OK 行入库、坏行不存在）。

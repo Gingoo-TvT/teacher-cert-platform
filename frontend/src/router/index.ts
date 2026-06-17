@@ -113,6 +113,12 @@ const routes: RouteRecordRaw[] = [
         name: 'exchangeExport',
         component: () => import('@/views/exchange/ExchangeExportView.vue'),
         meta: { title: '导出中心', perms: ['exchange:export:standard', 'exchange:export:full'] }
+      },
+      {
+        path: 'stats',
+        name: 'statsReport',
+        component: () => import('@/views/stats/StatsReportView.vue'),
+        meta: { title: '统计报表', perms: ['stats:view'] }
       }
     ]
   },

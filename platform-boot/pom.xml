@@ -34,6 +34,10 @@
         </dependency>
         <dependency>
             <groupId>cn.edu.gpnu</groupId>
+            <artifactId>platform-statistics</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>cn.edu.gpnu</groupId>
             <artifactId>platform-file</artifactId>
         </dependency>
         <dependency>
