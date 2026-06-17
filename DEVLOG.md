@@ -15,6 +15,11 @@
 
 ---
 
+## [2026-06-18] WP-A 复核通过（Claude · REVIEW-GATE）✅ — RBAC 基座
+- 做了什么：复核 `feature/wp-a-rbac` 单提交 `6227cdd`（V20 + 9 IT + PROGRESS/DEVLOG，**无业务/main java 改动**）。读 V20 逐角色核对 §1 矩阵；读 9 个 IT diff 核对角色迁移；**clean-room**：重置 dev schema → `mvn -B -ntp verify` 让 Flyway 全新应用 V1–V20 再跑全量 IT。
+- 结论：**PASS**（一轮）。`mvn verify` **BUILD SUCCESS，Failsafe 75/75**（61 回归 + Phase14E2EIT 14，全在新 RBAC 模型下绿）；Flyway「Successfully applied 20 migrations, now at v20」证 V20 全新可用且幂等。V20 校验：CLERK=只读+初审、AUDITOR=复审+录入/导入/video:assign/arbitrate、ACADEMIC_ADMIN+=cert:issue、SYS_ADMIN 全权、CERT_ISSUER 软删+账号停用；revoke→regrant 幂等、V1–V19 未改。IT 校验：clerk 失去的 assign/import/edit/secondReview 正确迁移 auditor/academic，跨院写越权用例改用 auditor 仍考数据范围（非缺权），Phase2 契约用例钉死新矩阵。
+- 放行：PROGRESS WP-A 置 ✅；合并 `main`（本地私有、无远程、不 push）。下一步 Phase 16(WP-B)。
+
 ## [2026-06-18] WP-A 待复核小结（RBAC 基座重定义）
 - 做了什么：从 `main` 切出 `feature/wp-a-rbac`，新增 `V20__rbac_regrant.sql`，仅重定义运行期 RBAC 授权矩阵与受影响 IT 登录角色；未改业务代码、数据范围语义、前端 UI 或 V1~V19 既有迁移。
 - V20 授权变更：`SYS_ADMIN` 通过动态 `INSERT ... SELECT` 关联当前 `sys_permission` 全表权限；`ACADEMIC_ADMIN` 保留原授权并新增 `cert:issue`；`COLLEGE_AUDITOR` 承接学院侧 `student/training/exchange/test` 录入导入预校验、各业务复审、`video:assign/arbitrate/confirm` 等动作权；`COLLEGE_CLERK` 收敛为 `*:view`、`student:export`、`exchange:export:standard/full`、`material:batchDownload`、`student/training/material/exemption` 相关初审、`notice:view/stats:view/audit:view/dict:view`，移除 edit/import/prevalidate/test/video assign/secondReview/manage 类动作。
