@@ -15,6 +15,13 @@
 
 ---
 
+## [2026-06-17] Phase 9 待复核小结（T-072~T-079）
+- 做了什么：从 `main` 切出 `feature/phase09-T072-certificate`，完成证书域后端与前端。新增 `V15__certificate.sql`（`certificate`、`cert_sequence`、证书状态字典、`cert.seq.scope`/学校码/省码参数）与 `V16__certificate_student_view.sql`（学生 `cert:view` SELF 授权补充）；新增证书实体/Mapper/Service/Controller、证书管理页、证书签发页、API、路由与菜单。
+- 关键决策与理由：18 位编号按 `year + cert.school.code + education_level.ext_json.certLevelCode + cert.province.code + teaching_segment.ext_json.certSegmentCode + seq(5)` 生成；序列使用 `cert_sequence` 行、`INSERT ... ON DUPLICATE KEY UPDATE` 初始化、同事务 `SELECT ... FOR UPDATE` 自增并写证，避免 Redis INCR 或 `max(seq)+1` 空号/重号；V15 已本地应用后发现学生查看授权缺口，按 Flyway 不改已发布脚本原则用 V16 补种。
+- 业务结果：前置聚合复用 Phase3/4/5/7/8 既有结论与 `AbilityTestResultService.validity()`，缺项返回缺失清单；有效期按签发上下半年文本计算；状态机 C 覆盖生成、签发、导出、归档、作废、重开与 `cert:correct` 更正留痕；`certificate` 接入 `DataScopeSqlHandler`，生成/签发/作废/重开/更正服务层防御为校级范围。
+- 测试：`docker compose -f docker-compose.dev.yml up -d` 后，`mvn -B -ntp verify` 通过，Failsafe 自动跑 Phase2~Phase9 共 40 tests；`Phase9CertificateIT` 7/7 覆盖 AT-09 缺过程性拒绝、AT-10 编号示例/作用域切换/50并发连续不重无空号、AT-11 有效期、锁定后直接重生成拒绝且更正留痕、作废重开、证书读+写数据范围；`npm --prefix frontend run type-check` 与 `npm --prefix frontend run build` 通过。
+- 下一步：Phase 9 已在 `PROGRESS.md` 置「待复核」，交 Claude 按 `docs/REVIEW-GATE.md` 复核 AT-09/AT-10/AT-11，未自行置 ✅。
+
 ## [2026-06-17] Phase 8 复核通过（Claude · REVIEW-GATE）✅
 - 做了什么：独立复核 Phase 8 增量（单提交 `6fca8cb`）。`mvn -B -ntp verify` GREEN **33/33**（`Phase8TestResultIT 4/4` + 回归 Phase2~7 共 29）、前端 `type-check`/`build` 绿；读 V14 + service + 控制器 + 枚举 + IT + 清理两文件；两路独立代理（业务/数据范围/导入 · 质量/迁移/前端/清理）均 PASS。
 - 结论：**PASS**（一轮）。免考联动（复用 Phase6 exam-subjects，PASSED 科目剔除应考）、成绩文本 AT-01（`FastExcel useScientificFormat(false)`，21 位前导零往返一致）、结论有效性契约（合格/免考有效，为 Phase9 预留）、确认锁定守卫、免考≠过程性（独立）、读+写数据范围（写侧 collegeId 取自实体、跨院 403、学生无写权）全过。三项跨阶段顺手清理 C1（`ExemptionStatus.of()` fail-closed）/C2（`StudentServiceImpl` 死分支删除）/C3（`material:view` 补种授权）经代理逐条确认落地且回归无破坏。V1–V13/治理未改，PROGRESS 未自 ✅。

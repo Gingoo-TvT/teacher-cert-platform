@@ -139,6 +139,7 @@ public class DataScopeSqlHandler implements MultiDataPermissionHandler {
         rules.put("video_review_task", new Rule("id", "college_id", null, "student_id", "reviewer_id"));
         rules.put("video_upload_session", new Rule("id", "college_id", null, "student_id", null));
         rules.put("ability_test_result", new Rule("id", "college_id", null, "student_id", null));
+        rules.put("certificate", new Rule("id", "college_id", null, "student_id", null));
         rules.put("sys_college", new Rule("id", "id", null, null, null));
         rules.put("sys_major", new Rule("id", "college_id", "id", null, null));
         rules.put("major_training_goal", new Rule("id", null, "major_id", null, null));

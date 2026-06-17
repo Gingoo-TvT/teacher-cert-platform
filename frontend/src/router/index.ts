@@ -89,6 +89,18 @@ const routes: RouteRecordRaw[] = [
         name: 'testResultManage',
         component: () => import('@/views/test-result/TestResultManageView.vue'),
         meta: { title: '测试结果', perms: ['student:view', 'test:edit', 'test:import', 'test:confirm'] }
+      },
+      {
+        path: 'certificates',
+        name: 'certificateManage',
+        component: () => import('@/views/certificate/CertificateManageView.vue'),
+        meta: { title: '证书管理', perms: ['cert:view', 'cert:generate', 'cert:correct', 'cert:void', 'cert:reissue'] }
+      },
+      {
+        path: 'certificate-issue',
+        name: 'certificateIssue',
+        component: () => import('@/views/certificate/CertificateIssueView.vue'),
+        meta: { title: '证书签发', perms: ['cert:issue'] }
       }
     ]
   },
