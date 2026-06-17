@@ -15,6 +15,14 @@
 
 ---
 
+## [2026-06-17] Phase 10 复核退回修复（B1/B2）
+- 做了什么：修复 `docs/reviews/phase-10-review.md` 退回项 B1/B2。B1：确认导入更新现有 student/training/certificate 前校验其当前 `collegeId` 是否在调用者 `exchange:import` 写范围内，现有学生不再按导入行跨学院改写 `collegeId`，避免学院 A 凭学号覆盖/迁移学院 B 记录。B2：每行 `importOne` 改为 `TransactionTemplate + PROPAGATION_REQUIRES_NEW` 独立事务，行循环捕获含 `DataAccessException` 在内的异常并记录失败，坏行不回滚已成功行。
+- 关键决策与理由：确认导入外层不再包大事务，批次状态和错误明细按逐行结果落库；错误明细写库前按字段长度裁剪，避免“坏行本身超长”导致记录失败原因时再次触发 DB 截断并把接口打成 500。
+- 问题与解决：最初 B2 反例用超长学号触发 DB 截断，行内异常已被捕获，但 `import_error_detail.student_no` 再次写入超长值导致 500；已用 `dbText` 保护异常明细字段长度，保留失败定位能力。
+- 与规格的偏差/疑问：未改已通过的 AT-01/AT-02/AT-14、读侧数据范围、回滚冲突逻辑和 V17 迁移。
+- 测试：`mvn -B -ntp -DskipTests test-compile` 通过；定向 `Phase10ExchangeIT` 6/6 通过；`mvn -B -ntp verify` 通过，Failsafe 共 46 tests（含新增跨学院覆盖拒绝、坏行不回滚已成功行反例）；`npm --prefix frontend run type-check`、`npm --prefix frontend run build` 通过。
+- 下一步：Phase 10 已在 `PROGRESS.md` 重新置「待复核」，交 Claude 复核 B1/B2 增量与回归，未自行置 ✅。
+
 ## [2026-06-17] Phase 10 复核退回（Claude · REVIEW-GATE）❌
 - 做了什么：独立复核 Phase 10 增量（单提交 `c074a48`，新模块 platform-exchange）。`mvn -B -ntp verify` GREEN 44/44、前端 type-check/build 绿；全读 1449 行 `ExchangeServiceImpl` + `ExchangeExcelHelper` + 26 列模型 + 控制器 + V17 + 588 行 IT；两路独立代理（质量 PASS / AT 代理 CONCERNS）。
 - 结论：**退回**。AT-01 文本化（模型 String+写 `@`+读字符串）、AT-02 26 列 A–Z+H="身份证件号码"、AT-14 V-01~V-13 复用既有校验器且不入库、INSERT_ONLY/SKIP、回滚冲突判定、导出读侧数据范围+敏感脱敏 全过且反例齐；V17 仅新增、V1–V16 冻结、新模块接入正确、POI 受管。**但 B1（Major）导入更新写侧漏校验现有记录归属**：`importOne` `studentByNo` 无范围命中他院学生、`ensureCanImportCollege` 只校验目标学院、`applyStudent` 无条件改 collegeId → OVERWRITE/UPDATE_EMPTY 下学院 A 凭学号覆盖/迁移他院 B 学生（与 Phase 3 同类跨学院写）；**B2（Major）导入逐行事务粒度**：裸 `DataAccessException` 逃出 per-row catch 回滚整批 + studentMapper dup-catch 致 `UnexpectedRollbackException` 风险。

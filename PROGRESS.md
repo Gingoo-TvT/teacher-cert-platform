@@ -5,10 +5,10 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**Phase 10 导入导出与预校验（T-080~T-091）复核退回**；Phase 0~9 已复核通过。
-- 阻塞项：Phase 10 须修 **B1**（导入更新写侧数据范围漏校验现有记录归属→跨学院覆盖/迁移，Major）+ **B2**（导入逐行事务粒度→裸 DB 异常回滚整批，Major），详见 `docs/reviews/phase-10-review.md`
-- 最近更新：2026-06-17（Phase 10 复核退回：AT-01/02/14 头部、读侧范围、回滚冲突 均过且 `mvn verify` 44/44 绿，但导入写侧 B1 跨学院更新 + B2 逐行事务 须修）
-- 下一步：codex 在原分支 `feature/phase10-T080-exchange` 修 B1/B2（补反例），重交后 Claude 只复核增量+回归
+- 当前阶段：**Phase 10 导入导出与预校验（T-080~T-091）待复核**；Phase 0~9 已复核通过。
+- 阻塞项：无。Phase 10 复核退回 B1/B2 已在原分支修复，详见 `docs/reviews/phase-10-review.md`。
+- 最近更新：2026-06-17（修复 B1 导入更新写侧现有记录归属校验 + B2 逐行 `REQUIRES_NEW` 事务隔离；新增跨学院覆盖拒绝、坏行不回滚已成功行反例；`mvn verify` 46/46 绿，前端 type-check/build 绿）
+- 下一步：Claude 按 `docs/REVIEW-GATE.md` 复核 Phase 10 B1/B2 增量与回归，通过后并入 main
 
 ## 阶段汇总
 | Phase | 名称 | 优先级 | 任务数 | 完成 | 状态 |
@@ -23,7 +23,7 @@
 | 7 | 视频评审 | P0 | 11 | 11 | ✅ 已复核(Claude 06-17·2轮) |
 | 8 | 测试结果 | P0 | 4 | 4 | ✅ 已复核(Claude 06-17) |
 | 9 | 证书 | P0 | 8 | 8 | ✅ 已复核(Claude 06-17) |
-| 10 | 导入导出与预校验 | P0 | 12 | 12 | 复核退回 |
+| 10 | 导入导出与预校验 | P0 | 12 | 12 | 待复核 |
 | 11 | 统计报表 | P1 | 9 | 0 | 待开始 |
 | 12 | 通知 | P1 | 3 | 0 | 待开始 |
 | 13 | 系统管理与审计 | P0 | 5 | 0 | 待开始 |
@@ -145,8 +145,8 @@
 - [x] T-078 证书管理页（教务处）
 - [x] T-079 证书签发页（签发人）
 
-## Phase 10 · 导入导出与预校验 — 12/12 复核退回（Claude 2026-06-17 · docs/reviews/phase-10-review.md）
-> 退回：AT-01 文本化/AT-02 26列+H/AT-14 13条V反例（复用校验器、不入库）、INSERT_ONLY/SKIP、回滚冲突、导出读侧范围+敏感脱敏 均过、`mvn verify` 44/44 绿、V17 仅新增 V1–V16 冻结、新模块接入正确；须修 **B1**（导入更新未校验现有记录归属→学院 A 凭学号覆盖/迁移他院学生，Major）+ **B2**（导入逐行裸 DB 异常回滚整批 + UnexpectedRollbackException 风险，Major），Minor×7 入 backlog。原分支修复，复核增量后放行。
+## Phase 10 · 导入导出与预校验 — 12/12 待复核（退回项已修 · docs/reviews/phase-10-review.md）
+> 复核退回项已修：**B1** 导入更新前校验现有 student/training/certificate 当前 `collegeId` 属于调用者 `exchange:import` 写范围，现有学生禁止凭学号跨学院迁移；**B2** 每行导入改为 `REQUIRES_NEW` 独立事务，裸 DB 异常被记为该行失败，已成功行不回滚，错误明细落库前做长度保护。新增 `Phase10ExchangeIT` 跨学院覆盖拒绝 + 坏行不回滚已成功行反例；`mvn verify` 46/46、前端 type-check/build 通过。AT-01/AT-02/AT-14、读侧范围、回滚冲突逻辑未返工。
 > `V17__exchange.sql` 落地 import_export_batch/import_error_detail/import_record_ref；新增 `platform-exchange` 模块并接入 boot，完成模板下载、26列标准模型、预校验 V-01~V-13、异常报告、确认导入/回滚、标准/完整/汇总/异常/附件清单导出与前端导入/导出中心。`Phase10ExchangeIT` 覆盖 AT-01 文本单元格与前导零、AT-02 A-Z 26列+H表头、AT-14 13条V反例、异常不入库、跳过重复、回滚恢复/冲突、读写数据范围与敏感导出鉴权；`mvn verify` 44/44、前端 type-check/build 通过，待 Claude 复核。
 - [x] T-080 26列 Excel 模型 + 文本格式策略（分支：`feature/phase10-T080-exchange`）
 - [x] T-081 模板下载（年度/学院/专业 + 内置下拉 + 补H表头）

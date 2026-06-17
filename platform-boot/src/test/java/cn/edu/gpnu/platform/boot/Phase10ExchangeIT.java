@@ -309,6 +309,64 @@ class Phase10ExchangeIT {
         }
     }
 
+    @Test
+    void collegeClerkCannotOverwriteExistingStudentOutsideWriteScope() throws Exception {
+        LoginResult clerk = readyLogin("test_college_clerk");
+        seedCertificateSnapshot("P10OWNB", COLLEGE_B, "2026", "P10OWNB", "B98765432",
+                "202610588344300140", "2029/6/30");
+        Student before = studentMapper.selectOne(new LambdaQueryWrapper<Student>()
+                .eq(Student::getStudentNo, "P10OWNB").last("LIMIT 1"));
+        assertThat(before.getCollegeId()).isEqualTo(COLLEGE_B);
+
+        ExchangeStandardRow overwrite = row("P10OWNB", "2026", "202610588344300140");
+        overwrite.setName("越权覆盖");
+        overwrite.setIdCardType("hm_travel_permit");
+        overwrite.setIdCardNo("O12345678");
+        overwrite.setBirthDate("2000/12/31");
+        overwrite.setRemark(String.valueOf(COLLEGE_A));
+        JsonNode pre = prevalidate(clerk.accessToken(), List.of(overwrite)).at("/data");
+        assertThat(pre.at("/successCount").asInt()).isEqualTo(1);
+
+        JsonNode imported = confirm(clerk.accessToken(), pre.at("/batchId").asLong(), "OVERWRITE");
+        assertThat(imported.at("/code").asInt()).isEqualTo(0);
+        assertThat(imported.at("/data/successCount").asInt()).isZero();
+        assertThat(imported.at("/data/failCount").asInt()).isEqualTo(1);
+
+        Student after = studentMapper.selectById(before.getId());
+        assertThat(after.getCollegeId()).isEqualTo(COLLEGE_B);
+        assertThat(after.getName()).isEqualTo(before.getName());
+        assertThat(after.getIdCardNo()).isEqualTo("B98765432");
+        Certificate certificate = certificateMapper.selectOne(new LambdaQueryWrapper<Certificate>()
+                .eq(Certificate::getStudentNo, "P10OWNB").last("LIMIT 1"));
+        assertThat(certificate.getCollegeId()).isEqualTo(COLLEGE_B);
+    }
+
+    @Test
+    void importRowsAreCommittedIndependentlyWhenLaterRowHitsDatabaseException() throws Exception {
+        LoginResult academic = readyLogin("test_academic_admin");
+        ExchangeStandardRow ok = row("P10ISOOK", "2026", "202610588344300150");
+        ok.setIdCardType("hm_travel_permit");
+        ok.setIdCardNo("I12345678");
+        ok.setBirthDate("2000/12/31");
+        String tooLongStudentNo = "P10" + "X".repeat(80);
+        ExchangeStandardRow bad = row(tooLongStudentNo, "2026", "202610588344300151");
+        bad.setIdCardType("hm_travel_permit");
+        bad.setIdCardNo("I87654321");
+        bad.setBirthDate("2000/12/31");
+
+        JsonNode pre = prevalidate(academic.accessToken(), List.of(ok, bad)).at("/data");
+        assertThat(pre.at("/successCount").asInt()).isEqualTo(2);
+        JsonNode imported = confirm(academic.accessToken(), pre.at("/batchId").asLong(), "INSERT_ONLY");
+        assertThat(imported.at("/code").asInt()).isEqualTo(0);
+        assertThat(imported.at("/data/successCount").asInt()).isEqualTo(1);
+        assertThat(imported.at("/data/failCount").asInt()).isEqualTo(1);
+        assertThat(imported.at("/data/status").asText()).isEqualTo("FAILED");
+
+        assertThat(studentMapper.selectCount(new LambdaQueryWrapper<Student>().eq(Student::getStudentNo, "P10ISOOK"))).isEqualTo(1);
+        assertThat(certificateMapper.selectCount(new LambdaQueryWrapper<Certificate>().eq(Certificate::getStudentNo, "P10ISOOK"))).isEqualTo(1);
+        assertThat(studentMapper.selectCount(new LambdaQueryWrapper<Student>().eq(Student::getStudentNo, tooLongStudentNo))).isZero();
+    }
+
     private void assertWorkbookHeaderAndTextFormat(byte[] content) throws Exception {
         try (Workbook workbook = new XSSFWorkbook(new ByteArrayInputStream(content))) {
             Row header = workbook.getSheetAt(0).getRow(0);

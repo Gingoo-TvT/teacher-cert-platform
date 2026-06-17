@@ -68,7 +68,10 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -126,6 +129,7 @@ public class ExchangeServiceImpl implements ExchangeService {
     private final FileService fileService;
     private final ExchangeExcelHelper excelHelper;
     private final ObjectMapper objectMapper;
+    private final PlatformTransactionManager transactionManager;
 
     @Override
     public ExchangeFile template(ExchangeQuery query) {
@@ -219,7 +223,6 @@ public class ExchangeServiceImpl implements ExchangeService {
     }
 
     @Override
-    @Transactional(rollbackFor = Exception.class)
     public ImportResultVO confirmImport(Long batchId, ImportConfirmRequest request) {
         ImportExportBatch batch = requireBatch(batchId);
         if (ExchangeBatchStatus.of(batch.getStatus()) != ExchangeBatchStatus.PREVALIDATED) {
@@ -238,17 +241,18 @@ public class ExchangeServiceImpl implements ExchangeService {
         int fail = 0;
         for (PreviewPayload preview : previews) {
             try {
-                ImportDecision decision = importOne(batch, preview, strategy);
+                ImportDecision decision = importOneInNewTransaction(batch, preview, strategy);
                 if (decision.success()) {
                     success++;
                 } else {
                     fail++;
                     vo.getMessages().add(decision.message());
                 }
-            } catch (BizException e) {
+            } catch (Exception e) {
+                String message = importFailureMessage(e);
                 fail++;
-                vo.getMessages().add("第" + preview.rowNo() + "行: " + e.getMessage());
-                addError(batch, preview.rowNo(), preview.row(), "导入", "", e.getMessage(), "请修正后重新预校验");
+                vo.getMessages().add("第" + preview.rowNo() + "行: " + message);
+                addError(batch, preview.rowNo(), preview.row(), "导入", "", message, "请修正后重新预校验");
             }
         }
         batch.setStrategy(strategy.name());
@@ -354,6 +358,12 @@ public class ExchangeServiceImpl implements ExchangeService {
         return new ExchangeFile("附件视频打包.zip", "application/zip", zip);
     }
 
+    private ImportDecision importOneInNewTransaction(ImportExportBatch batch, PreviewPayload preview, ImportStrategy strategy) {
+        TransactionTemplate template = new TransactionTemplate(transactionManager);
+        template.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        return template.execute(status -> importOne(batch, preview, strategy));
+    }
+
     private ImportDecision importOne(ImportExportBatch batch, PreviewPayload preview, ImportStrategy strategy) {
         ExchangeStandardRow row = preview.row();
         Student existingStudent = studentByNo(row.getStudentNo());
@@ -373,6 +383,8 @@ public class ExchangeServiceImpl implements ExchangeService {
         }
         Long collegeId = resolveCollegeId(row);
         ensureCanImportCollege(collegeId);
+        ensureCanUpdateExisting(existingStudent, collegeId, "现有学生");
+        ensureCanUpdateExisting(existingCertificate, collegeId, "现有证书");
         Student student = existingStudent == null ? new Student() : existingStudent;
         boolean studentExisting = existingStudent != null;
         String beforeStudent = studentExisting ? snapshot(student) : null;
@@ -391,6 +403,7 @@ public class ExchangeServiceImpl implements ExchangeService {
 
         TrainingProfile training = trainingByStudentYear(student.getId(), assessmentYear(row));
         boolean trainingExisting = training != null;
+        ensureCanUpdateExisting(training, student.getCollegeId(), "现有培养信息");
         if (!trainingExisting) {
             training = new TrainingProfile();
             training.setStudentId(student.getId());
@@ -410,6 +423,7 @@ public class ExchangeServiceImpl implements ExchangeService {
             certificate = certificateByStudentYear(student.getId(), assessmentYear(row));
         }
         boolean certExisting = certificate != null;
+        ensureCanUpdateExisting(certificate, student.getCollegeId(), "现有证书");
         if (!certExisting) {
             certificate = new Certificate();
             certificate.setStudentId(student.getId());
@@ -647,7 +661,13 @@ public class ExchangeServiceImpl implements ExchangeService {
         if (!existing || overwrite(strategy, student.getSourceFull())) {
             student.setSourceFull(trim(row.getSourcePlace()));
         }
-        student.setCollegeId(collegeId);
+        if (existing) {
+            if (!Objects.equals(student.getCollegeId(), collegeId)) {
+                throw new BizException("导入行所属学院与现有学生学院不一致");
+            }
+        } else {
+            student.setCollegeId(collegeId);
+        }
         if (!StringUtils.hasText(student.getStatus())) {
             student.setStatus(StudentStatus.PASSED.name());
         }
@@ -1077,6 +1097,30 @@ public class ExchangeServiceImpl implements ExchangeService {
         throw new BizException(ResultCode.FORBIDDEN.getCode(), "无权导入该学院数据");
     }
 
+    private void ensureCanUpdateExisting(Object existing, Long targetCollegeId, String label) {
+        if (existing == null) {
+            return;
+        }
+        Long currentCollegeId = collegeIdOf(existing);
+        ensureCanImportCollege(currentCollegeId);
+        if (!Objects.equals(currentCollegeId, targetCollegeId)) {
+            throw new BizException(label + "所属学院与导入目标学院不一致");
+        }
+    }
+
+    private Long collegeIdOf(Object value) {
+        if (value instanceof Student student) {
+            return student.getCollegeId();
+        }
+        if (value instanceof TrainingProfile training) {
+            return training.getCollegeId();
+        }
+        if (value instanceof Certificate certificate) {
+            return certificate.getCollegeId();
+        }
+        throw new BizException("不支持的数据范围校验对象");
+    }
+
     private TrainingProfileSaveRequest trainingRequest(ExchangeStandardRow row, Long studentId) {
         TrainingProfileSaveRequest request = new TrainingProfileSaveRequest();
         request.setStudentId(studentId == null ? 0L : studentId);
@@ -1200,12 +1244,12 @@ public class ExchangeServiceImpl implements ExchangeService {
         detail.setBatchId(batch.getId());
         detail.setBatchNo(batch.getBatchNo());
         detail.setRowNo(rowNo);
-        detail.setStudentNo(row.getStudentNo());
-        detail.setStudentName(row.getName());
-        detail.setFieldName(field);
-        detail.setErrorValue(value);
-        detail.setErrorReason(reason);
-        detail.setSuggestion(suggestion);
+        detail.setStudentNo(dbText(row.getStudentNo(), 64));
+        detail.setStudentName(dbText(row.getName(), 64));
+        detail.setFieldName(dbText(field, 128));
+        detail.setErrorValue(dbText(value, 512));
+        detail.setErrorReason(dbText(reason, 512));
+        detail.setSuggestion(dbText(suggestion, 512));
         errorMapper.insert(detail);
     }
 
@@ -1214,13 +1258,20 @@ public class ExchangeServiceImpl implements ExchangeService {
         detail.setBatchId(batch.getId());
         detail.setBatchNo(batch.getBatchNo());
         detail.setRowNo(readRow.rowNo());
-        detail.setStudentNo(readRow.row().getStudentNo());
-        detail.setStudentName(readRow.row().getName());
-        detail.setFieldName(error.fieldName());
-        detail.setErrorValue(error.errorValue());
-        detail.setErrorReason(error.errorReason());
-        detail.setSuggestion(error.suggestion());
+        detail.setStudentNo(dbText(readRow.row().getStudentNo(), 64));
+        detail.setStudentName(dbText(readRow.row().getName(), 64));
+        detail.setFieldName(dbText(error.fieldName(), 128));
+        detail.setErrorValue(dbText(error.errorValue(), 512));
+        detail.setErrorReason(dbText(error.errorReason(), 512));
+        detail.setSuggestion(dbText(error.suggestion(), 512));
         return detail;
+    }
+
+    private String dbText(String value, int maxCodePoints) {
+        if (value == null || value.codePointCount(0, value.length()) <= maxCodePoints) {
+            return value;
+        }
+        return value.substring(0, value.offsetByCodePoints(0, maxCodePoints));
     }
 
     private ImportErrorVO toErrorVO(ImportErrorDetail detail) {
@@ -1388,6 +1439,20 @@ public class ExchangeServiceImpl implements ExchangeService {
         } catch (Exception e) {
             return Objects.equals(left, right);
         }
+    }
+
+    private String importFailureMessage(Exception e) {
+        Throwable cursor = e;
+        while (cursor != null) {
+            if (cursor instanceof BizException bizException && StringUtils.hasText(bizException.getMessage())) {
+                return bizException.getMessage();
+            }
+            cursor = cursor.getCause();
+        }
+        if (StringUtils.hasText(e.getMessage())) {
+            return e.getMessage();
+        }
+        return "导入失败";
     }
 
     private JsonNode normalizedSnapshot(String json) throws IOException {
