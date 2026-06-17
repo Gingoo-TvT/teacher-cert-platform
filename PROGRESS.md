@@ -5,10 +5,10 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**Phase 12 通知（T-101~T-103）待复核**；Phase 0~11 已复核通过。
+- 当前阶段：**Phase 13 系统管理与审计（T-104~T-108）待开始**；Phase 0~12 已复核通过。
 - 阻塞项：无
-- 最近更新：2026-06-17（Phase 12 待复核：V18 notification、站内信服务、四类触发点接入、通知中心与未读角标；`mvn verify` 55/55，前端 type-check/build 绿）
-- 下一步：交 Claude 按 `docs/REVIEW-GATE.md` 复核 Phase 12 触发点、本人可见、非破坏回归。
+- 最近更新：2026-06-17（Phase 12 复核通过 PASS·一轮：四类触发接入非破坏/通知本人可见/未读角标，`mvn verify` 55/55 含 51 回归全绿；详见 docs/reviews/phase-12-review.md）
+- 下一步：启动 Phase 13（系统管理与审计，P0，5 任务；**AT-12 审核全留痕首验** + 系统参数/审计查询/水印脱敏治理/备份）
 
 ## 阶段汇总
 | Phase | 名称 | 优先级 | 任务数 | 完成 | 状态 |
@@ -25,7 +25,7 @@
 | 9 | 证书 | P0 | 8 | 8 | ✅ 已复核(Claude 06-17) |
 | 10 | 导入导出与预校验 | P0 | 12 | 12 | ✅ 已复核(Claude 06-17·2轮) |
 | 11 | 统计报表 | P1 | 9 | 9 | ✅ 已复核(Claude 06-17) |
-| 12 | 通知 | P1 | 3 | 3 | 待复核 |
+| 12 | 通知 | P1 | 3 | 3 | ✅ 已复核(Claude 06-17) |
 | 13 | 系统管理与审计 | P0 | 5 | 0 | 待开始 |
 | 14 | 非功能/部署/验收 | P2+收口 | 6 | 0 | 待开始 |
 | | **合计** | | **114** | **103** | |
@@ -176,7 +176,8 @@
 - [x] T-099 导入导出日志统计
 - [x] T-100 统计报表页（ECharts + 导出）
 
-## Phase 12 · 通知 — 3/3 待复核
+## Phase 12 · 通知 — 3/3 ✅ 已复核（Claude 2026-06-17，PASS·一轮 · docs/reviews/phase-12-review.md）
+> 复核结论：四类触发（提交→教务员/退回→学生/视频分配→教师/导出→发起人）接入**严格附加非破坏**（51 条既有回归全绿）、send 双层 try/catch 失败不影响主业务、通知**本人可见**（list/read 按 user_id、他人 403）、未读角标；NotificationService 置 platform-system 无环、V18 文本字段、notice:view V8 预种；`mvn verify` 55/55、前端绿。4 个 Minor 入 backlog。
 > `V18__notification.sql` 落地 notification 表；站内信服务放 platform-system，NotifyChannel 预留邮件/短信，send 内部吞通知通道异常不影响主业务。已接入 Phase3/4/5/6 提交/退回/复审提醒、Phase7 视频评审分配、Phase10 导出完成；通知中心按当前 user_id 过滤本人可见，`Phase12NotificationIT` 覆盖触发、未读计数、标记已读与他人通知不可读/不可标记。
 - [x] T-101 notification 表（分支：`feature/phase12-T101-notification`）
 - [x] T-102 站内信服务 + 触发点接入

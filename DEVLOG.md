@@ -15,6 +15,11 @@
 
 ---
 
+## [2026-06-17] Phase 12 复核通过（Claude · REVIEW-GATE）✅
+- 做了什么：独立复核 Phase 12 增量（单提交 `0c82431`）。`mvn -B -ntp verify` GREEN **55/55**（`Phase12NotificationIT 4/4` + **回归 Phase2~11 共 51**）、前端 type-check/build 绿；全读 V18 + NotificationServiceImpl + NoticeController + ReviewNotificationHelper + **6 个触发点 service diff（逐一确认附加非破坏）** + IT；P1 轻量 + 全回归绿，按比例未另派代理。
+- 结论：**PASS**（一轮）。四类触发（提交→学院教务员/负责人、退回→学生+抄送、视频分配→评审教师、导出→发起人）接入正确；**严格附加非破坏**（6 service 仅注入 helper + updateById 后 send，唯一改动为等价局部变量；51 条既有回归全绿）；**send 失败不影响主业务**（helper 每法 + service 每通道 双层 try/catch、非事务边界）；**通知本人可见**（list/unreadCount 按 currentUserId、markRead 以 id+user_id→他人 403、read-all 仅本人）；NotificationService 置 platform-system 无环、通道抽象可扩展；V18 文本字段+索引、notice:view V8 预种、V1–V17/治理未改、PROGRESS 未自 ✅。
+- 放行：PROGRESS Phase 12 置 ✅（无新 AT 首验）；合并 `main`（本地私有，无远程，不 push）；启动 Phase 13（AT-12 审核全留痕首验）。4 Minor 入 backlog（send 失败未直接造例、通知在业务事务内同步发送可改 afterCommit、轮询非 SSE、list 非真分页）。
+
 ## [2026-06-17] Phase 12 待复核小结（T-101~T-103）
 - 做了什么：从 `main` 切出 `feature/phase12-T101-notification`，完成 `V18__notification.sql`、`notification` 实体/Mapper/VO、`NotificationService`、`NotifyChannel` 抽象、站内信落库通道、通知中心接口、前端通知中心、顶栏未读角标与轮询。
 - 触发点清单：已在 Phase3/4/5/6 状态流转处接入提交待初审/待复审提醒、退回/不通过提醒；Phase7 视频评审分配提醒评审教师；Phase10 导出完成提醒发起人。接收人通过学生关联账号、学院教务员/负责人角色、评审任务 reviewerId 与当前用户解析。
