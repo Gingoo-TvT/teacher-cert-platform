@@ -15,6 +15,11 @@
 
 ---
 
+## [2026-06-17] Phase 11 复核通过（Claude · REVIEW-GATE）✅
+- 做了什么：独立复核 Phase 11 增量（单提交 `37b60ef`，新模块 platform-statistics）。`mvn -B -ntp verify` GREEN **51/51**（`Phase11StatsIT 5/5` + 回归 Phase2~10 共 46）、前端 `npm install`(echarts) + type-check/build 绿；读 747 行 `StatsServiceImpl` + 控制器 + IT + 前端；一路独立代理 PASS（逐条确认 8 类统计 fail-closed 收敛、无跨院泄漏）。
+- 结论：**PASS**（一轮）。数据范围服务层强制（`resolveScope("stats:view")` + `scopedStudents`，空集/越范围→空、batch 按 operator/scopeJson），学院只见本院（IT 反例 学院A不含B）；材料完成率（四类全 PASSED）按类别 + 证书各状态 **与 DB 分组对账一致**（IT 双对账）；口径复用 Phase5/6/7/9 既有状态与 Phase3/4 校验器、分母 DENOMINATOR_RULE 文档化；异常可定位学生/字段；导出复用 `ExchangeExcelHelper` 文本 `@`；`stats:view` V8 预种无新迁移；新模块注册接入 boot 无环；V1–V17/治理未改、PROGRESS 未自 ✅。
+- 放行：PROGRESS Phase 11 置 ✅（AT-13 统计读侧续接，无新首验）；合并 `main`（本地私有，无远程，不 push）；启动 Phase 12。5 Minor 入 backlog（SELF 范围死分支、材料类合格口径较 Phase5 略松、scopeJson 子串匹配、钻取静态、统计全量入内存/明细 200 截断）。
+
 ## [2026-06-17] Phase 11 待复核小结（T-092~T-100）
 - 做了什么：从 `main` 切出 `feature/phase11-T092-statistics`，新增 `platform-statistics` 模块并接入 boot，完成 8 类统计服务、`/api/stats/{type}` 查询、`/api/stats/{type}/export` 导出、统计报表页（Vue3 + Naive UI + ECharts）、路由菜单和前端 API。
 - 关键决策与理由：本阶段未新增 V18 迁移，`stats:view` 已在 V8 预种并按 COLLEGE/SCHOOL 授权；聚合查询跨多张业务表且 `import_export_batch` 无 college_id，统计读侧采用服务层 `DataScopeService.resolve("stats:view")` 明确收敛范围，而不是为多表聚合另造拦截规则。

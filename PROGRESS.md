@@ -5,10 +5,10 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**Phase 11 统计报表（T-092~T-100）待复核**；Phase 0~10 已复核通过。
+- 当前阶段：**Phase 12 通知（T-101~T-103）待开始**；Phase 0~11 已复核通过。
 - 阻塞项：无
-- 最近更新：2026-06-17（Phase 11 完成 T-092~T-100：8 类统计、ECharts 报表页、Excel 导出、对账与数据范围反例；未新增 V18，`stats:view` 已在 V8；`mvn verify` 51/51，前端 type-check/build 通过）
-- 下一步：交 Claude 按 `docs/REVIEW-GATE.md` 复核 Phase 11（统计口径、对账一致性、数据范围与导出文本格式）
+- 最近更新：2026-06-17（Phase 11 复核通过 PASS·一轮：8 类统计数据范围 fail-closed/材料+证书对账一致/口径复用既有/导出文本，`mvn verify` 51/51；详见 docs/reviews/phase-11-review.md）
+- 下一步：启动 Phase 12（通知，P1，3 任务；站内信 + 触发点接入 + 未读角标，无新 AT 首验）
 
 ## 阶段汇总
 | Phase | 名称 | 优先级 | 任务数 | 完成 | 状态 |
@@ -24,7 +24,7 @@
 | 8 | 测试结果 | P0 | 4 | 4 | ✅ 已复核(Claude 06-17) |
 | 9 | 证书 | P0 | 8 | 8 | ✅ 已复核(Claude 06-17) |
 | 10 | 导入导出与预校验 | P0 | 12 | 12 | ✅ 已复核(Claude 06-17·2轮) |
-| 11 | 统计报表 | P1 | 9 | 9 | 待复核 |
+| 11 | 统计报表 | P1 | 9 | 9 | ✅ 已复核(Claude 06-17) |
 | 12 | 通知 | P1 | 3 | 0 | 待开始 |
 | 13 | 系统管理与审计 | P0 | 5 | 0 | 待开始 |
 | 14 | 非功能/部署/验收 | P2+收口 | 6 | 0 | 待开始 |
@@ -162,7 +162,8 @@
 - [x] T-090 导入中心页
 - [x] T-091 导出中心页
 
-## Phase 11 · 统计报表 — 9/9 待复核
+## Phase 11 · 统计报表 — 9/9 ✅ 已复核（Claude 2026-06-17，PASS·一轮 · docs/reviews/phase-11-review.md）
+> 复核结论：8 类统计**数据范围服务层 fail-closed**（全部经 scopedStudents 收敛、空集/越范围→空、batch 按 operator/scopeJson），学院只见本院（IT 反例）；材料完成率+证书状态**与 DB 分组对账一致**；口径复用 Phase5/6/7/9 既有状态与校验器、分母文档化；导出复用 `ExchangeExcelHelper` 文本 `@`；`stats:view` V8 预种无新迁移、新模块接入无环；`mvn verify` 51/51、前端绿。5 个 Minor 入 backlog。
 > 未新增 V18：`stats:view` 已在 V8 预种并授权（学院 COLLEGE、教务处 SCHOOL）。统计查询采用服务层 `DataScopeService.resolve("stats:view")` 明确收敛多表聚合范围；分母口径按 docs §6 默认“当前考核年度在册学生”，因 student 表无年度字段，按当前数据范围内学生集合计，年度过滤用于有 `assessment_year` 的业务表。
 > 新增 `platform-statistics` 模块并接入 boot，完成 `/api/stats/{type}` 与 `/api/stats/{type}/export`、前端 ECharts 报表页。`Phase11StatsIT` 覆盖材料完成率对账、证书状态对账、学院 A 不含学院 B、异常定位到学生/字段、Excel 文本格式导出；`mvn verify` 51/51，前端 type-check/build 通过，待 Claude 复核。
 - [x] T-092 学院提交进度统计（分支：`feature/phase11-T092-statistics`）
