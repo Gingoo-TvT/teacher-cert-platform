@@ -15,6 +15,11 @@
 
 ---
 
+## [2026-06-17] Phase 10 复核退回（Claude · REVIEW-GATE）❌
+- 做了什么：独立复核 Phase 10 增量（单提交 `c074a48`，新模块 platform-exchange）。`mvn -B -ntp verify` GREEN 44/44、前端 type-check/build 绿；全读 1449 行 `ExchangeServiceImpl` + `ExchangeExcelHelper` + 26 列模型 + 控制器 + V17 + 588 行 IT；两路独立代理（质量 PASS / AT 代理 CONCERNS）。
+- 结论：**退回**。AT-01 文本化（模型 String+写 `@`+读字符串）、AT-02 26 列 A–Z+H="身份证件号码"、AT-14 V-01~V-13 复用既有校验器且不入库、INSERT_ONLY/SKIP、回滚冲突判定、导出读侧数据范围+敏感脱敏 全过且反例齐；V17 仅新增、V1–V16 冻结、新模块接入正确、POI 受管。**但 B1（Major）导入更新写侧漏校验现有记录归属**：`importOne` `studentByNo` 无范围命中他院学生、`ensureCanImportCollege` 只校验目标学院、`applyStudent` 无条件改 collegeId → OVERWRITE/UPDATE_EMPTY 下学院 A 凭学号覆盖/迁移他院 B 学生（与 Phase 3 同类跨学院写）；**B2（Major）导入逐行事务粒度**：裸 `DataAccessException` 逃出 per-row catch 回滚整批 + studentMapper dup-catch 致 `UnexpectedRollbackException` 风险。
+- 退回处理：PROGRESS Phase 10 置 **复核退回**、不并 main、不置 ✅、AT-01/02/14 维持 `[~]`；codex 原分支修 B1（更新前校验现有记录 collegeId∈写范围、collegeId 不跨范围改）/B2（per-row REQUIRES_NEW 或 catch DataAccessException 隔离坏行）+ 补反例（跨院更新被拒、坏行不污染整批、OVERWRITE/UPDATE_EMPTY 往返），重交只复核增量+回归。Minor×7 入 backlog。
+
 ## [2026-06-17] Phase 10 待复核小结（T-080~T-091）
 - 做了什么：从 `main` 切出 `feature/phase10-T080-exchange`，完成 `V17__exchange.sql`、`platform-exchange` 模块、导入导出批次/异常/回滚追溯表、26 列标准 Excel 模型、模板下载、预校验中心、异常报告、确认导入/回滚、标准/完整/证书汇总/异常/附件清单导出；前端新增导入中心、导出中心、API、路由与菜单。
 - 关键决策与理由：Phase10 文档中的 `V16__exchange.sql` 已过时，磁盘 max 为 V16，按 AGENTS 迁移规则使用 `V17__exchange.sql`；26 列模型全 `String`，写出列格式统一 `@`，读取按字符串取值；预校验复用既有 `NameValidator`、证件/出生日期、专业代码、培养联动、证书段码与有效期规则，避免另造口径。
