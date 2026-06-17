@@ -15,6 +15,13 @@
 
 ---
 
+## [2026-06-18] T-115 待复核小结（Phase14E2EIT 拆分）
+- 做了什么：在 `feature/t115-e2e-split` 仅重构 `platform-boot/src/test/java/cn/edu/gpnu/platform/boot/Phase14E2EIT.java`，把原单一 `mainFlowFromImportToArchiveAndStandardExportIsConsistent` 拆为 14 个 `@Order` 有序子用例：导入、学生复审、培养复审、四类材料、免考、视频复评、测试结果、证书前置、生成、签发、导出、归档、标准导出终断言、审计留痕。
+- 关键决策与理由：采用 `@TestMethodOrder(MethodOrderer.OrderAnnotation.class)` + `@TestInstance(PER_CLASS)` 共享流程字段，`@BeforeAll/@AfterAll` 只做整条链路前后清理；每个子用例重新登录取 token，避免测试运行超过 30 秒后 JWT 失效。未改任何业务代码、迁移、配置、依赖或前端。
+- 断言核对：原有断言全部保留并迁移到对应阶段，包括标准导出 A-Z 26 列、H=`身份证件号码`、全列文本格式 `@`、导出 `studentNo/name/idCard/birthDate/teachingSubject/certNo/validUntil` 逐字段等于录入、成绩 `00000000000085`、免考剔除应考科目、视频第三专家终分 83、student/training/exemption/video/cert 审计断言。
+- 测试：`mvn -B -ntp -pl platform-boot -am -DskipTests test-compile` 通过；定向 `mvn -B -ntp -pl platform-boot -am "-Dfailsafe.failIfNoSpecifiedTests=false" "-Dit.test=Phase14E2EIT" verify` 通过，`Phase14E2EIT` 14/14 绿；全量 `mvn -B -ntp verify` 通过，Failsafe 共 75/75（Phase14E2EIT 14 + Phase2~13 回归 61）。
+- 下一步：T-115 已在 `PROGRESS.md` 置「待复核」，等待 Claude 复核测试拆分质量与全回归结果，未自行置 ✅。
+
 ## [2026-06-18] Phase 14 复核通过（Claude · REVIEW-GATE）✅ — 全项目收官
 - 做了什么：独立复核 Phase 14 收口增量（单提交 `bccee73`）。`mvn -B -ntp verify` GREEN **62/62**（`Phase14E2EIT 1` + 全回归 Phase2~13 共 61）、前端 type-check/build 绿；全读 851 行 E2E + SPI/开关/空实现 + Dockerfile/compose/nginx + AT复验矩阵；无既有业务代码改动、无新迁移、V1–V19/治理冻结，按比例未另派代理。
 - 结论：**PASS**（一轮）。E2E 主流程总闸真实贯通（导入→学生/培养复审→四类材料合格→免考通过且应考剔除→视频 2 评审+需复评+第三专家 83+确认→测试前导零成绩保留+确认锁定→证书前置→18 位生成→签发有效期 2029/6/30→导出→归档），**标准导出 26 列+H+文本 `@`+逐字段==录入**，并断言全流程审计留痕——一条用例联动复验 AT-01/02/05/06/07/08/09/10/11/12/13 + 状态机A/C；AT-01~14 整体复验归档（矩阵复验列全 ✅ + IT 依据）；M14 6 SPI + 开关默认关 + 空实现，一期零影响（61 回归证）；部署物齐备（多阶段后端 Dockerfile/前端 nginx/生产 compose 五服务健康检查+Flyway 种子/README/备份手册）。

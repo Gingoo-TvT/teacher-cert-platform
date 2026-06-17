@@ -34,9 +34,13 @@ import org.apache.poi.ss.usermodel.DataFormatter;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Workbook;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.MethodOrderer;
+import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestInstance;
+import org.junit.jupiter.api.TestMethodOrder;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
@@ -68,6 +72,8 @@ import static org.assertj.core.api.Assertions.assertThat;
         "platform.security.jwt.secret=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
         "platform.security.jwt.access-ttl-seconds=30"
 })
+@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
+@TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class Phase14E2EIT {
 
     private static final String INITIAL_PASSWORD = "ChangeMe123!";
@@ -138,9 +144,27 @@ class Phase14E2EIT {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
-    @BeforeEach
-    @AfterEach
-    void resetData() {
+    private ExchangeStandardRow importedRow;
+    private Student student;
+    private TrainingProfile training;
+    private long exemptionId;
+    private long videoId;
+    private long testId;
+    private long certId;
+    private String issuedCertNo;
+    private long certAuditBefore;
+
+    @BeforeAll
+    void initializeE2E() {
+        resetData();
+    }
+
+    @AfterAll
+    void cleanupE2E() {
+        resetData();
+    }
+
+    private void resetData() {
         cleanupGeneratedData();
         resetParam("video.diffThreshold", "12");
         resetParam("video.reviewerCount", "2");
@@ -158,27 +182,23 @@ class Phase14E2EIT {
     }
 
     @Test
-    void mainFlowFromImportToArchiveAndStandardExportIsConsistent() throws Exception {
+    @Order(1)
+    void importInsertOnlyCreatesDraftStudentAndTrainingProfile() throws Exception {
         LoginResult academic = readyLogin("test_academic_admin");
-        LoginResult clerk = readyLogin("test_college_clerk");
-        LoginResult auditor = readyLogin("test_college_auditor");
-        LoginResult reviewerA = readyLogin("test_review_teacher");
-        LoginResult reviewerB = readyLogin("test_review_teacher_b");
-        LoginResult issuer = readyLogin("test_cert_issuer");
 
-        ExchangeStandardRow importedRow = standardRow();
+        importedRow = standardRow();
         JsonNode pre = prevalidate(academic.accessToken(), List.of(importedRow)).at("/data");
         assertThat(pre.at("/successCount").asInt()).describedAs(pre.toPrettyString()).isEqualTo(1);
         JsonNode imported = confirmImport(academic.accessToken(), pre.at("/batchId").asLong()).at("/data");
         assertThat(imported.at("/successCount").asInt()).describedAs(imported.toPrettyString()).isEqualTo(1);
 
-        Student student = studentMapper.selectOne(new LambdaQueryWrapper<Student>()
+        student = studentMapper.selectOne(new LambdaQueryWrapper<Student>()
                 .eq(Student::getStudentNo, STUDENT_NO)
                 .last("LIMIT 1"));
         assertThat(student).isNotNull();
         assertThat(student.getStudentNo()).isEqualTo(STUDENT_NO);
         assertThat(student.getIdCardNo()).isEqualTo(importedRow.getIdCardNo());
-        TrainingProfile training = trainingByStudentYear(student.getId(), YEAR);
+        training = trainingByStudentYear(student.getId(), YEAR);
         assertThat(training.getTeachingSubjectCode()).isEqualTo(importedRow.getTeachingSubject());
         certificateMapper.delete(new LambdaQueryWrapper<Certificate>()
                 .eq(Certificate::getStudentId, student.getId())
@@ -186,15 +206,40 @@ class Phase14E2EIT {
         resetImportedAuditState(student, training);
 
         bindStudentUser(student.getId(), student.getCollegeId());
+    }
+
+    @Test
+    @Order(2)
+    void studentSubmitAndTwoLevelReviewPass() throws Exception {
+        LoginResult academic = readyLogin("test_academic_admin");
+        LoginResult clerk = readyLogin("test_college_clerk");
+        LoginResult auditor = readyLogin("test_college_auditor");
         LoginResult studentLogin = readyLogin("test_student");
+
         JsonNode studentDetail = json(exchange("/api/student/" + student.getId(), HttpMethod.GET,
                 studentLogin.accessToken(), null)).at("/data");
         assertThat(studentDetail.at("/studentNo").asText()).isEqualTo(STUDENT_NO);
         reviewStudent(academic.accessToken(), clerk.accessToken(), auditor.accessToken(), student.getId());
         assertThat(studentMapper.selectById(student.getId()).getStatus()).isEqualTo("PASSED");
+    }
+
+    @Test
+    @Order(3)
+    void trainingProfileTwoLevelReviewPass() throws Exception {
+        LoginResult academic = readyLogin("test_academic_admin");
+        LoginResult clerk = readyLogin("test_college_clerk");
+        LoginResult auditor = readyLogin("test_college_auditor");
 
         reviewTraining(academic.accessToken(), clerk.accessToken(), auditor.accessToken(), training.getId());
         assertThat(trainingProfileMapper.selectById(training.getId()).getStatus()).isEqualTo("PASSED");
+    }
+
+    @Test
+    @Order(4)
+    void fourProcessMaterialsPassedMeansQualified() throws Exception {
+        LoginResult studentLogin = readyLogin("test_student");
+        LoginResult clerk = readyLogin("test_college_clerk");
+        LoginResult auditor = readyLogin("test_college_auditor");
 
         for (String category : MATERIAL_CATEGORIES) {
             long materialId = uploadMaterial(studentLogin.accessToken(), student.getId(), category, category + ".pdf");
@@ -203,8 +248,16 @@ class Phase14E2EIT {
         JsonNode materialStatus = json(exchange("/api/material/process-status/" + student.getId() + "?year=" + YEAR,
                 HttpMethod.GET, studentLogin.accessToken(), null)).at("/data");
         assertThat(materialStatus.at("/qualified").asBoolean()).isTrue();
+    }
 
-        long exemptionId = applyExemption(studentLogin.accessToken(), student.getId());
+    @Test
+    @Order(5)
+    void exemptionPassRemovesSubjectFromExamSubjects() throws Exception {
+        LoginResult studentLogin = readyLogin("test_student");
+        LoginResult clerk = readyLogin("test_college_clerk");
+        LoginResult auditor = readyLogin("test_college_auditor");
+
+        exemptionId = applyExemption(studentLogin.accessToken(), student.getId());
         uploadExemptionMaterial(studentLogin.accessToken(), exemptionId);
         submitAndApproveExemption(studentLogin.accessToken(), clerk.accessToken(), auditor.accessToken(), exemptionId);
         ExemptionRequest exemption = exemptionRequestMapper.selectById(exemptionId);
@@ -212,8 +265,18 @@ class Phase14E2EIT {
         JsonNode examSubjects = json(exchange("/api/exemption/exam-subjects/" + student.getId() + "?year=" + YEAR
                 + "&segment=junior_middle_school", HttpMethod.GET, studentLogin.accessToken(), null)).at("/data");
         assertSubjectIncluded(examSubjects, SUBJECT_EXEMPTED, false);
+    }
 
-        long videoId = uploadValidatedVideo(studentLogin.accessToken(), student.getId());
+    @Test
+    @Order(6)
+    void videoReviewNeedsThirdExpertAndConfirmsFinalScore() throws Exception {
+        LoginResult studentLogin = readyLogin("test_student");
+        LoginResult clerk = readyLogin("test_college_clerk");
+        LoginResult auditor = readyLogin("test_college_auditor");
+        LoginResult reviewerA = readyLogin("test_review_teacher");
+        LoginResult reviewerB = readyLogin("test_review_teacher_b");
+
+        videoId = uploadValidatedVideo(studentLogin.accessToken(), student.getId());
         assignVideo(clerk.accessToken(), videoId);
         score(reviewerA.accessToken(), taskIdByReview(reviewerA.accessToken(), videoId), 85, "PASS");
         score(reviewerB.accessToken(), taskIdByReview(reviewerB.accessToken(), videoId), 60, "PASS");
@@ -223,32 +286,84 @@ class Phase14E2EIT {
         VideoReview video = videoReviewMapper.selectById(videoId);
         assertThat(video.getStatus()).isEqualTo("CONFIRMED");
         assertThat(video.getFinalScore()).isEqualTo(83);
+    }
 
-        long testId = saveTestResult(academic.accessToken(), student.getId());
+    @Test
+    @Order(7)
+    void testResultKeepsLeadingZeroScoreAndLocksAfterConfirm() throws Exception {
+        LoginResult academic = readyLogin("test_academic_admin");
+
+        testId = saveTestResult(academic.accessToken(), student.getId());
         assertOk(exchange("/api/test/" + testId + "/confirm", HttpMethod.POST, academic.accessToken(), Map.of()));
         AbilityTestResult result = testResultMapper.selectById(testId);
         assertThat(result.getScore()).isEqualTo("00000000000085");
         assertThat(result.getLocked()).isEqualTo(1);
+    }
+
+    @Test
+    @Order(8)
+    void certificatePrecheckPassesAfterAllPrerequisites() throws Exception {
+        LoginResult academic = readyLogin("test_academic_admin");
 
         JsonNode precheck = json(exchange("/api/cert/precheck/" + student.getId() + "?year=" + YEAR,
                 HttpMethod.GET, academic.accessToken(), null)).at("/data");
         assertThat(precheck.at("/passed").asBoolean()).isTrue();
-        long certAuditBefore = countCertificateLifecycleAudit();
+        certAuditBefore = countCertificateLifecycleAudit();
+    }
+
+    @Test
+    @Order(9)
+    void certificateGenerationReturnsEighteenDigitNumber() throws Exception {
+        LoginResult academic = readyLogin("test_academic_admin");
+
         JsonNode cert = generateCertificate(academic.accessToken(), student.getId());
+        certId = cert.at("/id").asLong();
         assertThat(cert.at("/certNo").asText()).hasSize(18);
         assertThat(cert.at("/certNo").asText()).startsWith("202610588");
-        JsonNode issued = issueCertificate(issuer.accessToken(), cert.at("/id").asLong());
+    }
+
+    @Test
+    @Order(10)
+    void certificateIssueCalculatesFirstHalfYearValidity() throws Exception {
+        LoginResult issuer = readyLogin("test_cert_issuer");
+
+        JsonNode issued = issueCertificate(issuer.accessToken(), certId);
+        issuedCertNo = issued.at("/certNo").asText();
         assertThat(issued.at("/validUntil").asText()).isEqualTo("2029/6/30");
-        assertOk(exchange("/api/cert/" + cert.at("/id").asLong() + "/export", HttpMethod.POST, academic.accessToken(), Map.of()));
-        JsonNode archived = json(exchange("/api/cert/" + cert.at("/id").asLong() + "/archive",
+    }
+
+    @Test
+    @Order(11)
+    void certificateExportOperationSucceeds() throws Exception {
+        LoginResult academic = readyLogin("test_academic_admin");
+
+        assertOk(exchange("/api/cert/" + certId + "/export", HttpMethod.POST, academic.accessToken(), Map.of()));
+    }
+
+    @Test
+    @Order(12)
+    void certificateArchiveMarksArchived() throws Exception {
+        LoginResult academic = readyLogin("test_academic_admin");
+
+        JsonNode archived = json(exchange("/api/cert/" + certId + "/archive",
                 HttpMethod.POST, academic.accessToken(), Map.of())).at("/data");
         assertThat(archived.at("/status").asText()).isEqualTo("ARCHIVED");
+    }
+
+    @Test
+    @Order(13)
+    void standardExportMatchesImportedTextFields() throws Exception {
+        LoginResult academic = readyLogin("test_academic_admin");
 
         ResponseEntity<byte[]> exported = download("/api/exchange/export/STANDARD", HttpMethod.POST,
                 academic.accessToken(), Map.of("assessmentYear", YEAR, "keyword", STUDENT_NO));
         assertThat(exported.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertStandardExport(exported.getBody(), importedRow, issued.at("/certNo").asText(), "2029/6/30");
+        assertStandardExport(exported.getBody(), importedRow, issuedCertNo, "2029/6/30");
+    }
 
+    @Test
+    @Order(14)
+    void fullFlowWritesExpectedAuditTrail() {
         assertThat(auditLogMapper.selectCount(new LambdaQueryWrapper<SysAuditLog>()
                 .eq(SysAuditLog::getBizType, "student")
                 .eq(SysAuditLog::getBizId, student.getId())
