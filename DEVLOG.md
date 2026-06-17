@@ -15,6 +15,11 @@
 
 ---
 
+## [2026-06-17] Phase 9 复核通过（Claude · REVIEW-GATE）✅
+- 做了什么：独立复核 Phase 9 增量（单提交 `6be5f79`）。`mvn -B -ntp verify` GREEN **40/40**（`Phase9CertificateIT 7/7` + 回归 Phase2~8 共 33）、前端 `type-check`/`build` 绿；全读 595 行 `CertificateServiceImpl` + `CertSequenceMapper`(FOR UPDATE) + 状态机 + V15/V16 + 636 行 IT；两路独立代理，代理 1 给出**并发安全明确结论**。
+- 结论：**PASS**（一轮）。**AT-10 18 位编号生命线安全**：`cert_sequence` 行锁(`SELECT…FOR UPDATE`)+同 `@Transactional` 自增，行锁持有至 generate 提交故并发严格串行；序号在所有可失败门之后、唯一一次 insert 之前消费，insert 冲突则整事务回滚序号回退（无空号）；`cert_no` 唯一键兜底；无 Redis INCR/max+1；50×10 线程并发反例断言 certNo 不重且序号连续 1..50。AT-09 前置聚合复用各阶段结论→缺失清单→拒；AT-11 有效期上/下半年（边界==6归上半年）。状态机 C 各流转有守卫、关键字段结构性锁定(仅 cert:correct 可改+留痕)、作废→重开关联原号(原证留 VOIDED 合验收)。读+写数据范围(读 SELF/COLLEGE/SCHOOL、写仅校级、collegeId 取自实体)。V15+V16 幂等、V1–V14 冻结、ID 命名空间不冲突；V16 把"学生看本人证书"作新迁移补授(遵守不改已发布脚本)。
+- 放行：PROGRESS Phase 9 置 ✅、AT-09/10/11 首验通过；合并 `main`（本地私有，无远程，不 push）；启动 Phase 10。9 Minor 入 backlog（export/archive 用 cert:view 授权写语义异味、REISSUED 死枚举、correct 双留痕、reissue→generate 权限耦合、学院复审被 PASSED 吸收、V15 重复 seed cert.* 死号、并发例 50 vs 规格 100、list 非真分页、若干覆盖面）。
+
 ## [2026-06-17] Phase 9 待复核小结（T-072~T-079）
 - 做了什么：从 `main` 切出 `feature/phase09-T072-certificate`，完成证书域后端与前端。新增 `V15__certificate.sql`（`certificate`、`cert_sequence`、证书状态字典、`cert.seq.scope`/学校码/省码参数）与 `V16__certificate_student_view.sql`（学生 `cert:view` SELF 授权补充）；新增证书实体/Mapper/Service/Controller、证书管理页、证书签发页、API、路由与菜单。
 - 关键决策与理由：18 位编号按 `year + cert.school.code + education_level.ext_json.certLevelCode + cert.province.code + teaching_segment.ext_json.certSegmentCode + seq(5)` 生成；序列使用 `cert_sequence` 行、`INSERT ... ON DUPLICATE KEY UPDATE` 初始化、同事务 `SELECT ... FOR UPDATE` 自增并写证，避免 Redis INCR 或 `max(seq)+1` 空号/重号；V15 已本地应用后发现学生查看授权缺口，按 Flyway 不改已发布脚本原则用 V16 补种。
