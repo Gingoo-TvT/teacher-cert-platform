@@ -24,6 +24,7 @@ import cn.edu.gpnu.platform.system.entity.SysUser;
 import cn.edu.gpnu.platform.system.mapper.SysRoleMapper;
 import cn.edu.gpnu.platform.system.mapper.SysUserMapper;
 import cn.edu.gpnu.platform.system.mapper.SysUserRoleMapper;
+import cn.edu.gpnu.platform.system.service.AuditLogService;
 import cn.edu.gpnu.platform.system.service.DataScopeService;
 import cn.edu.gpnu.platform.system.service.ParamService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -56,6 +57,7 @@ public class StudentServiceImpl implements StudentService {
     private final BirthDateValidator birthDateValidator;
     private final NameValidator nameValidator;
     private final ReviewNotificationHelper notificationHelper;
+    private final AuditLogService auditLogService;
 
     @Override
     public PageResult<StudentVO> list(String keyword, String status, Long collegeId, boolean plain) {
@@ -157,6 +159,7 @@ public class StudentServiceImpl implements StudentService {
         if (StudentStatus.of(entity.getStatus()) != StudentStatus.FIRST_REVIEW) {
             throw new BizException("当前状态不可初审");
         }
+        String oldStatus = entity.getStatus();
         String action = normalizeAction(request.getAction());
         if ("PASS".equals(action)) {
             entity.setStatus(StudentStatus.SECOND_REVIEW.name());
@@ -173,6 +176,8 @@ public class StudentServiceImpl implements StudentService {
         entity.setFirstReviewTime(LocalDateTime.now());
         entity.setFirstReviewComment(trimToNull(request.getComment()));
         studentMapper.updateById(entity);
+        auditLogService.record("student", entity.getId(), studentTarget(entity), "firstReview",
+                oldStatus, entity.getStatus(), trimToNull(request.getComment()));
         if ("PASS".equals(action)) {
             notificationHelper.notifyFirstReviewPassed(entity.getCollegeId(), entity.getId(), "学生基本信息",
                     "student", entity.getId());
@@ -188,6 +193,7 @@ public class StudentServiceImpl implements StudentService {
         if (StudentStatus.of(entity.getStatus()) != StudentStatus.SECOND_REVIEW) {
             throw new BizException("当前状态不可复审");
         }
+        String oldStatus = entity.getStatus();
         String action = normalizeAction(request.getAction());
         if ("PASS".equals(action)) {
             entity.setStatus(StudentStatus.PASSED.name());
@@ -205,6 +211,8 @@ public class StudentServiceImpl implements StudentService {
         entity.setSecondReviewTime(LocalDateTime.now());
         entity.setSecondReviewComment(trimToNull(request.getComment()));
         studentMapper.updateById(entity);
+        auditLogService.record("student", entity.getId(), studentTarget(entity), "secondReview",
+                oldStatus, entity.getStatus(), trimToNull(request.getComment()));
         if (!"PASS".equals(action)) {
             notificationHelper.notifySecondReviewReturned(entity.getCollegeId(), entity.getId(), "学生基本信息",
                     action, "student", entity.getId());
@@ -382,6 +390,10 @@ public class StudentServiceImpl implements StudentService {
         vo.setFirstReviewComment(entity.getFirstReviewComment());
         vo.setSecondReviewComment(entity.getSecondReviewComment());
         return vo;
+    }
+
+    private String studentTarget(Student entity) {
+        return entity.getId() + "/" + entity.getStudentNo() + "/" + entity.getName();
     }
 
     private Student requireStudent(Long id) {

@@ -189,12 +189,14 @@ public class CertificateServiceImpl implements CertificateService {
         if (status != CertificateStatus.GENERATED && status != CertificateStatus.ISSUED) {
             throw new BizException("当前状态不可作废");
         }
+        String oldStatus = entity.getStatus();
         entity.setVoidReason(requiredTrim(request.getReason(), "作废原因不能为空"));
         entity.setVoidOperatorId(UserContext.getUserIdOrSystem());
         entity.setVoidTime(LocalDateTime.now());
         entity.setStatus(CertificateStatus.VOIDED.name());
         entity.setLocked(1);
         certificateMapper.updateById(entity);
+        recordAudit(entity, "void", oldStatus, entity.getStatus(), entity.getVoidReason());
         return toVO(entity);
     }
 
@@ -210,8 +212,10 @@ public class CertificateServiceImpl implements CertificateService {
         if (active != null) {
             throw new BizException("该学生本年度已有未作废证书");
         }
+        String oldStatus = original.getStatus();
         original.setLocked(1);
         certificateMapper.updateById(original);
+        recordAudit(original, "reissue", oldStatus, CertificateStatus.REISSUED.name(), "重开证书");
         CertificateGenerateRequest request = new CertificateGenerateRequest();
         request.setStudentId(original.getStudentId());
         request.setAssessmentYear(original.getAssessmentYear());
@@ -571,7 +575,8 @@ public class CertificateServiceImpl implements CertificateService {
         SysAuditLog log = new SysAuditLog();
         log.setBizType("cert");
         log.setBizId(entity.getId());
-        log.setTarget(entity.getCertNo());
+        log.setTarget(entity.getId() + "/" + entity.getAssessmentYear() + "/" + entity.getStudentId()
+                + "/" + entity.getCertNo());
         log.setOperatorId(UserContext.getUserIdOrSystem());
         log.setOperateTime(LocalDateTime.now());
         log.setOperation(operation);

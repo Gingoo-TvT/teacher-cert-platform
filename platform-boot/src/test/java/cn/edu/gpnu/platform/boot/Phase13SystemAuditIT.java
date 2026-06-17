@@ -1,8 +1,16 @@
 package cn.edu.gpnu.platform.boot;
 
 import cn.edu.gpnu.platform.PlatformApplication;
+import cn.edu.gpnu.platform.business.certificate.entity.Certificate;
+import cn.edu.gpnu.platform.business.certificate.mapper.CertificateMapper;
+import cn.edu.gpnu.platform.business.exemption.entity.ExemptionRequest;
+import cn.edu.gpnu.platform.business.exemption.mapper.ExemptionRequestMapper;
 import cn.edu.gpnu.platform.business.material.entity.ProcessMaterial;
 import cn.edu.gpnu.platform.business.material.mapper.ProcessMaterialMapper;
+import cn.edu.gpnu.platform.business.student.entity.Student;
+import cn.edu.gpnu.platform.business.student.mapper.StudentMapper;
+import cn.edu.gpnu.platform.business.training.entity.TrainingProfile;
+import cn.edu.gpnu.platform.business.training.mapper.TrainingProfileMapper;
 import cn.edu.gpnu.platform.business.video.entity.VideoReview;
 import cn.edu.gpnu.platform.business.video.entity.VideoReviewTask;
 import cn.edu.gpnu.platform.business.video.mapper.VideoReviewMapper;
@@ -56,6 +64,7 @@ class Phase13SystemAuditIT {
     private static final long REVIEWER_B_USER_ID = 800000000000003010L;
     private static final long REVIEWER_B_ROLE_ID = 800000000000004010L;
     private static final long AUDITOR_ID = 800000000000003004L;
+    private static final long ACADEMIC_ID = 800000000000003006L;
     private static final String YEAR = "P13-2026";
 
     @LocalServerPort
@@ -80,7 +89,19 @@ class Phase13SystemAuditIT {
     private SysAuditLogMapper auditLogMapper;
 
     @Autowired
+    private StudentMapper studentMapper;
+
+    @Autowired
+    private TrainingProfileMapper trainingProfileMapper;
+
+    @Autowired
+    private ExemptionRequestMapper exemptionRequestMapper;
+
+    @Autowired
     private ProcessMaterialMapper materialMapper;
+
+    @Autowired
+    private CertificateMapper certificateMapper;
 
     @Autowired
     private VideoReviewMapper reviewMapper;
@@ -142,6 +163,44 @@ class Phase13SystemAuditIT {
         JsonNode auditList = json(exchange("/api/audit/log?bizType=material&studentId=9001&keyword=复审退回原因",
                 HttpMethod.GET, auditor.accessToken(), null)).at("/data/records");
         assertThat(auditList.toString()).contains("SECOND_REVIEW").contains("SECOND_REJECTED").contains("复审退回原因");
+    }
+
+    @Test
+    void majorReviewFlowsWriteRichAuditAndCanBeQueriedByStudent() throws Exception {
+        LoginResult auditor = readyLogin("test_college_auditor");
+        LoginResult academic = readyLogin("test_academic_admin");
+        long studentId = seedStudent("P13AUD-" + System.nanoTime(), "SECOND_REVIEW");
+        long trainingId = seedTraining(studentId, "SECOND_REVIEW");
+        long exemptionId = seedExemption(studentId, "SECOND_REVIEW");
+        long certificateId = seedCertificate(studentId, "ISSUED");
+
+        assertOk(exchange("/api/student/" + studentId + "/second-review", HttpMethod.POST,
+                auditor.accessToken(), Map.of("action", "REJECT", "comment", "P13学生复审退回")));
+        assertOk(exchange("/api/training/" + trainingId + "/second-review", HttpMethod.POST,
+                auditor.accessToken(), Map.of("action", "REJECT", "comment", "P13培养复审退回")));
+        assertOk(exchange("/api/exemption/" + exemptionId + "/second-review", HttpMethod.POST,
+                auditor.accessToken(), Map.of("action", "REJECT", "comment", "P13免考复审退回")));
+        assertOk(exchange("/api/cert/" + certificateId + "/void", HttpMethod.POST,
+                academic.accessToken(), Map.of("reason", "P13证书作废原因")));
+
+        assertRichAudit("student", studentId, "secondReview", "SECOND_REVIEW", "SECOND_REJECTED",
+                "P13学生复审退回", AUDITOR_ID);
+        assertRichAudit("training", trainingId, "secondReview", "SECOND_REVIEW", "SECOND_REJECTED",
+                "P13培养复审退回", AUDITOR_ID);
+        assertRichAudit("exemption", exemptionId, "secondReview", "SECOND_REVIEW", "SECOND_REJECTED",
+                "P13免考复审退回", AUDITOR_ID);
+        assertRichAudit("cert", certificateId, "void", "ISSUED", "VOIDED",
+                "P13证书作废原因", ACADEMIC_ID);
+
+        JsonNode records = json(exchange("/api/audit/log?studentId=" + studentId + "&keyword=P13",
+                HttpMethod.GET, academic.accessToken(), null)).at("/data/records");
+        String text = records.toString();
+        assertThat(text).contains("P13学生复审退回")
+                .contains("P13培养复审退回")
+                .contains("P13免考复审退回")
+                .contains("P13证书作废原因")
+                .contains("SECOND_REVIEW")
+                .contains("SECOND_REJECTED");
     }
 
     @Test
@@ -310,6 +369,107 @@ class Phase13SystemAuditIT {
         return log;
     }
 
+    private void assertRichAudit(String bizType, long bizId, String operation, String oldStatus, String newStatus,
+                                 String comment, long operatorId) {
+        SysAuditLog log = auditLogMapper.selectOne(new LambdaQueryWrapper<SysAuditLog>()
+                .eq(SysAuditLog::getBizType, bizType)
+                .eq(SysAuditLog::getBizId, bizId)
+                .eq(SysAuditLog::getOperation, operation)
+                .eq(SysAuditLog::getOldStatus, oldStatus)
+                .eq(SysAuditLog::getNewStatus, newStatus)
+                .eq(SysAuditLog::getComment, comment)
+                .last("LIMIT 1"));
+        assertThat(log).isNotNull();
+        assertThat(log.getOperatorId()).isEqualTo(operatorId);
+        assertThat(log.getIp()).isNotBlank();
+        assertThat(log.getTarget()).contains(String.valueOf(bizId));
+    }
+
+    private long seedStudent(String studentNo, String status) {
+        Student student = new Student();
+        student.setStudentNo(studentNo);
+        student.setName("P13审计学生");
+        student.setGender("M");
+        student.setIdCardType("hm_travel_permit");
+        student.setIdCardNo("H" + Math.floorMod(System.nanoTime(), 100000000));
+        student.setBirthDate("2001/1/2");
+        student.setIdentityType("normal_student");
+        student.setCollegeId(COLLEGE_A);
+        student.setGrade("2026");
+        student.setClassName("P13审计班");
+        student.setStatus(status);
+        student.setLocked(0);
+        studentMapper.insert(student);
+        return student.getId();
+    }
+
+    private long seedTraining(long studentId, String status) {
+        TrainingProfile training = new TrainingProfile();
+        training.setStudentId(studentId);
+        training.setCollegeId(COLLEGE_A);
+        training.setAssessmentYear(YEAR);
+        training.setSecondDisciplineCode("050101");
+        training.setSecondDisciplineName("汉语言文学");
+        training.setInternalMajorCode("P13AUD");
+        training.setInternalMajorName("P13审计专业");
+        training.setEducationLevel("undergraduate");
+        training.setTrainingGoal("normal_education");
+        training.setInternshipOrgMode("school_unified");
+        training.setInternshipLocation("primary_secondary_school");
+        training.setTeachingSegment("senior_middle_school");
+        training.setTeachingSubjectId(0L);
+        training.setTeachingSubjectCode("jms_chinese");
+        training.setTeachingSubjectName("语文");
+        training.setInterviewOrgMode("school_unified");
+        training.setAbilityTestConclusion("qualified");
+        training.setStatus(status);
+        training.setLocked(0);
+        trainingProfileMapper.insert(training);
+        return training.getId();
+    }
+
+    private long seedExemption(long studentId, String status) {
+        ExemptionRequest exemption = new ExemptionRequest();
+        exemption.setStudentId(studentId);
+        exemption.setCollegeId(COLLEGE_A);
+        exemption.setAssessmentYear(YEAR);
+        exemption.setTeachingSegment("senior_middle_school");
+        exemption.setSubject("subject_a");
+        exemption.setSubjectLabel("P13免考科目");
+        exemption.setBasis("basis_a");
+        exemption.setBasisLabel("P13免考依据");
+        exemption.setSecondReviewStatus("PENDING");
+        exemption.setFinalStatus(status);
+        exemption.setIncludedInExam(1);
+        exemption.setLocked(0);
+        exemptionRequestMapper.insert(exemption);
+        return exemption.getId();
+    }
+
+    private long seedCertificate(long studentId, String status) {
+        Certificate certificate = new Certificate();
+        certificate.setStudentId(studentId);
+        certificate.setCollegeId(COLLEGE_A);
+        certificate.setAssessmentYear(YEAR);
+        certificate.setCertNo("2099105883444" + String.format("%05d", Math.floorMod(System.nanoTime(), 100000)));
+        certificate.setStudentNo("P13CERT-" + studentId);
+        certificate.setStudentName("P13审计学生");
+        certificate.setIdCardType("hm_travel_permit");
+        certificate.setIdCardNo("H" + Math.floorMod(System.nanoTime(), 100000000));
+        certificate.setEducationLevel("undergraduate");
+        certificate.setTrainingGoal("normal_education");
+        certificate.setTeachingSegment("senior_middle_school");
+        certificate.setTeachingSubjectCode("jms_chinese");
+        certificate.setTeachingSubjectName("语文");
+        certificate.setIssuer("广东技术师范大学");
+        certificate.setIssueDate("2099/06/01");
+        certificate.setValidUntil("2102/06/30");
+        certificate.setStatus(status);
+        certificate.setLocked(1);
+        certificateMapper.insert(certificate);
+        return certificate.getId();
+    }
+
     private void ensureReviewerB() {
         SysUser user = userMapper.selectByUsername("test_review_teacher_b");
         if (user == null) {
@@ -442,9 +602,13 @@ class Phase13SystemAuditIT {
 
     private void cleanupGeneratedData() {
         jdbcTemplate.update("DELETE FROM audit_log WHERE target LIKE 'P13%' OR comment LIKE 'P13%' OR comment = '复审退回原因'");
+        jdbcTemplate.update("DELETE FROM certificate WHERE assessment_year = ?", YEAR);
+        jdbcTemplate.update("DELETE FROM exemption_request WHERE assessment_year = ?", YEAR);
+        jdbcTemplate.update("DELETE FROM training_profile WHERE assessment_year = ?", YEAR);
         jdbcTemplate.update("DELETE FROM video_review_task WHERE video_review_id IN (SELECT id FROM video_review WHERE assessment_year = ?)", YEAR);
         jdbcTemplate.update("DELETE FROM video_review WHERE assessment_year = ?", YEAR);
         jdbcTemplate.update("DELETE FROM process_material WHERE assessment_year = ?", YEAR);
+        jdbcTemplate.update("DELETE FROM student WHERE student_no LIKE 'P13AUD-%'");
         jdbcTemplate.update("DELETE FROM backup_record WHERE remark LIKE 'P13%' OR scope LIKE 'P13%'");
     }
 

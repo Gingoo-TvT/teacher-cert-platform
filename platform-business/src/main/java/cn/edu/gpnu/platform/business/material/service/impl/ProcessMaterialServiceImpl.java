@@ -154,6 +154,7 @@ public class ProcessMaterialServiceImpl implements ProcessMaterialService {
         if (MaterialStatus.of(entity.getStatus()) != MaterialStatus.FIRST_REVIEW) {
             throw new BizException("当前状态不可初审");
         }
+        String oldStatus = entity.getStatus();
         String action = normalizeAction(request.getAction());
         if ("PASS".equals(action)) {
             entity.setStatus(MaterialStatus.SECOND_REVIEW.name());
@@ -172,6 +173,8 @@ public class ProcessMaterialServiceImpl implements ProcessMaterialService {
         entity.setFirstReviewTime(LocalDateTime.now());
         entity.setFirstReviewComment(trimToNull(request.getComment()));
         processMaterialMapper.updateById(entity);
+        auditLogService.record("material", entity.getId(), materialTarget(entity), "firstReview",
+                oldStatus, entity.getStatus(), trimToNull(request.getComment()));
         if ("PASS".equals(action)) {
             notificationHelper.notifyFirstReviewPassed(entity.getCollegeId(), entity.getStudentId(), "过程性材料",
                     "process_material", entity.getId());

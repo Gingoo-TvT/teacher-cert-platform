@@ -22,6 +22,7 @@ import cn.edu.gpnu.platform.system.entity.SysMajor;
 import cn.edu.gpnu.platform.system.entity.TeachingSubject;
 import cn.edu.gpnu.platform.system.entity.TrainingGoalConfig;
 import cn.edu.gpnu.platform.system.mapper.TeachingSubjectMapper;
+import cn.edu.gpnu.platform.system.service.AuditLogService;
 import cn.edu.gpnu.platform.system.service.DataScopeService;
 import cn.edu.gpnu.platform.system.service.ParamService;
 import cn.edu.gpnu.platform.system.vo.TeachingSubjectVO;
@@ -49,6 +50,7 @@ public class TrainingProfileServiceImpl implements TrainingProfileService {
     private final MajorCodeValidator majorCodeValidator;
     private final TrainingLinkValidator trainingLinkValidator;
     private final ReviewNotificationHelper notificationHelper;
+    private final AuditLogService auditLogService;
 
     @Override
     public PageResult<TrainingProfileVO> list(String keyword, String status, Long collegeId, String assessmentYear) {
@@ -133,6 +135,7 @@ public class TrainingProfileServiceImpl implements TrainingProfileService {
         if (TrainingStatus.of(entity.getStatus()) != TrainingStatus.FIRST_REVIEW) {
             throw new BizException("当前状态不可初审");
         }
+        String oldStatus = entity.getStatus();
         String action = normalizeAction(request.getAction());
         if ("PASS".equals(action)) {
             entity.setStatus(TrainingStatus.SECOND_REVIEW.name());
@@ -149,6 +152,8 @@ public class TrainingProfileServiceImpl implements TrainingProfileService {
         entity.setFirstReviewTime(LocalDateTime.now());
         entity.setFirstReviewComment(trimToNull(request.getComment()));
         trainingProfileMapper.updateById(entity);
+        auditLogService.record("training", entity.getId(), trainingTarget(entity), "firstReview",
+                oldStatus, entity.getStatus(), trimToNull(request.getComment()));
         if ("PASS".equals(action)) {
             notificationHelper.notifyFirstReviewPassed(entity.getCollegeId(), entity.getStudentId(), "专业培养信息",
                     "training_profile", entity.getId());
@@ -165,6 +170,7 @@ public class TrainingProfileServiceImpl implements TrainingProfileService {
         if (TrainingStatus.of(entity.getStatus()) != TrainingStatus.SECOND_REVIEW) {
             throw new BizException("当前状态不可复审");
         }
+        String oldStatus = entity.getStatus();
         String action = normalizeAction(request.getAction());
         if ("PASS".equals(action)) {
             entity.setStatus(TrainingStatus.PASSED.name());
@@ -182,6 +188,8 @@ public class TrainingProfileServiceImpl implements TrainingProfileService {
         entity.setSecondReviewTime(LocalDateTime.now());
         entity.setSecondReviewComment(trimToNull(request.getComment()));
         trainingProfileMapper.updateById(entity);
+        auditLogService.record("training", entity.getId(), trainingTarget(entity), "secondReview",
+                oldStatus, entity.getStatus(), trimToNull(request.getComment()));
         if (!"PASS".equals(action)) {
             notificationHelper.notifySecondReviewReturned(entity.getCollegeId(), entity.getStudentId(), "专业培养信息",
                     action, "training_profile", entity.getId());
@@ -347,6 +355,11 @@ public class TrainingProfileServiceImpl implements TrainingProfileService {
         vo.setFirstReviewComment(entity.getFirstReviewComment());
         vo.setSecondReviewComment(entity.getSecondReviewComment());
         return vo;
+    }
+
+    private String trainingTarget(TrainingProfile entity) {
+        return entity.getId() + "/" + entity.getAssessmentYear() + "/" + entity.getStudentId() + "/"
+                + entity.getTrainingGoal() + "/" + entity.getTeachingSegment() + "/" + entity.getTeachingSubjectName();
     }
 
     private TeachingSubjectVO toSubjectVO(TeachingSubject entity) {

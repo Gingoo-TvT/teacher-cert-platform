@@ -56,6 +56,7 @@ import cn.edu.gpnu.platform.system.mapper.SysCollegeMapper;
 import cn.edu.gpnu.platform.system.mapper.SysDictItemMapper;
 import cn.edu.gpnu.platform.system.mapper.SysMajorMapper;
 import cn.edu.gpnu.platform.system.mapper.TeachingSubjectMapper;
+import cn.edu.gpnu.platform.system.service.AuditLogService;
 import cn.edu.gpnu.platform.system.service.DataScopeService;
 import cn.edu.gpnu.platform.system.service.NotificationService;
 import cn.edu.gpnu.platform.system.service.ParamService;
@@ -132,6 +133,7 @@ public class ExchangeServiceImpl implements ExchangeService {
     private final ExchangeExcelHelper excelHelper;
     private final ObjectMapper objectMapper;
     private final PlatformTransactionManager transactionManager;
+    private final AuditLogService auditLogService;
 
     @Override
     public ExchangeFile template(ExchangeQuery query) {
@@ -277,6 +279,7 @@ public class ExchangeServiceImpl implements ExchangeService {
                 && ExchangeBatchStatus.of(batch.getStatus()) != ExchangeBatchStatus.PARTIAL_ROLLBACK) {
             throw new BizException("当前批次不可回滚");
         }
+        String oldStatus = batch.getStatus();
         List<ImportRecordRef> refs = recordRefMapper.selectList(new LambdaQueryWrapper<ImportRecordRef>()
                 .eq(ImportRecordRef::getBatchId, batchId)
                 .ne(ImportRecordRef::getAction, "SKIP")
@@ -298,6 +301,8 @@ public class ExchangeServiceImpl implements ExchangeService {
         batch.setStatus(conflicts > 0 ? ExchangeBatchStatus.PARTIAL_ROLLBACK.name() : ExchangeBatchStatus.ROLLED_BACK.name());
         batch.setRemark(conflicts > 0 ? "部分记录已被后续修改，跳过回滚" : "已回滚");
         batchMapper.updateById(batch);
+        auditLogService.record("exchange", batch.getId(), batch.getBatchNo(), "rollback",
+                oldStatus, batch.getStatus(), batch.getRemark());
         vo.setRolledBackCount(rolledBack);
         vo.setConflictCount(conflicts);
         vo.setStatus(batch.getStatus());

@@ -26,6 +26,7 @@ import cn.edu.gpnu.platform.file.mapper.FileObjectMapper;
 import cn.edu.gpnu.platform.file.service.FileService;
 import cn.edu.gpnu.platform.system.entity.SysDictItem;
 import cn.edu.gpnu.platform.system.mapper.SysDictItemMapper;
+import cn.edu.gpnu.platform.system.service.AuditLogService;
 import cn.edu.gpnu.platform.system.service.DataScopeService;
 import cn.edu.gpnu.platform.system.service.ParamService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -63,6 +64,7 @@ public class ExemptionServiceImpl implements ExemptionService {
     private final DataScopeService dataScopeService;
     private final ParamService paramService;
     private final ReviewNotificationHelper notificationHelper;
+    private final AuditLogService auditLogService;
 
     @Override
     public List<SysDictItem> subjects(String segment) {
@@ -233,6 +235,7 @@ public class ExemptionServiceImpl implements ExemptionService {
         if (ExemptionStatus.of(entity.getFinalStatus()) != ExemptionStatus.FIRST_REVIEW) {
             throw new BizException("当前状态不可初审");
         }
+        String oldStatus = entity.getFinalStatus();
         String action = normalizeAction(request.getAction());
         if ("PASS".equals(action)) {
             entity.setFinalStatus(ExemptionStatus.SECOND_REVIEW.name());
@@ -252,6 +255,8 @@ public class ExemptionServiceImpl implements ExemptionService {
         entity.setFirstReviewTime(LocalDateTime.now());
         entity.setFirstReviewComment(trimToNull(request.getComment()));
         requestMapper.updateById(entity);
+        auditLogService.record("exemption", entity.getId(), exemptionTarget(entity), "firstReview",
+                oldStatus, entity.getFinalStatus(), trimToNull(request.getComment()));
         if ("PASS".equals(action)) {
             notificationHelper.notifyFirstReviewPassed(entity.getCollegeId(), entity.getStudentId(), "免考申请",
                     "exemption_request", entity.getId());
@@ -269,6 +274,7 @@ public class ExemptionServiceImpl implements ExemptionService {
         if (ExemptionStatus.of(entity.getFinalStatus()) != ExemptionStatus.SECOND_REVIEW) {
             throw new BizException("当前状态不可复审");
         }
+        String oldStatus = entity.getFinalStatus();
         String action = normalizeAction(request.getAction());
         if ("PASS".equals(action)) {
             entity.setFinalStatus(ExemptionStatus.PASSED.name());
@@ -292,6 +298,8 @@ public class ExemptionServiceImpl implements ExemptionService {
         entity.setSecondReviewTime(LocalDateTime.now());
         entity.setSecondReviewComment(trimToNull(request.getComment()));
         requestMapper.updateById(entity);
+        auditLogService.record("exemption", entity.getId(), exemptionTarget(entity), "secondReview",
+                oldStatus, entity.getFinalStatus(), trimToNull(request.getComment()));
         if (!"PASS".equals(action)) {
             notificationHelper.notifySecondReviewReturned(entity.getCollegeId(), entity.getStudentId(), "免考申请",
                     action, "exemption_request", entity.getId());
@@ -414,6 +422,11 @@ public class ExemptionServiceImpl implements ExemptionService {
         vo.setSecondReviewTime(entity.getSecondReviewTime());
         vo.setMaterials(materials.stream().map(this::materialVO).toList());
         return vo;
+    }
+
+    private String exemptionTarget(ExemptionRequest entity) {
+        return entity.getId() + "/" + entity.getAssessmentYear() + "/" + entity.getStudentId() + "/"
+                + entity.getTeachingSegment() + "/" + entity.getSubject();
     }
 
     private ExemptionMaterialVO materialVO(ExemptionMaterial material) {

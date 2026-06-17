@@ -39,6 +39,7 @@ import cn.edu.gpnu.platform.system.entity.SysDictItem;
 import cn.edu.gpnu.platform.system.entity.SysUser;
 import cn.edu.gpnu.platform.system.mapper.SysDictItemMapper;
 import cn.edu.gpnu.platform.system.mapper.SysUserMapper;
+import cn.edu.gpnu.platform.system.service.AuditLogService;
 import cn.edu.gpnu.platform.system.service.DataScopeService;
 import cn.edu.gpnu.platform.system.service.ParamService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -100,6 +101,7 @@ public class VideoReviewServiceImpl implements VideoReviewService {
     private final MinioProperties minioProperties;
     private final ObjectMapper objectMapper;
     private final ReviewNotificationHelper notificationHelper;
+    private final AuditLogService auditLogService;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -339,11 +341,16 @@ public class VideoReviewServiceImpl implements VideoReviewService {
         if (VideoReviewStatus.of(review.getStatus()) != VideoReviewStatus.REVIEWING) {
             throw new BizException("当前视频状态不可评分");
         }
+        String oldStatus = review.getStatus();
         fillScore(task, request);
         task.setSubmitted(1);
         task.setSubmitTime(LocalDateTime.now());
         taskMapper.updateById(task);
         settleIfReady(review);
+        if (!oldStatus.equals(review.getStatus())) {
+            auditLogService.record("video", review.getId(), videoTarget(review), "settle",
+                    oldStatus, review.getStatus(), "自动结算");
+        }
     }
 
     @Override
@@ -354,6 +361,7 @@ public class VideoReviewServiceImpl implements VideoReviewService {
         if (VideoReviewStatus.of(review.getStatus()) != VideoReviewStatus.NEED_REVIEW) {
             throw new BizException("当前状态不需要复评");
         }
+        String oldStatus = review.getStatus();
         VideoReviewTask task = new VideoReviewTask();
         task.setVideoReviewId(review.getId());
         task.setStudentId(review.getStudentId());
@@ -365,6 +373,8 @@ public class VideoReviewServiceImpl implements VideoReviewService {
         task.setSubmitTime(LocalDateTime.now());
         taskMapper.insert(task);
         settleThirdExpert(review);
+        auditLogService.record("video", review.getId(), videoTarget(review), "thirdReview",
+                oldStatus, review.getStatus(), request.getComment());
     }
 
     @Override
@@ -375,6 +385,7 @@ public class VideoReviewServiceImpl implements VideoReviewService {
         if (VideoReviewStatus.of(review.getStatus()) != VideoReviewStatus.NEED_REVIEW) {
             throw new BizException("当前状态不需要仲裁");
         }
+        String oldStatus = review.getStatus();
         int score = request.getFinalScore();
         review.setArbitrateMode("collegeArbitrate");
         review.setArbitrateReviewer(UserContext.getUserIdOrSystem());
@@ -383,6 +394,8 @@ public class VideoReviewServiceImpl implements VideoReviewService {
         review.setStatus(VideoReviewStatus.REVIEW_COMPLETED.name());
         review.setLocked(1);
         reviewMapper.updateById(review);
+        auditLogService.record("video", review.getId(), videoTarget(review), "arbitrate",
+                oldStatus, review.getStatus(), trimToNull(request.getComment()));
     }
 
     @Override
@@ -393,11 +406,14 @@ public class VideoReviewServiceImpl implements VideoReviewService {
         if (VideoReviewStatus.of(review.getStatus()) != VideoReviewStatus.REVIEW_COMPLETED) {
             throw new BizException("当前状态不可确认");
         }
+        String oldStatus = review.getStatus();
         review.setStatus(VideoReviewStatus.CONFIRMED.name());
         review.setConfirmedBy(UserContext.getUserIdOrSystem());
         review.setConfirmedAt(LocalDateTime.now());
         review.setLocked(1);
         reviewMapper.updateById(review);
+        auditLogService.record("video", review.getId(), videoTarget(review), "confirm",
+                oldStatus, review.getStatus(), null);
     }
 
     @Override
@@ -851,6 +867,11 @@ public class VideoReviewServiceImpl implements VideoReviewService {
                 .map(task -> toTaskVO(task, managementView))
                 .toList());
         return vo;
+    }
+
+    private String videoTarget(VideoReview entity) {
+        return entity.getId() + "/" + entity.getAssessmentYear() + "/" + entity.getStudentId() + "/"
+                + entity.getVideoFileName();
     }
 
     private boolean canViewSubmittedTasks(VideoReview review) {

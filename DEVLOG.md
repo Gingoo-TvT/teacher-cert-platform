@@ -15,6 +15,13 @@
 
 ---
 
+## [2026-06-17] Phase 13 复核退回修复（B1 · AT-12 审核全留痕）
+- 做了什么：在原分支 `feature/phase13-T104-system-audit` 修复 `docs/reviews/phase-13-review.md` 退回项 B1。补全主要审核/状态流转 op 的显式富审计：学生基本信息 firstReview/secondReview、专业培养 firstReview/secondReview、免考 firstReview/secondReview、过程性材料 firstReview（secondReview 已有）、证书 void/reissue、视频自动结算/thirdReview/arbitrate/confirm、导入回滚 rollback。
+- 关键决策与理由：沿用既有 `auditLogService.record(bizType,bizId,target,operation,old,new,comment)` 模式，在状态更新后附加记录，不改状态机/数据范围/返回语义；`AuditLogServiceImpl.record` 改为 best-effort，审计落库失败仅告警，避免通知/审计类辅助能力反向中断主流程。
+- 问题与解决：证书 `recordAudit` 原 target 只有证书号，已扩展为 `id/assessmentYear/studentId/certNo`，保证作废/重开/更正都能定位业务记录；证书重开不改既有实体状态，仅审计记录 `VOIDED -> REISSUED` 的业务事件，避免触碰已通过状态机。
+- 测试：新增 `Phase13SystemAuditIT.majorReviewFlowsWriteRichAuditAndCanBeQueriedByStudent`，覆盖 student/training/exemption 复审退回 old=SECOND_REVIEW/new=SECOND_REJECTED + bizId/comment/operator/IP、cert 作废 old=ISSUED/new=VOIDED + 原因，并验证 `/api/audit/log?studentId=...` 可查到上述复审记录。`mvn -B -ntp verify` GREEN 61/61（含 Phase2~12 回归）、`npm --prefix frontend run type-check` 通过、`npm --prefix frontend run build` 通过。
+- 下一步：Phase 13 已在 `PROGRESS.md` 重新置「待复核」，AT-12 跟踪记录 B1 修复覆盖面，交 Claude 复核增量与回归，未自行置 ✅。
+
 ## [2026-06-17] Phase 13 复核退回（Claude · REVIEW-GATE）❌
 - 做了什么：独立复核 Phase 13 增量（单提交 `8401a7e`）。`mvn -B -ntp verify` GREEN 60/60（Phase13 5/5 + 回归 Phase2~12 共 55）、前端绿；全读 AuditLogAspect/AuditLogServiceImpl/SystemManagementServiceImpl/AuditQueryMapper/V19/IT + 3 个既有改动 diff + `grep auditLogService.record(`。
 - 结论：**退回**。无需返工项：参数改即生效（updateParam 校验+仅改可编辑值，反例 video.diffThreshold 12→8 即生效）、审计不可删（普通管理员 403 + 删除尝试留痕）、审计查询数据范围（audit:view 学院只见本院）、脱敏鉴权（明文证件号 403）、登录留痕、V19 backup_record+手册、AuditLogAspect 抽 AuditIp 非破坏重构、55 回归全绿。**但 B1（Major）AT-12 审核全留痕未达成**：`@AuditLog` 切面仅记 bizType/operation/operator/IP/time，**无 bizId/target/前后状态/意见**；完整审计仅 `material.secondReview` + `cert.correct`（+login/delete-rejected）。主要审核流程（student/training/exemption 初审·复审·确认、material 初审、cert 作废·重开、video 复审·确认·仲裁、import 回滚）审计行无法定位记录、无状态变化/意见，且按学生查不到其复审 → 击穿 AT-12 §7①（均留前后状态/意见）+ §7②（按学生查）。
