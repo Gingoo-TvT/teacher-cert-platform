@@ -15,6 +15,14 @@
 
 ---
 
+## [2026-06-17] Phase 13 待复核小结（T-104~T-108）
+- 做了什么：从 `main` 切出 `feature/phase13-T104-system-audit`，完成系统参数、审计日志、脱敏鉴权治理与备份记录能力。新增 `V19__system_audit.sql` 仅创建 `backup_record`，未修改 V1 `sys_param`/`audit_log` schema 或既有种子；新增 `/api/system/param`、`/api/audit/log`、`/api/system/backup` 接口与前端“参数审计备份”页面。
+- 关键决策与理由：系统参数只允许更新可编辑参数的 `paramValue/description`，并按参数类型、分组和已知关键参数枚举校验；既有 `ParamService` 每次读库，更新后天然热生效。备份入口只写 `backup_record` 演练记录并链接 `docs/备份与恢复手册.md`，实际 MySQL dump/binlog/MinIO mirror 由运维执行，避免 Web 应用持有运维级权限。
+- AT-12 留痕：复用 `@AuditLog` 基础切面并把 IP 解析抽到 `AuditIp`；登录成功补充 `auth/login` 审计；对材料复审补显式 rich audit，记录 `oldStatus/newStatus/comment/operator/ip/target`；审计删除拒绝自身显式留痕。审计查询支持业务类型、学生、批次、学院、时间、操作人、关键词等维度；学院范围通过操作人学院或关联业务记录学院解析，SCHOOL/SYSTEM 可查全量。
+- 安全治理：普通管理员删除审计日志一律 403 且删除尝试自身留痕；无敏感导出权限访问学生明文证件号被拒；既有脱敏/水印/鉴权语义保持不变，Phase2~12 回归覆盖未破坏。产出《备份与恢复手册》，记录 MySQL 全备+binlog 时间点恢复、MinIO 版本化/镜像恢复、逻辑删除恢复和演练记录口径。
+- 测试：`docker compose -f docker-compose.dev.yml up -d` 后，定向 `Phase13SystemAuditIT` 5/5 通过；`mvn -B -ntp verify` 通过，Failsafe 共 60 tests，覆盖登录成功留痕、复审退回 rich audit、审计不可删且拒绝动作留痕、`video.diffThreshold=8` 即时触发需复评、敏感明文无权限拒绝、学院审计范围不含他院，并回归 Phase2~12；`npm --prefix frontend run type-check` 与 `npm --prefix frontend run build` 通过。
+- 下一步：Phase 13 已在 `PROGRESS.md` 与 `docs/phase-13-系统管理与审计.md` 置「待复核」，交 Claude 按 `docs/REVIEW-GATE.md` 首验 AT-12 与参数/审计/脱敏/备份治理，未自行置 ✅。
+
 ## [2026-06-17] Phase 12 复核通过（Claude · REVIEW-GATE）✅
 - 做了什么：独立复核 Phase 12 增量（单提交 `0c82431`）。`mvn -B -ntp verify` GREEN **55/55**（`Phase12NotificationIT 4/4` + **回归 Phase2~11 共 51**）、前端 type-check/build 绿；全读 V18 + NotificationServiceImpl + NoticeController + ReviewNotificationHelper + **6 个触发点 service diff（逐一确认附加非破坏）** + IT；P1 轻量 + 全回归绿，按比例未另派代理。
 - 结论：**PASS**（一轮）。四类触发（提交→学院教务员/负责人、退回→学生+抄送、视频分配→评审教师、导出→发起人）接入正确；**严格附加非破坏**（6 service 仅注入 helper + updateById 后 send，唯一改动为等价局部变量；51 条既有回归全绿）；**send 失败不影响主业务**（helper 每法 + service 每通道 双层 try/catch、非事务边界）；**通知本人可见**（list/unreadCount 按 currentUserId、markRead 以 id+user_id→他人 403、read-all 仅本人）；NotificationService 置 platform-system 无环、通道抽象可扩展；V18 文本字段+索引、notice:view V8 预种、V1–V17/治理未改、PROGRESS 未自 ✅。

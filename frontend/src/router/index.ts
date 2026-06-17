@@ -49,6 +49,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '账号权限', perms: ['system:user:manage', 'system:role:manage', 'system:perm:manage'] }
       },
       {
+        path: 'system/audit',
+        name: 'systemAudit',
+        component: () => import('@/views/system/SystemAuditView.vue'),
+        meta: { title: '参数审计备份', perms: ['system:param:manage', 'audit:view', 'system:backup'] }
+      },
+      {
         path: 'students',
         name: 'studentManage',
         component: () => import('@/views/student/StudentManageView.vue'),

@@ -23,6 +23,7 @@ import cn.edu.gpnu.platform.file.mapper.FileObjectMapper;
 import cn.edu.gpnu.platform.file.service.FileService;
 import cn.edu.gpnu.platform.system.entity.SysDictItem;
 import cn.edu.gpnu.platform.system.mapper.SysDictItemMapper;
+import cn.edu.gpnu.platform.system.service.AuditLogService;
 import cn.edu.gpnu.platform.system.service.DataScopeService;
 import cn.edu.gpnu.platform.system.service.ParamService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -64,6 +65,7 @@ public class ProcessMaterialServiceImpl implements ProcessMaterialService {
     private final ParamService paramService;
     private final MinioClient minioClient;
     private final ReviewNotificationHelper notificationHelper;
+    private final AuditLogService auditLogService;
 
     @Override
     public PageResult<ProcessMaterialVO> list(MaterialQuery query) {
@@ -187,6 +189,7 @@ public class ProcessMaterialServiceImpl implements ProcessMaterialService {
         if (MaterialStatus.of(entity.getStatus()) != MaterialStatus.SECOND_REVIEW) {
             throw new BizException("当前状态不可复审");
         }
+        String oldStatus = entity.getStatus();
         String action = normalizeAction(request.getAction());
         if ("PASS".equals(action)) {
             entity.setStatus(MaterialStatus.PASSED.name());
@@ -207,6 +210,8 @@ public class ProcessMaterialServiceImpl implements ProcessMaterialService {
         entity.setSecondReviewTime(LocalDateTime.now());
         entity.setSecondReviewComment(trimToNull(request.getComment()));
         processMaterialMapper.updateById(entity);
+        auditLogService.record("material", entity.getId(), materialTarget(entity), "secondReview",
+                oldStatus, entity.getStatus(), trimToNull(request.getComment()));
         if (!"PASS".equals(action)) {
             notificationHelper.notifySecondReviewReturned(entity.getCollegeId(), entity.getStudentId(), "过程性材料",
                     action, "process_material", entity.getId());
@@ -535,6 +540,11 @@ public class ProcessMaterialServiceImpl implements ProcessMaterialService {
         String studentNo = student == null ? String.valueOf(material.getStudentId()) : student.getStudentNo();
         String category = categories.getOrDefault(material.getCategory(), material.getCategory());
         return sanitize(studentNo) + "/" + sanitize(category) + "/" + sanitize(file.getOriginalName());
+    }
+
+    private String materialTarget(ProcessMaterial material) {
+        String category = categoryLabels().getOrDefault(material.getCategory(), material.getCategory());
+        return material.getId() + "/" + material.getAssessmentYear() + "/" + material.getStudentId() + "/" + category;
     }
 
     private String csv(String value) {

@@ -11,9 +11,12 @@ import cn.edu.gpnu.platform.security.vo.CaptchaVO;
 import cn.edu.gpnu.platform.security.vo.LoginVO;
 import cn.edu.gpnu.platform.security.vo.MeVO;
 import cn.edu.gpnu.platform.system.service.UserSecurityService;
+import cn.edu.gpnu.platform.system.service.AuditLogService;
 import cn.edu.gpnu.platform.system.service.ParamService;
+import cn.edu.gpnu.platform.system.entity.SysAuditLog;
 import cn.edu.gpnu.platform.system.vo.UserSecurityVO;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -23,11 +26,13 @@ import java.util.ArrayList;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class AuthService {
 
     private final CaptchaService captchaService;
     private final JwtService jwtService;
     private final UserSecurityService userSecurityService;
+    private final AuditLogService auditLogService;
     private final ParamService paramService;
     private final PasswordEncoder passwordEncoder;
     private final SecurityProperties securityProperties;
@@ -62,6 +67,7 @@ public class AuthService {
         }
         userSecurityService.markLoginSuccess(user.getId(), LocalDateTime.now());
         UserSecurityVO refreshed = userSecurityService.loadById(user.getId());
+        recordLoginAudit(refreshed);
         return loginVO(refreshed);
     }
 
@@ -149,5 +155,20 @@ public class AuthService {
             return "";
         }
         return value.trim();
+    }
+
+    private void recordLoginAudit(UserSecurityVO user) {
+        try {
+            SysAuditLog log = new SysAuditLog();
+            log.setBizType("auth");
+            log.setBizId(user.getId());
+            log.setTarget(user.getUsername());
+            log.setOperatorId(user.getId());
+            log.setOperation("login");
+            log.setNewStatus("SUCCESS");
+            auditLogService.record(log);
+        } catch (Exception e) {
+            log.warn("写登录审计日志失败: {}", e.getMessage());
+        }
     }
 }

@@ -8,4 +8,7 @@ import cn.edu.gpnu.platform.system.entity.SysAuditLog;
 public interface AuditLogService {
 
     void record(SysAuditLog log);
+
+    void record(String bizType, Long bizId, String target, String operation,
+                String oldStatus, String newStatus, String comment);
 }

@@ -53,7 +53,10 @@ const rawMenuOptions: AppMenuOption[] = [
   {
     label: '系统管理',
     key: 'systemManage',
-    children: [{ label: '账号权限', key: 'securityManage', perms: ['system:user:manage', 'system:role:manage', 'system:perm:manage'] }]
+    children: [
+      { label: '账号权限', key: 'securityManage', perms: ['system:user:manage', 'system:role:manage', 'system:perm:manage'] },
+      { label: '参数审计备份', key: 'systemAudit', perms: ['system:param:manage', 'audit:view', 'system:backup'] }
+    ]
   }
 ]
 
