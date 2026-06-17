@@ -15,6 +15,15 @@
 
 ---
 
+## [2026-06-17] Phase 14 待复核小结（T-109~T-114）
+- 做了什么：从 `main` 切出 `feature/phase14-T109-acceptance`，完成最后收口阶段。新增 M14 外部接口空 SPI 与配置开关（统一身份、教务、学籍、电子签章、电子证照、上级平台），默认关闭且不接入既有业务；新增后端多阶段 `Dockerfile`、前端 `frontend/Dockerfile`/`nginx.conf`、生产 `docker-compose.yml`、`.env.example` 与 README 部署说明。
+- 关键决策与理由：本阶段未新增 V20 迁移，V1~V19 保持冻结；Docker/compose 作为 build-only 交付物，不在自动验证中构建或启动生产应用容器，避免联网/卡死；M14 只预留接口与开关，空实现返回 disabled，不改变一期运行期行为。
+- 验收归档：新增 `docs/AT验收复验矩阵.md`，逐条记录 AT-01~AT-14 的首验阶段、Phase14 复验方式、对应 IT 与结论；`PROGRESS.md` AT 跟踪的 `复验(Phase14)` 列已逐条标 ✅；`docs/phase-14-非功能部署验收.md` 验收清单已按收口结果勾选。
+- E2E：新增 `Phase14E2EIT` 纳入 `mvn verify`，贯通导入→学生/培养复审→四类材料→免考→视频分差复评→测试确认→证书前置/生成/签发/导出/归档→标准导出，断言状态、AT-01/02 文本导出一致、AT-07 应考剔除、AT-08 85/60/81 终分 83、AT-09/10/11 证书前置/编号/有效期与 AT-12 留痕。
+- 兼容性与非功能：Excel 文本一致性由 POI 机检覆盖，Excel/WPS 双端人工核对要求写入复验矩阵；主流浏览器回归目标记录为 Chrome/Edge/Firefox 最新稳定版；生产 compose 与 dev compose 分离，MySQL/Redis/MinIO/backend/frontend 均配置数据卷与健康检查。
+- 测试：定向 `mvn -B -ntp -pl platform-boot -am "-Dfailsafe.failIfNoSpecifiedTests=false" "-Dit.test=Phase14E2EIT" verify` 通过（1/1）；`mvn -B -ntp verify` 通过，Failsafe 共 **62/62**（Phase14E2EIT 1 + Phase2~13 回归 61）；`npm --prefix frontend run type-check` 通过；`npm --prefix frontend run build` 通过（仅 Vite chunk size 警告）；生产 compose 执行 `docker compose -f docker-compose.yml config --quiet` 通过，临时 dev 依赖已停止。
+- 下一步：Phase 14 已置「待复核」，等待 Claude 按 `docs/REVIEW-GATE.md` 做最终复核；保持本地私有，不加远程、不 push。
+
 ## [2026-06-17] Phase 13 复核通过（Claude · REVIEW-GATE，2轮 PASS）✅
 - 做了什么：复核 B1 修复增量（单提交 `3c65d4f`，7 业务 service + AuditLogServiceImpl + IT）。`mvn -B -ntp verify` GREEN **61/61**（Phase13 6/6 新增富审计反例 + 回归 Phase2~12 共 55）；读 7 service diff + AuditLogServiceImpl + 新 IT；未动迁移(V1–V19)/治理/前端。
 - 结论：**PASS**。B1 闭环——主要审核/状态流转 op 均显式 `auditLogService.record(bizType,bizId,target,old,new,comment)`（捕获 oldStatus→updateById→record，附加非破坏）：student/training/exemption first+second、material first、cert void/reissue、video settle/thirdReview/arbitrate/confirm、exchange rollback；各加 `xxxTarget()` 可定位；`AuditLogServiceImpl.record` 改 best-effort（try/catch→log.warn，审计失败不中断主业务、非事务边界不污染）。反例 `majorReviewFlowsWriteRichAuditAndCanBeQueriedByStudent`：student/training/exemption 复审退回 old=SECOND_REVIEW/new=SECOND_REJECTED + bizId/comment/operator/IP/target、cert 作废 old=ISSUED/new=VOIDED，且 `/api/audit/log?studentId=` 可查到——AT-12 §7①②达成。55 回归全绿、附加非破坏。
