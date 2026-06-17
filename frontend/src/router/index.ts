@@ -101,6 +101,18 @@ const routes: RouteRecordRaw[] = [
         name: 'certificateIssue',
         component: () => import('@/views/certificate/CertificateIssueView.vue'),
         meta: { title: '证书签发', perms: ['cert:issue'] }
+      },
+      {
+        path: 'exchange/import',
+        name: 'exchangeImport',
+        component: () => import('@/views/exchange/ExchangeImportView.vue'),
+        meta: { title: '导入预校验', perms: ['exchange:template', 'exchange:prevalidate', 'exchange:import'] }
+      },
+      {
+        path: 'exchange/export',
+        name: 'exchangeExport',
+        component: () => import('@/views/exchange/ExchangeExportView.vue'),
+        meta: { title: '导出中心', perms: ['exchange:export:standard', 'exchange:export:full'] }
       }
     ]
   },

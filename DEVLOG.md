@@ -15,6 +15,14 @@
 
 ---
 
+## [2026-06-17] Phase 10 待复核小结（T-080~T-091）
+- 做了什么：从 `main` 切出 `feature/phase10-T080-exchange`，完成 `V17__exchange.sql`、`platform-exchange` 模块、导入导出批次/异常/回滚追溯表、26 列标准 Excel 模型、模板下载、预校验中心、异常报告、确认导入/回滚、标准/完整/证书汇总/异常/附件清单导出；前端新增导入中心、导出中心、API、路由与菜单。
+- 关键决策与理由：Phase10 文档中的 `V16__exchange.sql` 已过时，磁盘 max 为 V16，按 AGENTS 迁移规则使用 `V17__exchange.sql`；26 列模型全 `String`，写出列格式统一 `@`，读取按字符串取值；预校验复用既有 `NameValidator`、证件/出生日期、专业代码、培养联动、证书段码与有效期规则，避免另造口径。
+- 问题与解决：导入回滚初版用完整 JSON 比对，自动审计时间字段会让刚导入且未修改的关联记录误判为冲突；已改为规范化快照比较，忽略 `createdAt/updatedAt/createdBy/updatedBy/deleted`，业务字段后续改动仍会冲突。学院导入跨院反例改为预校验合法、确认导入阶段由写侧数据范围拒绝，覆盖真实边界。
+- 业务结果：V-01~V-13 预校验不入库并可下载异常报告；确认导入支持新增/覆盖/跳过重复/仅更新空字段，写批次与 record_ref；回滚支持 INSERT 逻辑删除、UPDATE 还原 before_json、已后续修改跳过并提示；导出按数据范围过滤，敏感汇总导出需要 `exchange:export:sensitive` 才返回明文，否则脱敏。
+- 测试：`docker compose -f docker-compose.dev.yml up -d` 后，`mvn -B -ntp verify` 通过，Failsafe 自动跑 Phase2~Phase10 共 44 tests；`Phase10ExchangeIT` 覆盖 AT-02 26列+H表头、AT-01 文本单元格/证件号/前导零学号导入导出保持、AT-14 V-01~V-13 十三条反例、异常不入库、跳过重复、导入回滚与冲突提示、导出/导入数据范围和敏感导出鉴权；`npm --prefix frontend run type-check` 与 `npm --prefix frontend run build` 通过。
+- 下一步：Phase 10 已在 `PROGRESS.md` 与 `docs/phase-10-导入导出与预校验.md` 置「待复核」，交 Claude 按 `docs/REVIEW-GATE.md` 复核 AT-01/AT-02/AT-14，未自行置 ✅。
+
 ## [2026-06-17] Phase 9 复核通过（Claude · REVIEW-GATE）✅
 - 做了什么：独立复核 Phase 9 增量（单提交 `6be5f79`）。`mvn -B -ntp verify` GREEN **40/40**（`Phase9CertificateIT 7/7` + 回归 Phase2~8 共 33）、前端 `type-check`/`build` 绿；全读 595 行 `CertificateServiceImpl` + `CertSequenceMapper`(FOR UPDATE) + 状态机 + V15/V16 + 636 行 IT；两路独立代理，代理 1 给出**并发安全明确结论**。
 - 结论：**PASS**（一轮）。**AT-10 18 位编号生命线安全**：`cert_sequence` 行锁(`SELECT…FOR UPDATE`)+同 `@Transactional` 自增，行锁持有至 generate 提交故并发严格串行；序号在所有可失败门之后、唯一一次 insert 之前消费，insert 冲突则整事务回滚序号回退（无空号）；`cert_no` 唯一键兜底；无 Redis INCR/max+1；50×10 线程并发反例断言 certNo 不重且序号连续 1..50。AT-09 前置聚合复用各阶段结论→缺失清单→拒；AT-11 有效期上/下半年（边界==6归上半年）。状态机 C 各流转有守卫、关键字段结构性锁定(仅 cert:correct 可改+留痕)、作废→重开关联原号(原证留 VOIDED 合验收)。读+写数据范围(读 SELF/COLLEGE/SCHOOL、写仅校级、collegeId 取自实体)。V15+V16 幂等、V1–V14 冻结、ID 命名空间不冲突；V16 把"学生看本人证书"作新迁移补授(遵守不改已发布脚本)。

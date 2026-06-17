@@ -30,6 +30,10 @@
         </dependency>
         <dependency>
             <groupId>cn.edu.gpnu</groupId>
+            <artifactId>platform-exchange</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>cn.edu.gpnu</groupId>
             <artifactId>platform-file</artifactId>
         </dependency>
         <dependency>

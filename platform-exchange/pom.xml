@@ -16,5 +16,29 @@
             <groupId>cn.edu.gpnu</groupId>
             <artifactId>platform-common</artifactId>
         </dependency>
+        <dependency>
+            <groupId>cn.edu.gpnu</groupId>
+            <artifactId>platform-system</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>cn.edu.gpnu</groupId>
+            <artifactId>platform-business</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>cn.edu.gpnu</groupId>
+            <artifactId>platform-file</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>cn.idev.excel</groupId>
+            <artifactId>fastexcel</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.baomidou</groupId>
+            <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-web</artifactId>
+        </dependency>
     </dependencies>
 </project>
