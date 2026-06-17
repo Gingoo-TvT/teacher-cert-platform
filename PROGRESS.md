@@ -5,10 +5,10 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**🎉 全项目收官 + 收官后维护 T-115 ✅ 已复核**；Phase 0~14 全部 ✅（114/114 任务，AT-01~14 首验+复验全通过），T-115 E2E 拆分复核通过。
+- 当前阶段：**收官后维护 WP-A RBAC 基座重定义：待复核**；Phase 0~14 全部 ✅（114/114 任务，AT-01~14 首验+复验全通过），T-115 E2E 拆分复核通过。
 - 阻塞项：无
-- 最近更新：2026-06-18（T-115 复核通过 PASS·一轮：`Phase14E2EIT` 拆为 14 有序阶段子用例、断言零删减，`mvn verify` **75/75** 全绿含 61 回归；本地起全栈供人工验收）
-- 下一步：本地起全栈（dev 依赖 + 后端 + 前端）供用户亲自验收；交付按 README 执行部署冒烟与 Excel/WPS 人工核对
+- 最近更新：2026-06-18（WP-A 在 `feature/wp-a-rbac` 重定义 RBAC 角色授权矩阵：新增 `V20__rbac_regrant.sql`，`CERT_ISSUER` 删除并停用 `test_cert_issuer`，受影响 IT 切换到新角色模型；`mvn verify` **75/75**、前端 type-check/build 通过）
+- 下一步：等待 Claude 复核 WP-A 授权矩阵、V20 幂等授权与回归结果；未自行置 ✅
 
 ## 阶段汇总
 | Phase | 名称 | 优先级 | 任务数 | 完成 | 状态 |
@@ -204,6 +204,9 @@
 
 ## 收官后 · 测试可维护性加固
 - T-115 `Phase14E2EIT` 单一大用例拆分为 14 个有序阶段子用例：**✅ 已复核（Claude 2026-06-18，PASS·一轮）**（分支：`feature/t115-e2e-split`）。仅改测试与进度日志，不改业务代码/迁移/配置；断言零删减，`Phase14E2EIT` 14/14、全量 `mvn -B -ntp verify` **75/75**（含 61 回归）全绿。详见 `docs/reviews/t115-review.md`。
+
+## 收官后 · WP-A RBAC 基座重定义
+- WP-A `RBAC` 角色权限矩阵重定义：**待复核**（分支：`feature/wp-a-rbac`）。新增 `V20__rbac_regrant.sql` 幂等重配运行期授权：`SYS_ADMIN` 授予全部权限，`ACADEMIC_ADMIN` 增 `cert:issue`，`COLLEGE_AUDITOR` 承接学院侧录入/导入/复审/视频分配等动作权，`COLLEGE_CLERK` 收敛为只读 + 初审 + 只读导出/批量下载，`CERT_ISSUER` 删除并停用 `test_cert_issuer`。受影响 Phase2/3/4/7/8/9/10/12/14 IT 已按新角色模型调整；`mvn verify` **75/75**、前端 type-check/build 通过，等待 Claude 复核，未自行置 ✅。
 
 ---
 

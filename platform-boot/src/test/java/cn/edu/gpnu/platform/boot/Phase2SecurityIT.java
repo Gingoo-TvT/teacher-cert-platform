@@ -69,8 +69,8 @@ class Phase2SecurityIT {
         resetUser("test_student", true);
         resetUser("test_student_b", true);
         resetUser("test_college_clerk", true);
+        resetUser("test_college_auditor", true);
         resetUser("test_academic_admin", true);
-        resetUser("test_cert_issuer", true);
         resetUser("test_sys_admin", true);
     }
 
@@ -109,15 +109,25 @@ class Phase2SecurityIT {
         LoginResult changedClerk = login("test_college_clerk", CHANGED_PASSWORD);
         assertThat(changedClerk.permissions().toString())
                 .contains("material:firstReview")
-                .doesNotContain("material:secondReview");
+                .contains("student:view", "exchange:export:standard", "exchange:export:full")
+                .doesNotContain("material:secondReview", "student:edit", "exchange:import", "video:assign", "test:edit");
         ResponseEntity<String> clerkStudents = exchange("/api/phase2/probe/students", HttpMethod.GET, changedClerk.accessToken(), null);
         assertThat(clerkStudents.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(json(clerkStudents).at("/data").size()).isEqualTo(1);
         assertThat(json(clerkStudents).at("/data/0/collegeId").asLong()).isEqualTo(PHASE2_COLLEGE_A);
         assertThat(json(clerkStudents).at("/data").toString()).doesNotContain(String.valueOf(PHASE2_COLLEGE_B));
 
+        LoginResult auditor = login("test_college_auditor", INITIAL_PASSWORD);
+        changePassword(auditor.accessToken(), INITIAL_PASSWORD, CHANGED_PASSWORD);
+        LoginResult changedAuditor = login("test_college_auditor", CHANGED_PASSWORD);
+        assertThat(changedAuditor.permissions().toString())
+                .contains("info:secondReview", "material:secondReview", "exemption:secondReview",
+                        "video:assign", "video:arbitrate", "test:edit", "test:import",
+                        "exchange:import", "exchange:prevalidate")
+                .doesNotContain("info:firstReview");
+
         LoginResult academic = login("test_academic_admin", INITIAL_PASSWORD);
-        assertThat(academic.permissions().toString()).contains("cert:generate");
+        assertThat(academic.permissions().toString()).contains("cert:generate", "cert:issue");
         ResponseEntity<String> allSchool = exchange("/api/phase2/probe/students", HttpMethod.GET, academic.accessToken(), null);
         assertThat(allSchool.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
 
@@ -128,8 +138,9 @@ class Phase2SecurityIT {
         assertThat(json(allSchool).at("/data").size()).isEqualTo(2);
         assertThat(json(allSchool).at("/data").toString()).contains(String.valueOf(PHASE2_COLLEGE_B));
 
-        LoginResult issuer = login("test_cert_issuer", INITIAL_PASSWORD);
-        assertThat(issuer.permissions().toString()).contains("cert:issue").doesNotContain("cert:generate");
+        LoginResult sysAdmin = login("test_sys_admin", INITIAL_PASSWORD);
+        assertThat(sysAdmin.permissions().toString())
+                .contains("system:user:manage", "cert:issue", "video:score", "exchange:import", "material:view");
 
         Thread.sleep(2500);
         ResponseEntity<String> expiredAccess = exchange("/api/auth/me", HttpMethod.GET, changedStudent.accessToken(), null);

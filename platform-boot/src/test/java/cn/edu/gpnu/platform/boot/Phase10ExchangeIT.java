@@ -113,6 +113,7 @@ class Phase10ExchangeIT {
         resetUser("test_student", true);
         resetUser("test_student_b", true);
         resetUser("test_college_clerk", true);
+        resetUser("test_college_auditor", true);
         resetUser("test_academic_admin", true);
     }
 
@@ -249,6 +250,7 @@ class Phase10ExchangeIT {
     void exportAndImportRespectDataScopeAndSensitivePermission() throws Exception {
         LoginResult academic = readyLogin("test_academic_admin");
         LoginResult clerk = readyLogin("test_college_clerk");
+        LoginResult auditor = readyLogin("test_college_auditor");
         seedCertificateSnapshot("P10SCPA", COLLEGE_A, "2026", "P10SCPA", "A12345678",
                 "202610588344400130", "2029/6/30");
         seedCertificateSnapshot("P10SCPB", COLLEGE_B, "2026", "P10SCPB", "B12345678",
@@ -294,9 +296,9 @@ class Phase10ExchangeIT {
         cross.setIdCardNo("Z12345678");
         cross.setBirthDate("2000/12/31");
         cross.setRemark(String.valueOf(COLLEGE_B));
-        JsonNode pre = prevalidate(clerk.accessToken(), List.of(cross)).at("/data");
+        JsonNode pre = prevalidate(auditor.accessToken(), List.of(cross)).at("/data");
         assertThat(pre.at("/successCount").asInt()).isEqualTo(1);
-        JsonNode imported = confirm(clerk.accessToken(), pre.at("/batchId").asLong(), "INSERT_ONLY");
+        JsonNode imported = confirm(auditor.accessToken(), pre.at("/batchId").asLong(), "INSERT_ONLY");
         assertThat(imported.at("/code").asInt()).isEqualTo(0);
         assertThat(imported.at("/data/failCount").asInt()).isEqualTo(1);
         assertThat(studentMapper.selectCount(new LambdaQueryWrapper<Student>().eq(Student::getStudentNo, "P10CROSS"))).isZero();
@@ -310,8 +312,8 @@ class Phase10ExchangeIT {
     }
 
     @Test
-    void collegeClerkCannotOverwriteExistingStudentOutsideWriteScope() throws Exception {
-        LoginResult clerk = readyLogin("test_college_clerk");
+    void collegeAuditorCannotOverwriteExistingStudentOutsideWriteScope() throws Exception {
+        LoginResult auditor = readyLogin("test_college_auditor");
         seedCertificateSnapshot("P10OWNB", COLLEGE_B, "2026", "P10OWNB", "B98765432",
                 "202610588344300140", "2029/6/30");
         Student before = studentMapper.selectOne(new LambdaQueryWrapper<Student>()
@@ -324,10 +326,10 @@ class Phase10ExchangeIT {
         overwrite.setIdCardNo("O12345678");
         overwrite.setBirthDate("2000/12/31");
         overwrite.setRemark(String.valueOf(COLLEGE_A));
-        JsonNode pre = prevalidate(clerk.accessToken(), List.of(overwrite)).at("/data");
+        JsonNode pre = prevalidate(auditor.accessToken(), List.of(overwrite)).at("/data");
         assertThat(pre.at("/successCount").asInt()).isEqualTo(1);
 
-        JsonNode imported = confirm(clerk.accessToken(), pre.at("/batchId").asLong(), "OVERWRITE");
+        JsonNode imported = confirm(auditor.accessToken(), pre.at("/batchId").asLong(), "OVERWRITE");
         assertThat(imported.at("/code").asInt()).isEqualTo(0);
         assertThat(imported.at("/data/successCount").asInt()).isZero();
         assertThat(imported.at("/data/failCount").asInt()).isEqualTo(1);

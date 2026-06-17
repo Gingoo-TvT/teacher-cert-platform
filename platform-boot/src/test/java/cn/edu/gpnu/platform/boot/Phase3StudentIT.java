@@ -188,12 +188,12 @@ class Phase3StudentIT {
     }
 
     @Test
-    void collegeClerkCannotWriteStudentOutsideAuthorizedCollege() throws Exception {
+    void collegeAuditorCannotWriteStudentOutsideAuthorizedCollege() throws Exception {
         LoginResult academic = readyLogin("test_academic_admin");
-        LoginResult clerk = readyLogin("test_college_clerk");
+        LoginResult auditor = readyLogin("test_college_auditor");
 
         String crossCreateNo = uniqueNo("P3CROSSCREATE");
-        ResponseEntity<String> crossCreate = exchange("/api/student", HttpMethod.POST, clerk.accessToken(),
+        ResponseEntity<String> crossCreate = exchange("/api/student", HttpMethod.POST, auditor.accessToken(),
                 student(crossCreateNo, "跨院新增", "hm_travel_permit", uniqueTravelPermit("C"), "2001/1/2", COLLEGE_B));
         assertThat(crossCreate.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(json(crossCreate).at("/code").asInt()).isEqualTo(403);
@@ -205,7 +205,7 @@ class Phase3StudentIT {
         long ownStudentId = create(academic.accessToken(), student(uniqueNo("P3CROSSUPDATE"), "跨院修改",
                 "hm_travel_permit", uniqueTravelPermit("U"), "2001/1/2", COLLEGE_A));
         String movedNo = uniqueNo("P3MOVED");
-        ResponseEntity<String> crossUpdate = exchange("/api/student/" + ownStudentId, HttpMethod.PUT, clerk.accessToken(),
+        ResponseEntity<String> crossUpdate = exchange("/api/student/" + ownStudentId, HttpMethod.PUT, auditor.accessToken(),
                 student(movedNo, "跨院修改", "hm_travel_permit", uniqueTravelPermit("V"), "2001/1/2", COLLEGE_B));
         assertThat(crossUpdate.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(json(crossUpdate).at("/code").asInt()).isEqualTo(403);

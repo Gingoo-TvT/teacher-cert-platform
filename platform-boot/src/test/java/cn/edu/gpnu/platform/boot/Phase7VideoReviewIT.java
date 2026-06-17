@@ -179,11 +179,11 @@ class Phase7VideoReviewIT {
     @Test
     void independentReviewHidesOtherScoresBeforeSettlementAndSettlesNormalCase() throws Exception {
         LoginResult student = readyLogin("test_student");
-        LoginResult clerk = readyLogin("test_college_clerk");
+        LoginResult auditor = readyLogin("test_college_auditor");
         LoginResult reviewerA = readyLogin("test_review_teacher");
         LoginResult reviewerB = readyLogin("test_review_teacher_b");
         long reviewId = uploadValidatedVideo(student.accessToken(), 9001L, YEAR);
-        assign(clerk.accessToken(), reviewId, 800000000000003005L, REVIEWER_B_USER_ID);
+        assign(auditor.accessToken(), reviewId, 800000000000003005L, REVIEWER_B_USER_ID);
         long taskA = taskId(reviewerA.accessToken());
         long taskB = taskId(reviewerB.accessToken());
 
@@ -205,13 +205,12 @@ class Phase7VideoReviewIT {
     @Test
     void diffOverThresholdOrConclusionConflictRequiresReviewAndThirdExpertPairMinSettles() throws Exception {
         LoginResult student = readyLogin("test_student");
-        LoginResult clerk = readyLogin("test_college_clerk");
         LoginResult auditor = readyLogin("test_college_auditor");
         LoginResult reviewerA = readyLogin("test_review_teacher");
         LoginResult reviewerB = readyLogin("test_review_teacher_b");
 
         long reviewId = uploadValidatedVideo(student.accessToken(), 9001L, "P7-DIFF");
-        assign(clerk.accessToken(), reviewId, 800000000000003005L, REVIEWER_B_USER_ID);
+        assign(auditor.accessToken(), reviewId, 800000000000003005L, REVIEWER_B_USER_ID);
         score(reviewerA.accessToken(), taskId(reviewerA.accessToken()), 85, "PASS");
         score(reviewerB.accessToken(), taskId(reviewerB.accessToken()), 60, "PASS");
         assertThat(reviewMapper.selectById(reviewId).getStatus()).isEqualTo("NEED_REVIEW");
@@ -221,7 +220,7 @@ class Phase7VideoReviewIT {
         assertThat(settled.getFinalScore()).isEqualTo(83);
 
         long conflictId = uploadValidatedVideo(student.accessToken(), 9001L, "P7-CONFLICT");
-        assign(clerk.accessToken(), conflictId, 800000000000003005L, REVIEWER_B_USER_ID);
+        assign(auditor.accessToken(), conflictId, 800000000000003005L, REVIEWER_B_USER_ID);
         score(reviewerA.accessToken(), taskIdByReview(reviewerA.accessToken(), conflictId), 85, "PASS");
         score(reviewerB.accessToken(), taskIdByReview(reviewerB.accessToken(), conflictId), 58, "FAIL");
         assertThat(reviewMapper.selectById(conflictId).getStatus()).isEqualTo("NEED_REVIEW");
@@ -230,7 +229,7 @@ class Phase7VideoReviewIT {
     @Test
     void reuploadIsRejectedAfterReviewTasksExistOrNeedReview() throws Exception {
         LoginResult student = readyLogin("test_student");
-        LoginResult clerk = readyLogin("test_college_clerk");
+        LoginResult auditor = readyLogin("test_college_auditor");
         LoginResult reviewerA = readyLogin("test_review_teacher");
         LoginResult reviewerB = readyLogin("test_review_teacher_b");
 
@@ -243,7 +242,7 @@ class Phase7VideoReviewIT {
         String replacementUploadId = replacementInit.at("/uploadId").asText();
         uploadAll(student.accessToken(), replacementUploadId, replacement, 4);
 
-        assign(clerk.accessToken(), reviewingId, 800000000000003005L, REVIEWER_B_USER_ID);
+        assign(auditor.accessToken(), reviewingId, 800000000000003005L, REVIEWER_B_USER_ID);
         VideoReview beforeReviewing = reviewMapper.selectById(reviewingId);
         Long beforeTaskCount = taskCount(reviewingId);
 
@@ -265,7 +264,7 @@ class Phase7VideoReviewIT {
 
         String needReviewYear = "P7-RU-NEED";
         long needReviewId = uploadValidatedVideo(student.accessToken(), 9001L, needReviewYear);
-        assign(clerk.accessToken(), needReviewId, 800000000000003005L, REVIEWER_B_USER_ID);
+        assign(auditor.accessToken(), needReviewId, 800000000000003005L, REVIEWER_B_USER_ID);
         score(reviewerA.accessToken(), taskIdByReview(reviewerA.accessToken(), needReviewId), 85, "PASS");
         score(reviewerB.accessToken(), taskIdByReview(reviewerB.accessToken(), needReviewId), 60, "PASS");
         assertThat(reviewMapper.selectById(needReviewId).getStatus()).isEqualTo("NEED_REVIEW");
@@ -283,20 +282,20 @@ class Phase7VideoReviewIT {
     @Test
     void sysParamChangesAffectThresholdAndReviewerCount() throws Exception {
         LoginResult student = readyLogin("test_student");
-        LoginResult clerk = readyLogin("test_college_clerk");
+        LoginResult auditor = readyLogin("test_college_auditor");
         LoginResult reviewerA = readyLogin("test_review_teacher");
         LoginResult reviewerB = readyLogin("test_review_teacher_b");
         LoginResult reviewerC = readyLogin("test_review_teacher_c");
         updateParam("video.diffThreshold", "30");
         long reviewId = uploadValidatedVideo(student.accessToken(), 9001L, "P7-PARAM-DIFF");
-        assign(clerk.accessToken(), reviewId, 800000000000003005L, REVIEWER_B_USER_ID);
+        assign(auditor.accessToken(), reviewId, 800000000000003005L, REVIEWER_B_USER_ID);
         score(reviewerA.accessToken(), taskIdByReview(reviewerA.accessToken(), reviewId), 85, "PASS");
         score(reviewerB.accessToken(), taskIdByReview(reviewerB.accessToken(), reviewId), 60, "PASS");
         assertThat(reviewMapper.selectById(reviewId).getStatus()).isEqualTo("REVIEW_COMPLETED");
 
         updateParam("video.reviewerCount", "3");
         long threeReviewerId = uploadValidatedVideo(student.accessToken(), 9001L, "P7-PARAM-COUNT");
-        assign(clerk.accessToken(), threeReviewerId, 800000000000003005L, REVIEWER_B_USER_ID, REVIEWER_C_USER_ID);
+        assign(auditor.accessToken(), threeReviewerId, 800000000000003005L, REVIEWER_B_USER_ID, REVIEWER_C_USER_ID);
         score(reviewerA.accessToken(), taskIdByReview(reviewerA.accessToken(), threeReviewerId), 80, "PASS");
         score(reviewerB.accessToken(), taskIdByReview(reviewerB.accessToken(), threeReviewerId), 82, "PASS");
         score(reviewerC.accessToken(), taskIdByReview(reviewerC.accessToken(), threeReviewerId), 84, "PASS");
@@ -310,7 +309,7 @@ class Phase7VideoReviewIT {
     void readWriteScopeReviewerScopeAndPlaybackAuthAreEnforced() throws Exception {
         LoginResult studentA = readyLogin("test_student");
         LoginResult studentB = readyLogin("test_student_b");
-        LoginResult clerk = readyLogin("test_college_clerk");
+        LoginResult auditor = readyLogin("test_college_auditor");
         LoginResult reviewerA = readyLogin("test_review_teacher");
 
         ResponseEntity<String> crossStudent = exchange("/api/video/upload/init", HttpMethod.POST, studentA.accessToken(),
@@ -319,17 +318,17 @@ class Phase7VideoReviewIT {
 
         long own = uploadValidatedVideo(studentA.accessToken(), 9001L, "P7-SCOPE-A");
         long other = uploadValidatedVideo(studentB.accessToken(), 9002L, "P7-SCOPE-B");
-        JsonNode clerkList = json(exchange("/api/video/reviews?assessmentYear=P7-SCOPE-A",
-                HttpMethod.GET, clerk.accessToken(), null)).at("/data/records");
-        assertThat(clerkList.toString()).contains(String.valueOf(own));
-        assertThat(clerkList.toString()).doesNotContain(String.valueOf(other));
+        JsonNode auditorList = json(exchange("/api/video/reviews?assessmentYear=P7-SCOPE-A",
+                HttpMethod.GET, auditor.accessToken(), null)).at("/data/records");
+        assertThat(auditorList.toString()).contains(String.valueOf(own));
+        assertThat(auditorList.toString()).doesNotContain(String.valueOf(other));
 
         JsonNode studentList = json(exchange("/api/video/reviews?assessmentYear=P7-SCOPE-A",
                 HttpMethod.GET, studentA.accessToken(), null)).at("/data/records");
         assertThat(studentList.size()).isEqualTo(1);
         assertThat(studentList.at("/0/studentId").asLong()).isEqualTo(9001L);
 
-        assign(clerk.accessToken(), own, 800000000000003005L, REVIEWER_B_USER_ID);
+        assign(auditor.accessToken(), own, 800000000000003005L, REVIEWER_B_USER_ID);
         JsonNode reviewerTasks = json(exchange("/api/video/tasks/my", HttpMethod.GET, reviewerA.accessToken(), null)).at("/data/records");
         assertThat(reviewerTasks.toString()).contains(String.valueOf(own));
 

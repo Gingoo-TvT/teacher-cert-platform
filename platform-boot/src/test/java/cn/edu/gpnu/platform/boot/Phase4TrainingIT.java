@@ -193,6 +193,7 @@ class Phase4TrainingIT {
     void writeScopeAndReadDataScopeUseTrainingProfileTable() throws Exception {
         LoginResult academic = readyLogin("test_academic_admin");
         LoginResult clerk = readyLogin("test_college_clerk");
+        LoginResult auditor = readyLogin("test_college_auditor");
 
         long studentA = createStudent(academic.accessToken(), student(uniqueNo("P4A"), "学院甲培养",
                 "normal_student", COLLEGE_A));
@@ -206,7 +207,7 @@ class Phase4TrainingIT {
                 "P4_NORMAL_B", "Phase4普通师范试点专业B", "bachelor", "junior_middle_school_teacher",
                 "primary_secondary_school", "junior_middle_school", "jms_math"));
 
-        ResponseEntity<String> cross = exchange("/api/training", HttpMethod.POST, clerk.accessToken(),
+        ResponseEntity<String> cross = exchange("/api/training", HttpMethod.POST, auditor.accessToken(),
                 training(studentB, COLLEGE_B, NEXT_YEAR, "070101", "数学与应用数学",
                         "P4_NORMAL_B", "Phase4普通师范试点专业B", "bachelor", "junior_middle_school_teacher",
                         "primary_secondary_school", "junior_middle_school", "jms_math"));
@@ -215,7 +216,7 @@ class Phase4TrainingIT {
         assertThat(trainingProfileMapper.selectCount(new LambdaQueryWrapper<TrainingProfile>()
                 .eq(TrainingProfile::getStudentId, studentB)
                 .eq(TrainingProfile::getAssessmentYear, NEXT_YEAR))).isZero();
-        ResponseEntity<String> crossUpdate = exchange("/api/training", HttpMethod.POST, clerk.accessToken(),
+        ResponseEntity<String> crossUpdate = exchange("/api/training", HttpMethod.POST, auditor.accessToken(),
                 training(studentA, COLLEGE_B, YEAR, "050101", "汉语言文学",
                         "P4_NORMAL_A", "Phase4普通师范试点专业A", "bachelor", "primary_school_teacher",
                         "primary_secondary_school", "primary_school", "ps_chinese"));

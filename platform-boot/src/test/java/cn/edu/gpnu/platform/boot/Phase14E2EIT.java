@@ -178,7 +178,6 @@ class Phase14E2EIT {
         resetUser("test_review_teacher", true);
         ensureReviewerB();
         resetUser("test_review_teacher_b", true);
-        resetUser("test_cert_issuer", true);
     }
 
     @Test
@@ -271,13 +270,12 @@ class Phase14E2EIT {
     @Order(6)
     void videoReviewNeedsThirdExpertAndConfirmsFinalScore() throws Exception {
         LoginResult studentLogin = readyLogin("test_student");
-        LoginResult clerk = readyLogin("test_college_clerk");
         LoginResult auditor = readyLogin("test_college_auditor");
         LoginResult reviewerA = readyLogin("test_review_teacher");
         LoginResult reviewerB = readyLogin("test_review_teacher_b");
 
         videoId = uploadValidatedVideo(studentLogin.accessToken(), student.getId());
-        assignVideo(clerk.accessToken(), videoId);
+        assignVideo(auditor.accessToken(), videoId);
         score(reviewerA.accessToken(), taskIdByReview(reviewerA.accessToken(), videoId), 85, "PASS");
         score(reviewerB.accessToken(), taskIdByReview(reviewerB.accessToken(), videoId), 60, "PASS");
         assertThat(videoReviewMapper.selectById(videoId).getStatus()).isEqualTo("NEED_REVIEW");
@@ -325,9 +323,9 @@ class Phase14E2EIT {
     @Test
     @Order(10)
     void certificateIssueCalculatesFirstHalfYearValidity() throws Exception {
-        LoginResult issuer = readyLogin("test_cert_issuer");
+        LoginResult academic = readyLogin("test_academic_admin");
 
-        JsonNode issued = issueCertificate(issuer.accessToken(), certId);
+        JsonNode issued = issueCertificate(academic.accessToken(), certId);
         issuedCertNo = issued.at("/certNo").asText();
         assertThat(issued.at("/validUntil").asText()).isEqualTo("2029/6/30");
     }

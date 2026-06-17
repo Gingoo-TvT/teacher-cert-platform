@@ -135,12 +135,12 @@ class Phase12NotificationIT {
 
     @Test
     void videoAssignNotifiesReviewer() throws Exception {
-        LoginResult clerk = readyLogin("test_college_clerk");
+        LoginResult auditor = readyLogin("test_college_auditor");
         LoginResult reviewer = readyLogin("test_review_teacher");
         long reviewId = seedVideoReview(STUDENT_A_ID, COLLEGE_A);
 
         ResponseEntity<String> assign = exchange("/api/video/reviews/" + reviewId + "/assign",
-                HttpMethod.POST, clerk.accessToken(), Map.of("reviewerIds", List.of(REVIEWER_ID, CLERK_ID)));
+                HttpMethod.POST, auditor.accessToken(), Map.of("reviewerIds", List.of(REVIEWER_ID, CLERK_ID)));
         assertOk(assign);
 
         JsonNode reviewerNotices = notices(reviewer.accessToken(), false);

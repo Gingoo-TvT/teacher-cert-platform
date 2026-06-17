@@ -98,36 +98,37 @@ class Phase8TestResultIT {
         resetUser("test_student", true);
         resetUser("test_student_b", true);
         resetUser("test_college_clerk", true);
+        resetUser("test_college_auditor", true);
         resetUser("test_academic_admin", true);
     }
 
     @Test
     void passedExemptionSubjectIsExcludedAndScoreTextRoundTrips() throws Exception {
-        LoginResult clerk = readyLogin("test_college_clerk");
+        LoginResult auditor = readyLogin("test_college_auditor");
         String year = "P8-LINK";
         seedPassedExemption(9001L, COLLEGE_A, year, SUBJECT_B);
 
-        JsonNode saved = saveOk(clerk.accessToken(), 9001L, year, "000000000000123456789", "pending_confirm");
+        JsonNode saved = saveOk(auditor.accessToken(), 9001L, year, "000000000000123456789", "pending_confirm");
         assertThat(saved.asLong()).isPositive();
 
         JsonNode detail = json(exchange("/api/test/9001?year=" + year + "&segment=" + SEGMENT,
-                HttpMethod.GET, clerk.accessToken(), null)).at("/data");
+                HttpMethod.GET, auditor.accessToken(), null)).at("/data");
         assertThat(detail.at("/score").asText()).isEqualTo("000000000000123456789");
         assertThat(detail.at("/examSubjects").toString()).contains(SUBJECT_A);
         assertThat(detail.at("/examSubjects").toString()).contains(SUBJECT_C);
         assertThat(detail.at("/examSubjects").toString()).doesNotContain(SUBJECT_B);
 
         JsonNode validity = json(exchange("/api/test/9001/validity?year=" + year,
-                HttpMethod.GET, clerk.accessToken(), null)).at("/data");
+                HttpMethod.GET, auditor.accessToken(), null)).at("/data");
         assertThat(validity.at("/validForCertificate").asBoolean()).isFalse();
 
         String importYear = "P8-IMPORT";
-        ResponseEntity<String> imported = exchange("/api/test/import", HttpMethod.POST, clerk.accessToken(), Map.of(
+        ResponseEntity<String> imported = exchange("/api/test/import", HttpMethod.POST, auditor.accessToken(), Map.of(
                 "rows", java.util.List.of(saveBody(9001L, importYear, "000000000000987654321", "qualified"))
         ));
         assertThat(json(imported).at("/code").asInt()).isEqualTo(0);
         JsonNode importedDetail = json(exchange("/api/test/9001?year=" + importYear + "&segment=" + SEGMENT,
-                HttpMethod.GET, clerk.accessToken(), null)).at("/data");
+                HttpMethod.GET, auditor.accessToken(), null)).at("/data");
         assertThat(importedDetail.at("/score").asText()).isEqualTo("000000000000987654321");
     }
 
@@ -181,13 +182,14 @@ class Phase8TestResultIT {
     void testResultReadAndWriteDataScopeAreEnforced() throws Exception {
         LoginResult academic = readyLogin("test_academic_admin");
         LoginResult clerk = readyLogin("test_college_clerk");
+        LoginResult auditor = readyLogin("test_college_auditor");
         LoginResult studentA = readyLogin("test_student");
         LoginResult studentB = readyLogin("test_student_b");
         String year = "P8-SCOPE";
         long aId = saveOk(academic.accessToken(), 9001L, year, "76", "qualified").asLong();
         long bId = saveOk(academic.accessToken(), 9002L, year, "77", "qualified").asLong();
 
-        ResponseEntity<String> crossCollegeWrite = exchange("/api/test", HttpMethod.POST, clerk.accessToken(),
+        ResponseEntity<String> crossCollegeWrite = exchange("/api/test", HttpMethod.POST, auditor.accessToken(),
                 saveBody(9002L, "P8-CROSS", "88", "qualified"));
         assertThat(json(crossCollegeWrite).at("/code").asInt()).isEqualTo(403);
         assertThat(resultMapper.selectCount(new LambdaQueryWrapper<AbilityTestResult>()

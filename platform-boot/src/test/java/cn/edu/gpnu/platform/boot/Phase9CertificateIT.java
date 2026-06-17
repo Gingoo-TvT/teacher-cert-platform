@@ -141,13 +141,11 @@ class Phase9CertificateIT {
         resetUser("test_student_b", true);
         resetUser("test_college_clerk", true);
         resetUser("test_academic_admin", true);
-        resetUser("test_cert_issuer", true);
     }
 
     @Test
     void certificateNumberSegmentsAndValidityRulesAreCorrect() throws Exception {
         LoginResult academic = readyLogin("test_academic_admin");
-        LoginResult issuer = readyLogin("test_cert_issuer");
         long senior = seedEligibleStudent("P9EXS", COLLEGE_A, "2026", SENIOR_SEGMENT, SENIOR_SUBJECT_CODE, "语文");
         long vocational = seedEligibleStudent("P9EXV", COLLEGE_A, "2026", VOCATIONAL_SEGMENT, VOCATIONAL_SUBJECT_CODE, "电子商务");
 
@@ -156,9 +154,9 @@ class Phase9CertificateIT {
         JsonNode vocationalCert = generateOk(academic.accessToken(), vocational, "2026");
         assertThat(vocationalCert.at("/certNo").asText()).isEqualTo("202610588344500001");
 
-        JsonNode firstHalf = issueOk(issuer.accessToken(), seniorCert.at("/id").asLong(), "校长", "2022/3/15");
+        JsonNode firstHalf = issueOk(academic.accessToken(), seniorCert.at("/id").asLong(), "校长", "2022/3/15");
         assertThat(firstHalf.at("/validUntil").asText()).isEqualTo("2025/6/30");
-        JsonNode secondHalf = issueOk(issuer.accessToken(), vocationalCert.at("/id").asLong(), "校长", "2022-09-01");
+        JsonNode secondHalf = issueOk(academic.accessToken(), vocationalCert.at("/id").asLong(), "校长", "2022-09-01");
         assertThat(secondHalf.at("/validUntil").asText()).isEqualTo("2025/12/31");
     }
 

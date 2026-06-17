@@ -15,6 +15,14 @@
 
 ---
 
+## [2026-06-18] WP-A 待复核小结（RBAC 基座重定义）
+- 做了什么：从 `main` 切出 `feature/wp-a-rbac`，新增 `V20__rbac_regrant.sql`，仅重定义运行期 RBAC 授权矩阵与受影响 IT 登录角色；未改业务代码、数据范围语义、前端 UI 或 V1~V19 既有迁移。
+- V20 授权变更：`SYS_ADMIN` 通过动态 `INSERT ... SELECT` 关联当前 `sys_permission` 全表权限；`ACADEMIC_ADMIN` 保留原授权并新增 `cert:issue`；`COLLEGE_AUDITOR` 承接学院侧 `student/training/exchange/test` 录入导入预校验、各业务复审、`video:assign/arbitrate/confirm` 等动作权；`COLLEGE_CLERK` 收敛为 `*:view`、`student:export`、`exchange:export:standard/full`、`material:batchDownload`、`student/training/material/exemption` 相关初审、`notice:view/stats:view/audit:view/dict:view`，移除 edit/import/prevalidate/test/video assign/secondReview/manage 类动作。
+- CERT_ISSUER 处理：按 WP-A 要求删除 `CERT_ISSUER` 角色与角色权限/用户角色关联，并停用历史测试账号 `test_cert_issuer`；证书签发统一由 `test_academic_admin` 所属 `ACADEMIC_ADMIN` 执行。
+- IT 调整：`Phase2SecurityIT` 改为断言 clerk/auditor/academic/sysadmin 新矩阵；`Phase3StudentIT`、`Phase4TrainingIT` 写侧范围反例改用 `test_college_auditor`；`Phase7VideoReviewIT`、`Phase12NotificationIT`、`Phase14E2EIT` 的 `video:assign` 改用 auditor；`Phase8TestResultIT` 的 test 录入/导入改用 auditor；`Phase9CertificateIT`、`Phase14E2EIT` 的 `cert:issue` 改用 academic admin；`Phase10ExchangeIT` 导入/预校验/确认导入改用 auditor，clerk 保留读/导出。
+- 测试：`mvn -B -ntp -DskipTests test-compile` 通过；定向 `mvn -B -ntp -pl platform-boot -am "-Dfailsafe.failIfNoSpecifiedTests=false" "-Dit.test=Phase2SecurityIT,Phase7VideoReviewIT,Phase8TestResultIT,Phase9CertificateIT,Phase10ExchangeIT,Phase12NotificationIT,Phase14E2EIT" verify` 通过，Failsafe 44/44；全量 `mvn -B -ntp verify` 通过，Failsafe **75/75**；`npm --prefix frontend run type-check` 通过；`npm --prefix frontend run build` 通过（仅既有 Vite chunk-size 警告）。
+- 下一步：`PROGRESS.md` 已置 **WP-A 待复核**，等待 Claude 复核 V20 授权矩阵、CERT_ISSUER 删除策略与全回归结果，未自行置 ✅。
+
 ## [2026-06-18] T-115 复核通过（Claude · REVIEW-GATE）✅
 - 做了什么：复核 `feature/t115-e2e-split` 单提交 `96980e6`（仅 `Phase14E2EIT.java` + PROGRESS/DEVLOG）。增量基线 `main..HEAD`：无业务代码/迁移/yml/pom/前端改动。首跑因本地 MySQL/Redis/MinIO 未起导致全 IT 上下文加载失败（`Communications link failure`，环境问题非代码问题）；起 `docker-compose.dev.yml`（mysql/redis/minio）后重跑。
 - 结论：**PASS**（一轮）。`mvn -B -ntp verify` **BUILD SUCCESS，Failsafe 75/75**（`Phase14E2EIT` 14 个有序阶段子用例全绿 + Phase2~13 回归 61 全绿）。读码确认 `@TestMethodOrder`+`@TestInstance(PER_CLASS)` 共享流程字段、`@BeforeAll/@AfterAll` 整链前后清理、每阶段断言其后置条件；原断言**零删减**全部迁移到位（标准导出 26 列 / H=身份证件号码 / 全列 `@` / 导出逐字段==录入、成绩 `00000000000085`、免考剔除应考科目、视频第三专家终分 83、student/training/exemption secondReview + video confirm + cert 生命周期审计）。
