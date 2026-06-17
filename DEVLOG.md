@@ -15,6 +15,11 @@
 
 ---
 
+## [2026-06-18] T-115 复核通过（Claude · REVIEW-GATE）✅
+- 做了什么：复核 `feature/t115-e2e-split` 单提交 `96980e6`（仅 `Phase14E2EIT.java` + PROGRESS/DEVLOG）。增量基线 `main..HEAD`：无业务代码/迁移/yml/pom/前端改动。首跑因本地 MySQL/Redis/MinIO 未起导致全 IT 上下文加载失败（`Communications link failure`，环境问题非代码问题）；起 `docker-compose.dev.yml`（mysql/redis/minio）后重跑。
+- 结论：**PASS**（一轮）。`mvn -B -ntp verify` **BUILD SUCCESS，Failsafe 75/75**（`Phase14E2EIT` 14 个有序阶段子用例全绿 + Phase2~13 回归 61 全绿）。读码确认 `@TestMethodOrder`+`@TestInstance(PER_CLASS)` 共享流程字段、`@BeforeAll/@AfterAll` 整链前后清理、每阶段断言其后置条件；原断言**零删减**全部迁移到位（标准导出 26 列 / H=身份证件号码 / 全列 `@` / 导出逐字段==录入、成绩 `00000000000085`、免考剔除应考科目、视频第三专家终分 83、student/training/exemption secondReview + video confirm + cert 生命周期审计）。
+- 放行：PROGRESS T-115 置 ✅；合并 `main`（本地私有、无远程、不 push）。测试可维护性加固达成，主流程覆盖与断言不变。
+
 ## [2026-06-18] T-115 待复核小结（Phase14E2EIT 拆分）
 - 做了什么：在 `feature/t115-e2e-split` 仅重构 `platform-boot/src/test/java/cn/edu/gpnu/platform/boot/Phase14E2EIT.java`，把原单一 `mainFlowFromImportToArchiveAndStandardExportIsConsistent` 拆为 14 个 `@Order` 有序子用例：导入、学生复审、培养复审、四类材料、免考、视频复评、测试结果、证书前置、生成、签发、导出、归档、标准导出终断言、审计留痕。
 - 关键决策与理由：采用 `@TestMethodOrder(MethodOrderer.OrderAnnotation.class)` + `@TestInstance(PER_CLASS)` 共享流程字段，`@BeforeAll/@AfterAll` 只做整条链路前后清理；每个子用例重新登录取 token，避免测试运行超过 30 秒后 JWT 失效。未改任何业务代码、迁移、配置、依赖或前端。
