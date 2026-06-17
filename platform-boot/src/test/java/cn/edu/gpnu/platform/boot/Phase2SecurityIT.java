@@ -122,12 +122,14 @@ class Phase2SecurityIT {
         LoginResult changedAuditor = login("test_college_auditor", CHANGED_PASSWORD);
         assertThat(changedAuditor.permissions().toString())
                 .contains("info:secondReview", "material:secondReview", "exemption:secondReview",
-                        "video:assign", "video:arbitrate", "test:edit", "test:import",
+                        "video:assign", "video:arbitrate", "test:import", "test:confirm",
                         "exchange:import", "exchange:prevalidate")
-                .doesNotContain("info:firstReview");
+                .doesNotContain("info:firstReview", "test:edit");
 
         LoginResult academic = login("test_academic_admin", INITIAL_PASSWORD);
-        assertThat(academic.permissions().toString()).contains("cert:generate", "cert:issue");
+        assertThat(academic.permissions().toString())
+                .contains("cert:generate", "cert:issue", "test:import", "test:confirm")
+                .doesNotContain("test:edit");
         ResponseEntity<String> allSchool = exchange("/api/phase2/probe/students", HttpMethod.GET, academic.accessToken(), null);
         assertThat(allSchool.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
 

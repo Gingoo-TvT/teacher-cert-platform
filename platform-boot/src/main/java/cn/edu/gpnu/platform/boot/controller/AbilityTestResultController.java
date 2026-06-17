@@ -2,7 +2,6 @@ package cn.edu.gpnu.platform.boot.controller;
 
 import cn.edu.gpnu.platform.business.testresult.dto.AbilityTestImportRequest;
 import cn.edu.gpnu.platform.business.testresult.dto.AbilityTestQuery;
-import cn.edu.gpnu.platform.business.testresult.dto.AbilityTestSaveRequest;
 import cn.edu.gpnu.platform.business.testresult.service.AbilityTestResultService;
 import cn.edu.gpnu.platform.business.testresult.vo.AbilityTestResultVO;
 import cn.edu.gpnu.platform.business.testresult.vo.AbilityTestValidityVO;
@@ -18,7 +17,6 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -37,7 +35,7 @@ public class AbilityTestResultController {
     private final AbilityTestResultService abilityTestResultService;
 
     @Operation(summary = "测试结果列表")
-    @PreAuthorize("@pms.has('student:view') or @pms.has('test:edit') or @pms.has('test:import') or @pms.has('test:confirm')")
+    @PreAuthorize("@pms.has('student:view') or @pms.has('test:import') or @pms.has('test:confirm')")
     @DataScope(alias = "ability_test_result", permission = "student:view")
     @GetMapping
     public Result<PageResult<AbilityTestResultVO>> list(AbilityTestQuery query) {
@@ -45,29 +43,13 @@ public class AbilityTestResultController {
     }
 
     @Operation(summary = "学生测试结果")
-    @PreAuthorize("@pms.has('student:view') or @pms.has('test:edit')")
+    @PreAuthorize("@pms.has('student:view') or @pms.has('test:import') or @pms.has('test:confirm')")
     @DataScope(alias = "ability_test_result", permission = "student:view")
     @GetMapping("/{studentId}")
     public Result<AbilityTestResultVO> get(@PathVariable Long studentId,
                                            @RequestParam("year") String assessmentYear,
                                            @RequestParam(value = "segment", required = false) String teachingSegment) {
         return Result.ok(abilityTestResultService.get(studentId, assessmentYear, teachingSegment));
-    }
-
-    @Operation(summary = "录入测试结果")
-    @PreAuthorize("@pms.has('test:edit')")
-    @AuditLog(bizType = "abilityTest", operation = "save")
-    @PostMapping
-    public Result<Long> save(@Valid @RequestBody AbilityTestSaveRequest request) {
-        return Result.ok(abilityTestResultService.save(request));
-    }
-
-    @Operation(summary = "修改测试结果")
-    @PreAuthorize("@pms.has('test:edit')")
-    @AuditLog(bizType = "abilityTest", operation = "update")
-    @PutMapping
-    public Result<Long> update(@Valid @RequestBody AbilityTestSaveRequest request) {
-        return Result.ok(abilityTestResultService.save(request));
     }
 
     @Operation(summary = "批量导入测试结果")
@@ -97,7 +79,7 @@ public class AbilityTestResultController {
     }
 
     @Operation(summary = "测试结论有效性")
-    @PreAuthorize("@pms.has('student:view') or @pms.has('test:edit') or @pms.has('cert:generate')")
+    @PreAuthorize("@pms.has('student:view') or @pms.has('test:import') or @pms.has('test:confirm') or @pms.has('cert:generate')")
     @DataScope(alias = "ability_test_result", permission = "student:view")
     @GetMapping("/{studentId}/validity")
     public Result<AbilityTestValidityVO> validity(@PathVariable Long studentId,

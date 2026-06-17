@@ -62,14 +62,6 @@ export function getAbilityTest(studentId: string, assessmentYear: string, teachi
   })
 }
 
-export function saveAbilityTest(payload: AbilityTestPayload) {
-  return request.post<unknown, ApiResult<string>>('/test', payload)
-}
-
-export function updateAbilityTest(payload: AbilityTestPayload) {
-  return request.put<unknown, ApiResult<string>>('/test', payload)
-}
-
 export function importAbilityTests(rows: AbilityTestPayload[]) {
   return request.post<unknown, ApiResult<string[]>>('/test/import', { rows })
 }

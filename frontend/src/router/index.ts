@@ -94,7 +94,7 @@ const routes: RouteRecordRaw[] = [
         path: 'tests',
         name: 'testResultManage',
         component: () => import('@/views/test-result/TestResultManageView.vue'),
-        meta: { title: '测试结果', perms: ['student:view', 'test:edit', 'test:import', 'test:confirm'] }
+        meta: { title: '测试结果', perms: ['student:view', 'test:import', 'test:confirm'] }
       },
       {
         path: 'certificates',

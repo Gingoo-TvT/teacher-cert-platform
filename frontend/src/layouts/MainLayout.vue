@@ -41,7 +41,7 @@ const rawMenuOptions: AppMenuOption[] = [
       { label: '过程性材料', key: 'materialManage', perms: ['material:upload', 'material:firstReview', 'material:secondReview', 'material:batchDownload'] },
       { label: '免考管理', key: 'exemptionManage', perms: ['exemption:apply', 'exemption:firstReview', 'exemption:secondReview'] },
       { label: '视频评审', key: 'videoReview', perms: ['video:upload', 'video:score', 'video:assign', 'video:arbitrate', 'video:confirm', 'video:play'] },
-      { label: '测试结果', key: 'testResultManage', perms: ['student:view', 'test:edit', 'test:import', 'test:confirm'] },
+      { label: '测试结果', key: 'testResultManage', perms: ['student:view', 'test:import', 'test:confirm'] },
       { label: '证书管理', key: 'certificateManage', perms: ['cert:view', 'cert:generate', 'cert:correct', 'cert:void', 'cert:reissue'] },
       { label: '证书签发', key: 'certificateIssue', perms: ['cert:issue'] },
       { label: '导入预校验', key: 'exchangeImport', perms: ['exchange:template', 'exchange:prevalidate', 'exchange:import'] },

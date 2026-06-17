@@ -15,6 +15,14 @@
 
 ---
 
+## [2026-06-18] Phase 16 / WP-B 待复核小结（测试结果只确认）
+- 做了什么：从 `main` 切出 `feature/wp-b-test-confirm`，完成测试结果“只导入 + 确认”后端收口与前端最小适配。后端下线手工 `POST /api/test` 新建与 `PUT /api/test` 修改入口，保留 `GET /api/test`、`GET /api/test/{studentId}`、`GET /api/test/{studentId}/validity`、`POST /api/test/import`、`POST /api/test/import-file`、`POST /api/test/{id}/confirm`；导入复用的内部落库逻辑未删除。
+- V21 撤权清单：新增 `V21__test_confirm_only.sql`，幂等撤销所有角色的 `test:edit` 授权，保留 `sys_permission` 中的 `test:edit` 权限点定义用于历史审计/外键兼容；确保 `COLLEGE_AUDITOR`、`ACADEMIC_ADMIN` 继续拥有 `test:import` 与 `test:confirm`。
+- IT 调整：`Phase8TestResultIT` 中原手工 save/update 建结果的用例均改为 `/api/test/import` 导入路径后查询/确认，保留前导零成绩、免考剔除应考科目、结论有效性、锁定拒改、读写数据范围断言；新增手工 POST/PUT 下线反例与锁定后重导入拒绝反例。`Phase14E2EIT` 第 7 阶段改为导入成绩后确认，主流程证书前置仍贯通；`Phase2SecurityIT` 同步 WP-B 后 `test:edit` 不授权、`test:import/test:confirm` 保留的矩阵断言。
+- 前端最小变更：移除 `frontend/src/api/testResult.ts` 的 `saveAbilityTest/updateAbilityTest`，移除 `TestResultManageView` 的录入/编辑抽屉与 `test:edit` 入口；菜单与路由不再要求 `test:edit`，保留导入、查询、确认与有效性展示能力，完整只确认 UI 留到 Phase 22 前端重建。
+- 测试：`mvn -B -ntp -DskipTests test-compile` 通过；定向 `mvn -B -ntp -pl platform-boot -am "-Dfailsafe.failIfNoSpecifiedTests=false" "-Dit.test=Phase2SecurityIT,Phase8TestResultIT,Phase9CertificateIT,Phase14E2EIT" verify` 通过，Failsafe 28/28；全量 `mvn -B -ntp verify` 通过，Failsafe **76/76**；`npm --prefix frontend run type-check` 通过；`npm --prefix frontend run build` 通过（仅既有 Vite chunk-size 警告）。
+- 下一步：`PROGRESS.md` 已置 **Phase 16 / WP-B 待复核**，等待 Claude 复核 T-121~T-125、V21 撤权与导入+确认契约，未自行置 ✅。
+
 ## [2026-06-18] WP-A 复核通过（Claude · REVIEW-GATE）✅ — RBAC 基座
 - 做了什么：复核 `feature/wp-a-rbac` 单提交 `6227cdd`（V20 + 9 IT + PROGRESS/DEVLOG，**无业务/main java 改动**）。读 V20 逐角色核对 §1 矩阵；读 9 个 IT diff 核对角色迁移；**clean-room**：重置 dev schema → `mvn -B -ntp verify` 让 Flyway 全新应用 V1–V20 再跑全量 IT。
 - 结论：**PASS**（一轮）。`mvn verify` **BUILD SUCCESS，Failsafe 75/75**（61 回归 + Phase14E2EIT 14，全在新 RBAC 模型下绿）；Flyway「Successfully applied 20 migrations, now at v20」证 V20 全新可用且幂等。V20 校验：CLERK=只读+初审、AUDITOR=复审+录入/导入/video:assign/arbitrate、ACADEMIC_ADMIN+=cert:issue、SYS_ADMIN 全权、CERT_ISSUER 软删+账号停用；revoke→regrant 幂等、V1–V19 未改。IT 校验：clerk 失去的 assign/import/edit/secondReview 正确迁移 auditor/academic，跨院写越权用例改用 auditor 仍考数据范围（非缺权），Phase2 契约用例钉死新矩阵。

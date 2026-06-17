@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, h, onMounted, reactive, ref } from 'vue'
+import { computed, h, onMounted, ref } from 'vue'
 import {
   NButton,
   NPopconfirm,
@@ -7,7 +7,6 @@ import {
   NTag,
   useMessage,
   type DataTableColumns,
-  type SelectOption,
   type UploadFileInfo
 } from 'naive-ui'
 import { listDictItems, type DictItem } from '@/api/dict'
@@ -20,8 +19,6 @@ import {
   importAbilityTestFile,
   importAbilityTests,
   listAbilityTests,
-  saveAbilityTest,
-  updateAbilityTest,
   type AbilityTestPayload,
   type AbilityTestResult
 } from '@/api/testResult'
@@ -30,7 +27,6 @@ const message = useMessage()
 const userStore = useUserStore()
 const loading = ref(false)
 const saving = ref(false)
-const drawerVisible = ref(false)
 const importVisible = ref(false)
 const examVisible = ref(false)
 const validityVisible = ref(false)
@@ -40,41 +36,19 @@ const conclusionFilter = ref<string | null>(null)
 const confirmFilter = ref<string | null>(null)
 const records = ref<AbilityTestResult[]>([])
 const students = ref<Student[]>([])
-const segments = ref<DictItem[]>([])
-const orgModes = ref<DictItem[]>([])
 const conclusions = ref<DictItem[]>([])
-const selectedRecord = ref<AbilityTestResult | null>(null)
 const examRows = ref<ExamSubject[]>([])
 const importText = ref('')
 const importFiles = ref<UploadFileInfo[]>([])
 const validityText = ref('')
 
-const canEdit = computed(() => userStore.hasPerm('test:edit'))
 const canImport = computed(() => userStore.hasPerm('test:import'))
 const canConfirm = computed(() => userStore.hasPerm('test:confirm'))
 
-const form = reactive<AbilityTestPayload>({
-  studentId: '',
-  assessmentYear: '2026',
-  teachingSegment: '',
-  examOrgMode: '',
-  score: '',
-  conclusion: 'pending_confirm'
-})
-
-const studentOptions = computed<SelectOption[]>(() =>
-  students.value.map((item) => ({ label: `${item.studentNo} ${item.name}`, value: item.id }))
-)
-const segmentOptions = computed<SelectOption[]>(() =>
-  segments.value.map((item) => ({ label: item.itemValue, value: item.itemCode }))
-)
-const orgModeOptions = computed<SelectOption[]>(() =>
-  orgModes.value.map((item) => ({ label: item.itemValue, value: item.itemCode }))
-)
-const conclusionOptions = computed<SelectOption[]>(() =>
+const conclusionOptions = computed(() =>
   conclusions.value.map((item) => ({ label: item.itemValue, value: item.itemCode }))
 )
-const confirmOptions: SelectOption[] = [
+const confirmOptions = [
   { label: '待确认', value: 'PENDING' },
   { label: '已确认', value: 'CONFIRMED' }
 ]
@@ -96,9 +70,6 @@ const columns: DataTableColumns<AbilityTestResult> = [
       h(NSpace, { size: 6 }, () => [
         h(NButton, { size: 'small', quaternary: true, type: 'primary', onClick: () => showSubjects(row) }, { default: () => '应考' }),
         h(NButton, { size: 'small', quaternary: true, onClick: () => showValidity(row) }, { default: () => '有效性' }),
-        canEdit.value
-          ? h(NButton, { size: 'small', quaternary: true, onClick: () => openEdit(row) }, { default: () => '修改' })
-          : null,
         canConfirm.value && row.id
           ? h(
               NPopconfirm,
@@ -135,55 +106,12 @@ async function loadRecords() {
 }
 
 async function loadOptions() {
-  const [studentRes, segmentRes, orgModeRes, conclusionRes] = await Promise.all([
+  const [studentRes, conclusionRes] = await Promise.all([
     listStudents(),
-    listDictItems('teaching_segment', true),
-    listDictItems('exam_org_mode', true),
     listDictItems('ability_test_conclusion', true)
   ])
   students.value = studentRes.data.records
-  segments.value = segmentRes.data
-  orgModes.value = orgModeRes.data
   conclusions.value = conclusionRes.data
-}
-
-function openCreate() {
-  selectedRecord.value = null
-  form.studentId = ''
-  form.assessmentYear = assessmentYear.value
-  form.teachingSegment = ''
-  form.examOrgMode = orgModes.value[0]?.itemCode || ''
-  form.score = ''
-  form.conclusion = 'pending_confirm'
-  drawerVisible.value = true
-}
-
-function openEdit(row: AbilityTestResult) {
-  selectedRecord.value = row
-  form.studentId = row.studentId
-  form.assessmentYear = row.assessmentYear
-  form.teachingSegment = row.teachingSegment || ''
-  form.examOrgMode = row.examOrgMode || orgModes.value[0]?.itemCode || ''
-  form.score = row.score || ''
-  form.conclusion = row.conclusion
-  drawerVisible.value = true
-}
-
-async function save() {
-  if (!form.studentId || !form.assessmentYear || !form.examOrgMode || !form.conclusion) {
-    message.error('请选择学生、年度、组织方式和结论')
-    return
-  }
-  saving.value = true
-  try {
-    if (selectedRecord.value?.id) await updateAbilityTest(form)
-    else await saveAbilityTest(form)
-    message.success('已保存')
-    drawerVisible.value = false
-    await loadRecords()
-  } finally {
-    saving.value = false
-  }
 }
 
 async function showSubjects(row: AbilityTestResult) {
@@ -284,30 +212,10 @@ onMounted(async () => {
       </n-space>
       <n-space>
         <n-button v-if="canImport" @click="openImport">导入</n-button>
-        <n-button v-if="canEdit" type="primary" @click="openCreate">录入</n-button>
       </n-space>
     </n-space>
     <n-data-table :columns="columns" :data="records" :loading="loading" :row-key="(row: AbilityTestResult) => row.id || row.studentId" :scroll-x="1280" />
   </n-space>
-
-  <n-drawer v-model:show="drawerVisible" :width="520">
-    <n-drawer-content :title="selectedRecord ? '修改测试结果' : '录入测试结果'" closable>
-      <n-space vertical>
-        <n-select v-model:value="form.studentId" :options="studentOptions" :disabled="Boolean(selectedRecord)" placeholder="学生" />
-        <n-input v-model:value="form.assessmentYear" :disabled="Boolean(selectedRecord)" placeholder="考核年度" />
-        <n-select v-model:value="form.teachingSegment" clearable :options="segmentOptions" placeholder="任教学段" />
-        <n-select v-model:value="form.examOrgMode" :options="orgModeOptions" placeholder="考试组织方式" />
-        <n-input v-model:value="form.score" placeholder="成绩（文本）" />
-        <n-select v-model:value="form.conclusion" :options="conclusionOptions" placeholder="结论" />
-      </n-space>
-      <template #footer>
-        <n-space justify="end">
-          <n-button @click="drawerVisible = false">取消</n-button>
-          <n-button type="primary" :loading="saving" @click="save">保存</n-button>
-        </n-space>
-      </template>
-    </n-drawer-content>
-  </n-drawer>
 
   <n-modal v-model:show="importVisible" preset="card" title="导入测试结果" style="width: 720px">
     <n-space vertical>

@@ -83,12 +83,6 @@ public class AbilityTestResultServiceImpl implements AbilityTestResultService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public Long save(AbilityTestSaveRequest request) {
-        return save(request, "test:edit");
-    }
-
-    @Override
-    @Transactional(rollbackFor = Exception.class)
     public List<Long> importRows(AbilityTestImportRequest request) {
         if (request == null || request.getRows() == null || request.getRows().isEmpty()) {
             throw new BizException("导入记录不能为空");

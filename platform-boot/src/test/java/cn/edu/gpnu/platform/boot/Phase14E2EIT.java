@@ -291,7 +291,7 @@ class Phase14E2EIT {
     void testResultKeepsLeadingZeroScoreAndLocksAfterConfirm() throws Exception {
         LoginResult academic = readyLogin("test_academic_admin");
 
-        testId = saveTestResult(academic.accessToken(), student.getId());
+        testId = importTestResult(academic.accessToken(), student.getId());
         assertOk(exchange("/api/test/" + testId + "/confirm", HttpMethod.POST, academic.accessToken(), Map.of()));
         AbilityTestResult result = testResultMapper.selectById(testId);
         assertThat(result.getScore()).isEqualTo("00000000000085");
@@ -550,17 +550,19 @@ class Phase14E2EIT {
         throw new AssertionError("task not found for review " + reviewId);
     }
 
-    private long saveTestResult(String token, long studentId) throws Exception {
-        ResponseEntity<String> response = exchange("/api/test", HttpMethod.POST, token, Map.of(
-                "studentId", studentId,
-                "assessmentYear", YEAR,
-                "teachingSegment", "junior_middle_school",
-                "examOrgMode", "separate_interview",
-                "score", "00000000000085",
-                "conclusion", "qualified"
+    private long importTestResult(String token, long studentId) throws Exception {
+        ResponseEntity<String> response = exchange("/api/test/import", HttpMethod.POST, token, Map.of(
+                "rows", List.of(Map.of(
+                        "studentId", studentId,
+                        "assessmentYear", YEAR,
+                        "teachingSegment", "junior_middle_school",
+                        "examOrgMode", "separate_interview",
+                        "score", "00000000000085",
+                        "conclusion", "qualified"
+                ))
         ));
         assertOk(response);
-        return json(response).at("/data").asLong();
+        return json(response).at("/data/0").asLong();
     }
 
     private JsonNode generateCertificate(String token, long studentId) throws Exception {

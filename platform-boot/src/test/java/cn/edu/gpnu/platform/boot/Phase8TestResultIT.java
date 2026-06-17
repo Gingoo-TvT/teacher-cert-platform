@@ -108,7 +108,7 @@ class Phase8TestResultIT {
         String year = "P8-LINK";
         seedPassedExemption(9001L, COLLEGE_A, year, SUBJECT_B);
 
-        JsonNode saved = saveOk(auditor.accessToken(), 9001L, year, "000000000000123456789", "pending_confirm");
+        JsonNode saved = importOk(auditor.accessToken(), 9001L, year, "000000000000123456789", "pending_confirm");
         assertThat(saved.asLong()).isPositive();
 
         JsonNode detail = json(exchange("/api/test/9001?year=" + year + "&segment=" + SEGMENT,
@@ -123,27 +123,43 @@ class Phase8TestResultIT {
         assertThat(validity.at("/validForCertificate").asBoolean()).isFalse();
 
         String importYear = "P8-IMPORT";
-        ResponseEntity<String> imported = exchange("/api/test/import", HttpMethod.POST, auditor.accessToken(), Map.of(
-                "rows", java.util.List.of(saveBody(9001L, importYear, "000000000000987654321", "qualified"))
-        ));
-        assertThat(json(imported).at("/code").asInt()).isEqualTo(0);
+        importOk(auditor.accessToken(), 9001L, importYear, "000000000000987654321", "qualified");
         JsonNode importedDetail = json(exchange("/api/test/9001?year=" + importYear + "&segment=" + SEGMENT,
                 HttpMethod.GET, auditor.accessToken(), null)).at("/data");
         assertThat(importedDetail.at("/score").asText()).isEqualTo("000000000000987654321");
     }
 
     @Test
+    void manualCreateAndUpdateEndpointsAreOffline() throws Exception {
+        LoginResult auditor = readyLogin("test_college_auditor");
+        String year = "P8-MANUAL-OFF";
+
+        ResponseEntity<String> created = exchange("/api/test", HttpMethod.POST, auditor.accessToken(),
+                saveBody(9001L, year, "88", "qualified"));
+        assertThat(created.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(json(created).at("/code").asInt()).isNotEqualTo(0);
+
+        ResponseEntity<String> updated = exchange("/api/test", HttpMethod.PUT, auditor.accessToken(),
+                saveBody(9001L, year, "89", "unqualified"));
+        assertThat(updated.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(json(updated).at("/code").asInt()).isNotEqualTo(0);
+
+        assertThat(resultMapper.selectCount(new LambdaQueryWrapper<AbilityTestResult>()
+                .eq(AbilityTestResult::getStudentId, 9001L)
+                .eq(AbilityTestResult::getAssessmentYear, year))).isZero();
+    }
+
+    @Test
     void confirmedResultLocksAndRejectsDirectConclusionChange() throws Exception {
         LoginResult academic = readyLogin("test_academic_admin");
         String year = "P8-LOCK";
-        long id = saveOk(academic.accessToken(), 9001L, year, "85", "qualified").asLong();
+        long id = importOk(academic.accessToken(), 9001L, year, "85", "qualified").asLong();
 
         ResponseEntity<String> confirmed = exchange("/api/test/" + id + "/confirm", HttpMethod.POST,
                 academic.accessToken(), Map.of());
         assertThat(json(confirmed).at("/code").asInt()).isEqualTo(0);
 
-        ResponseEntity<String> changed = exchange("/api/test", HttpMethod.PUT, academic.accessToken(),
-                saveBody(9001L, year, "85", "unqualified"));
+        ResponseEntity<String> changed = importRows(academic.accessToken(), 9001L, year, "85", "unqualified");
         assertThat(json(changed).at("/code").asInt()).isEqualTo(1000);
         assertThat(json(changed).at("/msg").asText()).contains("已锁定");
 
@@ -171,7 +187,7 @@ class Phase8TestResultIT {
         process.setLocked(1);
         materialMapper.insert(process);
 
-        saveOk(academic.accessToken(), 9001L, year, "", "exempted");
+        importOk(academic.accessToken(), 9001L, year, "", "exempted");
 
         ProcessMaterial after = materialMapper.selectById(process.getId());
         assertThat(after.getStatus()).isEqualTo("FAILED");
@@ -186,11 +202,10 @@ class Phase8TestResultIT {
         LoginResult studentA = readyLogin("test_student");
         LoginResult studentB = readyLogin("test_student_b");
         String year = "P8-SCOPE";
-        long aId = saveOk(academic.accessToken(), 9001L, year, "76", "qualified").asLong();
-        long bId = saveOk(academic.accessToken(), 9002L, year, "77", "qualified").asLong();
+        long aId = importOk(academic.accessToken(), 9001L, year, "76", "qualified").asLong();
+        long bId = importOk(academic.accessToken(), 9002L, year, "77", "qualified").asLong();
 
-        ResponseEntity<String> crossCollegeWrite = exchange("/api/test", HttpMethod.POST, auditor.accessToken(),
-                saveBody(9002L, "P8-CROSS", "88", "qualified"));
+        ResponseEntity<String> crossCollegeWrite = importRows(auditor.accessToken(), 9002L, "P8-CROSS", "88", "qualified");
         assertThat(json(crossCollegeWrite).at("/code").asInt()).isEqualTo(403);
         assertThat(resultMapper.selectCount(new LambdaQueryWrapper<AbilityTestResult>()
                 .eq(AbilityTestResult::getStudentId, 9002L)
@@ -212,12 +227,18 @@ class Phase8TestResultIT {
         assertThat(studentBRecords.at("/0/studentId").asLong()).isEqualTo(9002L);
     }
 
-    private JsonNode saveOk(String token, long studentId, String year, String score, String conclusion) throws Exception {
-        ResponseEntity<String> response = exchange("/api/test", HttpMethod.POST, token, saveBody(studentId, year, score, conclusion));
+    private JsonNode importOk(String token, long studentId, String year, String score, String conclusion) throws Exception {
+        ResponseEntity<String> response = importRows(token, studentId, year, score, conclusion);
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         JsonNode root = json(response);
         assertThat(root.at("/code").asInt()).isEqualTo(0);
-        return root.at("/data");
+        return root.at("/data/0");
+    }
+
+    private ResponseEntity<String> importRows(String token, long studentId, String year, String score, String conclusion) {
+        return exchange("/api/test/import", HttpMethod.POST, token, Map.of(
+                "rows", java.util.List.of(saveBody(studentId, year, score, conclusion))
+        ));
     }
 
     private Map<String, Object> saveBody(long studentId, String year, String score, String conclusion) {

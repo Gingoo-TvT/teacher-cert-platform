@@ -5,10 +5,10 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**收官后重构 WP-A RBAC 基座 ✅ 已复核（Claude 06-18，PASS·一轮）**；下一步 Phase 16(WP-B 测试只确认)。Phase 0~14 全部 ✅，T-115 ✅。
+- 当前阶段：**Phase 16 / WP-B 测试结果只确认：待复核**。Phase 0~14 全部 ✅，T-115 ✅，WP-A ✅。
 - 阻塞项：无
-- 最近更新：2026-06-18（WP-A 复核通过：V20 角色矩阵重定义 + 9 IT 适配，clean-room `mvn verify` **75/75** 全绿、V1–V20 全新迁移幂等、无业务代码改动；详见 docs/reviews/wp-a-review.md）
-- 下一步：Phase 16(WP-B) 测试结果只确认（去手工录入、留导入+确认，迁移 V21）
+- 最近更新：2026-06-18（WP-B 完成：下线 `/api/test` 手工 POST/PUT，保留导入+确认；新增 `V21__test_confirm_only.sql` 撤销 `test:edit` 授权；全量 `mvn verify` 76/76、前端 type-check/build 通过）
+- 下一步：等待 Claude 复核 WP-B，不自行置 ✅
 
 ## 阶段汇总
 | Phase | 名称 | 优先级 | 任务数 | 完成 | 状态 |
@@ -207,6 +207,15 @@
 
 ## 收官后 · WP-A RBAC 基座重定义
 - WP-A `RBAC` 角色权限矩阵重定义：**✅ 已复核（Claude 2026-06-18，PASS·一轮）**（分支：`feature/wp-a-rbac`）。新增 `V20__rbac_regrant.sql` 幂等重配运行期授权：`SYS_ADMIN` 全权，`ACADEMIC_ADMIN` 增 `cert:issue`，`COLLEGE_AUDITOR` 承接学院侧录入/导入/复审/视频分配等动作权，`COLLEGE_CLERK` 收敛为只读+初审+只读导出/批量下载，`CERT_ISSUER` 删除并停用 `test_cert_issuer`。受影响 Phase2/3/4/7/8/9/10/12/14 IT 已按新角色模型调整。**clean-room（重置 schema，V1–V20 全新迁移）`mvn verify` 75/75 全绿**、无业务代码改动、V1–V19 冻结。详见 `docs/reviews/wp-a-review.md`。
+
+## 收官后 · Phase 16 / WP-B 测试结果只确认
+- Phase 16 / WP-B `测试结果只确认`：**待复核**（分支：`feature/wp-b-test-confirm`）。新增 `V21__test_confirm_only.sql` 幂等撤销所有角色的 `test:edit` 授权，保留权限点定义用于历史审计/外键兼容，并确保 `COLLEGE_AUDITOR`、`ACADEMIC_ADMIN` 拥有 `test:import`/`test:confirm`。
+- [x] T-121 后端下线手工录入/编辑入口：移除 `POST /api/test` 与 `PUT /api/test` 控制器方法，保留查询、导入、批量导入、确认锁定与有效性接口；导入内部落库 service 保留。
+- [x] T-122 权限收口：V21 撤销 `test:edit` 运行期授权；`Phase2SecurityIT` 同步断言 WP-B 后权限矩阵。
+- [x] T-123 契约不变性：成绩文本化、免考通过剔除应考科目、测试结论有效性供证书前置消费均沿导入+确认路径验证。
+- [x] T-124 IT 调整：`Phase8TestResultIT` 与 `Phase14E2EIT` 改为导入成绩后确认；新增手工 POST/PUT 下线反例、锁定后重导入拒绝反例；跨学院写侧仍用 WP-A 后动作角色验证数据范围。
+- [x] T-125 前端最小收口：移除 `testResult.ts` 的 save/update 调用与测试结果管理页录入/编辑入口，菜单/路由不再依赖 `test:edit`。
+- 验证：定向 IT 28/28 通过；全量 `mvn -B -ntp verify` **76/76** 通过；`npm --prefix frontend run type-check` 与 `npm --prefix frontend run build` 通过（仅既有 Vite chunk-size 警告）。等待 Claude 复核，未自行置 ✅。
 
 ---
 
