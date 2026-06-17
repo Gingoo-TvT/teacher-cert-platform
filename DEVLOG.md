@@ -15,6 +15,11 @@
 
 ---
 
+## [2026-06-17] Phase 13 复核退回（Claude · REVIEW-GATE）❌
+- 做了什么：独立复核 Phase 13 增量（单提交 `8401a7e`）。`mvn -B -ntp verify` GREEN 60/60（Phase13 5/5 + 回归 Phase2~12 共 55）、前端绿；全读 AuditLogAspect/AuditLogServiceImpl/SystemManagementServiceImpl/AuditQueryMapper/V19/IT + 3 个既有改动 diff + `grep auditLogService.record(`。
+- 结论：**退回**。无需返工项：参数改即生效（updateParam 校验+仅改可编辑值，反例 video.diffThreshold 12→8 即生效）、审计不可删（普通管理员 403 + 删除尝试留痕）、审计查询数据范围（audit:view 学院只见本院）、脱敏鉴权（明文证件号 403）、登录留痕、V19 backup_record+手册、AuditLogAspect 抽 AuditIp 非破坏重构、55 回归全绿。**但 B1（Major）AT-12 审核全留痕未达成**：`@AuditLog` 切面仅记 bizType/operation/operator/IP/time，**无 bizId/target/前后状态/意见**；完整审计仅 `material.secondReview` + `cert.correct`（+login/delete-rejected）。主要审核流程（student/training/exemption 初审·复审·确认、material 初审、cert 作废·重开、video 复审·确认·仲裁、import 回滚）审计行无法定位记录、无状态变化/意见，且按学生查不到其复审 → 击穿 AT-12 §7①（均留前后状态/意见）+ §7②（按学生查）。
+- 退回处理：PROGRESS Phase 13 置 **复核退回**、不并 main、不置 ✅、AT-12 维持 `[~]`；codex 原分支在主要审核 op 显式 `auditLogService.record(bizType,bizId,target,operation,old,new,comment)`（pattern 已有、附加非破坏）或增强切面携带，补 student/training/exemption 复审退回 + cert 作废 的 old/new+bizId+意见 反例，重交只复核增量+回归。Minor×4 入 backlog。
+
 ## [2026-06-17] Phase 13 待复核小结（T-104~T-108）
 - 做了什么：从 `main` 切出 `feature/phase13-T104-system-audit`，完成系统参数、审计日志、脱敏鉴权治理与备份记录能力。新增 `V19__system_audit.sql` 仅创建 `backup_record`，未修改 V1 `sys_param`/`audit_log` schema 或既有种子；新增 `/api/system/param`、`/api/audit/log`、`/api/system/backup` 接口与前端“参数审计备份”页面。
 - 关键决策与理由：系统参数只允许更新可编辑参数的 `paramValue/description`，并按参数类型、分组和已知关键参数枚举校验；既有 `ParamService` 每次读库，更新后天然热生效。备份入口只写 `backup_record` 演练记录并链接 `docs/备份与恢复手册.md`，实际 MySQL dump/binlog/MinIO mirror 由运维执行，避免 Web 应用持有运维级权限。
