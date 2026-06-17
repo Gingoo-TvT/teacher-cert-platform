@@ -9,11 +9,23 @@
 | 增量基线 | `9b6bc12..HEAD`（约 36 文件） |
 | 迁移 | 新增 `V17__exchange.sql`（3 表）；V1–V16 未改动 ✓（codex 正确改用 V17，规格里的 V16 已被 Phase 9 占用） |
 | **判定（轮次1 · 06-17）** | **❌ 退回（CHANGES REQUESTED）** |
-| 计数 | **Blocker × 0 · Major × 2 · Minor × 7（入 backlog）** |
+| 计数（轮次1） | **Blocker × 0 · Major × 2 · Minor × 7（入 backlog）** |
+| **最终判定（轮次2 · 06-17）** | **✅ PASS — B1/B2 已修，增量+回归通过（mvn verify 46/46）** |
 
 ---
 
-## 一、结论
+## 〇、复核轮次 2（2026-06-17）：B1/B2 已修复 → ✅ PASS
+
+codex 在原分支单提交 `e868997` 修复，增量仅 service +101 / IT +58，未动迁移(V1–V17)与治理。
+
+- **B1（Major）已闭环**：新增 `ensureCanUpdateExisting(existing, target, label)`——对已存在的 student/training/certificate，先 `ensureCanImportCollege(现有记录.collegeId)`（现有记录当前学院须 ∈ 调用者写范围）再断言 `现有学院 == 目标学院`，否则抛错；`applyStudent` 对现有学生不再跨学院改写 collegeId。故学院 A 教务员凭学号命中他院 B 学生 → `ensureCanImportCollege(B)` 拒。反例 `collegeClerkCannotOverwriteExistingStudentOutsideWriteScope`：clerk(A) OVERWRITE 导入 B 学生学号 → 成功0/失败1，B 学生 collegeId/姓名/证件号 与证书学院 全部不变。
+- **B2（Major）已闭环**：`confirmImport` 去 `@Transactional`，每行经 `TransactionTemplate(PROPAGATION_REQUIRES_NEW)` 独立事务，循环 `catch(Exception)`（含 `DataAccessException`）记为该行失败、坏行自身事务回滚、已成功行各自提交；异常明细字段用 `dbText` 按列长裁剪（避免坏行超长值写明细时二次截断打成 500）。反例 `importRowsAreCommittedIndependentlyWhenLaterRowHitsDatabaseException`：OK 行 + 83 字超长学号坏行 → code 0、成功1/失败1/批次 FAILED，OK 行 student+cert 已入库、坏行不存在。
+- **独立验证**：`mvn -B -ntp verify` GREEN **46/46**（Phase10 6/6 新增 B1/B2 反例 + 回归 Phase2~9 共 40）；前端未改动（沿用上轮 type-check/build 绿）；V1–V17 与治理未动；remote 空、工作树干净；单提交 `e868997`。
+- 结论：B1/B2 闭环、AT-01/02/14 与读侧范围/回滚冲突未回归 → **PASS**，合并 `main` 放行 Phase 11。
+
+---
+
+## 一、结论（轮次1 退回时的记录，保留备查）
 
 Phase 10 主体质量很高，三项 AT 首验头部全过且生命线稳：**AT-01 文本化三处齐全**（模型 26 字段全 String + 写出单元格 `@` + 读取走 `DataFormatter` 字符串）——学号 `00123`/证件号/出生日期/证书编号/有效期 导入→导出无科学计数、无前导零丢失；**AT-02 26 列 A–Z 固定 + H 列="身份证件号码"**（写表头/读校验严格逐列）；**AT-14 V-01~V-13 逐条**复用既有校验器（NameValidator/IdCardValidator/BirthDateValidator/MajorCodeValidator/TrainingLinkValidator），预校验**不入库**、异常含 行/字段/错误值/原因/建议、可下载报告（13 条各一反例命中并定位、successCount=0、零写入——已验）。导入策略 INSERT_ONLY/SKIP_DUPLICATE、回滚（INSERT→删/UPDATE→还原 before_json）与**冲突判定**（current 快照≠after 快照则跳过、剔除审计字段）、导出**读侧数据范围**（@DataScope 重写 certificate.college_id，clerk 仅见本院）、敏感脱敏（exchange:export:sensitive 才出明文）均正确且反例齐。V17 仅新增、V1–V16 冻结；新模块 platform-exchange 正确注册接入、POI 经 fastexcel 传递且版本受管；`mvn verify` 44/44、前端 type-check/build 绿。**这些无需返工。**
 

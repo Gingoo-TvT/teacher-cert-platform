@@ -15,6 +15,11 @@
 
 ---
 
+## [2026-06-17] Phase 10 复核通过（Claude · REVIEW-GATE，2轮 PASS）✅
+- 做了什么：复核 B1/B2 修复增量（单提交 `e868997`，service +101 / IT +58）。`mvn -B -ntp verify` GREEN **46/46**（Phase10 6/6，新增 B1/B2 反例 + 回归 Phase2~9 共 40）；读 B1/B2 diff 与两条新反例逐条核；未动迁移(V1–V17)/治理/前端。
+- 结论：**PASS**。B1：`ensureCanUpdateExisting` 对已存在 student/training/certificate 先校验其当前 collegeId ∈ 调用者 `exchange:import` 写范围、再断言现有学院==目标，`applyStudent` 不再跨学院改写 collegeId → 学院 A 凭学号命中他院 B 学生被 `ensureCanImportCollege(B)` 拒（反例证 B 学生 collegeId/姓名/证件号 与证书学院 不变）。B2：`confirmImport` 去 `@Transactional`，每行 `TransactionTemplate(REQUIRES_NEW)` 独立事务 + `catch(Exception)`，坏行自身回滚、已成功行各自提交，`dbText` 防异常明细二次截断（反例证 83 字超长学号坏行 → code 0、成功1/失败1，OK 行入库、坏行不存在）。
+- 放行：PROGRESS Phase 10 置 ✅、AT-01/02/14 首验通过；合并 `main`（本地私有，无远程，不 push）；启动 Phase 11。Minor×7 维持 backlog。
+
 ## [2026-06-17] Phase 10 复核退回修复（B1/B2）
 - 做了什么：修复 `docs/reviews/phase-10-review.md` 退回项 B1/B2。B1：确认导入更新现有 student/training/certificate 前校验其当前 `collegeId` 是否在调用者 `exchange:import` 写范围内，现有学生不再按导入行跨学院改写 `collegeId`，避免学院 A 凭学号覆盖/迁移学院 B 记录。B2：每行 `importOne` 改为 `TransactionTemplate + PROPAGATION_REQUIRES_NEW` 独立事务，行循环捕获含 `DataAccessException` 在内的异常并记录失败，坏行不回滚已成功行。
 - 关键决策与理由：确认导入外层不再包大事务，批次状态和错误明细按逐行结果落库；错误明细写库前按字段长度裁剪，避免“坏行本身超长”导致记录失败原因时再次触发 DB 截断并把接口打成 500。
