@@ -15,6 +15,11 @@
 
 ---
 
+## [2026-06-17] Phase 13 复核通过（Claude · REVIEW-GATE，2轮 PASS）✅
+- 做了什么：复核 B1 修复增量（单提交 `3c65d4f`，7 业务 service + AuditLogServiceImpl + IT）。`mvn -B -ntp verify` GREEN **61/61**（Phase13 6/6 新增富审计反例 + 回归 Phase2~12 共 55）；读 7 service diff + AuditLogServiceImpl + 新 IT；未动迁移(V1–V19)/治理/前端。
+- 结论：**PASS**。B1 闭环——主要审核/状态流转 op 均显式 `auditLogService.record(bizType,bizId,target,old,new,comment)`（捕获 oldStatus→updateById→record，附加非破坏）：student/training/exemption first+second、material first、cert void/reissue、video settle/thirdReview/arbitrate/confirm、exchange rollback；各加 `xxxTarget()` 可定位；`AuditLogServiceImpl.record` 改 best-effort（try/catch→log.warn，审计失败不中断主业务、非事务边界不污染）。反例 `majorReviewFlowsWriteRichAuditAndCanBeQueriedByStudent`：student/training/exemption 复审退回 old=SECOND_REVIEW/new=SECOND_REJECTED + bizId/comment/operator/IP/target、cert 作废 old=ISSUED/new=VOIDED，且 `/api/audit/log?studentId=` 可查到——AT-12 §7①②达成。55 回归全绿、附加非破坏。
+- 放行：PROGRESS Phase 13 置 ✅、**AT-12 首验通过**（全部 P0 完成）；合并 `main`（本地私有，无远程，不 push）；启动 Phase 14 收口。Minor×4 入 backlog。
+
 ## [2026-06-17] Phase 13 复核退回修复（B1 · AT-12 审核全留痕）
 - 做了什么：在原分支 `feature/phase13-T104-system-audit` 修复 `docs/reviews/phase-13-review.md` 退回项 B1。补全主要审核/状态流转 op 的显式富审计：学生基本信息 firstReview/secondReview、专业培养 firstReview/secondReview、免考 firstReview/secondReview、过程性材料 firstReview（secondReview 已有）、证书 void/reissue、视频自动结算/thirdReview/arbitrate/confirm、导入回滚 rollback。
 - 关键决策与理由：沿用既有 `auditLogService.record(bizType,bizId,target,operation,old,new,comment)` 模式，在状态更新后附加记录，不改状态机/数据范围/返回语义；`AuditLogServiceImpl.record` 改为 best-effort，审计落库失败仅告警，避免通知/审计类辅助能力反向中断主流程。

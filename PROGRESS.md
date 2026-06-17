@@ -5,10 +5,10 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**Phase 13 系统管理与审计（T-104~T-108）待复核**；Phase 0~12 已复核通过。
-- 阻塞项：无；Phase 13 复核退回 B1 已在原分支修复（补全主要审核 op 的 bizId/target/old-new/comment 富审计）。
-- 最近更新：2026-06-17（Phase 13 B1 修复：student/training/exemption/material 初审/复审、cert 作废/重开、video 自动结算/第三专家/仲裁/确认、exchange 回滚均显式 rich audit；新增 student/training/exemption 复审退回 + cert 作废反例，`mvn verify` 61/61、前端 type-check/build 通过）
-- 下一步：Claude 按 `docs/reviews/phase-13-review.md` 复核 B1 增量与 Phase2~12 回归，codex 未自行置 ✅
+- 当前阶段：**Phase 14 非功能/部署/验收（T-109~T-114）待开始**；Phase 0~13 已复核通过（全部 P0 完成）。
+- 阻塞项：无
+- 最近更新：2026-06-17（Phase 13 复核通过 PASS·2轮：B1 审核全留痕已修——主要审核 op 富审计 + 按学生可查，`mvn verify` 61/61；AT-12 首验通过。详见 docs/reviews/phase-13-review.md）
+- 下一步：启动 Phase 14（收口：Dockerfile/生产 compose、兼容性/文本一致性、**AT-01~14 验收用例归档**、主流程端到端走查）
 
 ## 阶段汇总
 | Phase | 名称 | 优先级 | 任务数 | 完成 | 状态 |
@@ -26,7 +26,7 @@
 | 10 | 导入导出与预校验 | P0 | 12 | 12 | ✅ 已复核(Claude 06-17·2轮) |
 | 11 | 统计报表 | P1 | 9 | 9 | ✅ 已复核(Claude 06-17) |
 | 12 | 通知 | P1 | 3 | 3 | ✅ 已复核(Claude 06-17) |
-| 13 | 系统管理与审计 | P0 | 5 | 5 | 待复核 |
+| 13 | 系统管理与审计 | P0 | 5 | 5 | ✅ 已复核(Claude 06-17·2轮) |
 | 14 | 非功能/部署/验收 | P2+收口 | 6 | 0 | 待开始 |
 | | **合计** | | **114** | **108** | |
 
@@ -183,7 +183,8 @@
 - [x] T-102 站内信服务 + 触发点接入
 - [x] T-103 通知中心 + 未读角标
 
-## Phase 13 · 系统管理与审计 — 5/5 待复核（B1 修复后重交 · docs/reviews/phase-13-review.md）
+## Phase 13 · 系统管理与审计 — 5/5 ✅ 已复核（Claude 2026-06-17，PASS·2轮 · docs/reviews/phase-13-review.md）
+> 轮次1退回 B1（AT-12 审核全留痕未达成：完整审计仅 material 复审+cert 更正）；轮次2 单提交 `3c65d4f` 已闭环——student/training/exemption first+second、material first、cert void/reissue、video settle/thirdReview/arbitrate/confirm、exchange rollback 均补 `record(bizId/target/old/new/comment)`，AuditLogServiceImpl 改 best-effort；反例证主要审核 old/new/bizId/意见 + 按学生可查；`mvn verify` 61/61（含 55 回归）、前端绿、附加非破坏。参数改即生效/审计不可删/查询数据范围/脱敏鉴权 一并通过。Minor×4 维持 backlog。
 > 复核退回 B1 已修：在 student/training/exemption/material 初审与复审、cert 作废/重开、video 自动结算/第三专家复评/学院仲裁/确认、exchange 回滚状态流转后显式 `auditLogService.record(...)`，补齐 `bizId/target/oldStatus/newStatus/comment/operator/IP`；`AuditLogServiceImpl.record` 改为 best-effort，审计失败不打断主流程。新增 `Phase13SystemAuditIT` 反例覆盖 student/training/exemption 复审退回与 cert 作废，并验证按 `studentId` 查询可查到上述复审记录；`mvn verify` 61/61、前端 type-check/build 通过，待 Claude 复核。
 > `V19__system_audit.sql` 落地 `backup_record`；系统参数管理、审计日志查询、备份记录/触发占位与前端管理页已完成。AT-12 首验自测覆盖登录成功留痕、复审退回 old/new/意见/操作人/IP/target，普通管理员删审计拒绝且拒绝动作留痕，改 `video.diffThreshold` 即时影响结算，敏感明文无权限拒绝，学院审计范围不含他院；待 Claude 复核，未自行置 ✅。
 - [x] T-104 系统参数管理（§11/§15 全量，分支：`feature/phase13-T104-system-audit`）
@@ -216,6 +217,6 @@
 | AT-09 | 证书前置条件 | P9 | [✅] P9复核通过(Claude 06-17)：前置聚合复用各阶段结论，缺项→明确缺失清单→生成拒绝 | [ ] |
 | AT-10 | 18位编号连续不重 | P9 | [✅] P9复核通过(Claude 06-17)：18位分段示例可复现、作用域参数化、**50×10线程并发序号连续1..50不重无空**（行锁同事务、回滚无空号、唯一键兜底） | [ ] |
 | AT-11 | 有效期规则 | P9 | [✅] P9复核通过(Claude 06-17)：上半年→+3年6/30、下半年→+3年12/31（边界==6归上半年） | [ ] |
-| AT-12 | 审核全留痕 | P13 | [~] P13 B1 修复后待复核：主要审核 op 已补 rich audit（student/training/exemption/material 初审复审、cert 作废重开、video 结算/复评/仲裁/确认、exchange 回滚），新增 student/training/exemption 复审退回 + cert 作废 old/new/bizId/comment/IP 反例，并验证按学生查询可查；`mvn verify` 61/61 | [ ] |
+| AT-12 | 审核全留痕 | P13 | [✅] P13复核通过(Claude 06-17·2轮)：主要审核 op（student/training/exemption 初审复审、material 初审、cert 作废重开、video 结算/复评/仲裁/确认、exchange 回滚）均富审计 old/new/bizId/target/意见/操作人/IP；按学生可查；审计不可删、参数改即生效、脱敏鉴权、查询数据范围 均过 | [ ] |
 | AT-13 | 数据范围权限 | P2 | [✅] P2复核通过(Claude 06-16)；P11 统计读侧按 `stats:view` 服务层范围收敛并补学院A不含学院B反例；P12 通知按当前 `user_id` 本人可见并补他人不可读/不可标记反例 | [ ] |
 | AT-14 | 异常报告 | P10 | [✅] P10复核通过(Claude 06-17)：V-01~V-13 各一反例命中并定位行/字段/原因、异常行不入库、异常报告字段齐全 | [ ] |

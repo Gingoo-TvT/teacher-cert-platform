@@ -9,11 +9,23 @@
 | 增量基线 | `e62e9de..HEAD`（约 29 文件） |
 | 迁移 | 新增 `V19__system_audit.sql`（backup_record）；V1–V18 未改动 ✓（system:*/audit:* V8 预种） |
 | **判定（轮次1 · 06-17）** | **❌ 退回（CHANGES REQUESTED）** |
-| 计数 | **Blocker × 0 · Major × 1 · Minor × 4（入 backlog）** |
+| 计数（轮次1） | **Blocker × 0 · Major × 1 · Minor × 4（入 backlog）** |
+| **最终判定（轮次2 · 06-17）** | **✅ PASS — B1 已修，AT-12 审核全留痕达成（mvn verify 61/61）** |
 
 ---
 
-## 一、结论
+## 〇、复核轮次 2（2026-06-17）：B1 已修复 → ✅ PASS
+
+codex 在原分支单提交 `3c65d4f` 修复，增量 7 个业务 service + `AuditLogServiceImpl` + IT，未动迁移(V1–V19)/治理/前端。
+
+- **B1（Major）已闭环**：在所有主要审核/状态流转 op 显式 `auditLogService.record(bizType,bizId,target,operation,old,new,comment)`（捕获 oldStatus → updateById → record，附加非破坏）：**student first/second、training first/second、exemption first/second、material first（second 已有）、cert void/reissue（correct 已有）、video settle/thirdReview/arbitrate/confirm、exchange rollback**；各加 `xxxTarget()`（id/年度/学生/…）可定位；`AuditLogServiceImpl.record` 改 **best-effort**（try/catch→log.warn，审计落库失败不中断主业务、非事务边界不污染）。
+- **反例 `majorReviewFlowsWriteRichAuditAndCanBeQueriedByStudent`**：student/training/exemption 复审退回各产 audit old=SECOND_REVIEW/new=SECOND_REJECTED + bizId/comment/operator/IP/target、cert 作废 old=ISSUED/new=VOIDED + 原因；并 `/api/audit/log?studentId=…` 可查到上述复审记录（**按学生可查**）。AT-12 §7①②达成。
+- **独立验证**：`mvn -B -ntp verify` GREEN **61/61**（Phase13 6/6，新增富审计反例 + 回归 Phase2~12 共 55 全绿）；前端未改动（沿用上轮绿）；V1–V19 与治理未动；remote 空、工作树干净；单提交 `3c65d4f`。
+- 结论：AT-12 审核全留痕（前后状态/意见/对象 + 按学生查）达成、附加非破坏未回归 → **PASS**，合并 `main` 放行 Phase 14（收口）。
+
+---
+
+## 一、结论（轮次1 退回时的记录，保留备查）
 
 Phase 13 大部分到位且无需返工：**参数改即生效**（`updateParam` 校验类型/范围/已知枚举、仅改可编辑 param_value、不动种子 key；反例 `video.diffThreshold` 12→8 后分差 10 即进 NEED_REVIEW）、**审计不可删**（`rejectAuditDelete` 普通管理员 DELETE → 403 且删除尝试本身留痕）、**审计查询数据范围**（`auditCollegeScope(resolve("audit:view"))` 学院只见本院、反例证不含他院）、**脱敏鉴权**（无 `export:sensitive` 取明文证件号 → 403）、**登录留痕**（AuthService 登录写 auth/login/SUCCESS）、`AuditLogAspect` 抽取 `AuditIp` 为非破坏重构、V19 backup_record + `triggerBackup` + 《备份与恢复手册》产出。独立 `mvn verify` 60/60（含回归 Phase2~12 共 55 全绿——附加改动非破坏），前端 type-check/build 绿。
 
