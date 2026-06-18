@@ -79,6 +79,7 @@ const canUpload = computed(() => userStore.hasPerm('material:upload'))
 const canFirstReview = computed(() => userStore.hasPerm('material:firstReview'))
 const canSecondReview = computed(() => userStore.hasPerm('material:secondReview'))
 const canBatchDownload = computed(() => userStore.hasPerm('material:batchDownload'))
+const canViewStudents = computed(() => userStore.hasPerm('student:view'))
 const selfMode = computed(() => canUpload.value && !canFirstReview.value && !canSecondReview.value)
 
 const statusOptions: SelectOption[] = [
@@ -190,8 +191,11 @@ async function loadRecords() {
 }
 
 async function loadOptions() {
-  const [studentRes, categoryRes] = await Promise.all([listStudents(), listDictItems('material_category', true)])
-  students.value = selfMode.value ? studentRes.data.records.slice(0, 1) : studentRes.data.records
+  const [studentRes, categoryRes] = await Promise.all([
+    canViewStudents.value ? listStudents() : Promise.resolve(null),
+    listDictItems('material_category', true)
+  ])
+  students.value = studentRes ? (selfMode.value ? studentRes.data.records.slice(0, 1) : studentRes.data.records) : []
   categories.value = categoryRes.data
 }
 

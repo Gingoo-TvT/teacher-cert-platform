@@ -5,10 +5,10 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**🎉 收官后重构整体完成——Phase 24 ✅ 已复核（Claude 06-18，PASS·一轮）**。后端流程改造 WP-A/B/C/D + 前端以前瞻版为底重建 Phase 19~23 + 收口验收 Phase 24 全部 ✅；12 项诉求 + UI 取长补短 全部落地。Phase 0~14 ✅，T-115 ✅。
+- 当前阶段：**Phase 25 验收修复·403 与图表轴 — 待复核**。已从本地最新 `main` 切 `feature/phase25-acceptance-fix`，仅改前端：组合页分区权限条件加载/显隐、ChartBox/统计图表轴兜底、角色菜单无 403 静态自检矩阵已入 DEVLOG。
 - 阻塞项：无
-- 最近更新：2026-06-18（Phase 24 复核通过：V23 修正中职→其他、`Phase24AcceptanceIT` 字段附录A核对+全角色RBAC边界+26列导出逐字段==录入；**clean-room `mvn verify` 82/82**（V1–V23 全新）+前端绿；详见 docs/reviews/phase-24-review.md）
-- 下一步：交付——可选 T-162（中职专业课全量学科种子）待与学校确认后单列；部署冒烟/Excel·WPS 人工核对按 README 交付前执行
+- 最近更新：2026-06-18（Phase 25 前端验收修复：SystemAudit/Security/Organization/Video/Exchange/Certificate/Stats/Dashboard 等多权限入口按分区权限条件加载，ChartBox 统一 §7 轴规则；`npm --prefix frontend run type-check` 与 `npm --prefix frontend run build` 通过，仅既有 chunk-size warning）
+- 下一步：等待 Claude 复核 Phase 25；可选 T-162（中职专业课全量学科种子）待学校确认后单列；部署冒烟/Excel·WPS 人工核对按 README 交付前执行
 
 ## 阶段汇总
 | Phase | 名称 | 优先级 | 任务数 | 完成 | 状态 |
@@ -280,6 +280,13 @@
 - [x] T-159 新 RBAC 全角色边界：`Phase24AcceptanceIT` 断言 SYS_ADMIN 全权可达、ACADEMIC_ADMIN 含 `cert:issue`、COLLEGE_AUDITOR 可复审/视频指派/测试导入确认、COLLEGE_CLERK 仅查看+初审且 secondReview/assign/test 写被拒、REVIEW_TEACHER 可评分、STUDENT 本人可见/确认。
 - [x] T-160 收口主流程 E2E：复用既有真实接口链路跑通标准导入、学生/培养/材料/免考/视频/测试/证书/标准导出/归档，并断言标准导出逐字段等于录入，覆盖 AT-01/AT-02 文本化与导出一致性收口。
 - [x] T-161 整体验收：定向 `Phase4TrainingIT,Phase9CertificateIT,Phase24AcceptanceIT` 15/15 通过；全量 `mvn -B -ntp verify` **82/82** 通过；`npm --prefix frontend run type-check` 与 `npm --prefix frontend run build` 通过（仅既有 Vite chunk-size 警告）。等待 Claude 复核，未自行置 ✅。
+
+## 收官后 · Phase 25 / 验收修复·403 与图表轴
+- Phase 25 `验收修复·403 与图表轴`：**待复核**（分支：`feature/phase25-acceptance-fix`）。纯前端修复，不改后端/接口/权限/迁移；组合页按真实权限点条件加载 API 并显隐 tab/区块/按钮，全无可见分区给空态；ChartBox/StatsReportView/Dashboard 按 `frontend/DESIGN.md` §7 统一轴配置与 resize。
+- [x] T-163 组合页分区权限条件加载 + 显隐：`SystemAuditView` 参数/审计/备份分别按 `system:param:manage`/`audit:view`/`system:backup` 加载；`SecurityManageView` 用户/角色/权限树分别按 `system:user:manage`/`system:role:manage`/`system:perm:manage` 加载；同类多权限入口 `OrganizationManageView`、`VideoReviewView`、导入导出、证书、统计、工作台补条件加载，避免任一部分权限角色进入页面触发无权 API。
+- [x] T-164 图表轴修复：`ChartBox` 统一 xAxis `interval:0`、`width`、`overflow:'truncate'`、`hideOverlap`、`axisTick.alignWithLabel:true`，yAxis `min:0`、`minInterval:1`、浅色 splitLine；按标签长度自适应 rotate/grid bottom，并用 `ResizeObserver + window.resize` 保证 resize 生效；`StatsReportView` 与 `DashboardView` 去除分散轴配置。
+- [x] T-165 全角色自检矩阵：已在 `DEVLOG.md` 记录 STUDENT/COLLEGE_CLERK/COLLEGE_AUDITOR/REVIEW_TEACHER/ACADEMIC_ADMIN/SYS_ADMIN 菜单入口与分区 API 条件加载口径；`CERT_ISSUER` 已在 WP-A 停用，签发入口按 `cert:issue` 并入教务处管理员。
+- 验证：`npm --prefix frontend run type-check` 通过；`npm --prefix frontend run build` 通过（仅既有 Vite chunk-size warning）。未启动常驻前端/后端服务，未跑运行期 HTTP 角色矩阵；等待 Claude 复核，未自行置 ✅。
 
 ---
 

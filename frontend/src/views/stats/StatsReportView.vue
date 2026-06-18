@@ -7,6 +7,7 @@ import StatusTag from '@/components/StatusTag.vue'
 import StatCard from '@/components/StatCard.vue'
 import ChartBox from '@/components/ChartBox.vue'
 import { exportStatsReport, getStatsReport, saveStatsBlob, type StatsDetail, type StatsQuery, type StatsReport, type StatsRow } from '@/api/stats'
+import { useUserStore } from '@/stores/user'
 import { useYearStore } from '@/stores/year'
 
 interface StatsTypeOption {
@@ -16,6 +17,7 @@ interface StatsTypeOption {
 }
 
 const message = useMessage()
+const userStore = useUserStore()
 const yearStore = useYearStore()
 const loading = ref(false)
 const exporting = ref(false)
@@ -46,6 +48,7 @@ const metrics = computed(() => report.value?.metrics || [])
 const rows = computed(() => report.value?.rows || [])
 const details = computed(() => report.value?.details || [])
 const hasDetails = computed(() => details.value.length > 0)
+const canViewStats = computed(() => userStore.hasPerm('stats:view'))
 const summary = computed(() => {
   const total = rows.value.reduce((sum, row) => sum + Number(row.count || 0), 0)
   const dimensions = new Set(rows.value.map((row) => row.dimensionLabel || row.dimension).filter(Boolean)).size
@@ -60,19 +63,12 @@ const summary = computed(() => {
 const chartOption = computed<EChartsOption>(() => {
   const chartRows = rows.value.slice(0, 20)
   return {
-    color: ['#2f7d6b'],
-    tooltip: { trigger: 'axis' },
-    grid: { left: 48, right: 24, top: 24, bottom: 76 },
+    color: ['#2563eb'],
     xAxis: {
       type: 'category',
-      axisLabel: { rotate: 35, color: '#6b7280' },
-      axisTick: { alignWithLabel: true },
       data: chartRows.map((row) => chartLabel(row))
     },
-    yAxis: {
-      type: 'value',
-      splitLine: { lineStyle: { color: '#eef2f7' } }
-    },
+    yAxis: { type: 'value' },
     series: [
       {
         name: currentType.value.label,
@@ -101,6 +97,10 @@ const detailColumns: DataTableColumns<StatsDetail> = [
 ]
 
 async function loadReport() {
+  if (!canViewStats.value) {
+    report.value = null
+    return
+  }
   loading.value = true
   try {
     const res = await getStatsReport(selectedType.value, cleanQuery())
@@ -113,6 +113,7 @@ async function loadReport() {
 }
 
 async function handleExport() {
+  if (!canViewStats.value) return
   exporting.value = true
   try {
     const blob = await exportStatsReport(selectedType.value, cleanQuery())
@@ -127,7 +128,7 @@ async function handleExport() {
 
 function selectType(value: string) {
   selectedType.value = value
-  loadReport()
+  if (canViewStats.value) loadReport()
 }
 
 function resetQuery() {
@@ -138,7 +139,7 @@ function resetQuery() {
     teachingSegment: '',
     status: ''
   })
-  loadReport()
+  if (canViewStats.value) loadReport()
 }
 
 function cleanQuery(): StatsQuery {
@@ -171,13 +172,15 @@ function showError(error: unknown, fallback: string) {
   message.error(detail || fallback)
 }
 
-onMounted(loadReport)
+onMounted(() => {
+  if (canViewStats.value) void loadReport()
+})
 
 watch(
   () => yearStore.assessmentYear,
   async (year) => {
     query.assessmentYear = year
-    await loadReport()
+    if (canViewStats.value) await loadReport()
   }
 )
 </script>
@@ -186,12 +189,14 @@ watch(
   <PageContainer title="统计报表" description="八类统计报表按当前账号数据范围实时聚合，图表、表格与 Excel 导出共用后端统计口径。">
     <template #actions>
       <n-space>
-        <n-button secondary :loading="loading" @click="loadReport">刷新</n-button>
-        <n-button type="primary" :loading="exporting" @click="handleExport">导出 Excel</n-button>
+        <n-button v-if="canViewStats" secondary :loading="loading" @click="loadReport">刷新</n-button>
+        <n-button v-if="canViewStats" type="primary" :loading="exporting" @click="handleExport">导出 Excel</n-button>
       </n-space>
     </template>
 
-    <n-card :bordered="false" size="small" class="page-section">
+    <n-empty v-if="!canViewStats" description="当前账号没有统计查看权限" class="page-section" />
+
+    <n-card v-if="canViewStats" :bordered="false" size="small" class="page-section">
       <n-grid :cols="4" :x-gap="12" :y-gap="12" responsive="screen">
         <n-gi>
           <n-select :value="selectedType" :options="typeOptions" placeholder="统计类型" @update:value="selectType" />
@@ -210,24 +215,24 @@ watch(
       </n-grid>
     </n-card>
 
-    <n-grid :cols="4" :x-gap="12" responsive="screen" class="page-section">
+    <n-grid v-if="canViewStats" :cols="4" :x-gap="12" responsive="screen" class="page-section">
       <n-gi><StatCard label="统计行数" :value="summary.rowCount" /></n-gi>
       <n-gi><StatCard label="汇总数量" :value="summary.total" color="#18a058" /></n-gi>
       <n-gi><StatCard label="维度数" :value="summary.dimensions" color="#2080f0" /></n-gi>
       <n-gi><StatCard label="明细数" :value="summary.detailCount" color="#f0a020" /></n-gi>
     </n-grid>
 
-    <n-grid v-if="metrics.length" :cols="4" :x-gap="12" responsive="screen" class="page-section">
+    <n-grid v-if="canViewStats && metrics.length" :cols="4" :x-gap="12" responsive="screen" class="page-section">
       <n-gi v-for="metric in metrics" :key="metric.label">
         <StatCard :label="metric.label" :value="metric.value" :sub="metric.unit" />
       </n-gi>
     </n-grid>
 
-    <n-alert v-if="report?.denominatorRule" type="info" :bordered="false" class="page-section">
+    <n-alert v-if="canViewStats && report?.denominatorRule" type="info" :bordered="false" class="page-section">
       {{ report.denominatorRule }}
     </n-alert>
 
-    <n-card :bordered="false" class="page-section chart-card">
+    <n-card v-if="canViewStats" :bordered="false" class="page-section chart-card">
       <template #header>
         <n-space vertical :size="2">
           <span>{{ report?.title || currentType.label }}</span>
@@ -238,6 +243,7 @@ watch(
     </n-card>
 
     <n-data-table
+      v-if="canViewStats"
       :columns="rowColumns"
       :data="rows"
       :loading="loading"
@@ -247,7 +253,7 @@ watch(
       striped
     />
 
-    <n-card v-if="hasDetails" :bordered="false" class="page-section">
+    <n-card v-if="canViewStats && hasDetails" :bordered="false" class="page-section">
       <template #header>钻取明细</template>
       <n-data-table
         :columns="detailColumns"

@@ -15,6 +15,17 @@
 
 ---
 
+## [2026-06-18] Phase 25 待复核小结（验收修复·403 与图表轴）
+- 做了什么：从本地最新 `main` 切出 `feature/phase25-acceptance-fix`，完成 T-163/T-164/T-165。纯前端修复，未改后端、接口、权限点、RBAC 种子或迁移。组合页不再只靠菜单 `hasAnyPerm`，而是在页面内部按分区真实权限点条件加载 API，并同步 tab/区块/按钮显隐与空态。
+- T-163：`SystemAuditView` 参数/审计/备份分别按 `system:param:manage`、`audit:view`、`system:backup` 加载；`SecurityManageView` 用户/角色/权限树分别按 `system:user:manage`、`system:role:manage`、`system:perm:manage` 加载，组织范围下拉只在用户管理分区加载。扩展同类入口：`OrganizationManageView` 按 `college:manage`/`major:manage`，`VideoReviewView` 按 `video:upload/score/assign/arbitrate/confirm/play`，导入/导出按 exchange 子权限，证书/签发队列按 `cert:view/generate/issue`，统计与工作台按 `stats:view` 条件加载。
+- T-164：`ChartBox` 统一 `frontend/DESIGN.md` §7 轴规则：xAxis `axisLabel.interval=0`、`width`、`overflow:'truncate'`、`hideOverlap`、`axisTick.alignWithLabel=true`；yAxis `min=0`、`minInterval=1`、浅色 splitLine；按类目标签长度自适应 rotate 与 grid bottom，并增加 `ResizeObserver` 配合 window resize。`StatsReportView` 与 `DashboardView` 去除页面内分散轴配置，仅保留业务数据和颜色。
+- T-165 全角色自检矩阵（静态权限/API 口径）：STUDENT 可进本人/材料/免考/视频/通知，学生自助页不再因辅助学生列表触发无权 API；COLLEGE_CLERK 进参数审计备份只加载 `audit:view` 审计分区，不拉参数/备份；COLLEGE_AUDITOR 进视频页加载评审管理/评审组/任务所需分区，不拉无权系统用户列表；REVIEW_TEACHER 进视频页只加载我的评审任务，不拉视频管理列表/评审组/学生列表；ACADEMIC_ADMIN 进参数审计备份加载参数+审计，不拉备份；SYS_ADMIN 系统页全分区可见。`CERT_ISSUER` 已在 WP-A 停用，签发能力按 `cert:issue` 并入教务处管理员入口。
+- 关键决策与理由：修复点放在前端页面分区加载层，而非后端放宽权限，保持 §15.1 权限矩阵和 Phase 24 RBAC 边界不变；对“辅助下拉”调用也按对应后端权限守卫，避免菜单允许进入但页面初始化打到更窄 API。
+- 问题与解决：`ChartBox` 初版轴归一化复用 xAxis 类型导致 yAxis TS `mainType` 冲突，改为 unknown 轴输入并在输出处收窄；splitLine 局部变量消除 unknown 属性访问。视频页评审教师来源原调用 `system:user:manage` 接口，普通视频负责人无该系统权限时会 403，本轮改为有系统用户管理权限才拉列表，页面不再自动触发无权 API。
+- 与规格的偏差/疑问：无。按用户硬约束仅前端修复；未做运行期 HTTP 角色矩阵，因为本轮要求 build-only 且不得前台起常驻服务，角色矩阵记录为静态权限/API 调用自检，待 Claude 复核运行期零 403。
+- 测试：`npm --prefix frontend run type-check` 通过；`npm --prefix frontend run build` 通过（仅既有 Vite chunk-size warning）。未启动前端/后端常驻服务。
+- 下一步：`PROGRESS.md` 已置 Phase 25 待复核，等待 Claude 复核；本地私有无 remote、不 push。
+
 ## [2026-06-18] Phase 24 复核通过（Claude · REVIEW-GATE）✅ — 收官后重构整体收官
 - 做了什么：复核 `feature/phase24-acceptance` 单提交 `ef8da92`（V23 + Phase24AcceptanceIT 938 行 + Phase4/Phase9 夹具对齐 + 进度日志）。读 V23、3 个验收用例、夹具 diff；clean-room：重置 schema → `mvn verify`（全新 V1–V23）+ 前端 type-check/build。
 - 结论：**PASS**（一轮）。`mvn verify` **BUILD SUCCESS、82/82**（Phase24AcceptanceIT 3 + 全回归 79）；Flyway v23；前端 `vue-tsc`+build 绿。核对：① V23 幂等修正 `training_goal_config` 中职(secondary_vocational_school_teacher) default/allowed 实习地点=`other`，符附录 A「中职→其他」；Phase4/Phase9 夹具由 enterprise_vocational_education→other 同步对齐（Phase4 仍断言类别节点不可选，非弱化）。② Phase24AcceptanceIT：fieldDict 用例断言 gender/id_card_type 等字典逐字 + `/training/options` 中职 containsExactly(other)/高中 contains(中小学)；rbacBoundaries 用例 7 角色登录 + 教务员 assign/test:import 被拒(403)；mainFlow 用例全链 + `assertStandardExport` 逐列 1–25 == 录入 + 26 列 + H=身份证件号码 + 全列 @。③ V1–V22 冻结、仅 V23 新增。

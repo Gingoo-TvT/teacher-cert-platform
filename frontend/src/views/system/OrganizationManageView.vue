@@ -153,6 +153,8 @@ const configRules: FormRules = {
 
 const canManageCollege = computed(() => userStore.hasPerm('college:manage'))
 const canManageMajor = computed(() => userStore.hasPerm('major:manage'))
+const canLoadCollegeList = computed(() => canManageCollege.value || canManageMajor.value)
+const hasVisibleSection = computed(() => canLoadCollegeList.value || canManageMajor.value)
 
 const collegeOptions = computed<SelectOption[]>(() =>
   colleges.value.filter((item) => item.status === 1).map((item) => ({ label: item.name, value: item.id }))
@@ -291,6 +293,11 @@ async function loadDictionaries() {
 }
 
 async function loadColleges() {
+  if (!canLoadCollegeList.value) {
+    colleges.value = []
+    selectedCollegeId.value = null
+    return
+  }
   collegeLoading.value = true
   try {
     const res = await listColleges(collegeKeyword.value, null)
@@ -307,6 +314,11 @@ async function loadColleges() {
 }
 
 async function loadMajors() {
+  if (!canManageMajor.value) {
+    majors.value = []
+    selectedMajorId.value = null
+    return
+  }
   majorLoading.value = true
   try {
     const res = await listMajors({
@@ -326,6 +338,10 @@ async function loadMajors() {
 }
 
 async function loadConfigs() {
+  if (!canManageMajor.value) {
+    configs.value = []
+    return
+  }
   configLoading.value = true
   try {
     const res = await listTrainingGoalConfigs(selectedConfigCode.value)
@@ -339,7 +355,9 @@ async function loadConfigs() {
 
 async function refreshAll() {
   await loadColleges()
-  await Promise.all([loadMajors(), loadConfigs()])
+  const tasks: Promise<void>[] = []
+  if (canManageMajor.value) tasks.push(loadMajors(), loadConfigs())
+  await Promise.all(tasks)
 }
 
 function openCollegeDrawer(row?: College) {
@@ -548,13 +566,15 @@ onMounted(async () => {
     <template #actions>
       <n-space>
         <n-tag :bordered="false">学校：{{ schoolText }}</n-tag>
-        <n-button secondary @click="refreshAll">刷新</n-button>
+        <n-button v-if="hasVisibleSection" secondary @click="refreshAll">刷新</n-button>
         <n-button v-if="canManageCollege" type="primary" @click="openCollegeDrawer()">新增学院</n-button>
       </n-space>
     </template>
 
-    <n-tabs type="line" animated>
-      <n-tab-pane name="majors" tab="学院与专业">
+    <n-empty v-if="!hasVisibleSection" description="当前账号没有可访问的组织专业分区" class="page-section" />
+
+    <n-tabs v-if="hasVisibleSection" type="line" animated>
+      <n-tab-pane v-if="canLoadCollegeList" name="majors" tab="学院与专业">
         <div class="org-layout">
           <section class="page-section">
             <div class="panel-toolbar">
@@ -574,7 +594,8 @@ onMounted(async () => {
           </section>
 
           <section class="page-section">
-            <div class="panel-toolbar wrap">
+            <n-empty v-if="!canManageMajor" description="当前账号没有专业管理权限" />
+            <div v-else class="panel-toolbar wrap">
               <n-input v-model:value="majorKeyword" clearable placeholder="搜索专业" style="width: 190px" @keyup.enter="loadMajors" />
               <n-input v-model:value="majorYearVersion" clearable maxlength="16" placeholder="年度" style="width: 118px" />
               <n-select
@@ -601,6 +622,7 @@ onMounted(async () => {
               <n-button v-if="canManageMajor" type="primary" :disabled="!canCreateMajor" @click="openMajorDrawer()">新增专业</n-button>
             </div>
             <n-data-table
+              v-if="canManageMajor"
               :columns="majorColumns"
               :data="majors"
               :loading="majorLoading"
@@ -614,7 +636,7 @@ onMounted(async () => {
         </div>
       </n-tab-pane>
 
-      <n-tab-pane name="configs" tab="联动配置">
+      <n-tab-pane v-if="canManageMajor" name="configs" tab="联动配置">
         <section class="page-section">
           <div class="panel-toolbar wrap">
             <n-select v-model:value="selectedConfigCode" :options="trainingGoalOptions" clearable placeholder="培养目标" style="width: 240px" @update:value="loadConfigs" />

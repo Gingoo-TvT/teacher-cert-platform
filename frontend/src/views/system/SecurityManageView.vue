@@ -142,6 +142,7 @@ const permissionOptions = computed<TreeOption[]>(() => permissions.value.map(toT
 const canManageUsers = computed(() => userStore.hasPerm('system:user:manage'))
 const canManageRoles = computed(() => userStore.hasPerm('system:role:manage'))
 const canManagePerms = computed(() => userStore.hasPerm('system:perm:manage'))
+const hasVisibleSection = computed(() => canManageUsers.value || canManageRoles.value || canManagePerms.value)
 const summary = computed(() => ({
   users: users.value.length,
   enabledUsers: users.value.filter((item) => item.status === 'ENABLED').length,
@@ -235,6 +236,10 @@ const permissionColumns: DataTableColumns<Permission> = [
 ]
 
 async function loadUsers() {
+  if (!canManageUsers.value) {
+    users.value = []
+    return
+  }
   userLoading.value = true
   try {
     const res = await listUsers({ keyword: keyword.value, status: statusFilter.value })
@@ -247,6 +252,10 @@ async function loadUsers() {
 }
 
 async function loadRoles() {
+  if (!canManageRoles.value) {
+    roles.value = []
+    return
+  }
   roleLoading.value = true
   try {
     const res = await listRoles(roleKeyword.value)
@@ -259,6 +268,10 @@ async function loadRoles() {
 }
 
 async function loadPermissions() {
+  if (!canManagePerms.value) {
+    permissions.value = []
+    return
+  }
   permissionLoading.value = true
   try {
     const res = await permissionTree()
@@ -271,13 +284,24 @@ async function loadPermissions() {
 }
 
 async function loadScopes() {
+  if (!canManageUsers.value) {
+    colleges.value = []
+    majors.value = []
+    return
+  }
   const [collegeRes, majorRes] = await Promise.all([listColleges(null, 1), listMajors({ status: 1 })])
   colleges.value = collegeRes.data
   majors.value = majorRes.data
 }
 
 async function refreshAll() {
-  await Promise.all([loadUsers(), loadRoles(), loadPermissions(), loadScopes()])
+  const tasks: Promise<void>[] = []
+  if (canManageUsers.value) {
+    tasks.push(loadUsers(), loadScopes())
+  }
+  if (canManageRoles.value) tasks.push(loadRoles())
+  if (canManagePerms.value) tasks.push(loadPermissions())
+  await Promise.all(tasks)
 }
 
 function openUserDrawer(row?: User) {
@@ -500,18 +524,20 @@ onMounted(refreshAll)
 <template>
   <PageContainer title="账号权限" description="系统管理员拥有账号、角色、权限矩阵与数据范围维护能力；其他角色只按权限查看可访问内容。">
     <template #actions>
-      <n-button secondary @click="refreshAll">刷新</n-button>
+      <n-button v-if="hasVisibleSection" secondary @click="refreshAll">刷新</n-button>
     </template>
 
-    <n-grid :cols="4" :x-gap="12" responsive="screen" class="page-section">
-      <n-gi><StatCard label="用户总数" :value="summary.users" /></n-gi>
-      <n-gi><StatCard label="启用用户" :value="summary.enabledUsers" color="#18a058" /></n-gi>
-      <n-gi><StatCard label="角色数" :value="summary.roles" color="#2080f0" /></n-gi>
-      <n-gi><StatCard label="权限点" :value="summary.permissions" color="#4b5563" /></n-gi>
+    <n-empty v-if="!hasVisibleSection" description="当前账号没有可访问的账号权限分区" class="page-section" />
+
+    <n-grid v-if="hasVisibleSection" :cols="4" :x-gap="12" responsive="screen" class="page-section">
+      <n-gi v-if="canManageUsers"><StatCard label="用户总数" :value="summary.users" /></n-gi>
+      <n-gi v-if="canManageUsers"><StatCard label="启用用户" :value="summary.enabledUsers" color="#18a058" /></n-gi>
+      <n-gi v-if="canManageRoles"><StatCard label="角色数" :value="summary.roles" color="#2080f0" /></n-gi>
+      <n-gi v-if="canManagePerms"><StatCard label="权限点" :value="summary.permissions" color="#4b5563" /></n-gi>
     </n-grid>
 
-    <n-tabs type="line" animated>
-      <n-tab-pane name="users" tab="用户">
+    <n-tabs v-if="hasVisibleSection" type="line" animated>
+      <n-tab-pane v-if="canManageUsers" name="users" tab="用户">
         <section class="panel page-section">
           <div class="panel-toolbar">
             <n-space class="filters" :size="10">
@@ -543,7 +569,7 @@ onMounted(refreshAll)
         </section>
       </n-tab-pane>
 
-      <n-tab-pane name="roles" tab="角色">
+      <n-tab-pane v-if="canManageRoles" name="roles" tab="角色">
         <section class="panel page-section">
           <div class="panel-toolbar">
             <n-space class="filters" :size="10">
@@ -564,7 +590,7 @@ onMounted(refreshAll)
         </section>
       </n-tab-pane>
 
-      <n-tab-pane name="permissions" tab="权限">
+      <n-tab-pane v-if="canManagePerms" name="permissions" tab="权限">
         <section class="panel page-section">
           <n-alert v-if="canManagePerms" type="info" :bordered="false" class="page-section">
             权限点由后端迁移维护，本页用于查看权限树并在角色授权中配置矩阵。

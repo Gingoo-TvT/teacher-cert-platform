@@ -85,6 +85,8 @@ const profile = computed<DashboardProfile>(() => {
 const metrics = computed(() => report.value?.metrics || [])
 const rows = computed(() => report.value?.rows || [])
 const unread = computed(() => notices.value.filter((item) => item.readFlag === 0).length)
+const canViewStats = computed(() => userStore.hasPerm('stats:view'))
+const canViewNotice = computed(() => userStore.hasPerm('notice:view'))
 const statCards = computed(() => {
   const base = metrics.value.slice(0, 4).map((item) => ({
     label: item.label,
@@ -104,18 +106,12 @@ const statCards = computed(() => {
 const chartOption = computed<EChartsOption>(() => {
   const chartRows = rows.value.slice(0, 12)
   return {
-    color: ['#2f7d6b'],
-    tooltip: { trigger: 'axis' },
-    grid: { left: 46, right: 20, top: 24, bottom: 72 },
+    color: ['#2563eb'],
     xAxis: {
       type: 'category',
-      axisLabel: { rotate: 30, color: '#6b7280' },
       data: chartRows.map((row) => chartLabel(row))
     },
-    yAxis: {
-      type: 'value',
-      splitLine: { lineStyle: { color: '#eef2f7' } }
-    },
+    yAxis: { type: 'value' },
     series: [{ type: 'bar', data: chartRows.map((row) => row.count || 0), barMaxWidth: 32 }]
   }
 })
@@ -138,10 +134,10 @@ async function loadDashboard() {
   loading.value = true
   try {
     const [statsRes, noticeRes] = await Promise.all([
-      getStatsReport(profile.value.statType, { assessmentYear: yearStore.assessmentYear }),
-      userStore.hasPerm('notice:view') ? listNotices(null) : Promise.resolve({ data: { records: [] as NotificationItem[], total: 0 } })
+      canViewStats.value ? getStatsReport(profile.value.statType, { assessmentYear: yearStore.assessmentYear }) : Promise.resolve(null),
+      canViewNotice.value ? listNotices(null) : Promise.resolve({ data: { records: [] as NotificationItem[], total: 0 } })
     ])
-    report.value = statsRes.data
+    report.value = statsRes?.data || null
     notices.value = noticeRes.data.records.slice(0, 8)
   } catch (error) {
     showError(error, '工作台加载失败')
@@ -183,7 +179,7 @@ function showError(error: unknown, fallback: string) {
       </n-gi>
     </n-grid>
 
-    <n-card :bordered="false" class="page-section chart-card">
+    <n-card v-if="canViewStats" :bordered="false" class="page-section chart-card">
       <template #header>{{ report?.title || '业务统计' }}</template>
       <ChartBox :option="chartOption" height="320px" />
     </n-card>

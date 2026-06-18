@@ -58,6 +58,7 @@ const backupForm = reactive({
 const canManageParam = computed(() => userStore.hasPerm('system:param:manage'))
 const canViewAudit = computed(() => userStore.hasPerm('audit:view'))
 const canBackup = computed(() => userStore.hasPerm('system:backup'))
+const hasVisibleSection = computed(() => canManageParam.value || canViewAudit.value || canBackup.value)
 const summary = computed(() => ({
   params: params.value.length,
   audits: audits.value.length,
@@ -141,6 +142,10 @@ const backupColumns: DataTableColumns<BackupRecord> = [
 ]
 
 async function loadParams() {
+  if (!canManageParam.value) {
+    params.value = []
+    return
+  }
   paramLoading.value = true
   try {
     const res = await listSystemParams(paramQuery)
@@ -153,6 +158,10 @@ async function loadParams() {
 }
 
 async function loadAudits() {
+  if (!canViewAudit.value) {
+    audits.value = []
+    return
+  }
   auditLoading.value = true
   try {
     const res = await listAuditLogs(auditQuery)
@@ -165,6 +174,10 @@ async function loadAudits() {
 }
 
 async function loadBackups() {
+  if (!canBackup.value) {
+    backups.value = []
+    return
+  }
   backupLoading.value = true
   try {
     const res = await listBackups(backupStatus.value)
@@ -252,9 +265,15 @@ function showError(error: unknown, fallback: string) {
   message.error(detail || fallback)
 }
 
-onMounted(async () => {
-  await Promise.all([loadParams(), loadAudits(), loadBackups()])
-})
+async function loadVisibleSections() {
+  const tasks: Promise<void>[] = []
+  if (canManageParam.value) tasks.push(loadParams())
+  if (canViewAudit.value) tasks.push(loadAudits())
+  if (canBackup.value) tasks.push(loadBackups())
+  await Promise.all(tasks)
+}
+
+onMounted(loadVisibleSections)
 </script>
 
 <template>
@@ -267,14 +286,16 @@ onMounted(async () => {
       </n-space>
     </template>
 
-    <n-grid :cols="4" :x-gap="12" responsive="screen" class="page-section">
-      <n-gi><StatCard label="系统参数" :value="summary.params" /></n-gi>
-      <n-gi><StatCard label="审计记录" :value="summary.audits" color="#2080f0" /></n-gi>
-      <n-gi><StatCard label="备份记录" :value="summary.backups" color="#4b5563" /></n-gi>
-      <n-gi><StatCard label="备份完成" :value="summary.completedBackups" color="#18a058" /></n-gi>
+    <n-empty v-if="!hasVisibleSection" description="当前账号没有可访问的系统治理分区" class="page-section" />
+
+    <n-grid v-if="hasVisibleSection" :cols="4" :x-gap="12" responsive="screen" class="page-section">
+      <n-gi v-if="canManageParam"><StatCard label="系统参数" :value="summary.params" /></n-gi>
+      <n-gi v-if="canViewAudit"><StatCard label="审计记录" :value="summary.audits" color="#2080f0" /></n-gi>
+      <n-gi v-if="canBackup"><StatCard label="备份记录" :value="summary.backups" color="#4b5563" /></n-gi>
+      <n-gi v-if="canBackup"><StatCard label="备份完成" :value="summary.completedBackups" color="#18a058" /></n-gi>
     </n-grid>
 
-    <n-tabs type="line" animated>
+    <n-tabs v-if="hasVisibleSection" type="line" animated>
       <n-tab-pane v-if="canManageParam" name="params" tab="系统参数">
         <section class="panel">
           <div class="toolbar">

@@ -72,6 +72,7 @@ const previewUrl = ref('')
 const canApply = computed(() => userStore.hasPerm('exemption:apply'))
 const canFirstReview = computed(() => userStore.hasPerm('exemption:firstReview'))
 const canSecondReview = computed(() => userStore.hasPerm('exemption:secondReview'))
+const canViewStudents = computed(() => userStore.hasPerm('student:view'))
 const selfMode = computed(() => canApply.value && !canFirstReview.value && !canSecondReview.value)
 
 const form = reactive({
@@ -201,11 +202,11 @@ async function loadRecords() {
 
 async function loadOptions() {
   const [studentRes, segmentRes, basisRes] = await Promise.all([
-    listStudents(),
+    canViewStudents.value ? listStudents() : Promise.resolve(null),
     listDictItems('teaching_segment', true),
     listDictItems('exemption_basis', true)
   ])
-  students.value = selfMode.value ? studentRes.data.records.slice(0, 1) : studentRes.data.records
+  students.value = studentRes ? (selfMode.value ? studentRes.data.records.slice(0, 1) : studentRes.data.records) : []
   segments.value = segmentRes.data
   bases.value = basisRes.data
 }

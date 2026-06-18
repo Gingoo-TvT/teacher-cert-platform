@@ -38,10 +38,12 @@ const query = reactive<ExchangeQuery>({
   certStatus: ''
 })
 
+const canStandard = computed(() => userStore.hasPerm('exchange:export:standard'))
 const canFull = computed(() => userStore.hasPerm('exchange:export:full'))
+const canExport = computed(() => canStandard.value || canFull.value)
 const exportType = ref('STANDARD')
 const exportOptions = computed<SelectOption[]>(() => [
-  { label: '标准上报表', value: 'STANDARD' },
+  ...(canStandard.value ? [{ label: '标准上报表', value: 'STANDARD' }] : []),
   ...(canFull.value
     ? [
         { label: '完整审核表', value: 'FULL_REVIEW' },
@@ -49,7 +51,7 @@ const exportOptions = computed<SelectOption[]>(() => [
         { label: '异常数据表', value: 'ERROR' }
       ]
     : []),
-  { label: '附件与视频打包', value: 'ATTACHMENT_LIST' }
+  ...(canStandard.value ? [{ label: '附件与视频打包', value: 'ATTACHMENT_LIST' }] : [])
 ])
 const statusOptions = computed<SelectOption[]>(() => statuses.value.map((item) => ({ label: item.itemValue, value: item.itemCode })))
 const segmentOptions = computed<SelectOption[]>(() => segments.value.map((item) => ({ label: item.itemValue, value: item.itemCode })))
@@ -82,6 +84,10 @@ async function loadOptions() {
 }
 
 async function loadBatches() {
+  if (!canExport.value) {
+    batches.value = []
+    return
+  }
   loading.value = true
   try {
     const res = await listExchangeBatches('export')
@@ -94,6 +100,7 @@ async function loadBatches() {
 }
 
 async function runExport() {
+  if (!canRunExportType(exportType.value)) return
   exporting.value = true
   try {
     if (exportType.value === 'ATTACHMENT_LIST') {
@@ -136,6 +143,11 @@ function resetQuery() {
   })
 }
 
+function canRunExportType(type: string) {
+  if (type === 'STANDARD' || type === 'ATTACHMENT_LIST') return canStandard.value
+  return canFull.value
+}
+
 function showError(error: unknown, fallback: string) {
   const detail = error instanceof Error ? error.message : fallback
   message.error(detail || fallback)
@@ -143,7 +155,8 @@ function showError(error: unknown, fallback: string) {
 
 onMounted(async () => {
   await loadOptions()
-  await loadBatches()
+  if (!canRunExportType(exportType.value)) exportType.value = exportOptions.value[0]?.value as string || ''
+  if (canExport.value) await loadBatches()
 })
 
 watch(
@@ -158,18 +171,20 @@ watch(
   <PageContainer title="导出中心" description="标准上报表、完整审核表、证书汇总、异常数据和附件视频打包导出均复用后端文本化 Excel 能力。">
     <template #actions>
       <n-space>
-        <n-button secondary @click="loadBatches">刷新批次</n-button>
-        <n-button type="primary" :loading="exporting" @click="runExport">导出</n-button>
+        <n-button v-if="canExport" secondary @click="loadBatches">刷新批次</n-button>
+        <n-button v-if="canExport" type="primary" :loading="exporting" @click="runExport">导出</n-button>
       </n-space>
     </template>
 
-    <n-grid :cols="3" :x-gap="12" responsive="screen" class="page-section">
+    <n-empty v-if="!canExport" description="当前账号没有可访问的导出分区" class="page-section" />
+
+    <n-grid v-if="canExport" :cols="3" :x-gap="12" responsive="screen" class="page-section">
       <n-gi><StatCard label="导出批次" :value="summary.total" /></n-gi>
       <n-gi><StatCard label="已完成" :value="summary.exported" color="#18a058" /></n-gi>
       <n-gi><StatCard label="生成文件" :value="summary.files" color="#2080f0" /></n-gi>
     </n-grid>
 
-    <n-card :bordered="false" size="small" class="page-section">
+    <n-card v-if="canExport" :bordered="false" size="small" class="page-section">
       <n-grid :cols="4" :x-gap="12" :y-gap="12" responsive="screen">
         <n-gi><n-select v-model:value="exportType" :options="exportOptions" placeholder="导出类型" /></n-gi>
         <n-gi><n-input v-model:value="query.assessmentYear" placeholder="考核年度" /></n-gi>
@@ -191,6 +206,7 @@ watch(
     </n-card>
 
     <n-data-table
+      v-if="canExport"
       :columns="batchColumns"
       :data="batches"
       :loading="loading"

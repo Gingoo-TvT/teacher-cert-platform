@@ -94,6 +94,10 @@ const canAssign = computed(() => userStore.hasPerm('video:assign'))
 const canArbitrate = computed(() => userStore.hasPerm('video:arbitrate'))
 const canConfirm = computed(() => userStore.hasPerm('video:confirm'))
 const canPlay = computed(() => userStore.hasPerm('video:play'))
+const canManageSystemUsers = computed(() => userStore.hasPerm('system:user:manage'))
+const canViewStudents = computed(() => userStore.hasPerm('student:view'))
+const canListReviews = computed(() => canUpload.value || canAssign.value || canArbitrate.value || canConfirm.value || canPlay.value)
+const hasVisibleSection = computed(() => canListReviews.value || canScore.value || canAssign.value)
 const selfMode = computed(() => canUpload.value && !canAssign.value && !canScore.value)
 
 const uploadForm = reactive({
@@ -261,6 +265,10 @@ const groupColumns: DataTableColumns<ReviewerGroup> = [
 ]
 
 async function loadReviews() {
+  if (!canListReviews.value) {
+    reviews.value = []
+    return
+  }
   loading.value = true
   try {
     const res = await listVideoReviews({
@@ -304,13 +312,13 @@ async function loadGroups() {
 
 async function loadOptions() {
   const [studentRes, dimensionRes, reviewerRes] = await Promise.all([
-    listStudents(),
-    listDictItems('video_score_dimension', true),
-    listUsers({ status: 'ENABLED' })
+    canUpload.value && canViewStudents.value ? listStudents() : Promise.resolve(null),
+    canScore.value || canArbitrate.value ? listDictItems('video_score_dimension', true) : Promise.resolve(null),
+    canManageSystemUsers.value ? listUsers({ status: 'ENABLED' }) : Promise.resolve(null)
   ])
-  students.value = selfMode.value ? studentRes.data.records.slice(0, 1) : studentRes.data.records
-  dimensions.value = dimensionRes.data.slice(0, 9)
-  reviewers.value = reviewerRes.data.records.filter((item) => item.roles.some((role) => role.code === 'REVIEW_TEACHER'))
+  students.value = studentRes ? (selfMode.value ? studentRes.data.records.slice(0, 1) : studentRes.data.records) : []
+  dimensions.value = dimensionRes?.data.slice(0, 9) || []
+  reviewers.value = reviewerRes?.data.records.filter((item) => item.roles.some((role) => role.code === 'REVIEW_TEACHER')) || []
 }
 
 function openUpload(row?: VideoReview) {
@@ -638,7 +646,11 @@ function showError(error: unknown, fallback: string) {
 
 onMounted(async () => {
   await loadOptions()
-  await Promise.all([loadReviews(), loadTasks(), loadGroups()])
+  const tasks: Promise<void>[] = []
+  if (canListReviews.value) tasks.push(loadReviews())
+  if (canScore.value) tasks.push(loadTasks())
+  if (canAssign.value) tasks.push(loadGroups())
+  await Promise.all(tasks)
 })
 
 watch(
@@ -646,7 +658,7 @@ watch(
   async (year) => {
     assessmentYear.value = year
     if (!uploadVisible.value) uploadForm.assessmentYear = year
-    await loadReviews()
+    if (canListReviews.value) await loadReviews()
   }
 )
 </script>
@@ -655,13 +667,15 @@ watch(
   <PageContainer title="视频评审" description="教学能力视频上传、盲评评分、复评仲裁、退回重传与评审组指派。">
     <template #actions>
       <n-space>
-        <n-button secondary @click="loadReviews">刷新</n-button>
+        <n-button v-if="canListReviews" secondary @click="loadReviews">刷新</n-button>
         <n-button v-if="canUpload" type="primary" @click="openUpload()">上传视频</n-button>
       </n-space>
     </template>
 
-    <n-tabs type="line" animated>
-      <n-tab-pane name="reviews" tab="评审管理">
+    <n-empty v-if="!hasVisibleSection" description="当前账号没有可访问的视频分区" class="page-section" />
+
+    <n-tabs v-if="hasVisibleSection" type="line" animated>
+      <n-tab-pane v-if="canListReviews" name="reviews" tab="评审管理">
         <n-grid :cols="5" :x-gap="12" responsive="screen" class="page-section">
           <n-gi><n-card size="small" :bordered="false"><n-statistic label="视频总数" :value="statusSummary.total" /></n-card></n-gi>
           <n-gi><n-card size="small" :bordered="false"><n-statistic label="待评审" :value="statusSummary.wait" /></n-card></n-gi>

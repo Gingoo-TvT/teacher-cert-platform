@@ -25,9 +25,11 @@ import {
   type ImportPreviewRow,
   type PrevalidateResult
 } from '@/api/exchange'
+import { useUserStore } from '@/stores/user'
 import { useYearStore } from '@/stores/year'
 
 const message = useMessage()
+const userStore = useUserStore()
 const yearStore = useYearStore()
 const loading = ref(false)
 const uploading = ref(false)
@@ -48,6 +50,10 @@ const strategyOptions: SelectOption[] = [
 const currentFile = computed(() => fileList.value[0]?.file ?? null)
 const hasErrors = computed(() => Boolean(prevalidate.value && prevalidate.value.failCount > 0))
 const canConfirm = computed(() => Boolean(prevalidate.value && prevalidate.value.successCount > 0))
+const canDownloadTemplate = computed(() => userStore.hasPerm('exchange:template'))
+const canPrevalidate = computed(() => userStore.hasPerm('exchange:prevalidate'))
+const canImport = computed(() => userStore.hasPerm('exchange:import'))
+const canViewBatches = computed(() => canImport.value)
 
 const batchColumns: DataTableColumns<ExchangeBatch> = [
   { title: '批次号', key: 'batchNo', minWidth: 180, ellipsis: { tooltip: true }, render: (row) => h('span', { class: 'mono' }, row.batchNo) },
@@ -65,8 +71,8 @@ const batchColumns: DataTableColumns<ExchangeBatch> = [
     width: 210,
     render: (row) =>
       h(NSpace, { size: 4 }, () => [
-        h(NButton, { size: 'small', quaternary: true, onClick: () => downloadError(row.id) }, { default: () => '异常报告' }),
-        row.status === 'IMPORTED' || row.status === 'FAILED'
+        canPrevalidate.value ? h(NButton, { size: 'small', quaternary: true, onClick: () => downloadError(row.id) }, { default: () => '异常报告' }) : null,
+        canImport.value && (row.status === 'IMPORTED' || row.status === 'FAILED')
           ? h(
               NPopconfirm,
               { onPositiveClick: () => rollback(row.id) },
@@ -99,6 +105,10 @@ const errorColumns: DataTableColumns<ImportError> = [
 ]
 
 async function loadBatches() {
+  if (!canViewBatches.value) {
+    batches.value = []
+    return
+  }
   loading.value = true
   try {
     const res = await listExchangeBatches('import')
@@ -111,6 +121,7 @@ async function loadBatches() {
 }
 
 async function downloadTpl() {
+  if (!canDownloadTemplate.value) return
   try {
     const blob = await downloadTemplate({ assessmentYear: yearStore.assessmentYear })
     saveBlob(blob, '教育部标准导入模板.xlsx')
@@ -121,6 +132,7 @@ async function downloadTpl() {
 }
 
 async function runPrevalidate() {
+  if (!canPrevalidate.value) return
   if (!currentFile.value) {
     message.error('请选择Excel文件')
     return
@@ -140,6 +152,7 @@ async function runPrevalidate() {
 }
 
 async function confirmImport() {
+  if (!canImport.value) return
   if (!prevalidate.value) {
     message.error('请先完成预校验')
     return
@@ -157,11 +170,13 @@ async function confirmImport() {
 }
 
 async function downloadCurrentError() {
+  if (!canPrevalidate.value) return
   if (!prevalidate.value) return
   await downloadError(prevalidate.value.batchId)
 }
 
 async function downloadError(batchId: string) {
+  if (!canPrevalidate.value) return
   try {
     const blob = await downloadErrorReport(batchId)
     saveBlob(blob, `${batchId}-异常报告.xlsx`)
@@ -171,6 +186,7 @@ async function downloadError(batchId: string) {
 }
 
 async function rollback(batchId: string) {
+  if (!canImport.value) return
   try {
     const res = await rollbackExchangeImport(batchId)
     message.success(`回滚 ${res.data.rolledBackCount} 条，冲突 ${res.data.conflictCount} 条`)
@@ -185,13 +201,15 @@ function showError(error: unknown, fallback: string) {
   message.error(detail || fallback)
 }
 
-onMounted(loadBatches)
+onMounted(() => {
+  if (canViewBatches.value) void loadBatches()
+})
 </script>
 
 <template>
   <PageContainer title="导入中心" description="按模板下载、上传预校验、V-01~V-13 异常定位、策略确认导入与批次回滚的四步流程。">
     <template #actions>
-      <n-button secondary @click="loadBatches">刷新批次</n-button>
+      <n-button v-if="canViewBatches" secondary @click="loadBatches">刷新批次</n-button>
     </template>
 
     <n-steps v-model:current="activeStep" class="page-section">
@@ -209,14 +227,14 @@ onMounted(loadBatches)
 
     <n-card :bordered="false" size="small" class="page-section">
       <n-space class="filters" :size="10">
-        <n-button type="primary" @click="downloadTpl">模板下载</n-button>
+        <n-button v-if="canDownloadTemplate" type="primary" @click="downloadTpl">模板下载</n-button>
         <n-upload v-model:file-list="fileList" :max="1" accept=".xlsx" :default-upload="false">
           <n-button>选择 Excel</n-button>
         </n-upload>
-        <n-button type="primary" :loading="uploading" @click="runPrevalidate">预校验</n-button>
+        <n-button v-if="canPrevalidate" type="primary" :loading="uploading" @click="runPrevalidate">预校验</n-button>
         <n-select v-model:value="strategy" :options="strategyOptions" style="width: 170px" />
-        <n-button :disabled="!canConfirm" :loading="confirming" @click="confirmImport">确认导入</n-button>
-        <n-button :disabled="!hasErrors" @click="downloadCurrentError">异常报告</n-button>
+        <n-button v-if="canImport" :disabled="!canConfirm" :loading="confirming" @click="confirmImport">确认导入</n-button>
+        <n-button v-if="canPrevalidate" :disabled="!hasErrors" @click="downloadCurrentError">异常报告</n-button>
       </n-space>
     </n-card>
 
@@ -241,7 +259,7 @@ onMounted(loadBatches)
           striped
         />
       </n-tab-pane>
-      <n-tab-pane name="batches" tab="批次记录">
+      <n-tab-pane v-if="canViewBatches" name="batches" tab="批次记录">
         <n-data-table
           :columns="batchColumns"
           :data="batches"

@@ -120,6 +120,7 @@ const canEdit = computed(() => userStore.hasPerm('training:edit'))
 const canSelfConfirm = computed(() => userStore.hasPerm('training:confirm'))
 const canFirstReview = computed(() => userStore.hasPerm('info:firstReview'))
 const canSecondReview = computed(() => userStore.hasPerm('info:secondReview'))
+const canViewStudents = computed(() => userStore.hasPerm('student:view'))
 const selfMode = computed(() => canSelfConfirm.value && !canEdit.value && !userStore.hasPerm('student:view'))
 const canCreate = computed(() => canEdit.value || canSelfConfirm.value)
 
@@ -239,9 +240,9 @@ async function loadOptions() {
     interviewRes,
     conclusionRes
   ] = await Promise.all([
-    listStudents(),
-    listColleges(),
-    listMajors({ pilotScopeFlag: 1, status: 1 }),
+    canViewStudents.value ? listStudents() : Promise.resolve(null),
+    canViewStudents.value ? listColleges() : Promise.resolve(null),
+    canViewStudents.value ? listMajors({ pilotScopeFlag: 1, status: 1 }) : Promise.resolve(null),
     listDictItems('education_level', true),
     listDictItems('training_goal', true),
     listDictItems('internship_org_mode', true),
@@ -250,9 +251,9 @@ async function loadOptions() {
     listDictItems('interview_org_mode', true),
     listDictItems('ability_test_conclusion', true)
   ])
-  students.value = selfMode.value ? studentRes.data.records.slice(0, 1) : studentRes.data.records
-  colleges.value = collegeRes.data
-  majors.value = majorRes.data
+  students.value = studentRes ? (selfMode.value ? studentRes.data.records.slice(0, 1) : studentRes.data.records) : []
+  colleges.value = collegeRes?.data || []
+  majors.value = majorRes?.data || []
   educationLevels.value = educationRes.data
   trainingGoals.value = goalRes.data
   internshipModes.value = modeRes.data
@@ -296,7 +297,7 @@ async function openDrawer(row?: TrainingProfile) {
 function resetForm(row?: TrainingProfile) {
   const selfStudent = selfMode.value ? students.value[0] : null
   Object.assign(form, {
-    studentId: row?.studentId || selfStudent?.id || '',
+    studentId: row?.studentId || selfStudent?.id || userStore.currentUser?.studentId || '',
     collegeId: row?.collegeId || selfStudent?.collegeId || '',
     assessmentYear: row?.assessmentYear || assessmentYear.value || yearStore.assessmentYear,
     secondDisciplineCode: row?.secondDisciplineCode || '',

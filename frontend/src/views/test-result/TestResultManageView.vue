@@ -51,6 +51,7 @@ const selectedValidity = ref<AbilityTestResult | null>(null)
 
 const canImport = computed(() => userStore.hasPerm('test:import'))
 const canConfirm = computed(() => userStore.hasPerm('test:confirm'))
+const canViewStudents = computed(() => userStore.hasPerm('student:view'))
 
 const conclusionOptions = computed<SelectOption[]>(() =>
   conclusions.value.map((item) => ({ label: item.itemValue, value: item.itemCode }))
@@ -124,10 +125,10 @@ async function loadRecords() {
 
 async function loadOptions() {
   const [studentRes, conclusionRes] = await Promise.all([
-    listStudents(),
+    canViewStudents.value ? listStudents() : Promise.resolve(null),
     listDictItems('ability_test_conclusion', true)
   ])
-  students.value = studentRes.data.records
+  students.value = studentRes?.data.records || []
   conclusions.value = conclusionRes.data
 }
 

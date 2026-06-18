@@ -59,6 +59,8 @@ const canVoid = computed(() => userStore.hasPerm('cert:void'))
 const canReissue = computed(() => userStore.hasPerm('cert:reissue'))
 const canIssue = computed(() => userStore.hasPerm('cert:issue'))
 const canView = computed(() => userStore.hasPerm('cert:view'))
+const canOpenGenerate = computed(() => canGenerate.value)
+const hasVisibleSection = computed(() => canView.value || canOpenGenerate.value)
 
 const generateForm = reactive({
   studentId: '',
@@ -144,6 +146,10 @@ const columns: DataTableColumns<Certificate> = [
 ]
 
 async function loadRecords() {
+  if (!canView.value) {
+    records.value = []
+    return
+  }
   loading.value = true
   try {
     const res = await listCertificates({
@@ -161,12 +167,12 @@ async function loadRecords() {
 
 async function loadOptions() {
   const [studentRes, statusRes, segmentRes, goalRes] = await Promise.all([
-    listStudents(),
+    canGenerate.value ? listStudents() : Promise.resolve(null),
     listDictItems('certificate_status', true),
     listDictItems('teaching_segment', true),
     listDictItems('training_goal', true)
   ])
-  students.value = studentRes.data.records
+  students.value = studentRes?.data.records || []
   statuses.value = statusRes.data
   segments.value = segmentRes.data
   goals.value = goalRes.data
@@ -364,7 +370,7 @@ function showError(error: unknown, fallback: string) {
 
 onMounted(async () => {
   await loadOptions()
-  await loadRecords()
+  if (canView.value) await loadRecords()
 })
 
 watch(
@@ -372,7 +378,7 @@ watch(
   async (year) => {
     assessmentYear.value = year
     if (!generateVisible.value) generateForm.assessmentYear = year
-    await loadRecords()
+    if (canView.value) await loadRecords()
   }
 )
 </script>
@@ -381,12 +387,14 @@ watch(
   <PageContainer title="证书管理" description="证书生成、签发、导出、归档、更正、作废与重开均由教务处管理员按权限在同一页面处理。">
     <template #actions>
       <n-space>
-        <n-button secondary @click="loadRecords">刷新</n-button>
-        <n-button v-if="canGenerate" type="primary" @click="openGenerate">生成证书</n-button>
+        <n-button v-if="canView" secondary @click="loadRecords">刷新</n-button>
+        <n-button v-if="canOpenGenerate" type="primary" @click="openGenerate">生成证书</n-button>
       </n-space>
     </template>
 
-    <n-grid :cols="5" :x-gap="12" responsive="screen" class="page-section">
+    <n-empty v-if="!hasVisibleSection" description="当前账号没有可访问的证书分区" class="page-section" />
+
+    <n-grid v-if="canView" :cols="5" :x-gap="12" responsive="screen" class="page-section">
       <n-gi><StatCard label="证书总数" :value="summary.total" /></n-gi>
       <n-gi><StatCard label="待签发" :value="summary.generated" color="#f0a020" /></n-gi>
       <n-gi><StatCard label="已签发" :value="summary.issued" color="#18a058" /></n-gi>
@@ -394,7 +402,7 @@ watch(
       <n-gi><StatCard label="已归档" :value="summary.archived" color="#4b5563" /></n-gi>
     </n-grid>
 
-    <n-card :bordered="false" size="small" class="page-section">
+    <n-card v-if="canView" :bordered="false" size="small" class="page-section">
       <n-space class="filters" :size="10">
         <n-input v-model:value="keyword" clearable placeholder="证书编号 / 学号 / 姓名" style="width: 240px" @keyup.enter="loadRecords" />
         <n-input v-model:value="assessmentYear" placeholder="考核年度" style="width: 120px" />
@@ -404,6 +412,7 @@ watch(
     </n-card>
 
     <n-data-table
+      v-if="canView"
       :columns="columns"
       :data="records"
       :loading="loading"

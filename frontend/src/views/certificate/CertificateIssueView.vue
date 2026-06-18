@@ -30,6 +30,7 @@ const statuses = ref<DictItem[]>([])
 const selected = ref<Certificate | null>(null)
 const canIssue = computed(() => userStore.hasPerm('cert:issue'))
 const canMarkFlow = computed(() => userStore.hasPerm('cert:view'))
+const canViewQueue = computed(() => userStore.hasPerm('cert:view'))
 
 const issueForm = reactive<CertificateIssuePayload>({
   issuer: userStore.realName || '',
@@ -74,6 +75,10 @@ const columns: DataTableColumns<Certificate> = [
 ]
 
 async function loadRecords() {
+  if (!canViewQueue.value) {
+    records.value = []
+    return
+  }
   loading.value = true
   try {
     const res = await listCertificates({
@@ -162,14 +167,14 @@ function showError(error: unknown, fallback: string) {
 
 onMounted(async () => {
   await loadOptions()
-  await loadRecords()
+  if (canViewQueue.value) await loadRecords()
 })
 
 watch(
   () => yearStore.assessmentYear,
   async (year) => {
     assessmentYear.value = year
-    await loadRecords()
+    if (canViewQueue.value) await loadRecords()
   }
 )
 </script>
@@ -177,16 +182,18 @@ watch(
 <template>
   <PageContainer title="证书签发队列" description="签发权限已并入教务处/全校管理员；本页作为证书管理的签发队列视图。">
     <template #actions>
-      <n-button secondary @click="loadRecords">刷新</n-button>
+      <n-button v-if="canViewQueue" secondary @click="loadRecords">刷新</n-button>
     </template>
 
-    <n-grid :cols="3" :x-gap="12" responsive="screen" class="page-section">
+    <n-empty v-if="!canViewQueue" description="当前账号没有证书队列查看权限" class="page-section" />
+
+    <n-grid v-if="canViewQueue" :cols="3" :x-gap="12" responsive="screen" class="page-section">
       <n-gi><StatCard label="待签发" :value="summary.waiting" color="#f0a020" /></n-gi>
       <n-gi><StatCard label="已签发" :value="summary.issued" color="#18a058" /></n-gi>
       <n-gi><StatCard label="已导出待归档" :value="summary.exported" color="#2080f0" /></n-gi>
     </n-grid>
 
-    <n-card :bordered="false" size="small" class="page-section">
+    <n-card v-if="canViewQueue" :bordered="false" size="small" class="page-section">
       <n-space class="filters" :size="10">
         <n-input v-model:value="keyword" clearable placeholder="证书编号 / 学号 / 姓名" style="width: 240px" @keyup.enter="loadRecords" />
         <n-input v-model:value="assessmentYear" placeholder="考核年度" style="width: 120px" />
@@ -196,6 +203,7 @@ watch(
     </n-card>
 
     <n-data-table
+      v-if="canViewQueue"
       :columns="columns"
       :data="records"
       :loading="loading"
