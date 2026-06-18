@@ -1,13 +1,8 @@
 <script setup lang="ts">
 import { computed, h, onMounted, ref } from 'vue'
-import {
-  NButton,
-  NTag,
-  useMessage,
-  type DataTableColumns,
-  type SelectOption,
-  type UploadCustomRequestOptions
-} from 'naive-ui'
+import { NButton, useMessage, type DataTableColumns, type SelectOption, type UploadCustomRequestOptions } from 'naive-ui'
+import PageContainer from '@/components/PageContainer.vue'
+import StatusTag from '@/components/StatusTag.vue'
 import { listDictItems, type DictItem } from '@/api/dict'
 import SubjectSelect from '@/components/SubjectSelect.vue'
 import {
@@ -19,8 +14,10 @@ import {
   type SubjectImportResult,
   type TeachingSubject
 } from '@/api/subject'
+import { useUserStore } from '@/stores/user'
 
 const message = useMessage()
+const userStore = useUserStore()
 
 const loading = ref(false)
 const importLoading = ref(false)
@@ -41,20 +38,16 @@ interface SubjectTableRow extends TeachingSubject {
   categoryName: string
 }
 
+const canImport = computed(() => userStore.hasPerm('subject:import'))
+
 const segmentOptions = computed<SelectOption[]>(() =>
-  segments.value.map((item) => ({
-    label: item.itemValue,
-    value: item.itemCode
-  }))
+  segments.value.map((item) => ({ label: item.itemValue, value: item.itemCode }))
 )
 
 const categoryOptions = computed<SelectOption[]>(() =>
   baseSubjects.value
     .filter((item) => item.isCategory === 1)
-    .map((item) => ({
-      label: `${item.subjectName} ${item.subjectCode}`,
-      value: item.categoryNode || item.subjectCode
-    }))
+    .map((item) => ({ label: `${item.subjectName} ${item.subjectCode}`, value: item.categoryNode || item.subjectCode }))
 )
 
 const tableRows = computed<SubjectTableRow[]>(() =>
@@ -68,35 +61,19 @@ const tableRows = computed<SubjectTableRow[]>(() =>
 const subjectColumns: DataTableColumns<SubjectTableRow> = [
   { title: '学段', key: 'segmentName', width: 130, ellipsis: { tooltip: true } },
   { title: '学科名称', key: 'subjectName', minWidth: 160, ellipsis: { tooltip: true } },
-  { title: '学科编码', key: 'subjectCode', minWidth: 170, ellipsis: { tooltip: true } },
+  { title: '学科编码', key: 'subjectCode', minWidth: 170, ellipsis: { tooltip: true }, render: (row) => h('span', { class: 'mono' }, row.subjectCode) },
   { title: '分类', key: 'categoryName', minWidth: 160, ellipsis: { tooltip: true } },
-  { title: '年度', key: 'yearVersion', width: 96 },
-  {
-    title: '类型',
-    key: 'selectable',
-    width: 92,
-    render: (row) =>
-      h(
-        NTag,
-        { size: 'small', type: row.selectable ? 'success' : 'warning', bordered: false },
-        { default: () => (row.selectable ? '可选' : '类别') }
-      )
-  },
+  { title: '年度', key: 'yearVersion', width: 96, render: (row) => h('span', { class: 'mono' }, row.yearVersion) },
+  { title: '类型', key: 'selectable', width: 92, render: (row) => h(StatusTag, { text: row.selectable ? '可选' : '类别' }) },
   { title: '关键词', key: 'keyword', minWidth: 160, ellipsis: { tooltip: true } },
   {
     title: '操作',
     key: 'actions',
-    width: 96,
+    width: 92,
     render: (row) =>
       h(
         NButton,
-        {
-          size: 'small',
-          quaternary: true,
-          type: 'primary',
-          disabled: !row.selectable,
-          onClick: () => chooseSubject(row)
-        },
+        { size: 'small', quaternary: true, type: 'primary', disabled: !row.selectable, onClick: () => chooseSubject(row) },
         { default: () => '选择' }
       )
   }
@@ -113,9 +90,7 @@ async function loadSegments() {
   try {
     const res = await listDictItems('teaching_segment', true)
     segments.value = [...res.data].sort((a, b) => (a.sort || 0) - (b.sort || 0) || a.itemCode.localeCompare(b.itemCode))
-    if (!selectedSegment.value && segments.value.length > 0) {
-      selectedSegment.value = segments.value[0].itemCode
-    }
+    if (!selectedSegment.value && segments.value.length > 0) selectedSegment.value = segments.value[0].itemCode
   } catch (error) {
     showError(error, '任教学段加载失败')
   }
@@ -124,10 +99,7 @@ async function loadSegments() {
 async function loadBaseSubjects() {
   if (!selectedSegment.value) return
   try {
-    const res = await listSubjects({
-      segment: selectedSegment.value,
-      yearVersion: yearVersion.value
-    })
+    const res = await listSubjects({ segment: selectedSegment.value, yearVersion: yearVersion.value })
     baseSubjects.value = res.data
   } catch (error) {
     showError(error, '学科分类加载失败')
@@ -171,16 +143,8 @@ async function handleSegmentUpdate(value: string | null) {
 async function chooseSubject(row: TeachingSubject) {
   if (!selectedSegment.value) return
   try {
-    await validateSubject({
-      segmentCode: selectedSegment.value,
-      subjectCode: row.subjectCode,
-      yearVersion: yearVersion.value
-    })
-    await recordRecentSubject({
-      segmentCode: selectedSegment.value,
-      subjectCode: row.subjectCode,
-      yearVersion: yearVersion.value
-    })
+    await validateSubject({ segmentCode: selectedSegment.value, subjectCode: row.subjectCode, yearVersion: yearVersion.value })
+    await recordRecentSubject({ segmentCode: selectedSegment.value, subjectCode: row.subjectCode, yearVersion: yearVersion.value })
     selectedSubjectCode.value = row.subjectCode
     selectedSubject.value = row
     message.success('任教学科已选择')
@@ -229,11 +193,7 @@ function segmentName(code: string) {
 
 function categoryName(code?: string | null) {
   if (!code) return '-'
-  return (
-    baseSubjects.value.find(
-      (item) => item.isCategory === 1 && (item.subjectCode === code || item.categoryNode === code)
-    )?.subjectName || code
-  )
+  return baseSubjects.value.find((item) => item.isCategory === 1 && (item.subjectCode === code || item.categoryNode === code))?.subjectName || code
 }
 
 function showError(error: unknown, fallback: string) {
@@ -248,43 +208,31 @@ onMounted(async () => {
 </script>
 
 <template>
-  <n-space vertical :size="16" class="subject-page">
-    <div class="page-head">
-      <div>
-        <n-h2 class="page-title">任教学科库</n-h2>
-      </div>
-      <n-upload
-        :custom-request="handleUpload"
-        :show-file-list="false"
-        accept=".xlsx,.xls"
-        :disabled="importLoading"
-      >
-        <n-button type="primary" :loading="importLoading">导入</n-button>
-      </n-upload>
-    </div>
+  <PageContainer title="任教学科库" description="学段到学科的标准库，类别节点仅用于分组，具体学科由后端 validate 接口校验。">
+    <template #actions>
+      <n-space>
+        <n-button secondary @click="refreshAll">刷新</n-button>
+        <n-upload v-if="canImport" :custom-request="handleUpload" :show-file-list="false" accept=".xlsx,.xls" :disabled="importLoading">
+          <n-button type="primary" :loading="importLoading">导入学科库</n-button>
+        </n-upload>
+      </n-space>
+    </template>
 
     <div class="subject-layout">
-      <section class="subject-panel">
+      <section class="page-section">
         <div class="panel-toolbar">
           <n-space class="filters" :size="10">
             <n-select
               v-model:value="selectedSegment"
               :options="segmentOptions"
-              placeholder="学段"
+              placeholder="任教学段"
               style="width: 180px"
               @update:value="handleSegmentUpdate"
             />
             <n-input v-model:value="yearVersion" clearable maxlength="16" placeholder="年度版本" style="width: 140px" />
-            <n-select
-              v-model:value="category"
-              :options="categoryOptions"
-              clearable
-              placeholder="分类"
-              style="width: 220px"
-              @update:value="loadSubjectsData"
-            />
+            <n-select v-model:value="category" :options="categoryOptions" clearable placeholder="分类" style="width: 220px" @update:value="loadSubjectsData" />
             <n-input v-model:value="keyword" clearable placeholder="关键词" style="width: 220px" @keyup.enter="loadSubjectsData" />
-            <n-button secondary @click="refreshAll">查询</n-button>
+            <n-button type="primary" secondary @click="refreshAll">查询</n-button>
           </n-space>
         </div>
 
@@ -295,22 +243,17 @@ onMounted(async () => {
           :row-key="(row: SubjectTableRow) => row.id"
           size="small"
           striped
-          :max-height="560"
+          :max-height="620"
         />
       </section>
 
-      <section class="subject-panel side-panel">
+      <section class="page-section side-panel">
         <n-space vertical :size="14">
           <n-form label-placement="top">
-            <n-form-item label="选择组件">
-              <SubjectSelect
-                v-model:value="selectedSubjectCode"
-                :segment-code="selectedSegment"
-                :year-version="yearVersion"
-                @change="handleSubjectChange"
-              />
+            <n-form-item label="表单选择器预览">
+              <SubjectSelect v-model:value="selectedSubjectCode" :segment-code="selectedSegment" :year-version="yearVersion" @change="handleSubjectChange" />
             </n-form-item>
-            <n-form-item label="导入年度">
+            <n-form-item v-if="canImport" label="导入年度">
               <n-input v-model:value="importYearVersion" clearable maxlength="16" />
             </n-form-item>
           </n-form>
@@ -318,15 +261,16 @@ onMounted(async () => {
           <n-descriptions bordered :column="1" size="small">
             <n-descriptions-item label="当前学段">{{ selectedSegment ? segmentName(selectedSegment) : '-' }}</n-descriptions-item>
             <n-descriptions-item label="当前学科">
-              {{ selectedSubject ? `${selectedSubject.subjectName} ${selectedSubject.subjectCode}` : '-' }}
+              {{ selectedSubject ? selectedSubject.subjectName : '-' }}
+              <span v-if="selectedSubject" class="mono muted">{{ selectedSubject.subjectCode }}</span>
             </n-descriptions-item>
           </n-descriptions>
 
           <div v-if="importResult" class="import-result">
             <n-space :size="8">
-              <n-tag type="info" bordered>总数 {{ importResult.total }}</n-tag>
-              <n-tag type="success" bordered>成功 {{ importResult.successCount }}</n-tag>
-              <n-tag :type="importResult.failCount > 0 ? 'error' : 'default'" bordered>失败 {{ importResult.failCount }}</n-tag>
+              <n-tag type="info" :bordered="false">总数 {{ importResult.total }}</n-tag>
+              <n-tag type="success" :bordered="false">成功 {{ importResult.successCount }}</n-tag>
+              <n-tag :type="importResult.failCount > 0 ? 'error' : 'default'" :bordered="false">失败 {{ importResult.failCount }}</n-tag>
             </n-space>
             <n-data-table
               v-if="importResult.errors.length"
@@ -340,26 +284,10 @@ onMounted(async () => {
         </n-space>
       </section>
     </div>
-  </n-space>
+  </PageContainer>
 </template>
 
 <style scoped>
-.subject-page {
-  min-width: 1080px;
-}
-
-.page-head,
-.panel-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.page-title {
-  margin: 0 0 4px;
-}
-
 .subject-layout {
   display: grid;
   grid-template-columns: minmax(680px, 1.25fr) minmax(360px, 0.75fr);
@@ -367,8 +295,12 @@ onMounted(async () => {
   align-items: start;
 }
 
-.subject-panel {
+.page-section {
   min-width: 0;
+}
+
+.panel-toolbar {
+  margin-bottom: 12px;
 }
 
 .filters {
@@ -385,18 +317,8 @@ onMounted(async () => {
 }
 
 @media (max-width: 1180px) {
-  .subject-page {
-    min-width: 0;
-  }
-
   .subject-layout {
     grid-template-columns: 1fr;
-  }
-
-  .page-head,
-  .panel-toolbar {
-    align-items: stretch;
-    flex-direction: column;
   }
 }
 </style>

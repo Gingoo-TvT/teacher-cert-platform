@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, h, onMounted, ref } from 'vue'
-import { NButton, NTag, useMessage, type DataTableColumns } from 'naive-ui'
+import { NButton, useMessage, type DataTableColumns } from 'naive-ui'
+import PageContainer from '@/components/PageContainer.vue'
+import StatusTag from '@/components/StatusTag.vue'
 import RegionCascader, { type RegionSelection } from '@/components/RegionCascader.vue'
 import { getRegionPath, listRegionChildren, type RegionNode } from '@/api/region'
 
@@ -34,35 +36,25 @@ const tableRows = computed<RegionTableRow[]>(() =>
 
 const columns: DataTableColumns<RegionTableRow> = [
   { title: '名称', key: 'name', minWidth: 150, ellipsis: { tooltip: true } },
-  { title: '代码', key: 'code', width: 120 },
-  { title: '层级', key: 'levelName', width: 110 },
-  { title: '父级代码', key: 'parentCode', width: 120 },
+  { title: '代码', key: 'code', width: 120, render: (row) => h('span', { class: 'mono' }, row.code) },
+  { title: '层级', key: 'levelName', width: 100 },
+  { title: '父级代码', key: 'parentCode', width: 120, render: (row) => row.parentCode ? h('span', { class: 'mono' }, row.parentCode) : '-' },
   { title: '排序', key: 'sort', width: 72 },
   {
     title: '节点',
     key: 'leaf',
     width: 88,
-    render: (row) =>
-      h(
-        NTag,
-        { size: 'small', type: row.leaf ? 'default' : 'info', bordered: false },
-        { default: () => (row.leaf ? '末级' : '可展开') }
-      )
+    render: (row) => h(StatusTag, { text: row.leaf ? '末级' : '可展开' })
   },
   {
     title: '操作',
     key: 'actions',
-    width: 156,
+    width: 110,
     render: (row) =>
       h(
         NButton,
-        {
-          size: 'small',
-          quaternary: true,
-          type: 'primary',
-          onClick: () => inspectNode(row)
-        },
-        { default: () => (row.leaf ? '查看路径' : '查看下级') }
+        { size: 'small', quaternary: true, type: 'primary', onClick: () => inspectNode(row) },
+        { default: () => (row.leaf ? '路径' : '下级') }
       )
   }
 ]
@@ -83,9 +75,7 @@ async function loadChildren(parent?: string | null, sourceNode?: RegionNode | nu
 
 async function inspectNode(row: RegionNode) {
   await loadPath(row.code)
-  if (!row.leaf) {
-    await loadChildren(row.code, row)
-  }
+  if (!row.leaf) await loadChildren(row.code, row)
 }
 
 async function loadPath(code = codeInput.value.trim()) {
@@ -135,24 +125,23 @@ onMounted(() => loadChildren())
 </script>
 
 <template>
-  <n-space vertical :size="16" class="region-page">
-    <div class="page-head">
-      <div>
-        <n-h2 class="page-title">行政区划</n-h2>
-      </div>
-      <n-button secondary @click="loadChildren()">省级区划</n-button>
-    </div>
+  <PageContainer title="行政区划" description="广东省三级区划联动查询，生源地等表单复用同一 RegionCascader。">
+    <template #actions>
+      <n-space>
+        <n-button secondary @click="loadChildren()">回到省级</n-button>
+        <n-button secondary :disabled="!selectedNode?.parentCode" @click="loadChildren(selectedNode?.parentCode || null)">
+          返回上级
+        </n-button>
+      </n-space>
+    </template>
 
     <div class="region-layout">
-      <section class="region-panel">
+      <section class="page-section">
         <div class="panel-toolbar">
-          <div class="selected-title">
+          <div>
             <strong>{{ parentLabel }}</strong>
-            <n-text depth="3">{{ currentChildren.length }} 个下级区划</n-text>
+            <span class="muted">{{ currentChildren.length }} 个下级区划</span>
           </div>
-          <n-button secondary :disabled="!selectedNode?.parentCode" @click="loadChildren(selectedNode?.parentCode || null)">
-            返回上级
-          </n-button>
         </div>
         <n-data-table
           :columns="columns"
@@ -161,11 +150,11 @@ onMounted(() => loadChildren())
           :row-key="(row: RegionTableRow) => row.code"
           size="small"
           striped
-          :max-height="620"
+          :max-height="640"
         />
       </section>
 
-      <section class="region-panel detail-panel">
+      <section class="page-section detail-panel">
         <n-space vertical :size="14">
           <n-form label-placement="top">
             <n-form-item label="级联选择">
@@ -184,48 +173,33 @@ onMounted(() => loadChildren())
             </n-form-item>
           </n-form>
 
-          <div class="path-result">
-            <n-descriptions bordered :column="1" size="small">
-              <n-descriptions-item label="当前代码">{{ regionCode || '-' }}</n-descriptions-item>
-              <n-descriptions-item label="完整文本">{{ fullName || '-' }}</n-descriptions-item>
-            </n-descriptions>
-            <n-space v-if="pathNodes.length" class="path-tags" :size="8">
-              <n-tag v-for="node in pathNodes" :key="node.code" type="info" bordered>
-                {{ node.name }} · {{ node.code }}
-              </n-tag>
-            </n-space>
-          </div>
+          <n-descriptions bordered :column="1" size="small">
+            <n-descriptions-item label="当前代码">
+              <span class="mono">{{ regionCode || '-' }}</span>
+            </n-descriptions-item>
+            <n-descriptions-item label="完整文本">{{ fullName || '-' }}</n-descriptions-item>
+          </n-descriptions>
+
+          <n-space v-if="pathNodes.length" :size="8" class="path-tags">
+            <n-tag v-for="node in pathNodes" :key="node.code" type="info" :bordered="false">
+              {{ node.name }} · <span class="mono">{{ node.code }}</span>
+            </n-tag>
+          </n-space>
         </n-space>
       </section>
     </div>
-  </n-space>
+  </PageContainer>
 </template>
 
 <style scoped>
-.region-page {
-  min-width: 960px;
-}
-
-.page-head,
-.panel-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.page-title {
-  margin: 0 0 4px;
-}
-
 .region-layout {
   display: grid;
-  grid-template-columns: minmax(560px, 1.25fr) minmax(360px, 0.75fr);
+  grid-template-columns: minmax(560px, 1.3fr) minmax(360px, 0.7fr);
   gap: 16px;
   align-items: start;
 }
 
-.region-panel {
+.page-section {
   min-width: 0;
 }
 
@@ -233,34 +207,22 @@ onMounted(() => loadChildren())
   margin-bottom: 12px;
 }
 
-.selected-title {
-  display: flex;
-  flex-direction: column;
-  min-width: 180px;
+.panel-toolbar strong,
+.panel-toolbar span {
+  display: block;
 }
 
-.path-result {
-  display: grid;
-  gap: 12px;
+.detail-panel {
+  min-width: 320px;
 }
 
 .path-tags {
   align-items: center;
 }
 
-@media (max-width: 1100px) {
-  .region-page {
-    min-width: 0;
-  }
-
+@media (max-width: 1080px) {
   .region-layout {
     grid-template-columns: 1fr;
-  }
-
-  .page-head,
-  .panel-toolbar {
-    align-items: stretch;
-    flex-direction: column;
   }
 }
 </style>

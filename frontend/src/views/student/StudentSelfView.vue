@@ -1,13 +1,16 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useMessage, type FormInst, type FormRules, type SelectOption } from 'naive-ui'
-import RegionCascader from '@/components/RegionCascader.vue'
+import PageContainer from '@/components/PageContainer.vue'
+import StatusTag from '@/components/StatusTag.vue'
+import RegionCascader, { type RegionSelection } from '@/components/RegionCascader.vue'
 import { listDictItems, type DictItem } from '@/api/dict'
 import { confirmStudent, listStudents, submitStudent, type Student, type StudentPayload } from '@/api/student'
 
 const message = useMessage()
 const loading = ref(false)
 const saving = ref(false)
+const submitting = ref(false)
 const formRef = ref<FormInst | null>(null)
 const student = ref<Student | null>(null)
 const genders = ref<DictItem[]>([])
@@ -42,6 +45,9 @@ const rules: FormRules = {
 }
 
 const locked = computed(() => student.value?.locked === 1)
+const canSubmit = computed(() => Boolean(student.value) && !locked.value)
+const statusText = computed(() => student.value?.statusLabel || student.value?.status || '未建档')
+const reviewComment = computed(() => student.value?.firstReviewComment || student.value?.secondReviewComment || '')
 const genderOptions = computed<SelectOption[]>(() => dictOptions(genders.value))
 const idCardTypeOptions = computed<SelectOption[]>(() => dictOptions(idCardTypes.value))
 const identityTypeOptions = computed<SelectOption[]>(() => dictOptions(identityTypes.value))
@@ -51,24 +57,9 @@ async function load() {
   try {
     const res = await listStudents()
     student.value = res.data.records[0] || null
-    if (student.value) {
-      Object.assign(form, {
-        studentNo: student.value.studentNo,
-        name: student.value.name,
-        gender: student.value.gender,
-        idCardType: student.value.idCardType,
-        idCardNo: student.value.idCardNo.includes('*') ? '' : student.value.idCardNo,
-        birthDate: student.value.birthDate,
-        identityType: student.value.identityType,
-        sourceProvince: student.value.sourceProvince || null,
-        sourceCity: student.value.sourceCity || null,
-        sourceCounty: student.value.sourceCounty || null,
-        sourceFull: student.value.sourceFull || '',
-        collegeId: student.value.collegeId,
-        grade: student.value.grade || '',
-        className: student.value.className || ''
-      })
-    }
+    if (student.value) fillForm(student.value)
+  } catch (error) {
+    showError(error, '本人信息加载失败')
   } finally {
     loading.value = false
   }
@@ -85,26 +76,55 @@ async function loadOptions() {
   identityTypes.value = identityRes.data
 }
 
+function fillForm(row: Student) {
+  Object.assign(form, {
+    studentNo: row.studentNo,
+    name: row.name,
+    gender: row.gender,
+    idCardType: row.idCardType,
+    idCardNo: row.idCardNo.includes('*') ? '' : row.idCardNo,
+    birthDate: row.birthDate,
+    identityType: row.identityType,
+    sourceProvince: row.sourceProvince || null,
+    sourceCity: row.sourceCity || null,
+    sourceCounty: row.sourceCounty || null,
+    sourceFull: row.sourceFull || '',
+    collegeId: row.collegeId,
+    grade: row.grade || '',
+    className: row.className || ''
+  })
+}
+
 async function save() {
+  if (locked.value) return
   await formRef.value?.validate()
   saving.value = true
   try {
     await confirmStudent(form)
-    message.success('已保存')
+    message.success('本人信息已保存')
     await load()
+  } catch (error) {
+    showError(error, '保存失败')
   } finally {
     saving.value = false
   }
 }
 
 async function submit() {
-  if (!student.value) return
-  await submitStudent(student.value.id)
-  message.success('已提交')
-  await load()
+  if (!student.value || locked.value) return
+  submitting.value = true
+  try {
+    await submitStudent(student.value.id)
+    message.success('已提交审核')
+    await load()
+  } catch (error) {
+    showError(error, '提交失败')
+  } finally {
+    submitting.value = false
+  }
 }
 
-function handleRegionChange(payload: { codes: string[]; fullName: string } | null) {
+function handleRegionChange(payload: RegionSelection | null) {
   form.sourceProvince = payload?.codes[0] || null
   form.sourceCity = payload?.codes[1] || null
   form.sourceCounty = payload?.codes[2] || null
@@ -115,6 +135,15 @@ function dictOptions(items: DictItem[]): SelectOption[] {
   return items.map((item) => ({ label: item.itemValue, value: item.itemCode }))
 }
 
+function dictLabel(items: DictItem[], code?: string | null) {
+  return items.find((item) => item.itemCode === code)?.itemValue || code || '-'
+}
+
+function showError(error: unknown, fallback: string) {
+  const detail = error instanceof Error ? error.message : fallback
+  message.error(detail || fallback)
+}
+
 onMounted(async () => {
   await loadOptions()
   await load()
@@ -122,38 +151,88 @@ onMounted(async () => {
 </script>
 
 <template>
-  <n-spin :show="loading">
-    <n-space vertical size="large">
-      <n-space align="center">
-        <n-h2 style="margin: 0">本人基本信息</n-h2>
-        <n-tag v-if="student" :type="student.status === 'PASSED' ? 'success' : 'info'" bordered="false">{{ student.statusLabel }}</n-tag>
-        <n-tag v-if="locked" type="warning" bordered="false">关键字段已锁定</n-tag>
-      </n-space>
-
-      <n-alert v-if="student?.firstReviewComment || student?.secondReviewComment" type="warning">
-        {{ student.firstReviewComment || student.secondReviewComment }}
-      </n-alert>
-
-      <n-form ref="formRef" :model="form" :rules="rules" label-placement="top" style="max-width: 880px">
-        <n-grid :cols="2" :x-gap="16">
-          <n-form-item-gi label="学号" path="studentNo"><n-input v-model:value="form.studentNo" disabled /></n-form-item-gi>
-          <n-form-item-gi label="姓名" path="name"><n-input v-model:value="form.name" :disabled="locked" /></n-form-item-gi>
-          <n-form-item-gi label="性别" path="gender"><n-select v-model:value="form.gender" :options="genderOptions" /></n-form-item-gi>
-          <n-form-item-gi label="身份类型" path="identityType"><n-select v-model:value="form.identityType" :options="identityTypeOptions" :disabled="locked" /></n-form-item-gi>
-          <n-form-item-gi label="证件类型" path="idCardType"><n-select v-model:value="form.idCardType" :options="idCardTypeOptions" :disabled="locked" /></n-form-item-gi>
-          <n-form-item-gi label="证件号码" path="idCardNo"><n-input v-model:value="form.idCardNo" :disabled="locked" /></n-form-item-gi>
-          <n-form-item-gi label="出生日期" path="birthDate"><n-input v-model:value="form.birthDate" :disabled="locked" /></n-form-item-gi>
-          <n-form-item-gi label="班级"><n-input v-model:value="form.className" /></n-form-item-gi>
-        </n-grid>
-        <n-form-item label="生源地">
-          <RegionCascader :value="form.sourceCounty" @change="handleRegionChange" />
-        </n-form-item>
-      </n-form>
-
+  <PageContainer title="本人基本信息" description="学生自助核对证件、身份类型与生源地信息；证书生成后关键字段进入锁定态。">
+    <template #actions>
       <n-space>
-        <n-button type="primary" :loading="saving" :disabled="locked" @click="save">保存确认</n-button>
-        <n-button :disabled="!student || locked" @click="submit">提交审核</n-button>
+        <n-button secondary @click="load">刷新</n-button>
+        <n-button :disabled="!canSubmit" :loading="submitting" @click="submit">提交审核</n-button>
+        <n-button type="primary" :disabled="locked" :loading="saving" @click="save">保存确认</n-button>
       </n-space>
-    </n-space>
-  </n-spin>
+    </template>
+
+    <n-spin :show="loading">
+      <n-space vertical size="large">
+        <n-card :bordered="false" size="small" class="page-section">
+          <n-space align="center" :size="10" wrap>
+            <StatusTag :text="statusText" />
+            <StatusTag v-if="locked" text="已锁定" />
+            <span v-if="student" class="mono">{{ student.studentNo }}</span>
+            <span v-if="student">{{ student.name }}</span>
+          </n-space>
+        </n-card>
+
+        <n-alert v-if="locked" type="warning" :bordered="false">
+          证书生成后姓名、证件号、身份类型等关键字段已锁定，需走受控更正流程。
+        </n-alert>
+
+        <n-alert v-if="reviewComment" type="warning" :bordered="false">
+          {{ reviewComment }}
+        </n-alert>
+
+        <n-empty v-if="!student && !loading" description="尚未读取到本人学生档案" />
+
+        <n-card v-else :bordered="false" class="page-section">
+          <n-form ref="formRef" :model="form" :rules="rules" label-placement="top">
+            <n-grid :cols="2" :x-gap="16" responsive="screen">
+              <n-form-item-gi label="学号" path="studentNo">
+                <n-input v-model:value="form.studentNo" disabled class="mono-input" />
+              </n-form-item-gi>
+              <n-form-item-gi label="姓名" path="name">
+                <n-input v-model:value="form.name" :disabled="locked" />
+              </n-form-item-gi>
+              <n-form-item-gi label="性别" path="gender">
+                <n-select v-model:value="form.gender" :options="genderOptions" :disabled="locked" />
+              </n-form-item-gi>
+              <n-form-item-gi label="身份类型" path="identityType">
+                <n-select v-model:value="form.identityType" :options="identityTypeOptions" :disabled="locked" />
+              </n-form-item-gi>
+              <n-form-item-gi label="证件类型" path="idCardType">
+                <n-select v-model:value="form.idCardType" :options="idCardTypeOptions" :disabled="locked" />
+              </n-form-item-gi>
+              <n-form-item-gi label="证件号码" path="idCardNo">
+                <n-input v-model:value="form.idCardNo" :disabled="locked" class="mono-input" />
+              </n-form-item-gi>
+              <n-form-item-gi label="出生日期" path="birthDate">
+                <n-input v-model:value="form.birthDate" :disabled="locked" placeholder="2000/12/31" class="mono-input" />
+              </n-form-item-gi>
+              <n-form-item-gi label="班级">
+                <n-input v-model:value="form.className" :disabled="locked" />
+              </n-form-item-gi>
+              <n-form-item-gi label="生源地">
+                <RegionCascader :value="form.sourceCounty" :disabled="locked" @change="handleRegionChange" />
+              </n-form-item-gi>
+              <n-form-item-gi label="生源地文本">
+                <n-input :value="form.sourceFull || '-'" disabled />
+              </n-form-item-gi>
+            </n-grid>
+          </n-form>
+
+          <n-divider />
+
+          <n-descriptions :column="2" size="small" bordered>
+            <n-descriptions-item label="性别">{{ dictLabel(genders, form.gender) }}</n-descriptions-item>
+            <n-descriptions-item label="证件类型">{{ dictLabel(idCardTypes, form.idCardType) }}</n-descriptions-item>
+            <n-descriptions-item label="身份类型">{{ dictLabel(identityTypes, form.identityType) }}</n-descriptions-item>
+            <n-descriptions-item label="年级/班级">{{ [form.grade, form.className].filter(Boolean).join(' / ') || '-' }}</n-descriptions-item>
+          </n-descriptions>
+        </n-card>
+      </n-space>
+    </n-spin>
+  </PageContainer>
 </template>
+
+<style scoped>
+.mono-input :deep(input) {
+  font-family: var(--font-mono);
+}
+</style>

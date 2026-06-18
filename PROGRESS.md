@@ -5,10 +5,10 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**Phase 19 / 前端重建·基座与设计系统 ✅ 已复核（Claude 06-18，PASS·一轮）**；下一步 Phase 20(前端·基础数据/学生/培养)。Phase 0~14 ✅，T-115 ✅，WP-A/B/C/D ✅。
+- 当前阶段：**Phase 20 / 前端重建·基础数据/学生/培养：待复核**（分支：`feature/phase20-base-student-training`）。Phase 0~14 ✅，T-115 ✅，WP-A/B/C/D ✅，Phase 19 ✅。
 - 阻塞项：无
-- 最近更新：2026-06-18（Phase 19 复核通过：前瞻版外壳/设计系统(PageContainer/StatusTag/ChartBox/StatCard/.mono/主题) + 真实登录(captcha/login/首登改密) + 按 perms 菜单且**空壳父菜单已修**；api/stores/后端未改；type-check + build 绿；详见 docs/reviews/phase-19-review.md）
-- 下一步：Phase 20(前端·基础数据/学生/培养)——逐域接真实 API 重建页面（性别枚举下拉、培养目标↔学段↔学科联动）
+- 最近更新：2026-06-18（完成 Phase 20：基础数据/学生/本人信息/专业培养页面重建，前端 type-check/build 通过）
+- 下一步：等待 Claude 复核 Phase 20，未自行置 ✅
 
 ## 阶段汇总
 | Phase | 名称 | 优先级 | 任务数 | 完成 | 状态 |
@@ -240,6 +240,14 @@
 - [x] T-135 登录与鉴权：登录页改为前瞻版品牌分栏视觉，但仍走真实 `/auth/captcha`、`/auth/login` 与首登 `/auth/change-pwd`；路由守卫继续按权限点判断。
 - [x] T-136 按权限菜单：采用前瞻版分组导航视觉，过滤按 `perms`，父菜单在可见子项为 0 时隐藏，解决“基础数据/系统管理”空壳问题。
 - [x] T-137 既有业务页过渡与 build-only：现有业务路由/视图在新外壳下保持可用；`npm --prefix frontend run type-check` 通过；`npm --prefix frontend run build` 通过（仅既有 Vite chunk-size 警告）。
+
+## 收官后 · Phase 20 / 前端重建·基础数据/学生/培养
+- Phase 20 / WP-F-2 `前端重建·基础数据/学生/培养`：**待复核**（分支：`feature/phase20-base-student-training`）。重建基础数据四页、学生基本信息、学生本人信息、专业培养信息，继续沿用生产真实 API 与 `stores/user` 权限点判断；未改后端、迁移、API 契约或后端 IT。`npm --prefix frontend run type-check` 通过；`npm --prefix frontend run build` 通过（仅既有 Vite chunk-size 警告）。等待 Claude 复核，未自行置 ✅。
+- [x] T-138 基础数据页：字典/区划/学科库/组织与专业改为新设计系统主从布局，接真实 `dict/region/subject/organization` API；新增/编辑/删除按 `dict:manage`、`subject:import`、`college:manage`、`major:manage` 显隐，教务员无 manage 权时无新增专业入口。
+- [x] T-139 学生基本信息：列表支持关键词、状态、学院与学年/年级/班级筛选，提供详情、编辑、提交、初审、复审；动作按 `student:edit`、`info:firstReview`、`info:secondReview` 显隐，性别/证件类型/身份类型从字典下拉。
+- [x] T-140 学生本人信息：自助确认页改用 `PageContainer/StatusTag/.mono`，保存与提交继续走真实 `confirmStudent/submitStudent`；`locked=1` 时表单只读并提示证书生成后锁定态。
+- [x] T-141 专业培养信息：列表支持关键词、状态、考核年度、学院、学段筛选，提供详情、编辑、提交、初审、复审；培养目标通过 `/training/options` 限制实习地点和任教学段，任教学科复用 `SubjectSelect` 且不可自由填。
+- [x] T-142 字段规范对齐：性别、身份证件类型、身份类型、学历层次、专业培养目标、实习组织方式、实习地点、任教学段、面试组织方式等均从字典或后端联动接口取值；前端 type-check/build 通过。
 
 ---
 

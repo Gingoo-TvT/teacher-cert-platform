@@ -7,12 +7,13 @@ import {
   NPopconfirm,
   NSpace,
   NSwitch,
-  NTag,
   useMessage,
   type DataTableColumns,
   type FormInst,
   type FormRules
 } from 'naive-ui'
+import PageContainer from '@/components/PageContainer.vue'
+import StatusTag from '@/components/StatusTag.vue'
 import {
   createDictItem,
   createDictType,
@@ -27,8 +28,10 @@ import {
   type DictType,
   type DictTypePayload
 } from '@/api/dict'
+import { useUserStore } from '@/stores/user'
 
 const message = useMessage()
+const userStore = useUserStore()
 
 const typeLoading = ref(false)
 const itemLoading = ref(false)
@@ -44,6 +47,25 @@ const editingItemId = ref<string | null>(null)
 const selectedTypeCode = ref('')
 const dictTypes = ref<DictType[]>([])
 const dictItems = ref<DictItem[]>([])
+
+interface DictTypeFormState {
+  typeCode: string
+  typeName: string
+  description: string
+  sort: number
+  status: number
+}
+
+interface DictItemFormState {
+  typeCode: string
+  itemCode: string
+  itemValue: string
+  parentCode: string
+  sort: number
+  status: number
+  yearVersion: string
+  extJson: string
+}
 
 const typeForm = reactive<DictTypeFormState>({
   typeCode: '',
@@ -67,11 +89,7 @@ const itemForm = reactive<DictItemFormState>({
 const typeRules: FormRules = {
   typeCode: [
     { required: true, message: '请输入字典类型编码', trigger: ['blur', 'input'] },
-    {
-      pattern: /^[A-Za-z0-9_]+$/,
-      message: '仅支持英文、数字、下划线',
-      trigger: ['blur', 'input']
-    }
+    { pattern: /^[A-Za-z0-9_]+$/, message: '仅支持英文、数字、下划线', trigger: ['blur', 'input'] }
   ],
   typeName: [{ required: true, message: '请输入字典类型名称', trigger: ['blur', 'input'] }]
 }
@@ -83,7 +101,7 @@ const itemRules: FormRules = {
   extJson: [
     {
       validator: (_rule, value: string | null | undefined) => {
-        if (!value || !value.trim()) return true
+        if (!value?.trim()) return true
         try {
           JSON.parse(value)
           return true
@@ -95,6 +113,8 @@ const itemRules: FormRules = {
     }
   ]
 }
+
+const canManage = computed(() => userStore.hasPerm('dict:manage'))
 
 const filteredTypes = computed(() => {
   const keyword = typeKeyword.value.trim().toLowerCase()
@@ -116,59 +136,65 @@ const filteredItems = computed(() => {
 
 const selectedType = computed(() => dictTypes.value.find((item) => item.typeCode === selectedTypeCode.value) || null)
 
-interface DictTypeFormState {
-  typeCode: string
-  typeName: string
-  description: string
-  sort: number
-  status: number
-}
-
-interface DictItemFormState {
-  typeCode: string
-  itemCode: string
-  itemValue: string
-  parentCode: string
-  sort: number
-  status: number
-  yearVersion: string
-  extJson: string
-}
-
-const statusTag = (status: number) =>
-  h(
-    NTag,
-    { size: 'small', type: status === 1 ? 'success' : 'default', bordered: false },
-    { default: () => (status === 1 ? '启用' : '停用') }
-  )
-
-const typeColumns: DataTableColumns<DictType> = [
-  { title: '类型编码', key: 'typeCode', minWidth: 170, ellipsis: { tooltip: true } },
-  { title: '类型名称', key: 'typeName', minWidth: 160, ellipsis: { tooltip: true } },
-  { title: '排序', key: 'sort', width: 72 },
-  { title: '状态', key: 'status', width: 82, render: (row) => statusTag(row.status) },
-  {
-    title: '操作',
-    key: 'actions',
-    width: 154,
-    render: (row) =>
-      h(NSpace, { size: 8 }, () => [
-        h(
-          NButton,
-          { size: 'small', quaternary: true, type: 'primary', onClick: () => openTypeDrawer(row) },
-          { default: () => '编辑' }
-        ),
-        h(
-          NPopconfirm,
-          { onPositiveClick: () => removeType(row) },
-          {
-            trigger: () => h(NButton, { size: 'small', quaternary: true, type: 'error' }, { default: () => '删除' }),
-            default: () => '删除字典类型会由后端校验是否存在字典项。'
-          }
-        )
-      ])
+const typeColumns = computed<DataTableColumns<DictType>>(() => {
+  const columns: DataTableColumns<DictType> = [
+    { title: '类型编码', key: 'typeCode', minWidth: 170, ellipsis: { tooltip: true }, render: (row) => h('span', { class: 'mono' }, row.typeCode) },
+    { title: '类型名称', key: 'typeName', minWidth: 150, ellipsis: { tooltip: true } },
+    { title: '排序', key: 'sort', width: 72 },
+    { title: '状态', key: 'status', width: 82, render: (row) => h(StatusTag, { text: row.status === 1 ? '启用' : '停用' }) }
+  ]
+  if (canManage.value) {
+    columns.push({
+      title: '操作',
+      key: 'actions',
+      width: 146,
+      render: (row) =>
+        h(NSpace, { size: 6 }, () => [
+          h(NButton, { size: 'small', quaternary: true, type: 'primary', onClick: () => openTypeDrawer(row) }, { default: () => '编辑' }),
+          h(
+            NPopconfirm,
+            { onPositiveClick: () => removeType(row) },
+            {
+              trigger: () => h(NButton, { size: 'small', quaternary: true, type: 'error' }, { default: () => '删除' }),
+              default: () => '删除字典类型会由后端校验是否存在字典项。'
+            }
+          )
+        ])
+    })
   }
-]
+  return columns
+})
+
+const itemColumns = computed<DataTableColumns<DictItem>>(() => {
+  const columns: DataTableColumns<DictItem> = [
+    { title: '项编码', key: 'itemCode', minWidth: 160, ellipsis: { tooltip: true }, render: (row) => h('span', { class: 'mono' }, row.itemCode) },
+    { title: '项值', key: 'itemValue', minWidth: 190, ellipsis: { tooltip: true } },
+    { title: '父级编码', key: 'parentCode', minWidth: 130, ellipsis: { tooltip: true }, render: (row) => row.parentCode ? h('span', { class: 'mono' }, row.parentCode) : '-' },
+    { title: '年度', key: 'yearVersion', width: 104, render: (row) => h('span', { class: 'mono' }, row.yearVersion) },
+    { title: '排序', key: 'sort', width: 72 },
+    { title: '状态', key: 'status', width: 82, render: (row) => h(StatusTag, { text: row.status === 1 ? '启用' : '停用' }) }
+  ]
+  if (canManage.value) {
+    columns.push({
+      title: '操作',
+      key: 'actions',
+      width: 146,
+      render: (row) =>
+        h(NSpace, { size: 6 }, () => [
+          h(NButton, { size: 'small', quaternary: true, type: 'primary', onClick: () => openItemDrawer(row) }, { default: () => '编辑' }),
+          h(
+            NPopconfirm,
+            { onPositiveClick: () => removeItem(row) },
+            {
+              trigger: () => h(NButton, { size: 'small', quaternary: true, type: 'error' }, { default: () => '删除' }),
+              default: () => '确认删除该字典项？'
+            }
+          )
+        ])
+    })
+  }
+  return columns
+})
 
 function typeRowProps(row: DictType) {
   return {
@@ -177,48 +203,16 @@ function typeRowProps(row: DictType) {
   }
 }
 
-const itemColumns: DataTableColumns<DictItem> = [
-  { title: '项编码', key: 'itemCode', minWidth: 170, ellipsis: { tooltip: true } },
-  { title: '项值', key: 'itemValue', minWidth: 190, ellipsis: { tooltip: true } },
-  { title: '父级编码', key: 'parentCode', minWidth: 130, ellipsis: { tooltip: true } },
-  { title: '年度', key: 'yearVersion', width: 104 },
-  { title: '排序', key: 'sort', width: 72 },
-  { title: '状态', key: 'status', width: 82, render: (row) => statusTag(row.status) },
-  {
-    title: '操作',
-    key: 'actions',
-    width: 154,
-    render: (row) =>
-      h(NSpace, { size: 8 }, () => [
-        h(
-          NButton,
-          { size: 'small', quaternary: true, type: 'primary', onClick: () => openItemDrawer(row) },
-          { default: () => '编辑' }
-        ),
-        h(
-          NPopconfirm,
-          { onPositiveClick: () => removeItem(row) },
-          {
-            trigger: () => h(NButton, { size: 'small', quaternary: true, type: 'error' }, { default: () => '删除' }),
-            default: () => '确认删除该字典项？'
-          }
-        )
-      ])
-  }
-]
-
 async function loadTypes() {
   typeLoading.value = true
   try {
     const res = await listDictTypes()
     dictTypes.value = [...res.data].sort((a, b) => (a.sort || 0) - (b.sort || 0) || a.typeCode.localeCompare(b.typeCode))
-    if (!selectedTypeCode.value && dictTypes.value.length > 0) {
-      selectedTypeCode.value = dictTypes.value[0].typeCode
-    }
+    if (!selectedTypeCode.value && dictTypes.value.length > 0) selectedTypeCode.value = dictTypes.value[0].typeCode
     if (selectedTypeCode.value && !dictTypes.value.some((item) => item.typeCode === selectedTypeCode.value)) {
       selectedTypeCode.value = dictTypes.value[0]?.typeCode || ''
     }
-    if (selectedTypeCode.value) await loadItems(selectedTypeCode.value)
+    await loadItems()
   } catch (error) {
     showError(error, '字典类型加载失败')
   } finally {
@@ -234,9 +228,7 @@ async function loadItems(typeCode = selectedTypeCode.value) {
   itemLoading.value = true
   try {
     const res = await listDictItems(typeCode, false)
-    dictItems.value = [...res.data].sort(
-      (a, b) => (a.sort || 0) - (b.sort || 0) || a.itemCode.localeCompare(b.itemCode)
-    )
+    dictItems.value = [...res.data].sort((a, b) => (a.sort || 0) - (b.sort || 0) || a.itemCode.localeCompare(b.itemCode))
   } catch (error) {
     showError(error, '字典项加载失败')
   } finally {
@@ -311,11 +303,8 @@ async function saveType() {
       sort: typeForm.sort ?? 0,
       status: typeForm.status ?? 1
     }
-    if (editingTypeId.value) {
-      await updateDictType(editingTypeId.value, payload)
-    } else {
-      await createDictType(payload)
-    }
+    if (editingTypeId.value) await updateDictType(editingTypeId.value, payload)
+    else await createDictType(payload)
     message.success('字典类型已保存')
     typeDrawerVisible.value = false
     selectedTypeCode.value = payload.typeCode
@@ -341,11 +330,8 @@ async function saveItem() {
       yearVersion: cleanOptional(itemForm.yearVersion) || 'GLOBAL',
       extJson: cleanOptional(itemForm.extJson)
     }
-    if (editingItemId.value) {
-      await updateDictItem(editingItemId.value, payload)
-    } else {
-      await createDictItem(payload)
-    }
+    if (editingItemId.value) await updateDictItem(editingItemId.value, payload)
+    else await createDictItem(payload)
     message.success('字典项已保存')
     itemDrawerVisible.value = false
     await loadItems(payload.typeCode)
@@ -391,42 +377,41 @@ onMounted(loadTypes)
 </script>
 
 <template>
-  <n-space vertical :size="16" class="dict-page">
-    <div class="page-head">
-      <div>
-        <n-h2 class="page-title">字典管理</n-h2>
-      </div>
-      <n-button type="primary" @click="openTypeDrawer()">新增类型</n-button>
-    </div>
+  <PageContainer title="数据字典" description="标准字段枚举的唯一来源。管理动作按 dict:manage 显隐，无权限账号保持只读浏览。">
+    <template #actions>
+      <n-space>
+        <n-button secondary @click="loadTypes">刷新</n-button>
+        <n-button v-if="canManage" type="primary" @click="openTypeDrawer()">新增类型</n-button>
+      </n-space>
+    </template>
 
-    <div class="dict-layout">
-      <section class="dict-panel dict-types">
+    <div class="master-detail-grid">
+      <section class="page-section">
         <div class="panel-toolbar">
           <n-input v-model:value="typeKeyword" clearable placeholder="搜索类型编码或名称" />
-          <n-button secondary @click="loadTypes">刷新</n-button>
         </div>
         <n-data-table
           :columns="typeColumns"
           :data="filteredTypes"
           :loading="typeLoading"
           :row-key="(row: DictType) => row.id"
+          :row-props="typeRowProps"
           size="small"
           striped
-          :max-height="560"
-          :row-props="typeRowProps"
+          :max-height="620"
         />
       </section>
 
-      <section class="dict-panel dict-items">
-        <div class="panel-toolbar">
-          <div class="selected-title">
+      <section class="page-section">
+        <div class="detail-head">
+          <div>
             <strong>{{ selectedType?.typeName || '未选择类型' }}</strong>
-            <n-text depth="3">{{ selectedTypeCode || '请选择左侧字典类型' }}</n-text>
+            <span class="muted mono">{{ selectedTypeCode || '请选择左侧字典类型' }}</span>
           </div>
           <n-space>
-            <n-input v-model:value="itemKeyword" clearable placeholder="搜索字典项" />
-            <n-button secondary :disabled="!selectedTypeCode" @click="loadItems()">刷新</n-button>
-            <n-button type="primary" :disabled="!selectedTypeCode" @click="openItemDrawer()">新增项</n-button>
+            <n-input v-model:value="itemKeyword" clearable placeholder="搜索字典项" style="width: 220px" />
+            <n-button secondary :disabled="!selectedTypeCode" @click="loadItems()">刷新项</n-button>
+            <n-button v-if="canManage" type="primary" :disabled="!selectedTypeCode" @click="openItemDrawer()">新增项</n-button>
           </n-space>
         </div>
         <n-data-table
@@ -436,7 +421,7 @@ onMounted(loadTypes)
           :row-key="(row: DictItem) => row.id"
           size="small"
           striped
-          :max-height="560"
+          :max-height="620"
         />
       </section>
     </div>
@@ -511,34 +496,18 @@ onMounted(loadTypes)
         </template>
       </n-drawer-content>
     </n-drawer>
-  </n-space>
+  </PageContainer>
 </template>
 
 <style scoped>
-.dict-page {
-  min-width: 960px;
-}
-
-.page-head,
-.panel-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.page-title {
-  margin: 0 0 4px;
-}
-
-.dict-layout {
+.master-detail-grid {
   display: grid;
-  grid-template-columns: minmax(420px, 0.9fr) minmax(520px, 1.1fr);
+  grid-template-columns: minmax(340px, 0.8fr) minmax(560px, 1.2fr);
   gap: 16px;
   align-items: start;
 }
 
-.dict-panel {
+.page-section {
   min-width: 0;
 }
 
@@ -546,10 +515,17 @@ onMounted(loadTypes)
   margin-bottom: 12px;
 }
 
-.selected-title {
+.detail-head {
   display: flex;
-  flex-direction: column;
-  min-width: 180px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.detail-head strong,
+.detail-head span {
+  display: block;
 }
 
 .form-grid {
@@ -562,17 +538,12 @@ onMounted(loadTypes)
   background: #eef5ff;
 }
 
-@media (max-width: 1100px) {
-  .dict-page {
-    min-width: 0;
-  }
-
-  .dict-layout {
+@media (max-width: 1180px) {
+  .master-detail-grid {
     grid-template-columns: 1fr;
   }
 
-  .page-head,
-  .panel-toolbar {
+  .detail-head {
     align-items: stretch;
     flex-direction: column;
   }

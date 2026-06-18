@@ -7,13 +7,14 @@ import {
   NPopconfirm,
   NSpace,
   NSwitch,
-  NTag,
   useMessage,
   type DataTableColumns,
   type FormInst,
   type FormRules,
   type SelectOption
 } from 'naive-ui'
+import PageContainer from '@/components/PageContainer.vue'
+import StatusTag from '@/components/StatusTag.vue'
 import { listDictItems, type DictItem } from '@/api/dict'
 import {
   createCollege,
@@ -34,8 +35,10 @@ import {
   type TrainingGoalConfig,
   type TrainingGoalConfigPayload
 } from '@/api/organization'
+import { useUserStore } from '@/stores/user'
 
 const message = useMessage()
+const userStore = useUserStore()
 
 const collegeLoading = ref(false)
 const majorLoading = ref(false)
@@ -99,12 +102,7 @@ interface ConfigFormState {
   status: number
 }
 
-const collegeForm = reactive<CollegeFormState>({
-  code: '',
-  name: '',
-  sort: 0,
-  status: 1
-})
+const collegeForm = reactive<CollegeFormState>({ code: '', name: '', sort: 0, status: 1 })
 
 const majorForm = reactive<MajorFormState>({
   collegeId: null,
@@ -118,9 +116,7 @@ const majorForm = reactive<MajorFormState>({
   status: 1
 })
 
-const goalForm = reactive<GoalFormState>({
-  trainingGoalCodes: []
-})
+const goalForm = reactive<GoalFormState>({ trainingGoalCodes: [] })
 
 const configForm = reactive<ConfigFormState>({
   trainingGoalCode: null,
@@ -152,28 +148,19 @@ const configRules: FormRules = {
   defaultSegment: [{ required: true, message: '请选择默认任教学段', trigger: ['change'] }],
   allowedSegments: [{ type: 'array', required: true, min: 1, message: '请选择允许任教学段', trigger: ['change'] }],
   defaultInternshipLocation: [{ required: true, message: '请选择默认实习地点', trigger: ['change'] }],
-  allowedInternshipLocations: [
-    { type: 'array', required: true, min: 1, message: '请选择允许实习地点', trigger: ['change'] }
-  ]
+  allowedInternshipLocations: [{ type: 'array', required: true, min: 1, message: '请选择允许实习地点', trigger: ['change'] }]
 }
 
+const canManageCollege = computed(() => userStore.hasPerm('college:manage'))
+const canManageMajor = computed(() => userStore.hasPerm('major:manage'))
+
 const collegeOptions = computed<SelectOption[]>(() =>
-  colleges.value
-    .filter((item) => item.status === 1)
-    .map((item) => ({ label: item.name, value: item.id }))
+  colleges.value.filter((item) => item.status === 1).map((item) => ({ label: item.name, value: item.id }))
 )
 
-const trainingGoalOptions = computed<SelectOption[]>(() =>
-  trainingGoals.value.map((item) => ({ label: item.itemValue, value: item.itemCode }))
-)
-
-const segmentOptions = computed<SelectOption[]>(() =>
-  teachingSegments.value.map((item) => ({ label: item.itemValue, value: item.itemCode }))
-)
-
-const internshipLocationOptions = computed<SelectOption[]>(() =>
-  internshipLocations.value.map((item) => ({ label: item.itemValue, value: item.itemCode }))
-)
+const trainingGoalOptions = computed<SelectOption[]>(() => trainingGoals.value.map((item) => ({ label: item.itemValue, value: item.itemCode })))
+const segmentOptions = computed<SelectOption[]>(() => teachingSegments.value.map((item) => ({ label: item.itemValue, value: item.itemCode })))
+const internshipLocationOptions = computed<SelectOption[]>(() => internshipLocations.value.map((item) => ({ label: item.itemValue, value: item.itemCode })))
 
 const schoolText = computed(() => {
   const school = schoolItems.value[0]
@@ -181,114 +168,95 @@ const schoolText = computed(() => {
 })
 
 const selectedCollege = computed(() => colleges.value.find((item) => item.id === selectedCollegeId.value) || null)
-const canCreateMajor = computed(() => selectedCollege.value?.status === 1)
+const canCreateMajor = computed(() => canManageMajor.value && selectedCollege.value?.status === 1)
 const selectedMajor = computed(() => majors.value.find((item) => item.id === selectedMajorId.value) || null)
 
-const collegeColumns: DataTableColumns<College> = [
-  { title: '学院编码', key: 'code', minWidth: 130, ellipsis: { tooltip: true } },
-  { title: '学院名称', key: 'name', minWidth: 160, ellipsis: { tooltip: true } },
-  { title: '排序', key: 'sort', width: 72 },
-  { title: '状态', key: 'status', width: 82, render: (row) => statusTag(row.status) },
-  {
-    title: '操作',
-    key: 'actions',
-    width: 154,
-    render: (row) =>
-      h(NSpace, { size: 8 }, () => [
-        h(
-          NButton,
-          { size: 'small', quaternary: true, type: 'primary', onClick: () => openCollegeDrawer(row) },
-          { default: () => '编辑' }
-        ),
-        h(
-          NPopconfirm,
-          { onPositiveClick: () => removeCollege(row) },
-          {
-            trigger: () => h(NButton, { size: 'small', quaternary: true, type: 'error' }, { default: () => '删除' }),
-            default: () => '删除学院会由后端校验是否存在专业。'
-          }
-        )
-      ])
+const collegeColumns = computed<DataTableColumns<College>>(() => {
+  const columns: DataTableColumns<College> = [
+    { title: '学院编码', key: 'code', minWidth: 130, ellipsis: { tooltip: true }, render: (row) => h('span', { class: 'mono' }, row.code) },
+    { title: '学院名称', key: 'name', minWidth: 160, ellipsis: { tooltip: true } },
+    { title: '排序', key: 'sort', width: 72 },
+    { title: '状态', key: 'status', width: 82, render: (row) => h(StatusTag, { text: row.status === 1 ? '启用' : '停用' }) }
+  ]
+  if (canManageCollege.value) {
+    columns.push({
+      title: '操作',
+      key: 'actions',
+      width: 146,
+      render: (row) =>
+        h(NSpace, { size: 6 }, () => [
+          h(NButton, { size: 'small', quaternary: true, type: 'primary', onClick: () => openCollegeDrawer(row) }, { default: () => '编辑' }),
+          h(
+            NPopconfirm,
+            { onPositiveClick: () => removeCollege(row) },
+            {
+              trigger: () => h(NButton, { size: 'small', quaternary: true, type: 'error' }, { default: () => '删除' }),
+              default: () => '删除学院会由后端校验是否存在专业。'
+            }
+          )
+        ])
+    })
   }
-]
+  return columns
+})
 
-const majorColumns: DataTableColumns<Major> = [
-  { title: '专业代码', key: 'internalMajorCode', minWidth: 140, ellipsis: { tooltip: true } },
-  { title: '专业名称', key: 'internalMajorName', minWidth: 170, ellipsis: { tooltip: true } },
-  { title: '学院', key: 'collegeName', minWidth: 150, ellipsis: { tooltip: true } },
-  { title: '年度', key: 'yearVersion', width: 96 },
-  {
-    title: '试点',
-    key: 'pilotScopeFlag',
-    width: 80,
-    render: (row) =>
-      h(
-        NTag,
-        { size: 'small', type: row.pilotScopeFlag === 1 ? 'success' : 'default', bordered: false },
-        { default: () => (row.pilotScopeFlag === 1 ? '是' : '否') }
-      )
-  },
-  {
-    title: '培养目标',
-    key: 'trainingGoals',
-    minWidth: 220,
-    render: (row) =>
-      h(NSpace, { size: 6 }, () =>
-        row.trainingGoals.map((goal) =>
-          h(NTag, { key: goal.code, size: 'small', bordered: false }, { default: () => goal.name })
-        )
-      )
-  },
-  { title: '状态', key: 'status', width: 82, render: (row) => statusTag(row.status) },
-  {
-    title: '操作',
-    key: 'actions',
-    width: 232,
-    render: (row) =>
-      h(NSpace, { size: 6 }, () => [
-        h(NButton, { size: 'small', quaternary: true, type: 'primary', onClick: () => openMajorDrawer(row) }, { default: () => '编辑' }),
-        h(NButton, { size: 'small', quaternary: true, onClick: () => openGoalDrawer(row) }, { default: () => '目标' }),
-        h(
-          NPopconfirm,
-          { onPositiveClick: () => removeMajor(row) },
-          {
-            trigger: () => h(NButton, { size: 'small', quaternary: true, type: 'error' }, { default: () => '删除' }),
-            default: () => '确认删除该专业？'
-          }
-        )
-      ])
+const majorColumns = computed<DataTableColumns<Major>>(() => {
+  const columns: DataTableColumns<Major> = [
+    { title: '专业代码', key: 'internalMajorCode', minWidth: 140, ellipsis: { tooltip: true }, render: (row) => h('span', { class: 'mono' }, row.internalMajorCode) },
+    { title: '专业名称', key: 'internalMajorName', minWidth: 170, ellipsis: { tooltip: true } },
+    { title: '学院', key: 'collegeName', minWidth: 150, ellipsis: { tooltip: true } },
+    { title: '年度', key: 'yearVersion', width: 96, render: (row) => h('span', { class: 'mono' }, row.yearVersion) },
+    { title: '试点', key: 'pilotScopeFlag', width: 80, render: (row) => h(StatusTag, { text: row.pilotScopeFlag === 1 ? '是' : '否' }) },
+    {
+      title: '培养目标',
+      key: 'trainingGoals',
+      minWidth: 220,
+      render: (row) => h(NSpace, { size: 6 }, () => row.trainingGoals.map((goal) => h('span', { class: 'pill', key: goal.code }, goal.name)))
+    },
+    { title: '状态', key: 'status', width: 82, render: (row) => h(StatusTag, { text: row.status === 1 ? '启用' : '停用' }) }
+  ]
+  if (canManageMajor.value) {
+    columns.push({
+      title: '操作',
+      key: 'actions',
+      width: 220,
+      render: (row) =>
+        h(NSpace, { size: 6 }, () => [
+          h(NButton, { size: 'small', quaternary: true, type: 'primary', onClick: () => openMajorDrawer(row) }, { default: () => '编辑' }),
+          h(NButton, { size: 'small', quaternary: true, onClick: () => openGoalDrawer(row) }, { default: () => '目标' }),
+          h(
+            NPopconfirm,
+            { onPositiveClick: () => removeMajor(row) },
+            {
+              trigger: () => h(NButton, { size: 'small', quaternary: true, type: 'error' }, { default: () => '删除' }),
+              default: () => '确认删除该专业？'
+            }
+          )
+        ])
+    })
   }
-]
+  return columns
+})
 
-const configColumns: DataTableColumns<TrainingGoalConfig> = [
-  { title: '培养目标', key: 'trainingGoalName', minWidth: 150, ellipsis: { tooltip: true } },
-  { title: '默认学段', key: 'defaultSegmentName', minWidth: 130, ellipsis: { tooltip: true } },
-  {
-    title: '允许学段',
-    key: 'allowedSegments',
-    minWidth: 220,
-    render: (row) => renderCodeTags(row.allowedSegments, teachingSegments.value)
-  },
-  { title: '默认实习地点', key: 'defaultInternshipLocationName', minWidth: 160, ellipsis: { tooltip: true } },
-  {
-    title: '允许实习地点',
-    key: 'allowedInternshipLocations',
-    minWidth: 260,
-    render: (row) => renderCodeTags(row.allowedInternshipLocations, internshipLocations.value)
-  },
-  { title: '状态', key: 'status', width: 82, render: (row) => statusTag(row.status) },
-  {
-    title: '操作',
-    key: 'actions',
-    width: 92,
-    render: (row) =>
-      h(
-        NButton,
-        { size: 'small', quaternary: true, type: 'primary', onClick: () => openConfigDrawer(row) },
-        { default: () => '编辑' }
-      )
+const configColumns = computed<DataTableColumns<TrainingGoalConfig>>(() => {
+  const columns: DataTableColumns<TrainingGoalConfig> = [
+    { title: '培养目标', key: 'trainingGoalName', minWidth: 150, ellipsis: { tooltip: true } },
+    { title: '默认学段', key: 'defaultSegmentName', minWidth: 130, ellipsis: { tooltip: true } },
+    { title: '允许学段', key: 'allowedSegments', minWidth: 220, render: (row) => renderCodeTags(row.allowedSegments, teachingSegments.value) },
+    { title: '默认实习地点', key: 'defaultInternshipLocationName', minWidth: 160, ellipsis: { tooltip: true } },
+    { title: '允许实习地点', key: 'allowedInternshipLocations', minWidth: 260, render: (row) => renderCodeTags(row.allowedInternshipLocations, internshipLocations.value) },
+    { title: '状态', key: 'status', width: 82, render: (row) => h(StatusTag, { text: row.status === 1 ? '启用' : '停用' }) }
+  ]
+  if (canManageMajor.value) {
+    columns.push({
+      title: '操作',
+      key: 'actions',
+      width: 92,
+      render: (row) => h(NButton, { size: 'small', quaternary: true, type: 'primary', onClick: () => openConfigDrawer(row) }, { default: () => '编辑' })
+    })
   }
-]
+  return columns
+})
 
 function collegeRowProps(row: College) {
   return {
@@ -327,9 +295,7 @@ async function loadColleges() {
   try {
     const res = await listColleges(collegeKeyword.value, null)
     colleges.value = res.data
-    if (!selectedCollegeId.value && colleges.value.length > 0) {
-      selectedCollegeId.value = colleges.value[0].id
-    }
+    if (!selectedCollegeId.value && colleges.value.length > 0) selectedCollegeId.value = colleges.value[0].id
     if (selectedCollegeId.value && !colleges.value.some((item) => item.id === selectedCollegeId.value)) {
       selectedCollegeId.value = colleges.value[0]?.id || null
     }
@@ -351,9 +317,7 @@ async function loadMajors() {
       keyword: majorKeyword.value
     })
     majors.value = res.data
-    if (selectedMajorId.value && !majors.value.some((item) => item.id === selectedMajorId.value)) {
-      selectedMajorId.value = null
-    }
+    if (selectedMajorId.value && !majors.value.some((item) => item.id === selectedMajorId.value)) selectedMajorId.value = null
   } catch (error) {
     showError(error, '专业加载失败')
   } finally {
@@ -389,7 +353,7 @@ function openCollegeDrawer(row?: College) {
 
 function openMajorDrawer(row?: Major) {
   if (!row && !canCreateMajor.value) {
-    message.warning(selectedCollege.value ? '停用学院不能新增专业' : '请选择启用学院')
+    message.warning(selectedCollege.value ? '无权新增专业或学院已停用' : '请选择启用学院')
     return
   }
   editingMajorId.value = row?.id || null
@@ -420,8 +384,7 @@ function openConfigDrawer(row?: TrainingGoalConfig) {
   configForm.allowedSegments = [...(row?.allowedSegments || [])]
   configForm.defaultSegment = row?.defaultSegment || configForm.allowedSegments[0] || null
   configForm.allowedInternshipLocations = [...(row?.allowedInternshipLocations || [])]
-  configForm.defaultInternshipLocation =
-    row?.defaultInternshipLocation || configForm.allowedInternshipLocations[0] || null
+  configForm.defaultInternshipLocation = row?.defaultInternshipLocation || configForm.allowedInternshipLocations[0] || null
   configForm.status = row?.status ?? 1
   configDrawerVisible.value = true
 }
@@ -436,9 +399,8 @@ async function saveCollege() {
       sort: collegeForm.sort ?? 0,
       status: collegeForm.status ?? 1
     }
-    if (editingCollegeId.value) {
-      await updateCollege(editingCollegeId.value, payload)
-    } else {
+    if (editingCollegeId.value) await updateCollege(editingCollegeId.value, payload)
+    else {
       const res = await createCollege(payload)
       selectedCollegeId.value = res.data
     }
@@ -506,10 +468,7 @@ async function saveConfig() {
     message.error('默认任教学段必须包含在允许任教学段中')
     return
   }
-  if (
-    !configForm.defaultInternshipLocation ||
-    !configForm.allowedInternshipLocations.includes(configForm.defaultInternshipLocation)
-  ) {
+  if (!configForm.defaultInternshipLocation || !configForm.allowedInternshipLocations.includes(configForm.defaultInternshipLocation)) {
     message.error('默认实习地点必须包含在允许实习地点中')
     return
   }
@@ -556,20 +515,8 @@ async function removeMajor(row: Major) {
   }
 }
 
-function statusTag(status: number) {
-  return h(
-    NTag,
-    { size: 'small', type: status === 1 ? 'success' : 'default', bordered: false },
-    { default: () => (status === 1 ? '启用' : '停用') }
-  )
-}
-
 function renderCodeTags(codes: string[], dictItems: DictItem[]) {
-  return h(NSpace, { size: 6 }, () =>
-    codes.map((code) =>
-      h(NTag, { key: code, size: 'small', bordered: false }, { default: () => dictName(dictItems, code) })
-    )
-  )
+  return h(NSpace, { size: 6 }, () => codes.map((code) => h('span', { class: 'pill', key: code }, dictName(dictItems, code))))
 }
 
 function dictName(items: DictItem[], code: string) {
@@ -597,19 +544,19 @@ onMounted(async () => {
 </script>
 
 <template>
-  <n-space vertical :size="16" class="org-page">
-    <div class="page-head">
-      <div>
-        <n-h2 class="page-title">组织与专业</n-h2>
-        <n-text depth="3">学校：{{ schoolText }}</n-text>
-      </div>
-      <n-button type="primary" @click="openCollegeDrawer()">新增学院</n-button>
-    </div>
+  <PageContainer title="组织与专业" description="维护学校、学院、专业与培养目标联动配置。写操作按 college:manage / major:manage 显隐。">
+    <template #actions>
+      <n-space>
+        <n-tag :bordered="false">学校：{{ schoolText }}</n-tag>
+        <n-button secondary @click="refreshAll">刷新</n-button>
+        <n-button v-if="canManageCollege" type="primary" @click="openCollegeDrawer()">新增学院</n-button>
+      </n-space>
+    </template>
 
     <n-tabs type="line" animated>
       <n-tab-pane name="majors" tab="学院与专业">
         <div class="org-layout">
-          <section class="org-panel colleges">
+          <section class="page-section">
             <div class="panel-toolbar">
               <n-input v-model:value="collegeKeyword" clearable placeholder="搜索学院" @keyup.enter="loadColleges" />
               <n-button secondary @click="loadColleges">查询</n-button>
@@ -622,38 +569,36 @@ onMounted(async () => {
               :row-props="collegeRowProps"
               size="small"
               striped
-              :max-height="610"
+              :max-height="620"
             />
           </section>
 
-          <section class="org-panel majors">
-            <div class="panel-toolbar">
-              <n-space class="filters" :size="10">
-                <n-input v-model:value="majorKeyword" clearable placeholder="搜索专业" style="width: 180px" />
-                <n-input v-model:value="majorYearVersion" clearable maxlength="16" placeholder="年度" style="width: 118px" />
-                <n-select
-                  v-model:value="pilotScopeFlag"
-                  clearable
-                  placeholder="试点"
-                  style="width: 104px"
-                  :options="[
-                    { label: '是', value: 1 },
-                    { label: '否', value: 0 }
-                  ]"
-                />
-                <n-select
-                  v-model:value="majorStatus"
-                  clearable
-                  placeholder="状态"
-                  style="width: 104px"
-                  :options="[
-                    { label: '启用', value: 1 },
-                    { label: '停用', value: 0 }
-                  ]"
-                />
-                <n-button secondary @click="loadMajors">查询</n-button>
-                <n-button type="primary" :disabled="!canCreateMajor" @click="openMajorDrawer()">新增专业</n-button>
-              </n-space>
+          <section class="page-section">
+            <div class="panel-toolbar wrap">
+              <n-input v-model:value="majorKeyword" clearable placeholder="搜索专业" style="width: 190px" @keyup.enter="loadMajors" />
+              <n-input v-model:value="majorYearVersion" clearable maxlength="16" placeholder="年度" style="width: 118px" />
+              <n-select
+                v-model:value="pilotScopeFlag"
+                clearable
+                placeholder="试点"
+                style="width: 104px"
+                :options="[
+                  { label: '是', value: 1 },
+                  { label: '否', value: 0 }
+                ]"
+              />
+              <n-select
+                v-model:value="majorStatus"
+                clearable
+                placeholder="状态"
+                style="width: 104px"
+                :options="[
+                  { label: '启用', value: 1 },
+                  { label: '停用', value: 0 }
+                ]"
+              />
+              <n-button secondary @click="loadMajors">查询</n-button>
+              <n-button v-if="canManageMajor" type="primary" :disabled="!canCreateMajor" @click="openMajorDrawer()">新增专业</n-button>
             </div>
             <n-data-table
               :columns="majorColumns"
@@ -663,27 +608,18 @@ onMounted(async () => {
               :row-props="majorRowProps"
               size="small"
               striped
-              :max-height="610"
+              :max-height="620"
             />
           </section>
         </div>
       </n-tab-pane>
 
       <n-tab-pane name="configs" tab="联动配置">
-        <section class="org-panel">
-          <div class="panel-toolbar">
-            <n-space class="filters" :size="10">
-              <n-select
-                v-model:value="selectedConfigCode"
-                :options="trainingGoalOptions"
-                clearable
-                placeholder="培养目标"
-                style="width: 240px"
-                @update:value="loadConfigs"
-              />
-              <n-button secondary @click="loadConfigs">查询</n-button>
-              <n-button type="primary" @click="openConfigDrawer()">新增/维护配置</n-button>
-            </n-space>
+        <section class="page-section">
+          <div class="panel-toolbar wrap">
+            <n-select v-model:value="selectedConfigCode" :options="trainingGoalOptions" clearable placeholder="培养目标" style="width: 240px" @update:value="loadConfigs" />
+            <n-button secondary @click="loadConfigs">查询</n-button>
+            <n-button v-if="canManageMajor" type="primary" @click="openConfigDrawer()">新增/维护配置</n-button>
           </div>
           <n-data-table
             :columns="configColumns"
@@ -692,7 +628,7 @@ onMounted(async () => {
             :row-key="(row: TrainingGoalConfig) => row.trainingGoalCode"
             size="small"
             striped
-            :max-height="610"
+            :max-height="620"
           />
         </section>
       </n-tab-pane>
@@ -774,16 +710,11 @@ onMounted(async () => {
     <n-drawer v-model:show="goalDrawerVisible" :width="460" placement="right">
       <n-drawer-content title="专业培养目标">
         <n-form ref="goalFormRef" :model="goalForm" :rules="goalRules" label-placement="top">
-          <n-form-item label="专业" path="major">
+          <n-form-item label="专业">
             <n-input :value="selectedMajor ? `${selectedMajor.internalMajorName} ${selectedMajor.internalMajorCode}` : ''" disabled />
           </n-form-item>
           <n-form-item label="培养目标" path="trainingGoalCodes">
-            <n-select
-              v-model:value="goalForm.trainingGoalCodes"
-              :options="trainingGoalOptions"
-              multiple
-              filterable
-            />
+            <n-select v-model:value="goalForm.trainingGoalCodes" :options="trainingGoalOptions" multiple filterable />
           </n-form-item>
         </n-form>
         <template #footer>
@@ -808,12 +739,7 @@ onMounted(async () => {
             <n-select v-model:value="configForm.defaultSegment" :options="segmentOptions" filterable />
           </n-form-item>
           <n-form-item label="允许实习地点" path="allowedInternshipLocations">
-            <n-select
-              v-model:value="configForm.allowedInternshipLocations"
-              :options="internshipLocationOptions"
-              multiple
-              filterable
-            />
+            <n-select v-model:value="configForm.allowedInternshipLocations" :options="internshipLocationOptions" multiple filterable />
           </n-form-item>
           <n-form-item label="默认实习地点" path="defaultInternshipLocation">
             <n-select v-model:value="configForm.defaultInternshipLocation" :options="internshipLocationOptions" filterable />
@@ -830,26 +756,10 @@ onMounted(async () => {
         </template>
       </n-drawer-content>
     </n-drawer>
-  </n-space>
+  </PageContainer>
 </template>
 
 <style scoped>
-.org-page {
-  min-width: 1180px;
-}
-
-.page-head,
-.panel-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.page-title {
-  margin: 0 0 4px;
-}
-
 .org-layout {
   display: grid;
   grid-template-columns: minmax(360px, 0.7fr) minmax(720px, 1.3fr);
@@ -857,15 +767,18 @@ onMounted(async () => {
   align-items: start;
 }
 
-.org-panel {
+.page-section {
   min-width: 0;
 }
 
 .panel-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   margin-bottom: 12px;
 }
 
-.filters {
+.panel-toolbar.wrap {
   flex-wrap: wrap;
 }
 
@@ -875,23 +788,24 @@ onMounted(async () => {
   gap: 12px;
 }
 
+.pill {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 6px;
+  background: #eef4ff;
+  color: var(--brand);
+  font-size: 12px;
+}
+
 :deep(.is-selected-row td) {
   background: #eef5ff;
 }
 
 @media (max-width: 1220px) {
-  .org-page {
-    min-width: 0;
-  }
-
   .org-layout {
     grid-template-columns: 1fr;
-  }
-
-  .page-head,
-  .panel-toolbar {
-    align-items: stretch;
-    flex-direction: column;
   }
 }
 </style>

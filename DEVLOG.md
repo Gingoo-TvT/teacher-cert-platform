@@ -15,6 +15,15 @@
 
 ---
 
+## [2026-06-18] Phase 20 待复核小结（前端重建·基础数据/学生/培养）
+- 做了什么：从 `main` 切出 `feature/phase20-base-student-training`，以前瞻版外壳与 Phase 19 设计系统为底，重建基础数据四页（数据字典、行政区划、任教学科库、组织与专业）、学生基本信息、学生本人信息、专业培养信息。所有页面继续接生产真实 `src/api/*` 与 `stores/user`，未引入 mock，未改后端、迁移、API 契约或后端 IT。
+- 基础数据：字典、区划、学科库、组织专业均改为 `PageContainer` 主从/详情布局；写按钮按 `dict:manage`、`subject:import`、`college:manage`、`major:manage` 显隐。学院教务员无 manage 权时只能只读浏览，不显示新增学院/新增专业/配置维护入口。
+- 学生信息：`StudentManageView` 支持关键词、状态、学院和学年/年级/班级筛选，详情抽屉、编辑抽屉和初/复审弹窗按 `student:edit`、`info:firstReview`、`info:secondReview` 显隐；性别、身份证件类型、身份类型、生源地使用字典和 `RegionCascader`。`StudentSelfView` 增加锁定态守卫，`locked=1` 时只读并提示证书生成后需受控更正。
+- 专业培养：`TrainingManageView` 支持关键词、状态、考核年度、学院、学段筛选；详情/编辑/提交/初审/复审按 `training:edit`、`training:confirm`、`info:firstReview`、`info:secondReview` 显隐；培养目标调用 `/training/options` 限制可选实习地点和任教学段，任教学科复用 `SubjectSelect`，不提供自由文本入口。
+- 枚举/联动来源：性别、证件类型、身份类型、学历层次、培养目标、实习组织方式、实习地点、任教学段、面试组织方式、测试结论均从字典读取；培养目标→实习地点/学段与学段→学科联动使用既有后端配置和学科库校验。
+- 测试：`npm --prefix frontend run type-check` 通过；`npm --prefix frontend run build` 通过（仅既有 Vite chunk-size 警告）。
+- 下一步：`PROGRESS.md` 已置 **Phase 20 待复核**，等待 Claude 复核基础数据/学生/培养页面、字段枚举联动与新 RBAC 显隐，未自行置 ✅。
+
 ## [2026-06-18] Phase 19 复核通过（Claude · REVIEW-GATE）✅ — 前端重建·基座与设计系统
 - 做了什么：复核 `feature/phase19-frontend-shell` 单提交 `9aa54cc`（前端 11 文件：4 设计组件 + theme + App/main + MainLayout 重建 + LoginView 真实鉴权）。读 MainLayout/LoginView 全文 + 确认 api/stores 未改、后端/迁移未改；前端 build-only gate。
 - 结论：**PASS**（一轮）。`npm run type-check` 无 TS 错 + `vite build` `✓ built`（仅既有 chunk-size 警告）。核对：① 菜单 `canShowLeaf=hasAnyPerm(perms)` 按权限过滤；**空壳父菜单已修**——`visibleChildren.length===0 → null → filter` 隐藏父级；菜单 perms 同步 WP-B（testResultManage 去 test:edit）。② 登录走真实 `getCaptcha/login/changePassword`（@/api/auth），首登 mustChangePwd 弹改密→loadMe→redirect，无 mock 角色快入。③ `src/api/*`、`api/request.ts`、`stores/user`(hasPerm/hasAnyPerm) 原样保留，真实集成不回退。④ PageContainer/StatusTag/ChartBox/StatCard/.mono/Naive 主题(主色/圆角/zhCN) 迁入；既有业务页在新外壳下可用（逐页重建留 Phase 20–23）。后端零改动、迁移 V1–V22 冻结。
