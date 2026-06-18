@@ -5,10 +5,10 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**Phase 24 / 字段规范收口 + 整体验收 待复核**（分支：`feature/phase24-acceptance`）。Phase 0~14 ✅，T-115 ✅，WP-A/B/C/D ✅，Phase 19/20/21/22/23 ✅。
+- 当前阶段：**🎉 收官后重构整体完成——Phase 24 ✅ 已复核（Claude 06-18，PASS·一轮）**。后端流程改造 WP-A/B/C/D + 前端以前瞻版为底重建 Phase 19~23 + 收口验收 Phase 24 全部 ✅；12 项诉求 + UI 取长补短 全部落地。Phase 0~14 ✅，T-115 ✅。
 - 阻塞项：无
-- 最近更新：2026-06-18（Phase 24 待复核：新增 V23 修正中职培养目标联动为“其他”；新增 `Phase24AcceptanceIT` 覆盖字段枚举/联动、新 RBAC 全角色边界、主流程标准导出逐字段==录入；`mvn verify` 82/82，前端 type-check/build 绿）
-- 下一步：等待 Claude 复核 Phase 24 收口验收；不自行置 ✅
+- 最近更新：2026-06-18（Phase 24 复核通过：V23 修正中职→其他、`Phase24AcceptanceIT` 字段附录A核对+全角色RBAC边界+26列导出逐字段==录入；**clean-room `mvn verify` 82/82**（V1–V23 全新）+前端绿；详见 docs/reviews/phase-24-review.md）
+- 下一步：交付——可选 T-162（中职专业课全量学科种子）待与学校确认后单列；部署冒烟/Excel·WPS 人工核对按 README 交付前执行
 
 ## 阶段汇总
 | Phase | 名称 | 优先级 | 任务数 | 完成 | 状态 |
@@ -275,7 +275,7 @@
 - [x] T-157 验证：`npm --prefix frontend run type-check` 通过；`npm --prefix frontend run build` 通过（仅既有 Vite chunk-size 警告）。等待 Claude 复核，未自行置 ✅。
 
 ## 收官后 · Phase 24 / 字段规范收口 + 整体验收
-- Phase 24 `字段规范收口 + 整体验收`：**待复核**（分支：`feature/phase24-acceptance`）。新增 `V23__field_acceptance.sql` 幂等修正中职培养目标默认/允许实习地点为 `other`（附录 A：中职→其他），V1-V22 冻结；其余字段枚举核对与字典种子一致。新增 `Phase24AcceptanceIT` 覆盖字段枚举与 `/api/training/options` 联动、新 RBAC 全角色边界、主流程导入→审核→免考→视频复评→测试导入确认→证书生成/签发/导出/归档，并断言标准导出 26 列、H 表头、全列文本 `@`、学号/证件号/证书号/有效期等逐字段==录入。
+- Phase 24 `字段规范收口 + 整体验收`：**✅ 已复核（Claude 2026-06-18，PASS·一轮）**（分支：`feature/phase24-acceptance`）。新增 `V23__field_acceptance.sql` 幂等修正中职培养目标默认/允许实习地点为 `other`（附录 A：中职→其他），V1-V22 冻结；其余字段枚举核对与字典种子一致（Phase4/Phase9 夹具同步对齐，非弱化）。新增 `Phase24AcceptanceIT`(3 用例)：① 字段字典(gender/id_card_type 等)与 `/training/options` 联动(中职→other containsExactly、高中→中小学) 对附录 A；② 新 RBAC 全角色边界(SYS_ADMIN 全权/教务处含 cert:issue/负责人复审+assign+test:import/教务员只查看+初审且 assign·test 写被拒/评审/学生)；③ 主流程贯通 + **标准导出 26 列逐列(1–25)==录入**(校码/姓名/学号/性别/证件类型号/出生/身份/生源/学科专业/层次/目标/实习/学段学科/面试/证书号/有效期/签发人/状态)+H+全列@。**clean-room `mvn verify` 82/82**（V1–V23 全新迁移）+ 前端绿。详见 `docs/reviews/phase-24-review.md`。
 - [x] T-158 字段规范终校：核对身份证件类型、身份类型、学历层次、培养目标、实习组织方式、实习地点、任教学段、面试组织方式、性别等字典；通过 V23 修正中职培养目标联动为“其他”，并同步既有 Phase4/Phase9 测试夹具。
 - [x] T-159 新 RBAC 全角色边界：`Phase24AcceptanceIT` 断言 SYS_ADMIN 全权可达、ACADEMIC_ADMIN 含 `cert:issue`、COLLEGE_AUDITOR 可复审/视频指派/测试导入确认、COLLEGE_CLERK 仅查看+初审且 secondReview/assign/test 写被拒、REVIEW_TEACHER 可评分、STUDENT 本人可见/确认。
 - [x] T-160 收口主流程 E2E：复用既有真实接口链路跑通标准导入、学生/培养/材料/免考/视频/测试/证书/标准导出/归档，并断言标准导出逐字段等于录入，覆盖 AT-01/AT-02 文本化与导出一致性收口。

@@ -15,6 +15,11 @@
 
 ---
 
+## [2026-06-18] Phase 24 复核通过（Claude · REVIEW-GATE）✅ — 收官后重构整体收官
+- 做了什么：复核 `feature/phase24-acceptance` 单提交 `ef8da92`（V23 + Phase24AcceptanceIT 938 行 + Phase4/Phase9 夹具对齐 + 进度日志）。读 V23、3 个验收用例、夹具 diff；clean-room：重置 schema → `mvn verify`（全新 V1–V23）+ 前端 type-check/build。
+- 结论：**PASS**（一轮）。`mvn verify` **BUILD SUCCESS、82/82**（Phase24AcceptanceIT 3 + 全回归 79）；Flyway v23；前端 `vue-tsc`+build 绿。核对：① V23 幂等修正 `training_goal_config` 中职(secondary_vocational_school_teacher) default/allowed 实习地点=`other`，符附录 A「中职→其他」；Phase4/Phase9 夹具由 enterprise_vocational_education→other 同步对齐（Phase4 仍断言类别节点不可选，非弱化）。② Phase24AcceptanceIT：fieldDict 用例断言 gender/id_card_type 等字典逐字 + `/training/options` 中职 containsExactly(other)/高中 contains(中小学)；rbacBoundaries 用例 7 角色登录 + 教务员 assign/test:import 被拒(403)；mainFlow 用例全链 + `assertStandardExport` 逐列 1–25 == 录入 + 26 列 + H=身份证件号码 + 全列 @。③ V1–V22 冻结、仅 V23 新增。
+- 放行：PROGRESS Phase 24 置 ✅；合并 `main`（本地私有、无远程、不 push）。**🎉 收官后重构整体完成：WP-A/B/C/D（后端 RBAC/测试只确认/视频退回/评审分组）+ Phase 19~23（前端以前瞻版为底重建）+ Phase 24（收口验收）全部 ✅，12 项诉求 + UI 取长补短全部落地。** 可选 T-162（中职专业课全量学科种子）待学校确认单列。
+
 ## [2026-06-18] Phase 24 待复核小结（字段规范收口 + 整体验收）
 - 做了什么：从 `main` 切出 `feature/phase24-acceptance`，完成字段规范终校与收口验收。新增 `V23__field_acceptance.sql`，按 `docs/refactor-ui-rbac-plan.md` 附录 A 将中职培养目标联动修正为默认/允许实习地点 `other`（中职→其他）；其余身份证件类型、身份类型、学历层次、培养目标、实习组织方式、实习地点、任教学段、面试组织方式、性别等字典枚举核对一致。V1-V22 冻结未改。
 - 收口 IT：新增 `Phase24AcceptanceIT`，覆盖字段枚举与 `/api/training/options` 联动、新 RBAC 全角色边界、主流程 E2E 与标准导出逐字段==录入。角色边界断言 SYS_ADMIN 全权、ACADEMIC_ADMIN 含 `cert:issue`、COLLEGE_AUDITOR 可复审/视频指派/测试导入确认、COLLEGE_CLERK 仅查看+初审且 secondReview/assign/test 写拒绝、REVIEW_TEACHER 可评分、STUDENT 本人可见/确认。
