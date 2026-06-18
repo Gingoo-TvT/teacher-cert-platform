@@ -15,6 +15,11 @@
 
 ---
 
+## [2026-06-18] Phase 27 复核通过（Claude · REVIEW-GATE）✅ — 负责人评审教师列表端点（闭环 Phase 25 Major）
+- 做了什么：复核 `feature/phase27-reviewer-list` 单提交 `716b7c9`（控制器/Service/Impl/VO + 前端 video.ts/VideoReviewView + Phase7 IT）。读端点/impl/IT/前端切换 + 确认 `selectEnabledByRoleAndCollege` 既存(SysUserMapper:42)、无新迁移；clean-room：重置 schema → `mvn verify`(全新 V1–V23) + 前端 type-check/build。
+- 结论：**PASS**（一轮）。`mvn verify` **BUILD SUCCESS、83/83**(Phase7 10→11)；Flyway v23(无新迁移)；前端绿。核对：① `GET /api/video/reviewer-candidates` `@pms.has('video:assign')`；impl `reviewerCandidateCollegeIds` 解析 video:assign 数据范围(NONE→403/allSchool→全校/COLLEGE→本院)，列 ENABLED+REVIEW_TEACHER，按 id dedup；VO 仅 id/realName/workNo 无敏感。② 前端按人选择器 `canAssign ? listReviewerCandidates() : null`，负责人(video:assign)现可加载候选，移除对 `/system/user`(system:user:manage) 的依赖。③ IT：负责人得本院 reviewerA/B、排除跨院 REVIEWER_D 与负责人自身；REVIEW_TEACHER 无 video:assign → 403；按人指派 2 人→评分 84/80→结算 82 PASS。
+- 放行：PROGRESS Phase 27 置 ✅，Phase 25 Major 闭环；合并 `main`（本地私有、无远程、不 push）。下一步 Phase 26(UI 提升)。
+
 ## [2026-06-18] Phase 27 待复核小结（负责人评审教师列表端点）
 - 做了什么：从最新 `main` 切出 `feature/phase27-reviewer-list`，完成 T-172/T-173/T-174。新增 `GET /api/video/reviewer-candidates`，`@PreAuthorize("@pms.has('video:assign')")`，返回候选评审教师 `id/realName/workNo`；前端 `VideoReviewView` 的“按人指派”选择器改用该端点，不再调用 `/system/user`。
 - 关键决策与理由：端点不新增权限点和迁移，复用 `video:assign`，避免放宽 `system:user:manage` 给学院负责人；候选范围由服务端 `dataScopeService.resolve("video:assign")` 解析，COLLEGE 只查授权学院，SCHOOL 查全校，学院来源不信任请求参数。候选过滤复用评审组成员校验口径：用户必须 ENABLED 且具 `REVIEW_TEACHER` 角色。

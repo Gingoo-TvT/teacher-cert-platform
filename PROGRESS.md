@@ -5,10 +5,10 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**Phase 27 后端·负责人评审教师列表端点（修按人指派）待复核**（分支：`feature/phase27-reviewer-list`）；Phase 25 已复核合并 main，Phase 26(UI 设计提升·DESIGN.md)待排。
+- 当前阶段：**Phase 27 ✅ 已复核（Claude 06-18，PASS·一轮）—— Phase 25 的 Major(负责人按人指派) 已闭环**；下一步 Phase 26(UI 设计提升·DESIGN.md)。Phase 25 ✅ 合并 main。
 - 阻塞项：无
-- 最近更新：2026-06-18（Phase 27 完成 T-172/T-173/T-174：新增 `GET /api/video/reviewer-candidates`，复用 `video:assign` 与数据范围列本院/全校 ENABLED `REVIEW_TEACHER`；前端按人指派候选替换 `/system/user`；`Phase7VideoReviewIT` 补候选范围 + 按人 2 人评分结算。无新权限点/迁移，V1-V23 冻结。`mvn verify` 83/83、前端 type-check/build 绿。）
-- 下一步：等待 Claude 复核 Phase 27；Phase 26(UI 提升)待排；可选 T-162 待学校确认
+- 最近更新：2026-06-18（Phase 27 复核通过：`GET /api/video/reviewer-candidates`(video:assign 门控、数据范围列本院/全校 ENABLED REVIEW_TEACHER、dedup)，前端按人指派候选改用之，负责人不再空选择器；**clean-room `mvn verify` 83/83**(Phase7 11，含候选范围+跨院排除+无权 403+按人结算)+前端绿；无新迁移 V1-V23 冻结；详见 docs/reviews/phase-27-review.md）
+- 下一步：Phase 26(UI 设计提升·按 frontend/DESIGN.md)；可选 T-162(中职专业课全量学科种子)待学校确认
 
 ## 阶段汇总
 | Phase | 名称 | 优先级 | 任务数 | 完成 | 状态 |
