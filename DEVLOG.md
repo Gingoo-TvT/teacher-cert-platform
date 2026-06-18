@@ -15,6 +15,11 @@
 
 ---
 
+## [2026-06-18] Phase 16 / WP-B 复核通过（Claude · REVIEW-GATE）✅ — 测试结果只确认
+- 做了什么：复核 `feature/wp-b-test-confirm` 单提交 `f4ce3a8`。读 V21、控制器/Service（确认仅删手工 `save`/`update`，导入内部落库与 import/confirm/查询/有效性均在）、3 个 IT diff；clean-room：重置 dev schema → `mvn verify` 全新应用 V1–V21 + 前端 type-check/build。
+- 结论：**PASS**（一轮）。`mvn verify` **BUILD SUCCESS、Failsafe 76/76**（Phase8 由 4→5，新增 `manualCreateAndUpdateEndpointsAreOffline` 反例证 `POST/PUT /api/test` 已下线且不落库）；Flyway「now at v21」证 V21 全新可用；前端 `vue-tsc` 无错 + `built in 6.14s`。契约不变性已验证均经导入路径：前导零成绩文本、免考通过剔除应考科目、确认后锁定拒改（改走 import 仍报「已锁定」）、跨学院写数据范围 403。Phase2 契约钉死 auditor/academic `test:import+test:confirm` 且无 `test:edit`。V21 幂等撤 `test:edit` 保留权限点定义、V1–V20 冻结。
+- 放行：PROGRESS WP-B 置 ✅；合并 `main`（本地私有、无远程、不 push）。下一步 Phase 17(WP-C 视频退回可重传，迁移 V22)。
+
 ## [2026-06-18] Phase 16 / WP-B 待复核小结（测试结果只确认）
 - 做了什么：从 `main` 切出 `feature/wp-b-test-confirm`，完成测试结果“只导入 + 确认”后端收口与前端最小适配。后端下线手工 `POST /api/test` 新建与 `PUT /api/test` 修改入口，保留 `GET /api/test`、`GET /api/test/{studentId}`、`GET /api/test/{studentId}/validity`、`POST /api/test/import`、`POST /api/test/import-file`、`POST /api/test/{id}/confirm`；导入复用的内部落库逻辑未删除。
 - V21 撤权清单：新增 `V21__test_confirm_only.sql`，幂等撤销所有角色的 `test:edit` 授权，保留 `sys_permission` 中的 `test:edit` 权限点定义用于历史审计/外键兼容；确保 `COLLEGE_AUDITOR`、`ACADEMIC_ADMIN` 继续拥有 `test:import` 与 `test:confirm`。
