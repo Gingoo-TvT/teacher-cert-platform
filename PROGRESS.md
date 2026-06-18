@@ -5,10 +5,10 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**Phase 22 / 前端重建·测试/证书/导入导出/统计 待复核**。Phase 0~14 ✅，T-115 ✅，WP-A/B/C/D ✅，Phase 19/20/21 ✅。
+- 当前阶段：**Phase 22 / 前端重建·测试/证书/导入导出/统计 ✅ 已复核（Claude 06-18，PASS·一轮）**；下一步 Phase 23(前端·系统管理/通知/工作台/全局学年)。Phase 0~14 ✅，T-115 ✅，WP-A/B/C/D ✅，Phase 19/20/21 ✅。
 - 阻塞项：无
-- 最近更新：2026-06-18（Phase 22 待复核：测试结果只导入+确认、证书签发并入证书管理、导入四步向导+回滚、导出中心、统计报表指标卡+ECharts；type-check+build 绿；未改后端/迁移/API）
-- 下一步：等待 Claude 复核 Phase 22 前端页面重建
+- 最近更新：2026-06-18（Phase 22 复核通过：测试只确认无录入(WP-B)、证书签发并入证书管理走 cert:issue 无 CERT_ISSUER 依赖(item-12)、precheck+生命周期、导入向导+策略+回滚、导出文本化、统计卡+ECharts；type-check+build 绿；详见 docs/reviews/phase-22-review.md）
+- 下一步：Phase 23(前端·系统管理/通知/工作台/全局学年)——SYS_ADMIN 全功能、通知红点、角色工作台、全局学年选择器(WP-E)
 
 ## 阶段汇总
 | Phase | 名称 | 优先级 | 任务数 | 完成 | 状态 |
@@ -258,7 +258,7 @@
 - [x] T-147 字段/状态机对齐：三域列表、统计卡、弹窗均使用 `PageContainer`、`StatusTag`、`.mono`；动作按 `material:*`、`exemption:*`、`video:*` 权限显隐；前端 type-check/build 通过。
 
 ## 收官后 · Phase 22 / 前端重建·测试/证书/导入导出/统计
-- Phase 22 / WP-F-4 `前端重建·测试/证书/导入导出/统计`：**待复核**（分支：`feature/phase22-test-cert-exchange-stats`）。测试结果页落实 WP-B 只确认：无手工录入/编辑入口，仅保留导入、批量导入、确认、有效性和应考科目展示；证书签发并入证书管理页，按 `cert:issue` 对教务处管理员开放，不依赖独立签发角色；导入导出中心和统计报表页均使用 Phase 19 设计系统。未改后端、迁移、API 契约或后端 IT。
+- Phase 22 / WP-F-4 `前端重建·测试/证书/导入导出/统计`：**✅ 已复核（Claude 2026-06-18，PASS·一轮）**（分支：`feature/phase22-test-cert-exchange-stats`）。测试结果落实 WP-B 只确认——无手工 save/update 入口（imports 仅 import/importFile/confirm），perms 仅 test:import/test:confirm（无 test:edit），页内明示"不提供手工新建/编辑"；证书签发并入证书管理（canIssue=hasPerm('cert:issue')，**无 CERT_ISSUER 角色依赖**，对教务处管理员开放，item-12）+ precheck 四项 + generate/correct/void/reissue 生命周期按 perm；导入四步向导(prevalidate+策略+confirm+rollback+错误表)；导出标准/完整/附件文本化；统计 StatCard+ChartBox/ECharts。`src/api/*`/`stores/user`/后端/迁移零改动；`type-check`+`build` 绿。详见 `docs/reviews/phase-22-review.md`。
 - [x] T-148 测试结果：重建列表、导入、确认、有效性提示与应考科目弹窗；成绩以 `.mono` 文本只读展示，前导零不经前端数值化；动作按 `test:import`、`test:confirm` 显隐。
 - [x] T-149 证书管理：重建证书列表、前置校验、生成 18 位编号、更正、作废、重开；动作按 `cert:view/generate/correct/void/reissue` 显隐。
 - [x] T-150 证书签发：签发、标记导出、归档整合进证书管理生命周期，同时保留签发队列辅助页；签发动作按 `cert:issue` 显隐，不依赖 `CERT_ISSUER` 角色入口。

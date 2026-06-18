@@ -15,6 +15,11 @@
 
 ---
 
+## [2026-06-18] Phase 22 复核通过（Claude · REVIEW-GATE）✅ — 前端重建·测试/证书/导入导出/统计
+- 做了什么：复核 `feature/phase22-test-cert-exchange-stats` 单提交 `f14d5cf`（前端 6 页面 + 进度日志）。读 TestResult/CertificateManage/CertificateIssue/ExchangeImport/Stats 核心 + 确认 api/stores/后端/迁移零改动；前端 build-only gate。
+- 结论：**PASS**（一轮）。`type-check` 无错 + `built in 6.08s`。核对：① 测试只确认(WP-B)——imports 仅 confirm/importFile/importTests，**无 save/update**；perms 仅 test:import/test:confirm，**无 test:edit**；页内文案明示「不提供手工新建或编辑入口」。② 证书签发并入(item-12)——CertificateManage `canIssue=hasPerm('cert:issue')` + 页内 issueCertificate；CertificateIssue 仅按 cert:issue 门控，**无 CERT_ISSUER 角色判断**（grep 无命中），对教务处管理员开放；precheck 四项 + generate/correct/void/reissue 各按 perm。③ 导入——prevalidate + strategy(INSERT_ONLY 等) + confirmImport + rollback + 错误计数表。④ 统计——StatCard + ChartBox/ECharts。⑤ `src/api/*`/`stores/user` 未改；后端/迁移 V1–V22 冻结。
+- 放行：PROGRESS Phase 22 置 ✅；合并 `main`（本地私有、无远程、不 push）。下一步 Phase 23(前端·系统管理/通知/工作台/全局学年)。
+
 ## [2026-06-18] Phase 22 待复核小结（前端重建·测试/证书/导入导出/统计）
 - 做了什么：从 `main` 切出 `feature/phase22-test-cert-exchange-stats`，用 Phase 19 设计系统重建测试结果、证书管理、证书签发、导入中心、导出中心、统计报表页面。所有页面继续接生产真实 `src/api/*` 与 `stores/user`，未改后端、迁移、API 契约或后端 IT。
 - 测试结果：`TestResultManageView` 落实 WP-B 只确认，移除手工新建/编辑入口，仅保留 `/test/import`、`/test/import-file` 导入、`/test/{id}/confirm` 确认、列表查询、有效性提示与应考科目口径展示；成绩用 `.mono` 文本只读展示，前导零不做数值化。
