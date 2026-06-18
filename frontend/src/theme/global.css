@@ -1,0 +1,53 @@
+:root {
+  --brand: #1f6feb;
+  --brand-hover: #388bfd;
+  --brand-pressed: #1657c4;
+  --role-student: #2080f0;
+  --role-college-clerk: #18a058;
+  --role-college-auditor: #0fa679;
+  --role-review-teacher: #f0a020;
+  --role-academic-admin: #d03050;
+  --role-sys-admin: #4b5563;
+  --page-bg: #f5f6f8;
+  --shell-border: #e5e7eb;
+  --text-muted: #6b7280;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", "PingFang SC", Roboto, Helvetica, Arial, sans-serif;
+  background: var(--page-bg);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.page-section {
+  margin-bottom: 16px;
+}
+
+.muted {
+  color: var(--text-muted);
+}
+
+.mono {
+  font-family: "JetBrains Mono", Consolas, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.app-card {
+  border-radius: 8px;
+}

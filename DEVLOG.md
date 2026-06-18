@@ -15,6 +15,15 @@
 
 ---
 
+## [2026-06-18] Phase 19 待复核小结（前端重建·基座与设计系统）
+- 做了什么：从 `main` 切出 `feature/phase19-frontend-shell`，以前瞻版为视觉底重建生产前端外壳与登录页；新增 `frontend/src/theme/global.css`，迁入 `PageContainer`、`StatusTag`、`ChartBox`、`StatCard` 四个设计系统组件，统一主色、圆角、角色色板、`.mono` 等基础样式，并在 `App.vue` 接入 Naive UI 中文 locale、主题覆盖、loading/notification provider。
+- 真实集成保留：未引入前瞻版 mock store/role switcher，生产版 `src/api/*`、`api/request.ts`、`stores/user.ts`、`directives/perm.ts` 与 token refresh/Result 解包/Blob 下载能力保持不变；路由守卫继续按 `meta.perms + userStore.hasAnyPerm` 判断。
+- 登录与鉴权：`LoginView` 改为前瞻版品牌分栏视觉，但仍调用真实 `/auth/captcha`、`/auth/login`、首登 `/auth/change-pwd`；登录成功和首登改密后的跳转语义不变。
+- 菜单与外壳：`MainLayout` 改为前瞻版侧栏/顶栏视觉，按生产权限点过滤菜单；当父菜单所有子项被过滤时直接隐藏父级，修复“基础数据/系统管理”空壳父菜单；保留通知未读角标、初始密码提示和退出登录。
+- 与规格的偏差/疑问：无。未改后端、迁移、后端 IT、API 契约或业务页语义；业务页完整重建留 Phase 20~23。
+- 测试：`npm --prefix frontend run type-check` 通过；`npm --prefix frontend run build` 通过（Vite 仅提示既有 chunk-size warning）。
+- 下一步：`PROGRESS.md` 已置 **Phase 19 待复核**，等待 Claude 复核登录/鉴权/菜单按权限显隐和空壳父菜单修复，未自行置 ✅。
+
 ## [2026-06-18] Phase 18 / WP-D 复核通过（Claude · REVIEW-GATE）✅ — 评审指定与分组
 - 做了什么：复核 `feature/wp-d-reviewer-group` 单提交 `4999233`。读 V22、ReviewerGroupServiceImpl(+265)/Controller、VideoReviewServiceImpl assign 扩展、DataScopeSqlHandler、Phase7 IT(+84)；clean-room：重置 schema → `mvn verify`（全新 V1–V22）+ 前端 type-check/build。
 - 结论：**PASS**（一轮）。`mvn verify` **BUILD SUCCESS、79/79**（Phase7 9→10）；Flyway v22；前端 `vue-tsc`+build 绿。核对：① V22 reviewer_group/member 幂等 DDL + 唯一约束（同院重名、同组重复成员）+ 索引。② 组 CRUD 全程 `ensureCanManageCollege`，create 的 collegeId 取负责人 scope（非请求），addMember 校验本院启用 REVIEW_TEACHER；list 按 video:assign scope 显式过滤；delete/removeMember 用 `name#id`/`reviewer_user_id=id` 避免唯一冲突。③ assign `reviewerIds` XOR `groupId`，组解析校验同院+ENABLED，人数=video.reviewerCount，`requireReviewerForReview` 硬校验各评审 同院+ENABLED+REVIEW_TEACHER（连带硬化按人路径）。④ Controller 全 `video:assign` + 写操作 `@AuditLog`；reviewer_group 入 TABLE_RULES。⑤ IT 覆盖 按组88/按人81/人数不足/跨院成员·组·评审 全拒，向后兼容。
