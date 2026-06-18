@@ -5,10 +5,10 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**Phase 21 / 前端重建·材料/免考/视频：待复核**（分支：`feature/phase21-material-exemption-video`）。Phase 0~14 ✅，T-115 ✅，WP-A/B/C/D ✅，Phase 19/20 ✅。
+- 当前阶段：**Phase 21 / 前端重建·材料/免考/视频 ✅ 已复核（Claude 06-18，PASS·一轮）**；下一步 Phase 22(前端·测试/证书/导入导出/统计)。Phase 0~14 ✅，T-115 ✅，WP-A/B/C/D ✅，Phase 19/20 ✅。
 - 阻塞项：无
-- 最近更新：2026-06-18（完成 Phase 21：材料内联预览、免考多科申请/应考口径、视频退回重传 UI、按人/按组指派与评审组管理；前端 type-check/build 通过）
-- 下一步：等待 Claude 复核 Phase 21，未自行置 ✅
+- 最近更新：2026-06-18（Phase 21 复核通过：材料内联 PDF/JPG 预览+下载兜底、免考多科申请+二级审核+应考剔除、视频退回重传(RETURNED→重新上传)+按人/按组指派 XOR+评审组管理，动作全 perm 显隐；type-check+build 绿；详见 docs/reviews/phase-21-review.md）
+- 下一步：Phase 22(前端·测试/证书/导入导出/统计)——测试只确认、证书签发并入、导入向导/回滚、统计图表
 
 ## 阶段汇总
 | Phase | 名称 | 优先级 | 任务数 | 完成 | 状态 |
@@ -250,7 +250,7 @@
 - [x] T-142 字段规范对齐：性别、身份证件类型、身份类型、学历层次、专业培养目标、实习组织方式、实习地点、任教学段、面试组织方式等均从字典或后端联动接口取值；前端 type-check/build 通过。
 
 ## 收官后 · Phase 21 / 前端重建·材料/免考/视频
-- Phase 21 / WP-F-3 `前端重建·材料/免考/视频`：**待复核**（分支：`feature/phase21-material-exemption-video`）。重建过程性材料、免考、视频评审三域页面，继续沿用生产真实 API 与 `stores/user` 权限点判断；未改后端、迁移、API 契约或后端 IT。`npm --prefix frontend run type-check` 通过；`npm --prefix frontend run build` 通过（仅既有 Vite chunk-size 警告）。等待 Claude 复核，未自行置 ✅。
+- Phase 21 / WP-F-3 `前端重建·材料/免考/视频`：**✅ 已复核（Claude 2026-06-18，PASS·一轮）**（分支：`feature/phase21-material-exemption-video`）。材料：`<object>/<iframe>` 内联 PDF/JPG/PNG 预览 + 非可览类型「打开文件」下载兜底 + 四类合格 + 初/复审 + 批量下载，按 material perm 显隐；免考：多科逐行申请(科目+依据+佐证必填) + 二级审核 + 应考科目剔除展示；视频：退回态显「重新上传」(WP-C)、指派对话框 `mode` 切按人/按组 XOR + 评审组 CRUD(WP-D)、第三专家/仲裁/确认/退回/水印播放 全按 video perm 显隐。`src/api/*`/`stores/user` 未改（沿用 WP-C/WP-D 新增 API），后端/迁移零改动。`type-check`+`build` 绿。详见 `docs/reviews/phase-21-review.md`。
 - [x] T-143 过程性材料：四类材料上传/替换/提交、初审/复审、批量下载与四类合格判定重建；`/material/preview/{id}` 返回的预签名 URL 在弹窗内联预览 PDF/JPG/PNG，非可预览文件退化为打开链接。
 - [x] T-144 免考：多科申请、每科佐证上传/替换/删除/预览、二级审核重建；应考口径弹窗展示复审通过科目剔除结果，多科记录互不影响。
 - [x] T-145 视频评审：视频分片上传/秒传/进度保留；`RETURNED`、校验失败、待上传状态显示上传/重传入口；负责人可按人或按评审组指派，评审组 CRUD 与成员维护接真实 `/video/reviewer-groups`。

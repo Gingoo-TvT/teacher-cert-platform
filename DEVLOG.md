@@ -15,6 +15,11 @@
 
 ---
 
+## [2026-06-18] Phase 21 复核通过（Claude · REVIEW-GATE）✅ — 前端重建·材料/免考/视频
+- 做了什么：复核 `feature/phase21-material-exemption-video` 单提交 `8653846`（前端 3 域页面 + 进度日志）。读 MaterialManage/ExemptionManage/VideoReview 核心 + 确认 api/stores/后端/迁移零改动；前端 build-only gate。
+- 结论：**PASS**（一轮）。`type-check` 无错 + `built in 6.07s`。核对：① 材料内联预览——`previewable` 按 content-type/扩展名判 pdf/image/png，`<object>/<iframe>` 内联、否则 `n-result`「打开文件」下载兜底；初/复审按 material:firstReview/secondReview，批量下载按 material:batchDownload。② 免考——`form.rows` 多科逐行(subject+basis+佐证文件，必填校验)→ `applyExemption({items})`；二级审核按 exemption:firstReview/secondReview；examSubjects 展示应考剔除。③ 视频——RETURNED 态行内按钮显「重新上传」(WP-C)；`saveAssign` 按 `assignForm.mode` group/person 二选一分别 `assignVideoReviewGroup`/`assignVideoReview` + 校验(WP-D)；评审组 CRUD；thirdReview/arbitrate/confirm/returnVideoReview/playVideoReview 全按 video:* perm 显隐。④ 沿用 WP-C/WP-D 已加的真实 API；`src/api/*`/`stores/user` 未改；后端/迁移 V1–V22 冻结。
+- 放行：PROGRESS Phase 21 置 ✅；合并 `main`（本地私有、无远程、不 push）。下一步 Phase 22(前端·测试/证书/导入导出/统计)。
+
 ## [2026-06-18] Phase 21 待复核小结（前端重建·材料/免考/视频）
 - 做了什么：从 `main` 切出 `feature/phase21-material-exemption-video`，用 Phase 19 设计系统重建过程性材料、免考、视频评审三域页面。所有页面继续接生产真实 `src/api/*` 与 `stores/user`，未改后端、迁移、API 契约或后端 IT。
 - 过程性材料：`MaterialManageView` 改为 `PageContainer` + 指标卡 + 表格；支持四类材料上传/替换/提交、初审/复审、批量下载和四类合格判定。预览改为弹窗内联 `object/iframe`，复用 `/material/preview/{id}` 返回的预签名 URL；PDF/JPG/PNG 内嵌预览，非可预览文件退化为打开链接。
