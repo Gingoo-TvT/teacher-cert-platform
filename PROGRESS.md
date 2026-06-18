@@ -5,10 +5,10 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**Phase 20 / 前端重建·基础数据/学生/培养：待复核**（分支：`feature/phase20-base-student-training`）。Phase 0~14 ✅，T-115 ✅，WP-A/B/C/D ✅，Phase 19 ✅。
+- 当前阶段：**Phase 20 / 前端重建·基础数据/学生/培养 ✅ 已复核（Claude 06-18，PASS·一轮）**；下一步 Phase 21(前端·材料/免考/视频)。Phase 0~14 ✅，T-115 ✅，WP-A/B/C/D ✅，Phase 19 ✅。
 - 阻塞项：无
-- 最近更新：2026-06-18（完成 Phase 20：基础数据/学生/本人信息/专业培养页面重建，前端 type-check/build 通过）
-- 下一步：等待 Claude 复核 Phase 20，未自行置 ✅
+- 最近更新：2026-06-18（Phase 20 复核通过：4 基础数据页+学生 manage/self+培养重建；性别/证件类型/身份类型等字典下拉、培养目标↔学段↔学科联动 server-driven、`major:manage` 控新增专业（教务员无此权限自动隐藏）、StudentSelf 锁定守卫；type-check+build 绿；详见 docs/reviews/phase-20-review.md）
+- 下一步：Phase 21(前端·材料/免考/视频)——内联预览、退回重传 UI、负责人指定/分组指派 UI
 
 ## 阶段汇总
 | Phase | 名称 | 优先级 | 任务数 | 完成 | 状态 |
@@ -242,7 +242,7 @@
 - [x] T-137 既有业务页过渡与 build-only：现有业务路由/视图在新外壳下保持可用；`npm --prefix frontend run type-check` 通过；`npm --prefix frontend run build` 通过（仅既有 Vite chunk-size 警告）。
 
 ## 收官后 · Phase 20 / 前端重建·基础数据/学生/培养
-- Phase 20 / WP-F-2 `前端重建·基础数据/学生/培养`：**待复核**（分支：`feature/phase20-base-student-training`）。重建基础数据四页、学生基本信息、学生本人信息、专业培养信息，继续沿用生产真实 API 与 `stores/user` 权限点判断；未改后端、迁移、API 契约或后端 IT。`npm --prefix frontend run type-check` 通过；`npm --prefix frontend run build` 通过（仅既有 Vite chunk-size 警告）。等待 Claude 复核，未自行置 ✅。
+- Phase 20 / WP-F-2 `前端重建·基础数据/学生/培养`：**✅ 已复核（Claude 2026-06-18，PASS·一轮）**（分支：`feature/phase20-base-student-training`）。重建 4 基础数据页（字典/区划/学科库/组织专业）、学生基本信息（manage+self）、专业培养信息：性别/证件类型/身份类型/培养目标/实习地点/学段/学科 等枚举均字典下拉；**培养目标↔学段↔学科 联动 server-driven**（消费后端 `/training/options`，违规自动重置）；**`major:manage` 控「新增专业」按钮**（学院教务员 v-if 隐藏，与 WP-A V20 矩阵一致）；StudentSelf 全字段 `:disabled="locked"` 锁定态守卫；按 perm 显隐 edit/firstReview/secondReview 动作。`src/api/*`/`stores/user` 未改，后端/迁移零改动。`type-check`+`build` 绿。详见 `docs/reviews/phase-20-review.md`。
 - [x] T-138 基础数据页：字典/区划/学科库/组织与专业改为新设计系统主从布局，接真实 `dict/region/subject/organization` API；新增/编辑/删除按 `dict:manage`、`subject:import`、`college:manage`、`major:manage` 显隐，教务员无 manage 权时无新增专业入口。
 - [x] T-139 学生基本信息：列表支持关键词、状态、学院与学年/年级/班级筛选，提供详情、编辑、提交、初审、复审；动作按 `student:edit`、`info:firstReview`、`info:secondReview` 显隐，性别/证件类型/身份类型从字典下拉。
 - [x] T-140 学生本人信息：自助确认页改用 `PageContainer/StatusTag/.mono`，保存与提交继续走真实 `confirmStudent/submitStudent`；`locked=1` 时表单只读并提示证书生成后锁定态。

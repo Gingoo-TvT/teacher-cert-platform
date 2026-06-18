@@ -15,6 +15,11 @@
 
 ---
 
+## [2026-06-18] Phase 20 复核通过（Claude · REVIEW-GATE）✅ — 前端重建·基础数据/学生/培养
+- 做了什么：复核 `feature/phase20-base-student-training` 单提交 `6341cb0`（前端 7 页面 + 进度日志）。读 StudentManage/StudentSelf/TrainingManage/OrganizationManage 核心 + 确认 `src/api/`、`src/stores/`、后端/迁移零改动；前端 build-only gate。
+- 结论：**PASS**（一轮）。`type-check` 无错 + `built in 5.49s`。核对：① 字段下拉——gender/idCardType/identityType 等用 `listDictItems(typeCode,true)` 字典；training 用 dict + `/training/options`。② **联动 server-driven**——`reloadTrainingOptions(goal, segment)` 后端返回 allowedSegments/Locations，前端 watch goal/segment、违规自动重置 subject/location；与文档「中职→其他、高中→中小学」由后端单源生效。③ **教务员不能新增专业** ——`canManageMajor = hasPerm('major:manage')` + 按钮 `v-if="canManageMajor"`，与 WP-A V20 矩阵一致（COLLEGE_CLERK 无该权限自动隐藏，同样 v-if 应用于新增学院/培养目标配置）。④ StudentSelf 锁定守卫——`locked = student.locked===1`，全字段 `:disabled="locked"`、提交/保存按钮 disabled。⑤ 动作按 perm 显隐——`canEdit/canFirstReview/canSecondReview` 各按 student:edit/info:firstReview/info:secondReview。⑥ `src/api/*`、`stores/user` 未改，后端/迁移 V1–V22 冻结。
+- 放行：PROGRESS Phase 20 置 ✅；合并 `main`（本地私有、无远程、不 push）。下一步 Phase 21(前端·材料/免考/视频)。
+
 ## [2026-06-18] Phase 20 待复核小结（前端重建·基础数据/学生/培养）
 - 做了什么：从 `main` 切出 `feature/phase20-base-student-training`，以前瞻版外壳与 Phase 19 设计系统为底，重建基础数据四页（数据字典、行政区划、任教学科库、组织与专业）、学生基本信息、学生本人信息、专业培养信息。所有页面继续接生产真实 `src/api/*` 与 `stores/user`，未引入 mock，未改后端、迁移、API 契约或后端 IT。
 - 基础数据：字典、区划、学科库、组织专业均改为 `PageContainer` 主从/详情布局；写按钮按 `dict:manage`、`subject:import`、`college:manage`、`major:manage` 显隐。学院教务员无 manage 权时只能只读浏览，不显示新增学院/新增专业/配置维护入口。
