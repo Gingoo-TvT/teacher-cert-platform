@@ -5,10 +5,10 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**Phase 25 验收修复·403 与图表轴 — 待复核**。已从本地最新 `main` 切 `feature/phase25-acceptance-fix`，仅改前端：组合页分区权限条件加载/显隐、ChartBox/统计图表轴兜底、角色菜单无 403 静态自检矩阵已入 DEVLOG。
+- 当前阶段：**Phase 25 验收修复·403 与图表轴 ✅ 已复核（Claude 06-18，PASS·一轮，含 1 Major backlog）**；下一步 Phase 26(UI 设计提升·DESIGN.md) + Phase 27(后端：video:assign 评审教师列表端点)。
 - 阻塞项：无
-- 最近更新：2026-06-18（Phase 25 前端验收修复：SystemAudit/Security/Organization/Video/Exchange/Certificate/Stats/Dashboard 等多权限入口按分区权限条件加载，ChartBox 统一 §7 轴规则；`npm --prefix frontend run type-check` 与 `npm --prefix frontend run build` 通过，仅既有 chunk-size warning）
-- 下一步：等待 Claude 复核 Phase 25；可选 T-162（中职专业课全量学科种子）待学校确认后单列；部署冒烟/Excel·WPS 人工核对按 README 交付前执行
+- 最近更新：2026-06-18（Phase 25 复核通过：组合页按分区权限条件加载/显隐消除 403、ChartBox 统一轴(minInterval/interval0/truncate)；type-check+build 绿；**Major backlog**：负责人按人指派的评审教师选择器源自 system:user:manage 端点→负责人为空，需后端 video:assign 列本院评审教师端点(Phase 27)，现按组指派可用；详见 docs/reviews/phase-25-review.md）
+- 下一步：Phase 26(UI 提升) + Phase 27(评审教师列表端点修负责人按人指派)；可选 T-162 待学校确认
 
 ## 阶段汇总
 | Phase | 名称 | 优先级 | 任务数 | 完成 | 状态 |

@@ -15,6 +15,12 @@
 
 ---
 
+## [2026-06-18] Phase 25 复核通过（Claude · REVIEW-GATE）✅ — 验收修复·403 与图表轴（含 1 Major backlog）
+- 做了什么：复核 `feature/phase25-acceptance-fix` 单提交 `4b42ed5`（17 文件，纯前端）。读 SystemAuditView/ChartBox/VideoReviewView 核心 + 确认后端/迁移零改动；前端 build-only gate。
+- 结论：**PASS**（一轮）。`type-check` 无错 + `built in 6.36s`。核对：① 组合页 403 修复——SystemAuditView 三段(param/audit/backup)各 `if(!canXxx)return` 守卫 + onMounted 仅 push 有权分区 + StatCard/tab/按钮 v-if + 无分区 n-empty；同模式扫到 Security/Organization/Video/Exchange/Certificate/Stats/Dashboard，「辅助下拉」亦按真实权限守卫，角色进组合页不再打无权 API。② ChartBox 统一轴(DESIGN.md §7)：xAxis interval:0+truncate+hideOverlap+alignWithLabel、yAxis minInterval:1+起点0，全图表生效。后端权限点/RBAC/迁移未动。
+- **Major（入 backlog→Phase 27）**：VideoReviewView「按人指派」的评审教师候选源自 `listUsers`(`system:user:manage`)；本轮为消 403 改为有该权限才拉 → **学院负责人(video:assign 无 system:user:manage) 按人选择器为空**。属长期既存缺口（此前为 403、IT 直传 reviewerIds 绕过 UI），非本轮回归；按组指派可用。需后端新增 `video:assign` 门控的「列本院 REVIEW_TEACHER」端点，前端按人选择器改用之（Phase 27）。
+- 放行：PROGRESS Phase 25 置 ✅；合并 `main`（本地私有、无远程、不 push）。运行中 vite 合并后热更新可回归 403 已消。下一步 Phase 26(UI) + Phase 27(评审教师列表端点)。
+
 ## [2026-06-18] Phase 25 待复核小结（验收修复·403 与图表轴）
 - 做了什么：从本地最新 `main` 切出 `feature/phase25-acceptance-fix`，完成 T-163/T-164/T-165。纯前端修复，未改后端、接口、权限点、RBAC 种子或迁移。组合页不再只靠菜单 `hasAnyPerm`，而是在页面内部按分区真实权限点条件加载 API，并同步 tab/区块/按钮显隐与空态。
 - T-163：`SystemAuditView` 参数/审计/备份分别按 `system:param:manage`、`audit:view`、`system:backup` 加载；`SecurityManageView` 用户/角色/权限树分别按 `system:user:manage`、`system:role:manage`、`system:perm:manage` 加载，组织范围下拉只在用户管理分区加载。扩展同类入口：`OrganizationManageView` 按 `college:manage`/`major:manage`，`VideoReviewView` 按 `video:upload/score/assign/arbitrate/confirm/play`，导入/导出按 exchange 子权限，证书/签发队列按 `cert:view/generate/issue`，统计与工作台按 `stats:view` 条件加载。
