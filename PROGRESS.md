@@ -5,10 +5,10 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**Phase 25 验收修复·403 与图表轴 ✅ 已复核（Claude 06-18，PASS·一轮，含 1 Major backlog）**；下一步 Phase 26(UI 设计提升·DESIGN.md) + Phase 27(后端：video:assign 评审教师列表端点)。
+- 当前阶段：**Phase 27 后端·负责人评审教师列表端点（修按人指派）待复核**（分支：`feature/phase27-reviewer-list`）；Phase 25 已复核合并 main，Phase 26(UI 设计提升·DESIGN.md)待排。
 - 阻塞项：无
-- 最近更新：2026-06-18（Phase 25 复核通过：组合页按分区权限条件加载/显隐消除 403、ChartBox 统一轴(minInterval/interval0/truncate)；type-check+build 绿；**Major backlog**：负责人按人指派的评审教师选择器源自 system:user:manage 端点→负责人为空，需后端 video:assign 列本院评审教师端点(Phase 27)，现按组指派可用；详见 docs/reviews/phase-25-review.md）
-- 下一步：Phase 26(UI 提升) + Phase 27(评审教师列表端点修负责人按人指派)；可选 T-162 待学校确认
+- 最近更新：2026-06-18（Phase 27 完成 T-172/T-173/T-174：新增 `GET /api/video/reviewer-candidates`，复用 `video:assign` 与数据范围列本院/全校 ENABLED `REVIEW_TEACHER`；前端按人指派候选替换 `/system/user`；`Phase7VideoReviewIT` 补候选范围 + 按人 2 人评分结算。无新权限点/迁移，V1-V23 冻结。`mvn verify` 83/83、前端 type-check/build 绿。）
+- 下一步：等待 Claude 复核 Phase 27；Phase 26(UI 提升)待排；可选 T-162 待学校确认
 
 ## 阶段汇总
 | Phase | 名称 | 优先级 | 任务数 | 完成 | 状态 |
@@ -282,11 +282,18 @@
 - [x] T-161 整体验收：定向 `Phase4TrainingIT,Phase9CertificateIT,Phase24AcceptanceIT` 15/15 通过；全量 `mvn -B -ntp verify` **82/82** 通过；`npm --prefix frontend run type-check` 与 `npm --prefix frontend run build` 通过（仅既有 Vite chunk-size 警告）。等待 Claude 复核，未自行置 ✅。
 
 ## 收官后 · Phase 25 / 验收修复·403 与图表轴
-- Phase 25 `验收修复·403 与图表轴`：**待复核**（分支：`feature/phase25-acceptance-fix`）。纯前端修复，不改后端/接口/权限/迁移；组合页按真实权限点条件加载 API 并显隐 tab/区块/按钮，全无可见分区给空态；ChartBox/StatsReportView/Dashboard 按 `frontend/DESIGN.md` §7 统一轴配置与 resize。
+- Phase 25 `验收修复·403 与图表轴`：**✅ 已复核（Claude 06-18，PASS·一轮，含 1 Major backlog→Phase 27）**（分支：`feature/phase25-acceptance-fix`）。纯前端修复，不改后端/接口/权限/迁移；组合页按真实权限点条件加载 API 并显隐 tab/区块/按钮，全无可见分区给空态；ChartBox/StatsReportView/Dashboard 按 `frontend/DESIGN.md` §7 统一轴配置与 resize。
 - [x] T-163 组合页分区权限条件加载 + 显隐：`SystemAuditView` 参数/审计/备份分别按 `system:param:manage`/`audit:view`/`system:backup` 加载；`SecurityManageView` 用户/角色/权限树分别按 `system:user:manage`/`system:role:manage`/`system:perm:manage` 加载；同类多权限入口 `OrganizationManageView`、`VideoReviewView`、导入导出、证书、统计、工作台补条件加载，避免任一部分权限角色进入页面触发无权 API。
 - [x] T-164 图表轴修复：`ChartBox` 统一 xAxis `interval:0`、`width`、`overflow:'truncate'`、`hideOverlap`、`axisTick.alignWithLabel:true`，yAxis `min:0`、`minInterval:1`、浅色 splitLine；按标签长度自适应 rotate/grid bottom，并用 `ResizeObserver + window.resize` 保证 resize 生效；`StatsReportView` 与 `DashboardView` 去除分散轴配置。
 - [x] T-165 全角色自检矩阵：已在 `DEVLOG.md` 记录 STUDENT/COLLEGE_CLERK/COLLEGE_AUDITOR/REVIEW_TEACHER/ACADEMIC_ADMIN/SYS_ADMIN 菜单入口与分区 API 条件加载口径；`CERT_ISSUER` 已在 WP-A 停用，签发入口按 `cert:issue` 并入教务处管理员。
-- 验证：`npm --prefix frontend run type-check` 通过；`npm --prefix frontend run build` 通过（仅既有 Vite chunk-size warning）。未启动常驻前端/后端服务，未跑运行期 HTTP 角色矩阵；等待 Claude 复核，未自行置 ✅。
+- 验证：`npm --prefix frontend run type-check` 通过；`npm --prefix frontend run build` 通过（仅既有 Vite chunk-size warning）。Claude 06-18 复核 PASS 并合并 main；Major backlog 转 Phase 27。
+
+## 收官后 · Phase 27 / 后端·负责人评审教师列表端点（修按人指派）
+- Phase 27 `后端·负责人评审教师列表端点`：**待复核**（分支：`feature/phase27-reviewer-list`）。修复 Phase 25 backlog：视频“按人指派”候选不再依赖 `system:user:manage` 的 `/system/user`，改为 `video:assign` 门控的本院/全校评审教师候选端点。无新增权限点、无 Flyway 迁移，V1-V23 冻结。
+- [x] T-172 新增 `GET /api/video/reviewer-candidates`：`@PreAuthorize("@pms.has('video:assign')")`；返回 `id/realName/workNo`；服务端按 `dataScopeService.resolve("video:assign")` 解析调用者数据范围，COLLEGE 仅查授权学院，SCHOOL 查全校；候选复用评审组成员校验口径，仅 ENABLED 且具 `REVIEW_TEACHER` 角色用户。
+- [x] T-173 前端 VideoReviewView 按人指派候选改用 `listReviewerCandidates()`；移除对 `listUsers`/`system:user:manage` 的依赖，负责人/教务处具 `video:assign` 即可加载候选；按组指派和评审组 CRUD 保持原流程。
+- [x] T-174 IT 覆盖：`Phase7VideoReviewIT` 新增候选端点范围与贯通用例，断言学院负责人只能看到本院 `REVIEW_TEACHER`、看不到跨院评审教师和非评审教师，评审教师访问候选端点 403；随后用端点返回的 2 名评审教师按人指派→评分→结算 PASS。
+- 验证：定向 `mvn -B -ntp -pl platform-boot -am "-Dit.test=Phase7VideoReviewIT" "-Dfailsafe.failIfNoSpecifiedTests=false" "-Dspring-boot.repackage.skip=true" verify` **11/11** 通过；全量 `mvn -B -ntp verify` **83/83** 通过；`npm --prefix frontend run type-check` 通过；`npm --prefix frontend run build` 通过（仅既有 Vite chunk-size warning）。未启动常驻前端/后端服务；等待 Claude 复核，未自行置 ✅。
 
 ---
 

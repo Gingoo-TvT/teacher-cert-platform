@@ -8,6 +8,7 @@ import cn.edu.gpnu.platform.business.video.dto.VideoScoreRequest;
 import cn.edu.gpnu.platform.business.video.dto.VideoThirdReviewRequest;
 import cn.edu.gpnu.platform.business.video.dto.VideoUploadInitRequest;
 import cn.edu.gpnu.platform.business.video.dto.VideoUploadMergeRequest;
+import cn.edu.gpnu.platform.business.video.vo.ReviewerCandidateVO;
 import cn.edu.gpnu.platform.business.video.vo.VideoPlaybackVO;
 import cn.edu.gpnu.platform.business.video.vo.VideoReviewTaskVO;
 import cn.edu.gpnu.platform.business.video.vo.VideoReviewVO;
@@ -29,6 +30,8 @@ public interface VideoReviewService {
     VideoUploadProgressVO progress(String uploadId);
 
     PageResult<VideoReviewVO> list(VideoQuery query);
+
+    List<ReviewerCandidateVO> reviewerCandidates();
 
     VideoReviewVO detail(Long id);
 

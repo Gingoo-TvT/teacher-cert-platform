@@ -9,6 +9,7 @@ import cn.edu.gpnu.platform.business.video.dto.VideoThirdReviewRequest;
 import cn.edu.gpnu.platform.business.video.dto.VideoUploadInitRequest;
 import cn.edu.gpnu.platform.business.video.dto.VideoUploadMergeRequest;
 import cn.edu.gpnu.platform.business.video.service.VideoReviewService;
+import cn.edu.gpnu.platform.business.video.vo.ReviewerCandidateVO;
 import cn.edu.gpnu.platform.business.video.vo.VideoPlaybackVO;
 import cn.edu.gpnu.platform.business.video.vo.VideoReviewTaskVO;
 import cn.edu.gpnu.platform.business.video.vo.VideoReviewVO;
@@ -85,6 +86,13 @@ public class VideoReviewController {
     @GetMapping("/reviews")
     public Result<PageResult<VideoReviewVO>> list(VideoQuery query) {
         return Result.ok(videoReviewService.list(query));
+    }
+
+    @Operation(summary = "视频评审教师候选人")
+    @PreAuthorize("@pms.has('video:assign')")
+    @GetMapping("/reviewer-candidates")
+    public Result<List<ReviewerCandidateVO>> reviewerCandidates() {
+        return Result.ok(videoReviewService.reviewerCandidates());
     }
 
     @Operation(summary = "视频评审详情")

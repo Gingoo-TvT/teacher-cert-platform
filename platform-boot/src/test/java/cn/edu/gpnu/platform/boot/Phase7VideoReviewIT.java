@@ -63,6 +63,7 @@ class Phase7VideoReviewIT {
     private static final long COLLEGE_B = 800000000000000202L;
     private static final long STUDENT_ROLE_ID = 800000000000000001L;
     private static final long REVIEW_TEACHER_ROLE_ID = 800000000000000004L;
+    private static final long COLLEGE_AUDITOR_USER_ID = 800000000000003004L;
     private static final long STUDENT_B_USER_ID = 800000000000003009L;
     private static final long STUDENT_B_ROLE_ID = 800000000000004009L;
     private static final long REVIEWER_B_USER_ID = 800000000000003010L;
@@ -457,6 +458,38 @@ class Phase7VideoReviewIT {
     }
 
     @Test
+    void reviewerCandidatesAreScopedAndSupportDirectAssignSettlement() throws Exception {
+        LoginResult student = readyLogin("test_student");
+        LoginResult auditor = readyLogin("test_college_auditor");
+        LoginResult reviewerA = readyLogin("test_review_teacher");
+        LoginResult reviewerB = readyLogin("test_review_teacher_b");
+        LoginResult reviewerD = readyLogin("test_review_teacher_d");
+
+        JsonNode candidates = json(exchange("/api/video/reviewer-candidates", HttpMethod.GET,
+                auditor.accessToken(), null)).at("/data");
+        assertThat(candidates.size()).isGreaterThanOrEqualTo(2);
+        assertThat(hasCandidate(candidates, 800000000000003005L)).isTrue();
+        assertThat(hasCandidate(candidates, REVIEWER_B_USER_ID)).isTrue();
+        assertThat(hasCandidate(candidates, REVIEWER_D_USER_ID)).isFalse();
+        assertThat(hasCandidate(candidates, COLLEGE_AUDITOR_USER_ID)).isFalse();
+
+        ResponseEntity<String> reviewerForbidden = exchange("/api/video/reviewer-candidates", HttpMethod.GET,
+                reviewerD.accessToken(), null);
+        assertThat(reviewerForbidden.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+
+        long reviewerAUserId = 800000000000003005L;
+        long reviewerBUserId = REVIEWER_B_USER_ID;
+        long reviewId = uploadValidatedVideo(student.accessToken(), 9001L, "P7-CANDIDATES");
+        assign(auditor.accessToken(), reviewId, reviewerAUserId, reviewerBUserId);
+        score(reviewerA.accessToken(), taskIdByReview(reviewerA.accessToken(), reviewId), 84, "PASS");
+        score(reviewerB.accessToken(), taskIdByReview(reviewerB.accessToken(), reviewId), 80, "PASS");
+        VideoReview settled = reviewMapper.selectById(reviewId);
+        assertThat(settled.getStatus()).isEqualTo("REVIEW_COMPLETED");
+        assertThat(settled.getFinalScore()).isEqualTo(82);
+        assertThat(settled.getFinalConclusion()).isEqualTo("PASS");
+    }
+
+    @Test
     void readWriteScopeReviewerScopeAndPlaybackAuthAreEnforced() throws Exception {
         LoginResult studentA = readyLogin("test_student");
         LoginResult studentB = readyLogin("test_student_b");
@@ -646,6 +679,15 @@ class Phase7VideoReviewIT {
     private Long taskCount(long reviewId) {
         return taskMapper.selectCount(new LambdaQueryWrapper<VideoReviewTask>()
                 .eq(VideoReviewTask::getVideoReviewId, reviewId));
+    }
+
+    private boolean hasCandidate(JsonNode candidates, long userId) {
+        for (JsonNode candidate : candidates) {
+            if (candidate.at("/id").asLong() == userId) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private HttpEntity<ByteArrayResource> resource(String filename, String contentType, byte[] content) {

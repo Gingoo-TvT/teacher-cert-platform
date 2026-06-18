@@ -116,6 +116,12 @@ export interface ReviewerGroupPayload {
   status?: 'ENABLED' | 'DISABLED'
 }
 
+export interface ReviewerCandidate {
+  id: string
+  realName: string
+  workNo?: string | null
+}
+
 export function initVideoUpload(payload: VideoUploadInitPayload) {
   return request.post<unknown, ApiResult<VideoUploadInitResult>>('/video/upload/init', payload)
 }
@@ -155,6 +161,10 @@ export function assignVideoReviewGroup(id: string, groupId: string) {
 
 export function listReviewerGroups() {
   return request.get<unknown, ApiResult<ReviewerGroup[]>>('/video/reviewer-groups')
+}
+
+export function listReviewerCandidates() {
+  return request.get<unknown, ApiResult<ReviewerCandidate[]>>('/video/reviewer-candidates')
 }
 
 export function createReviewerGroup(payload: ReviewerGroupPayload) {

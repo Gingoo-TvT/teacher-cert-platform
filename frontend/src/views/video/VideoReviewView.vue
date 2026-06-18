@@ -13,7 +13,6 @@ import PageContainer from '@/components/PageContainer.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import { listDictItems, type DictItem } from '@/api/dict'
 import { listStudents, type Student } from '@/api/student'
-import { listUsers, type User } from '@/api/security'
 import { useUserStore } from '@/stores/user'
 import { useYearStore } from '@/stores/year'
 import {
@@ -25,6 +24,7 @@ import {
   createReviewerGroup,
   deleteReviewerGroup,
   initVideoUpload,
+  listReviewerCandidates,
   listMyVideoTasks,
   listReviewerGroups,
   listVideoReviews,
@@ -36,6 +36,7 @@ import {
   thirdVideoReview,
   updateReviewerGroup,
   uploadVideoChunk,
+  type ReviewerCandidate,
   type ReviewerGroup,
   type ReviewerGroupPayload,
   type VideoReview,
@@ -72,7 +73,7 @@ const statusFilter = ref<string | null>(null)
 const reviews = ref<VideoReview[]>([])
 const tasks = ref<VideoTask[]>([])
 const students = ref<Student[]>([])
-const reviewers = ref<User[]>([])
+const reviewers = ref<ReviewerCandidate[]>([])
 const dimensions = ref<DictItem[]>([])
 const groups = ref<ReviewerGroup[]>([])
 const fileList = ref<UploadFileInfo[]>([])
@@ -94,7 +95,6 @@ const canAssign = computed(() => userStore.hasPerm('video:assign'))
 const canArbitrate = computed(() => userStore.hasPerm('video:arbitrate'))
 const canConfirm = computed(() => userStore.hasPerm('video:confirm'))
 const canPlay = computed(() => userStore.hasPerm('video:play'))
-const canManageSystemUsers = computed(() => userStore.hasPerm('system:user:manage'))
 const canViewStudents = computed(() => userStore.hasPerm('student:view'))
 const canListReviews = computed(() => canUpload.value || canAssign.value || canArbitrate.value || canConfirm.value || canPlay.value)
 const hasVisibleSection = computed(() => canListReviews.value || canScore.value || canAssign.value)
@@ -160,7 +160,7 @@ const studentOptions = computed<SelectOption[]>(() =>
   students.value.map((item) => ({ label: `${item.studentNo} ${item.name}`, value: item.id }))
 )
 const reviewerOptions = computed<SelectOption[]>(() =>
-  reviewers.value.map((item) => ({ label: `${item.realName} ${item.workNo || item.username}`, value: item.id }))
+  reviewers.value.map((item) => ({ label: `${item.realName} ${item.workNo || item.id}`, value: item.id }))
 )
 const groupOptions = computed<SelectOption[]>(() =>
   groups.value.filter((item) => item.status === 'ENABLED').map((item) => ({ label: `${item.name} (${item.memberCount}人)`, value: item.id }))
@@ -314,11 +314,11 @@ async function loadOptions() {
   const [studentRes, dimensionRes, reviewerRes] = await Promise.all([
     canUpload.value && canViewStudents.value ? listStudents() : Promise.resolve(null),
     canScore.value || canArbitrate.value ? listDictItems('video_score_dimension', true) : Promise.resolve(null),
-    canManageSystemUsers.value ? listUsers({ status: 'ENABLED' }) : Promise.resolve(null)
+    canAssign.value ? listReviewerCandidates() : Promise.resolve(null)
   ])
   students.value = studentRes ? (selfMode.value ? studentRes.data.records.slice(0, 1) : studentRes.data.records) : []
   dimensions.value = dimensionRes?.data.slice(0, 9) || []
-  reviewers.value = reviewerRes?.data.records.filter((item) => item.roles.some((role) => role.code === 'REVIEW_TEACHER')) || []
+  reviewers.value = reviewerRes?.data || []
 }
 
 function openUpload(row?: VideoReview) {

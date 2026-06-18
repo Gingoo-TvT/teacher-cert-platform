@@ -15,6 +15,15 @@
 
 ---
 
+## [2026-06-18] Phase 27 待复核小结（负责人评审教师列表端点）
+- 做了什么：从最新 `main` 切出 `feature/phase27-reviewer-list`，完成 T-172/T-173/T-174。新增 `GET /api/video/reviewer-candidates`，`@PreAuthorize("@pms.has('video:assign')")`，返回候选评审教师 `id/realName/workNo`；前端 `VideoReviewView` 的“按人指派”选择器改用该端点，不再调用 `/system/user`。
+- 关键决策与理由：端点不新增权限点和迁移，复用 `video:assign`，避免放宽 `system:user:manage` 给学院负责人；候选范围由服务端 `dataScopeService.resolve("video:assign")` 解析，COLLEGE 只查授权学院，SCHOOL 查全校，学院来源不信任请求参数。候选过滤复用评审组成员校验口径：用户必须 ENABLED 且具 `REVIEW_TEACHER` 角色。
+- 问题与解决：Phase 25 为消 403 把 `listUsers` 改为有 `system:user:manage` 才拉，导致负责人虽有 `video:assign` 但按人选择器为空。本轮补专用业务端点后，负责人/教务处按人指派候选恢复，按组指派和评审组 CRUD 不变。
+- IT 覆盖：`Phase7VideoReviewIT` 新增 `reviewerCandidatesAreScopedAndSupportDirectAssignSettlement`，断言学院负责人候选仅含本院 `REVIEW_TEACHER`，不含跨院评审教师与非评审教师；评审教师访问候选端点返回 403；随后按端点返回的两名评审教师完成按人指派、两人评分、自动结算 PASS。
+- 与规格的偏差/疑问：无。V1-V23 冻结，未新增 Flyway 迁移、权限点或 RBAC 种子；本地私有仓库无 remote、不 push。
+- 测试：定向 `Phase7VideoReviewIT` **11/11** 通过；全量 `mvn -B -ntp verify` **83/83** 通过；`npm --prefix frontend run type-check` 通过；`npm --prefix frontend run build` 通过（仅既有 Vite chunk-size warning）。
+- 下一步：`PROGRESS.md` 已置 **Phase 27 待复核**，等待 Claude 复核，未自行置 ✅。
+
 ## [2026-06-18] Phase 25 复核通过（Claude · REVIEW-GATE）✅ — 验收修复·403 与图表轴（含 1 Major backlog）
 - 做了什么：复核 `feature/phase25-acceptance-fix` 单提交 `4b42ed5`（17 文件，纯前端）。读 SystemAuditView/ChartBox/VideoReviewView 核心 + 确认后端/迁移零改动；前端 build-only gate。
 - 结论：**PASS**（一轮）。`type-check` 无错 + `built in 6.36s`。核对：① 组合页 403 修复——SystemAuditView 三段(param/audit/backup)各 `if(!canXxx)return` 守卫 + onMounted 仅 push 有权分区 + StatCard/tab/按钮 v-if + 无分区 n-empty；同模式扫到 Security/Organization/Video/Exchange/Certificate/Stats/Dashboard，「辅助下拉」亦按真实权限守卫，角色进组合页不再打无权 API。② ChartBox 统一轴(DESIGN.md §7)：xAxis interval:0+truncate+hideOverlap+alignWithLabel、yAxis minInterval:1+起点0，全图表生效。后端权限点/RBAC/迁移未动。

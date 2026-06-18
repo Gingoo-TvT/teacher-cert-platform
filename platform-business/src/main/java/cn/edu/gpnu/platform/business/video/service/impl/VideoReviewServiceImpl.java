@@ -25,6 +25,7 @@ import cn.edu.gpnu.platform.business.video.mapper.VideoUploadSessionMapper;
 import cn.edu.gpnu.platform.business.video.service.VideoReviewService;
 import cn.edu.gpnu.platform.business.video.support.VideoReviewStatus;
 import cn.edu.gpnu.platform.business.video.support.VideoUploadStatus;
+import cn.edu.gpnu.platform.business.video.vo.ReviewerCandidateVO;
 import cn.edu.gpnu.platform.business.video.vo.VideoPlaybackVO;
 import cn.edu.gpnu.platform.business.video.vo.VideoReviewTaskVO;
 import cn.edu.gpnu.platform.business.video.vo.VideoReviewVO;
@@ -272,6 +273,16 @@ public class VideoReviewServiceImpl implements VideoReviewService {
     public PageResult<VideoReviewVO> list(VideoQuery query) {
         List<VideoReview> records = selectReviews(query);
         return new PageResult<>(records.size(), records.stream().map(this::toVO).toList());
+    }
+
+    @Override
+    public List<ReviewerCandidateVO> reviewerCandidates() {
+        return reviewerCandidateCollegeIds().stream()
+                .flatMap(collegeId -> userMapper.selectEnabledByRoleAndCollege(REVIEW_TEACHER_ROLE, collegeId).stream())
+                .collect(Collectors.toMap(SysUser::getId, this::toReviewerCandidateVO, (left, right) -> left, LinkedHashMap::new))
+                .values()
+                .stream()
+                .toList();
     }
 
     @Override
@@ -1066,6 +1077,14 @@ public class VideoReviewServiceImpl implements VideoReviewService {
         return vo;
     }
 
+    private ReviewerCandidateVO toReviewerCandidateVO(SysUser user) {
+        ReviewerCandidateVO vo = new ReviewerCandidateVO();
+        vo.setId(user.getId());
+        vo.setRealName(user.getRealName());
+        vo.setWorkNo(user.getWorkNo());
+        return vo;
+    }
+
     private void ensurePlayable(VideoReview review) {
         if (UserContext.hasPermission("video:score") && assignedToCurrentUser(review.getId())) {
             return;
@@ -1152,6 +1171,22 @@ public class VideoReviewServiceImpl implements VideoReviewService {
             throw new BizException("评审教师必须具备 REVIEW_TEACHER 角色");
         }
         return reviewer;
+    }
+
+    private Set<Long> reviewerCandidateCollegeIds() {
+        DataScopeContext.Scope scope = dataScopeService.resolve("video:assign");
+        if (scope == null || scope.getScopeType() == DataScopeContext.ScopeType.NONE) {
+            throw new BizException(ResultCode.FORBIDDEN.getCode(), "无权查看评审教师候选人");
+        }
+        if (scope.allSchool()) {
+            LinkedHashSet<Long> allSchool = new LinkedHashSet<>();
+            allSchool.add(null);
+            return allSchool;
+        }
+        if (scope.getScopeType() == DataScopeContext.ScopeType.COLLEGE && !scope.getCollegeIds().isEmpty()) {
+            return scope.getCollegeIds();
+        }
+        throw new BizException(ResultCode.FORBIDDEN.getCode(), "无权查看评审教师候选人");
     }
 
     private void ensureCanWriteStudent(Student student, String permissionCode) {
