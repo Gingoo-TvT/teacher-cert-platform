@@ -5,10 +5,10 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**Phase 17 / WP-C 视频退回可重传：待复核**。Phase 0~14 ✅，T-115 ✅，WP-A ✅，WP-B ✅。
+- 当前阶段：**Phase 17 / WP-C 视频退回可重传 ✅ 已复核（Claude 06-18，PASS·一轮）**；下一步 Phase 18(WP-D 评审指定+分组)。Phase 0~14 ✅，T-115 ✅，WP-A ✅，WP-B ✅。
 - 阻塞项：无
-- 最近更新：2026-06-18（WP-C 完成：新增视频 `RETURNED` 退回态与 `/api/video/reviews/{id}/return`；退回后学生可重传并重置旧任务/会话/终分；未新增 V22；全量 `mvn verify` 78/78、前端 type-check/build 通过）
-- 下一步：等待 Claude 复核 WP-C，不自行置 ✅
+- 最近更新：2026-06-18（WP-C 复核通过：`RETURNED` 退回态+`/api/video/reviews/{id}/return`，退回重置旧任务/会话/终分→WAIT_REVIEW，守卫只放行退回态；**clean-room `mvn verify` 78/78 全绿**、前端绿；未新增迁移；详见 docs/reviews/wp-c-review.md）
+- 下一步：Phase 18(WP-D) 评审指定 + 分组（评审组模型 + 按组/按人指派，迁移 V22）
 
 ## 阶段汇总
 | Phase | 名称 | 优先级 | 任务数 | 完成 | 状态 |
@@ -218,7 +218,7 @@
 - 验证：定向 IT 28/28 通过；全量 `mvn -B -ntp verify` **76/76** 通过；`npm --prefix frontend run type-check` 与 `npm --prefix frontend run build` 通过（仅既有 Vite chunk-size 警告）。等待 Claude 复核，未自行置 ✅。
 
 ## 收官后 · Phase 17 / WP-C 视频退回可重传
-- Phase 17 / WP-C `视频退回可重传`：**待复核**（分支：`feature/wp-c-video-return`）。本包只做后端状态机/守卫/反例与前端最小编译保障，不改 Phase 7 双盲、分差结算、鉴权播放和数据范围语义；退回动作复用 `video:confirm`/`video:arbitrate`，**未新增 V22**。
+- Phase 17 / WP-C `视频退回可重传`：**✅ 已复核（Claude 2026-06-18，PASS·一轮）**（分支：`feature/wp-c-video-return`）。后端新增 `RETURNED` 态 + `POST /api/video/reviews/{id}/return`（CONFIRMED 禁退回、意见必填、富审计 old/new/意见、数据范围校验）；`ensureReuploadable` 仅放行退回态、REVIEWING/NEED_REVIEW/CONFIRMED 仍拒（Phase 7 守卫不破）；退回重传清旧任务/会话/分片/终分→WAIT_REVIEW + 通知。退回动作复用 `video:confirm`/`video:arbitrate`，**未新增 V22**。**clean-room `mvn verify` 78/78 全绿**（Phase7 9 含退回全链+CONFIRMED 反例）、前端绿。详见 `docs/reviews/wp-c-review.md`。
 - [x] T-125 视频评审状态机增 `RETURNED` 退回态与 `/api/video/reviews/{id}/return` 退回动作，退回意见必填，`CONFIRMED` 禁退回，富审计记录 old/new/意见/target。
 - [x] T-126 可编辑守卫放行 `RETURNED` 重传；`REVIEWING/NEED_REVIEW/REVIEW_COMPLETED/CONFIRMED` 仍拒绝重传，保留 Phase7 原反例。
 - [x] T-127 `RETURNED` 重传软删旧评分任务与旧上传会话/分片，清终分/结论/仲裁/确认字段，校验通过后回 `WAIT_REVIEW`，重新分配后再评审；退回通知学生、重传入待评审通知负责人。

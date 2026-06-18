@@ -15,6 +15,11 @@
 
 ---
 
+## [2026-06-18] Phase 17 / WP-C 复核通过（Claude · REVIEW-GATE）✅ — 视频退回可重传
+- 做了什么：复核 `feature/wp-c-video-return` 单提交 `597cad9`。读 VideoReviewStatus/Controller/ServiceImpl(+164)/IT(+106)/前端最小；clean-room：重置 schema → `mvn verify`（全新 V1–V21）+ 前端 type-check/build。
+- 结论：**PASS**（一轮）。`mvn verify` **BUILD SUCCESS、78/78**（Phase7 7→9）；Flyway v21（未新增迁移，退回复用 `video:confirm`/`video:arbitrate`）；前端 `vue-tsc` 无错 + build 绿。核对：① `returnReview` 置 RETURNED、清终分/仲裁/确认、解锁、富审计 `return` old/new/意见、通知学生、`ensureCanWriteReview` 数据范围；CONFIRMED 禁退回、意见必填、仅 WAIT_REVIEW/REVIEWING/NEED_REVIEW/REVIEW_COMPLETED 可退回。② 守卫 `ensureReuploadable` 仅 RETURNED 跳过 taskCount 放行，REVIEWING/NEED_REVIEW/CONFIRMED 仍拒（Phase7 既有反例不变）。③ 退回重传清旧任务(`reviewer_id=id` 避免重指派唯一冲突)/会话/分片/终分→WAIT_REVIEW + 通知。④ IT 覆盖 退回→重传→重新指派→88/84 结算 86 + 审计 + CONFIRMED 双禁。
+- 放行：PROGRESS WP-C 置 ✅；合并 `main`（本地私有、无远程、不 push）。下一步 Phase 18(WP-D 评审指定+分组，迁移 V22)。
+
 ## [2026-06-18] Phase 17 / WP-C 待复核小结（视频退回可重传）
 - 做了什么：从 `main` 切出 `feature/wp-c-video-return`，完成视频评审退回可重传。新增 `RETURNED` 视频评审状态与 `POST /api/video/reviews/{id}/return`，退回意见必填，复用 `video:confirm`/`video:arbitrate` 权限与服务层数据范围校验，未新增 `video:return` 权限点，因此**未新增 V22**，V1~V21 保持冻结。
 - 状态机与守卫：`CONFIRMED` 明确禁止退回；允许 `WAIT_REVIEW/REVIEWING/NEED_REVIEW/REVIEW_COMPLETED` 退回到 `RETURNED`。`ensureReuploadable` 仅对 `RETURNED` 放行已有旧任务下的重传，`REVIEWING/NEED_REVIEW/REVIEW_COMPLETED/CONFIRMED` 仍拒绝，Phase 7 原重传守卫反例保持。
