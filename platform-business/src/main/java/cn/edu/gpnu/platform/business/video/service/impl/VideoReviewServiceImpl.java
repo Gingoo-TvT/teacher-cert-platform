@@ -10,10 +10,14 @@ import cn.edu.gpnu.platform.business.video.dto.VideoScoreRequest;
 import cn.edu.gpnu.platform.business.video.dto.VideoThirdReviewRequest;
 import cn.edu.gpnu.platform.business.video.dto.VideoUploadInitRequest;
 import cn.edu.gpnu.platform.business.video.dto.VideoUploadMergeRequest;
+import cn.edu.gpnu.platform.business.video.entity.ReviewerGroup;
+import cn.edu.gpnu.platform.business.video.entity.ReviewerGroupMember;
 import cn.edu.gpnu.platform.business.video.entity.VideoReview;
 import cn.edu.gpnu.platform.business.video.entity.VideoReviewTask;
 import cn.edu.gpnu.platform.business.video.entity.VideoUploadChunk;
 import cn.edu.gpnu.platform.business.video.entity.VideoUploadSession;
+import cn.edu.gpnu.platform.business.video.mapper.ReviewerGroupMapper;
+import cn.edu.gpnu.platform.business.video.mapper.ReviewerGroupMemberMapper;
 import cn.edu.gpnu.platform.business.video.mapper.VideoReviewMapper;
 import cn.edu.gpnu.platform.business.video.mapper.VideoReviewTaskMapper;
 import cn.edu.gpnu.platform.business.video.mapper.VideoUploadChunkMapper;
@@ -39,6 +43,7 @@ import cn.edu.gpnu.platform.file.service.FileService;
 import cn.edu.gpnu.platform.system.entity.SysDictItem;
 import cn.edu.gpnu.platform.system.entity.SysUser;
 import cn.edu.gpnu.platform.system.mapper.SysDictItemMapper;
+import cn.edu.gpnu.platform.system.mapper.SysRoleMapper;
 import cn.edu.gpnu.platform.system.mapper.SysUserMapper;
 import cn.edu.gpnu.platform.system.service.AuditLogService;
 import cn.edu.gpnu.platform.system.service.DataScopeService;
@@ -86,13 +91,17 @@ public class VideoReviewServiceImpl implements VideoReviewService {
     private static final int DEFAULT_DIFF_THRESHOLD = 12;
     private static final int DEFAULT_REVIEWER_COUNT = 2;
     private static final int DEFAULT_PRESIGN_SECONDS = 300;
+    private static final String REVIEW_TEACHER_ROLE = "REVIEW_TEACHER";
 
     private final VideoUploadSessionMapper sessionMapper;
     private final VideoUploadChunkMapper chunkMapper;
     private final VideoReviewMapper reviewMapper;
     private final VideoReviewTaskMapper taskMapper;
+    private final ReviewerGroupMapper groupMapper;
+    private final ReviewerGroupMemberMapper groupMemberMapper;
     private final StudentMapper studentMapper;
     private final SysUserMapper userMapper;
+    private final SysRoleMapper roleMapper;
     private final SysDictItemMapper dictItemMapper;
     private final FileObjectMapper fileObjectMapper;
     private final FileService fileService;
@@ -282,12 +291,12 @@ public class VideoReviewServiceImpl implements VideoReviewService {
             throw new BizException("当前状态不可分配评审教师");
         }
         int expected = paramService.getInt("video.reviewerCount", DEFAULT_REVIEWER_COUNT);
-        List<Long> reviewerIds = new ArrayList<>(new LinkedHashSet<>(request.getReviewerIds()));
+        List<Long> reviewerIds = resolveAssignReviewerIds(request, review);
         if (reviewerIds.size() != expected) {
             throw new BizException("评审教师人数需等于系统参数 video.reviewerCount");
         }
         for (Long reviewerId : reviewerIds) {
-            SysUser reviewer = requireUser(reviewerId);
+            SysUser reviewer = requireReviewerForReview(reviewerId, review.getCollegeId());
             VideoReviewTask existing = taskMapper.selectOne(new LambdaQueryWrapper<VideoReviewTask>()
                     .eq(VideoReviewTask::getVideoReviewId, review.getId())
                     .eq(VideoReviewTask::getReviewerId, reviewerId)
@@ -1090,6 +1099,59 @@ public class VideoReviewServiceImpl implements VideoReviewService {
 
     private void ensureCanWriteReview(VideoReview review, String permissionCode) {
         ensureCanWriteStudent(requireStudent(review.getStudentId()), permissionCode);
+    }
+
+    private List<Long> resolveAssignReviewerIds(VideoAssignRequest request, VideoReview review) {
+        if (request == null) {
+            throw new BizException("指派参数不能为空");
+        }
+        boolean hasReviewerIds = request.getReviewerIds() != null && !request.getReviewerIds().isEmpty();
+        boolean hasGroup = request.getGroupId() != null;
+        if (hasReviewerIds == hasGroup) {
+            throw new BizException("评审教师和评审组必须二选一");
+        }
+        if (hasReviewerIds) {
+            return distinctReviewerIds(request.getReviewerIds());
+        }
+        ReviewerGroup group = groupMapper.selectById(request.getGroupId());
+        if (group == null) {
+            throw new BizException(ResultCode.NOT_FOUND.getCode(), "评审组不存在");
+        }
+        if (!review.getCollegeId().equals(group.getCollegeId())) {
+            throw new BizException(ResultCode.FORBIDDEN.getCode(), "评审组不属于该视频学院");
+        }
+        if (!"ENABLED".equals(group.getStatus())) {
+            throw new BizException("评审组已停用");
+        }
+        List<Long> memberIds = groupMemberMapper.selectList(new LambdaQueryWrapper<ReviewerGroupMember>()
+                        .eq(ReviewerGroupMember::getGroupId, group.getId())
+                        .orderByAsc(ReviewerGroupMember::getId))
+                .stream()
+                .map(ReviewerGroupMember::getReviewerUserId)
+                .toList();
+        return distinctReviewerIds(memberIds);
+    }
+
+    private List<Long> distinctReviewerIds(List<Long> reviewerIds) {
+        List<Long> ids = new ArrayList<>(new LinkedHashSet<>(reviewerIds == null ? List.of() : reviewerIds));
+        if (ids.isEmpty() || ids.stream().anyMatch(id -> id == null)) {
+            throw new BizException("评审教师不能为空");
+        }
+        return ids;
+    }
+
+    private SysUser requireReviewerForReview(Long reviewerId, Long collegeId) {
+        SysUser reviewer = requireUser(reviewerId);
+        if (!"ENABLED".equals(reviewer.getStatus())) {
+            throw new BizException("评审教师未启用");
+        }
+        if (!collegeId.equals(reviewer.getCollegeId())) {
+            throw new BizException(ResultCode.FORBIDDEN.getCode(), "评审教师不属于该视频学院");
+        }
+        if (!roleMapper.selectCodesByUserId(reviewer.getId()).contains(REVIEW_TEACHER_ROLE)) {
+            throw new BizException("评审教师必须具备 REVIEW_TEACHER 角色");
+        }
+        return reviewer;
     }
 
     private void ensureCanWriteStudent(Student student, String permissionCode) {

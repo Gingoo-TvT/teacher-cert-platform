@@ -67,8 +67,10 @@ class Phase7VideoReviewIT {
     private static final long STUDENT_B_ROLE_ID = 800000000000004009L;
     private static final long REVIEWER_B_USER_ID = 800000000000003010L;
     private static final long REVIEWER_C_USER_ID = 800000000000003011L;
+    private static final long REVIEWER_D_USER_ID = 800000000000003012L;
     private static final long REVIEWER_B_ROLE_ID = 800000000000004010L;
     private static final long REVIEWER_C_ROLE_ID = 800000000000004011L;
+    private static final long REVIEWER_D_ROLE_ID = 800000000000004012L;
     private static final String YEAR = "P7-2026";
 
     @LocalServerPort
@@ -121,6 +123,7 @@ class Phase7VideoReviewIT {
         ensureSecondCollegeStudent();
         ensureReviewer("test_review_teacher_b", REVIEWER_B_USER_ID, REVIEWER_B_ROLE_ID, "评审教师测试账号B");
         ensureReviewer("test_review_teacher_c", REVIEWER_C_USER_ID, REVIEWER_C_ROLE_ID, "评审教师测试账号C");
+        ensureReviewer("test_review_teacher_d", REVIEWER_D_USER_ID, REVIEWER_D_ROLE_ID, "评审教师测试账号D", COLLEGE_B);
         resetParam("file.maxSize.video", "2147483648");
         resetParam("video.durationTarget", "900");
         resetParam("video.durationTolerance", "60");
@@ -136,6 +139,7 @@ class Phase7VideoReviewIT {
         resetUser("test_review_teacher", true);
         resetUser("test_review_teacher_b", true);
         resetUser("test_review_teacher_c", true);
+        resetUser("test_review_teacher_d", true);
     }
 
     @Test
@@ -400,6 +404,59 @@ class Phase7VideoReviewIT {
     }
 
     @Test
+    void reviewerGroupAssignAndDirectAssignBothSettleWithScopeChecks() throws Exception {
+        LoginResult student = readyLogin("test_student");
+        LoginResult studentB = readyLogin("test_student_b");
+        LoginResult auditor = readyLogin("test_college_auditor");
+        LoginResult reviewerA = readyLogin("test_review_teacher");
+        LoginResult reviewerB = readyLogin("test_review_teacher_b");
+
+        long groupId = createReviewerGroup(auditor.accessToken(), "WP-D评审组");
+        addReviewerGroupMember(auditor.accessToken(), groupId, 800000000000003005L);
+        addReviewerGroupMember(auditor.accessToken(), groupId, REVIEWER_B_USER_ID);
+
+        long groupReviewId = uploadValidatedVideo(student.accessToken(), 9001L, "P7-GROUP");
+        assignGroup(auditor.accessToken(), groupReviewId, groupId);
+        assertThat(taskCount(groupReviewId)).isEqualTo(2L);
+        score(reviewerA.accessToken(), taskIdByReview(reviewerA.accessToken(), groupReviewId), 90, "PASS");
+        score(reviewerB.accessToken(), taskIdByReview(reviewerB.accessToken(), groupReviewId), 86, "PASS");
+        VideoReview groupSettled = reviewMapper.selectById(groupReviewId);
+        assertThat(groupSettled.getStatus()).isEqualTo("REVIEW_COMPLETED");
+        assertThat(groupSettled.getFinalScore()).isEqualTo(88);
+
+        long directReviewId = uploadValidatedVideo(student.accessToken(), 9001L, "P7-DIRECT");
+        assign(auditor.accessToken(), directReviewId, 800000000000003005L, REVIEWER_B_USER_ID);
+        score(reviewerA.accessToken(), taskIdByReview(reviewerA.accessToken(), directReviewId), 82, "PASS");
+        score(reviewerB.accessToken(), taskIdByReview(reviewerB.accessToken(), directReviewId), 80, "PASS");
+        VideoReview directSettled = reviewMapper.selectById(directReviewId);
+        assertThat(directSettled.getStatus()).isEqualTo("REVIEW_COMPLETED");
+        assertThat(directSettled.getFinalScore()).isEqualTo(81);
+
+        long shortGroupId = createReviewerGroup(auditor.accessToken(), "WP-D人数不足组");
+        addReviewerGroupMember(auditor.accessToken(), shortGroupId, 800000000000003005L);
+        long shortReviewId = uploadValidatedVideo(student.accessToken(), 9001L, "P7-GROUP-SHORT");
+        ResponseEntity<String> shortAssign = exchange("/api/video/reviews/" + shortReviewId + "/assign", HttpMethod.POST,
+                auditor.accessToken(), Map.of("groupId", shortGroupId));
+        assertThat(json(shortAssign).at("/code").asInt()).isEqualTo(1000);
+        assertThat(json(shortAssign).at("/msg").asText()).contains("评审教师人数需等于系统参数");
+
+        ResponseEntity<String> crossMember = exchange("/api/video/reviewer-groups/" + groupId + "/members", HttpMethod.POST,
+                auditor.accessToken(), Map.of("reviewerUserId", REVIEWER_D_USER_ID));
+        assertThat(json(crossMember).at("/code").asInt()).isEqualTo(403);
+        assertThat(json(crossMember).at("/msg").asText()).contains("评审教师不属于本学院");
+
+        long otherReviewId = uploadValidatedVideo(studentB.accessToken(), 9002L, "P7-GROUP-CROSS");
+        ResponseEntity<String> crossGroupAssign = exchange("/api/video/reviews/" + otherReviewId + "/assign", HttpMethod.POST,
+                auditor.accessToken(), Map.of("groupId", groupId));
+        assertThat(json(crossGroupAssign).at("/code").asInt()).isIn(403, 404);
+
+        ResponseEntity<String> directCrossReviewer = exchange("/api/video/reviews/" + shortReviewId + "/assign", HttpMethod.POST,
+                auditor.accessToken(), Map.of("reviewerIds", List.of(800000000000003005L, REVIEWER_D_USER_ID)));
+        assertThat(json(directCrossReviewer).at("/code").asInt()).isEqualTo(403);
+        assertThat(json(directCrossReviewer).at("/msg").asText()).contains("评审教师不属于该视频学院");
+    }
+
+    @Test
     void readWriteScopeReviewerScopeAndPlaybackAuthAreEnforced() throws Exception {
         LoginResult studentA = readyLogin("test_student");
         LoginResult studentB = readyLogin("test_student_b");
@@ -503,6 +560,25 @@ class Phase7VideoReviewIT {
     private void assign(String token, long reviewId, Long... reviewerIds) throws Exception {
         ResponseEntity<String> response = exchange("/api/video/reviews/" + reviewId + "/assign", HttpMethod.POST,
                 token, Map.of("reviewerIds", List.of(reviewerIds)));
+        assertThat(json(response).at("/code").asInt()).isEqualTo(0);
+    }
+
+    private void assignGroup(String token, long reviewId, long groupId) throws Exception {
+        ResponseEntity<String> response = exchange("/api/video/reviews/" + reviewId + "/assign", HttpMethod.POST,
+                token, Map.of("groupId", groupId));
+        assertThat(json(response).at("/code").asInt()).isEqualTo(0);
+    }
+
+    private long createReviewerGroup(String token, String name) throws Exception {
+        ResponseEntity<String> response = exchange("/api/video/reviewer-groups", HttpMethod.POST,
+                token, Map.of("name", name, "status", "ENABLED"));
+        assertThat(json(response).at("/code").asInt()).isEqualTo(0);
+        return json(response).at("/data/id").asLong();
+    }
+
+    private void addReviewerGroupMember(String token, long groupId, long reviewerUserId) throws Exception {
+        ResponseEntity<String> response = exchange("/api/video/reviewer-groups/" + groupId + "/members", HttpMethod.POST,
+                token, Map.of("reviewerUserId", reviewerUserId));
         assertThat(json(response).at("/code").asInt()).isEqualTo(0);
     }
 
@@ -721,6 +797,10 @@ class Phase7VideoReviewIT {
     }
 
     private void ensureReviewer(String username, long userId, long userRoleId, String realName) {
+        ensureReviewer(username, userId, userRoleId, realName, COLLEGE_A);
+    }
+
+    private void ensureReviewer(String username, long userId, long userRoleId, String realName, long collegeId) {
         SysUser user = userMapper.selectByUsername(username);
         if (user == null) {
             user = new SysUser();
@@ -732,7 +812,7 @@ class Phase7VideoReviewIT {
         user.setWorkNo(username.toUpperCase());
         user.setStatus("ENABLED");
         user.setUserType("STAFF");
-        user.setCollegeId(COLLEGE_A);
+        user.setCollegeId(collegeId);
         user.setStudentId(null);
         user.setMustChangePwd(1);
         user.setFailedLoginCount(0);
@@ -760,6 +840,8 @@ class Phase7VideoReviewIT {
     }
 
     private void cleanupGeneratedData() {
+        jdbcTemplate.update("DELETE FROM reviewer_group_member WHERE group_id IN (SELECT id FROM reviewer_group WHERE name LIKE 'WP-D%')");
+        jdbcTemplate.update("DELETE FROM reviewer_group WHERE name LIKE 'WP-D%'");
         jdbcTemplate.update("DELETE FROM video_review_task WHERE video_review_id IN (SELECT id FROM video_review WHERE assessment_year LIKE 'P7%')");
         jdbcTemplate.update("DELETE FROM video_review WHERE assessment_year LIKE 'P7%'");
         jdbcTemplate.update("DELETE FROM video_upload_chunk WHERE upload_id IN (SELECT upload_id FROM video_upload_session WHERE assessment_year LIKE 'P7%')");

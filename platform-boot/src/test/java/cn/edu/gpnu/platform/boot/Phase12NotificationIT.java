@@ -58,6 +58,9 @@ class Phase12NotificationIT {
     private static final long STUDENT_B_ID = 9002L;
     private static final long CLERK_ID = 800000000000003003L;
     private static final long REVIEWER_ID = 800000000000003005L;
+    private static final long REVIEWER_B_ID = 800000000000003010L;
+    private static final long REVIEWER_B_USER_ROLE_ID = 800000000000004010L;
+    private static final long REVIEW_TEACHER_ROLE_ID = 800000000000000004L;
     private static final String YEAR = "P12-2026";
 
     @LocalServerPort
@@ -110,6 +113,8 @@ class Phase12NotificationIT {
         resetUser("test_college_auditor", true);
         resetUser("test_academic_admin", true);
         resetUser("test_review_teacher", true);
+        ensureReviewerB();
+        resetUser("test_review_teacher_b", true);
     }
 
     @Test
@@ -140,7 +145,7 @@ class Phase12NotificationIT {
         long reviewId = seedVideoReview(STUDENT_A_ID, COLLEGE_A);
 
         ResponseEntity<String> assign = exchange("/api/video/reviews/" + reviewId + "/assign",
-                HttpMethod.POST, auditor.accessToken(), Map.of("reviewerIds", List.of(REVIEWER_ID, CLERK_ID)));
+                HttpMethod.POST, auditor.accessToken(), Map.of("reviewerIds", List.of(REVIEWER_ID, REVIEWER_B_ID)));
         assertOk(assign);
 
         JsonNode reviewerNotices = notices(reviewer.accessToken(), false);
@@ -424,6 +429,36 @@ class Phase12NotificationIT {
         }
         param.setParamValue(value);
         paramMapper.updateById(param);
+    }
+
+    private void ensureReviewerB() {
+        SysUser user = userMapper.selectByUsername("test_review_teacher_b");
+        if (user == null) {
+            user = new SysUser();
+            user.setId(REVIEWER_B_ID);
+            user.setUsername("test_review_teacher_b");
+        }
+        user.setPasswordHash(passwordEncoder.encode(INITIAL_PASSWORD));
+        user.setRealName("评审教师测试账号B");
+        user.setWorkNo("P12_REVIEWER_B");
+        user.setStatus("ENABLED");
+        user.setUserType("STAFF");
+        user.setCollegeId(COLLEGE_A);
+        user.setStudentId(null);
+        user.setMustChangePwd(1);
+        user.setFailedLoginCount(0);
+        user.setLockedUntil(null);
+        user.setLastLoginAt(null);
+        if (userMapper.selectByUsername("test_review_teacher_b") == null) {
+            userMapper.insert(user);
+        } else {
+            userMapper.updateById(user);
+        }
+        jdbcTemplate.update("""
+                INSERT INTO sys_user_role (id, user_id, role_id, created_by, created_at, updated_by, updated_at, deleted)
+                VALUES (?, ?, ?, 0, NOW(), 0, NOW(), 0)
+                ON DUPLICATE KEY UPDATE deleted = 0, updated_at = NOW()
+                """, REVIEWER_B_USER_ROLE_ID, REVIEWER_B_ID, REVIEW_TEACHER_ROLE_ID);
     }
 
     private void cleanupGeneratedData() {

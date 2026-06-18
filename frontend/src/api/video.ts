@@ -95,6 +95,27 @@ export interface VideoPlayback {
   issuedAt: number
 }
 
+export interface ReviewerGroupMember {
+  id: string
+  reviewerUserId: string
+  reviewerName?: string | null
+  workNo?: string | null
+}
+
+export interface ReviewerGroup {
+  id: string
+  collegeId: string
+  name: string
+  status: 'ENABLED' | 'DISABLED'
+  memberCount: number
+  members: ReviewerGroupMember[]
+}
+
+export interface ReviewerGroupPayload {
+  name: string
+  status?: 'ENABLED' | 'DISABLED'
+}
+
 export function initVideoUpload(payload: VideoUploadInitPayload) {
   return request.post<unknown, ApiResult<VideoUploadInitResult>>('/video/upload/init', payload)
 }
@@ -126,6 +147,34 @@ export function getVideoReview(id: string) {
 
 export function assignVideoReview(id: string, reviewerIds: string[]) {
   return request.post<unknown, ApiResult<null>>(`/video/reviews/${id}/assign`, { reviewerIds })
+}
+
+export function assignVideoReviewGroup(id: string, groupId: string) {
+  return request.post<unknown, ApiResult<null>>(`/video/reviews/${id}/assign`, { groupId })
+}
+
+export function listReviewerGroups() {
+  return request.get<unknown, ApiResult<ReviewerGroup[]>>('/video/reviewer-groups')
+}
+
+export function createReviewerGroup(payload: ReviewerGroupPayload) {
+  return request.post<unknown, ApiResult<ReviewerGroup>>('/video/reviewer-groups', payload)
+}
+
+export function updateReviewerGroup(id: string, payload: ReviewerGroupPayload) {
+  return request.put<unknown, ApiResult<ReviewerGroup>>(`/video/reviewer-groups/${id}`, payload)
+}
+
+export function deleteReviewerGroup(id: string) {
+  return request.delete<unknown, ApiResult<null>>(`/video/reviewer-groups/${id}`)
+}
+
+export function addReviewerGroupMember(id: string, reviewerUserId: string) {
+  return request.post<unknown, ApiResult<ReviewerGroup>>(`/video/reviewer-groups/${id}/members`, { reviewerUserId })
+}
+
+export function removeReviewerGroupMember(id: string, memberId: string) {
+  return request.delete<unknown, ApiResult<null>>(`/video/reviewer-groups/${id}/members/${memberId}`)
 }
 
 export function listMyVideoTasks(status?: string | null) {

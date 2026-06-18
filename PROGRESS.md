@@ -5,10 +5,10 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**Phase 17 / WP-C 视频退回可重传 ✅ 已复核（Claude 06-18，PASS·一轮）**；下一步 Phase 18(WP-D 评审指定+分组)。Phase 0~14 ✅，T-115 ✅，WP-A ✅，WP-B ✅。
+- 当前阶段：**Phase 18 / WP-D 评审指定与分组：待复核**（分支：`feature/wp-d-reviewer-group`）。Phase 0~14 ✅，T-115 ✅，WP-A ✅，WP-B ✅，WP-C ✅。
 - 阻塞项：无
-- 最近更新：2026-06-18（WP-C 复核通过：`RETURNED` 退回态+`/api/video/reviews/{id}/return`，退回重置旧任务/会话/终分→WAIT_REVIEW，守卫只放行退回态；**clean-room `mvn verify` 78/78 全绿**、前端绿；未新增迁移；详见 docs/reviews/wp-c-review.md）
-- 下一步：Phase 18(WP-D) 评审指定 + 分组（评审组模型 + 按组/按人指派，迁移 V22）
+- 最近更新：2026-06-18（WP-D 完成：V22 评审组表、按组/按人指派、数据范围硬校验、`mvn verify` 79/79、前端绿）
+- 下一步：等待 Claude 复核 WP-D，未自行置 ✅
 
 ## 阶段汇总
 | Phase | 名称 | 优先级 | 任务数 | 完成 | 状态 |
@@ -224,6 +224,14 @@
 - [x] T-127 `RETURNED` 重传软删旧评分任务与旧上传会话/分片，清终分/结论/仲裁/确认字段，校验通过后回 `WAIT_REVIEW`，重新分配后再评审；退回通知学生、重传入待评审通知负责人。
 - [x] T-128 `Phase7VideoReviewIT` 覆盖退回→学生重传→重新指派→评分→结算、REVIEWING/NEED_REVIEW/CONFIRMED 重传拒绝、退回审计 old/new/意见可查、`CONFIRMED` 不可退回。
 - 验证：定向 `Phase7VideoReviewIT` 9/9 通过；全量 `mvn -B -ntp verify` **78/78** 通过；`npm --prefix frontend run type-check` 与 `npm --prefix frontend run build` 通过（仅既有 Vite chunk-size 警告）。等待 Claude 复核，未自行置 ✅。
+
+## 收官后 · Phase 18 / WP-D 评审指定与分组
+- Phase 18 / WP-D `评审指定与分组`：**待复核**（分支：`feature/wp-d-reviewer-group`）。新增 `V22__reviewer_group.sql`，创建 `reviewer_group` 与 `reviewer_group_member`，复用 `video:assign` 权限，不新增权限点；评审组 CRUD 与成员增删均按 `video:assign` 写范围校验，组归属取当前负责人学院，成员必须是本院启用 `REVIEW_TEACHER`。
+- [x] T-129 评审组模型与接口：`GET/POST/PUT/DELETE /api/video/reviewer-groups`、成员增删，注册数据范围规则，写操作留 `@AuditLog`。
+- [x] T-130 指派增强：`POST /api/video/reviews/{id}/assign` 支持 `reviewerIds` 或 `groupId` 二选一；按组解析成员后复用原任务分配、通知和 `video.reviewerCount` 校验；按人路径保持向后兼容并新增同学院/评审教师校验。
+- [x] T-131 数据范围硬校验：建组/改组/加成员/按组指派均限本学院；跨院成员、跨院评审人、跨院视频/组指派拒绝（跨院视频由读写范围可返回 404）。
+- [x] T-132 IT 覆盖：`Phase7VideoReviewIT` 新增建组→按组指派→评分→结算、按人指派兼容、跨院成员/跨院指派拒绝、组人数不等于 `video.reviewerCount` 报错；同步调整 Phase12 通知测试为真实评审教师分配。
+- 验证：定向 `Phase7VideoReviewIT,Phase12NotificationIT` **14/14** 通过；全量 `mvn -B -ntp verify` **79/79** 通过；`npm --prefix frontend run type-check` 与 `npm --prefix frontend run build` 通过（仅既有 Vite chunk-size 警告）。等待 Claude 复核，未自行置 ✅。
 
 ---
 

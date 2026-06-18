@@ -15,6 +15,15 @@
 
 ---
 
+## [2026-06-18] Phase 18 / WP-D 待复核小结（评审指定与分组）
+- 做了什么：从 `main` 切出 `feature/wp-d-reviewer-group`，完成评审组模型与按组/按人指派增强。新增 `V22__reviewer_group.sql`，创建 `reviewer_group`、`reviewer_group_member`，唯一约束防同组重复成员；未新增 `video:return`/`video:group` 等权限点，评审组管理和指派继续复用 `video:assign`。
+- 后端实现：新增评审组实体、Mapper、DTO/VO、`ReviewerGroupService` 与 `/api/video/reviewer-groups` CRUD/成员增删接口；写操作接 `@AuditLog`。`VideoAssignRequest` 支持 `reviewerIds` 或 `groupId` 二选一，`VideoReviewServiceImpl.assign` 按组解析成员后沿用既有任务创建、通知和结算流程。
+- 数据范围与硬校验：评审组 CRUD 与成员维护均通过 `DataScopeService.resolve("video:assign")` 做服务层 fail-closed；组所属学院取当前负责人学院，不信任请求；成员必须是本院启用 `REVIEW_TEACHER`；按人和按组指派均校验目标视频学院、评审教师学院与 `video.reviewerCount`。
+- IT 覆盖：`Phase7VideoReviewIT` 新增 WP-D 反例/正例，覆盖负责人建组（2 名本院评审）→按组指派→评分→结算、按人 `reviewerIds` 兼容、跨院成员/跨院评审人/跨院视频指派拒绝、组成员数与 `video.reviewerCount` 不符报错；同步调整 `Phase12NotificationIT` 的视频分配通知用例为真实评审教师账号。
+- 前端最小：`frontend/src/api/video.ts` 增加评审组类型与 CRUD/成员/按组指派 API 封装；完整评审组管理与分组指派 UI 留 Phase 21。
+- 测试：`mvn -B -ntp -DskipTests test-compile` 通过；定向 `mvn -B -ntp -pl platform-boot -am "-Dfailsafe.failIfNoSpecifiedTests=false" "-Dit.test=Phase7VideoReviewIT,Phase12NotificationIT" verify` 通过，**14/14**；全量 `mvn -B -ntp verify` 通过，Failsafe **79/79**；`npm --prefix frontend run type-check` 通过；`npm --prefix frontend run build` 通过（仅既有 Vite chunk-size 警告）。
+- 下一步：`PROGRESS.md` 已置 **Phase 18 / WP-D 待复核**，等待 Claude 复核 V22、评审组范围校验、assign 扩展与全回归，未自行置 ✅。
+
 ## [2026-06-18] Phase 17 / WP-C 复核通过（Claude · REVIEW-GATE）✅ — 视频退回可重传
 - 做了什么：复核 `feature/wp-c-video-return` 单提交 `597cad9`。读 VideoReviewStatus/Controller/ServiceImpl(+164)/IT(+106)/前端最小；clean-room：重置 schema → `mvn verify`（全新 V1–V21）+ 前端 type-check/build。
 - 结论：**PASS**（一轮）。`mvn verify` **BUILD SUCCESS、78/78**（Phase7 7→9）；Flyway v21（未新增迁移，退回复用 `video:confirm`/`video:arbitrate`）；前端 `vue-tsc` 无错 + build 绿。核对：① `returnReview` 置 RETURNED、清终分/仲裁/确认、解锁、富审计 `return` old/new/意见、通知学生、`ensureCanWriteReview` 数据范围；CONFIRMED 禁退回、意见必填、仅 WAIT_REVIEW/REVIEWING/NEED_REVIEW/REVIEW_COMPLETED 可退回。② 守卫 `ensureReuploadable` 仅 RETURNED 跳过 taskCount 放行，REVIEWING/NEED_REVIEW/CONFIRMED 仍拒（Phase7 既有反例不变）。③ 退回重传清旧任务(`reviewer_id=id` 避免重指派唯一冲突)/会话/分片/终分→WAIT_REVIEW + 通知。④ IT 覆盖 退回→重传→重新指派→88/84 结算 86 + 审计 + CONFIRMED 双禁。
