@@ -4,7 +4,6 @@ import {
   NButton,
   NPopconfirm,
   NSpace,
-  NTag,
   useMessage,
   type DataTableColumns,
   type FormInst,
@@ -35,8 +34,13 @@ import {
   type User,
   type UserPayload
 } from '@/api/security'
+import PageContainer from '@/components/PageContainer.vue'
+import StatusTag from '@/components/StatusTag.vue'
+import StatCard from '@/components/StatCard.vue'
+import { useUserStore } from '@/stores/user'
 
 const message = useMessage()
+const userStore = useUserStore()
 
 const userLoading = ref(false)
 const roleLoading = ref(false)
@@ -135,6 +139,15 @@ const majorOptions = computed<SelectOption[]>(() =>
 )
 
 const permissionOptions = computed<TreeOption[]>(() => permissions.value.map(toTreeOption))
+const canManageUsers = computed(() => userStore.hasPerm('system:user:manage'))
+const canManageRoles = computed(() => userStore.hasPerm('system:role:manage'))
+const canManagePerms = computed(() => userStore.hasPerm('system:perm:manage'))
+const summary = computed(() => ({
+  users: users.value.length,
+  enabledUsers: users.value.filter((item) => item.status === 'ENABLED').length,
+  roles: roles.value.length,
+  permissions: flattenPermissions(permissions.value).length
+}))
 
 const userColumns: DataTableColumns<User> = [
   { title: '用户名', key: 'username', minWidth: 150, ellipsis: { tooltip: true } },
@@ -147,7 +160,7 @@ const userColumns: DataTableColumns<User> = [
     minWidth: 240,
     render: (row) =>
       h(NSpace, { size: 6 }, () =>
-        row.roles.map((role) => h(NTag, { key: role.id, size: 'small', bordered: false }, { default: () => role.name }))
+        row.roles.map((role) => h(StatusTag, { key: role.id, text: role.name }))
       )
   },
   { title: '状态', key: 'status', width: 92, render: (row) => userStatusTag(row.status) },
@@ -156,26 +169,30 @@ const userColumns: DataTableColumns<User> = [
     key: 'actions',
     width: 292,
     render: (row) =>
-      h(NSpace, { size: 6 }, () => [
-        h(NButton, { size: 'small', quaternary: true, type: 'primary', onClick: () => openUserDrawer(row) }, { default: () => '编辑' }),
-        h(NButton, { size: 'small', quaternary: true, onClick: () => openScopeDrawer(row) }, { default: () => '范围' }),
-        h(
-          NPopconfirm,
-          { onPositiveClick: () => resetPassword(row) },
-          {
-            trigger: () => h(NButton, { size: 'small', quaternary: true }, { default: () => '重置密码' }),
-            default: () => '重置后用户需首次改密。'
-          }
-        ),
-        h(
-          NPopconfirm,
-          { onPositiveClick: () => removeUser(row) },
-          {
-            trigger: () => h(NButton, { size: 'small', quaternary: true, type: 'error' }, { default: () => '删除' }),
-            default: () => '确认删除该用户？'
-          }
-        )
-      ])
+      h(NSpace, { size: 6 }, () =>
+        canManageUsers.value
+          ? [
+              h(NButton, { size: 'small', quaternary: true, type: 'primary', onClick: () => openUserDrawer(row) }, { default: () => '编辑' }),
+              h(NButton, { size: 'small', quaternary: true, onClick: () => openScopeDrawer(row) }, { default: () => '范围' }),
+              h(
+                NPopconfirm,
+                { onPositiveClick: () => resetPassword(row) },
+                {
+                  trigger: () => h(NButton, { size: 'small', quaternary: true }, { default: () => '重置密码' }),
+                  default: () => '重置后用户需首次改密。'
+                }
+              ),
+              h(
+                NPopconfirm,
+                { onPositiveClick: () => removeUser(row) },
+                {
+                  trigger: () => h(NButton, { size: 'small', quaternary: true, type: 'error' }, { default: () => '删除' }),
+                  default: () => '确认删除该用户？'
+                }
+              )
+            ]
+          : []
+      )
   }
 ]
 
@@ -190,18 +207,22 @@ const roleColumns: DataTableColumns<Role> = [
     key: 'actions',
     width: 210,
     render: (row) =>
-      h(NSpace, { size: 6 }, () => [
-        h(NButton, { size: 'small', quaternary: true, type: 'primary', onClick: () => openRoleDrawer(row) }, { default: () => '编辑' }),
-        h(NButton, { size: 'small', quaternary: true, onClick: () => openRolePermissionDrawer(row) }, { default: () => '权限' }),
-        h(
-          NPopconfirm,
-          { onPositiveClick: () => removeRole(row) },
-          {
-            trigger: () => h(NButton, { size: 'small', quaternary: true, type: 'error' }, { default: () => '删除' }),
-            default: () => '确认删除该角色？'
-          }
-        )
-      ])
+      h(NSpace, { size: 6 }, () =>
+        canManageRoles.value
+          ? [
+              h(NButton, { size: 'small', quaternary: true, type: 'primary', onClick: () => openRoleDrawer(row) }, { default: () => '编辑' }),
+              h(NButton, { size: 'small', quaternary: true, onClick: () => openRolePermissionDrawer(row) }, { default: () => '权限' }),
+              h(
+                NPopconfirm,
+                { onPositiveClick: () => removeRole(row) },
+                {
+                  trigger: () => h(NButton, { size: 'small', quaternary: true, type: 'error' }, { default: () => '删除' }),
+                  default: () => '确认删除该角色？'
+                }
+              )
+            ]
+          : []
+      )
   }
 ]
 
@@ -448,20 +469,15 @@ function defaultScopeFor(permissionId: string) {
 }
 
 function enabledTag(status: number) {
-  return h(
-    NTag,
-    { size: 'small', type: status === 1 ? 'success' : 'default', bordered: false },
-    { default: () => (status === 1 ? '启用' : '停用') }
-  )
+  return h(StatusTag, { text: status === 1 ? '启用' : '停用' })
 }
 
 function userStatusTag(status: string) {
-  const type = status === 'ENABLED' ? 'success' : status === 'LOCKED' ? 'warning' : 'default'
-  return h(NTag, { size: 'small', type, bordered: false }, { default: () => statusName(status) })
+  return h(StatusTag, { text: statusName(status) })
 }
 
 function userTypeTag(type: string) {
-  return h(NTag, { size: 'small', bordered: false }, { default: () => (type === 'STUDENT' ? '学生' : '教职工') })
+  return h(StatusTag, { text: type === 'STUDENT' ? '学生' : '教职工' })
 }
 
 function statusName(status: string) {
@@ -482,17 +498,21 @@ onMounted(refreshAll)
 </script>
 
 <template>
-  <n-space vertical :size="16" class="security-page">
-    <div class="page-head">
-      <div>
-        <n-h2 class="page-title">账号权限</n-h2>
-      </div>
+  <PageContainer title="账号权限" description="系统管理员拥有账号、角色、权限矩阵与数据范围维护能力；其他角色只按权限查看可访问内容。">
+    <template #actions>
       <n-button secondary @click="refreshAll">刷新</n-button>
-    </div>
+    </template>
+
+    <n-grid :cols="4" :x-gap="12" responsive="screen" class="page-section">
+      <n-gi><StatCard label="用户总数" :value="summary.users" /></n-gi>
+      <n-gi><StatCard label="启用用户" :value="summary.enabledUsers" color="#18a058" /></n-gi>
+      <n-gi><StatCard label="角色数" :value="summary.roles" color="#2080f0" /></n-gi>
+      <n-gi><StatCard label="权限点" :value="summary.permissions" color="#4b5563" /></n-gi>
+    </n-grid>
 
     <n-tabs type="line" animated>
       <n-tab-pane name="users" tab="用户">
-        <section class="panel">
+        <section class="panel page-section">
           <div class="panel-toolbar">
             <n-space class="filters" :size="10">
               <n-input v-model:value="keyword" clearable placeholder="用户名 / 姓名 / 工号" style="width: 220px" />
@@ -508,7 +528,7 @@ onMounted(refreshAll)
                 ]"
               />
               <n-button secondary @click="loadUsers">查询</n-button>
-              <n-button type="primary" @click="openUserDrawer()">新增用户</n-button>
+              <n-button v-if="canManageUsers" type="primary" @click="openUserDrawer()">新增用户</n-button>
             </n-space>
           </div>
           <n-data-table
@@ -524,12 +544,12 @@ onMounted(refreshAll)
       </n-tab-pane>
 
       <n-tab-pane name="roles" tab="角色">
-        <section class="panel">
+        <section class="panel page-section">
           <div class="panel-toolbar">
             <n-space class="filters" :size="10">
               <n-input v-model:value="roleKeyword" clearable placeholder="角色编码 / 名称" style="width: 220px" />
               <n-button secondary @click="loadRoles">查询</n-button>
-              <n-button type="primary" @click="openRoleDrawer()">新增角色</n-button>
+              <n-button v-if="canManageRoles" type="primary" @click="openRoleDrawer()">新增角色</n-button>
             </n-space>
           </div>
           <n-data-table
@@ -545,7 +565,10 @@ onMounted(refreshAll)
       </n-tab-pane>
 
       <n-tab-pane name="permissions" tab="权限">
-        <section class="panel">
+        <section class="panel page-section">
+          <n-alert v-if="canManagePerms" type="info" :bordered="false" class="page-section">
+            权限点由后端迁移维护，本页用于查看权限树并在角色授权中配置矩阵。
+          </n-alert>
           <n-data-table
             :columns="permissionColumns"
             :data="permissions"
@@ -691,24 +714,15 @@ onMounted(refreshAll)
         </template>
       </n-drawer-content>
     </n-drawer>
-  </n-space>
+  </PageContainer>
 </template>
 
 <style scoped>
-.security-page {
-  min-width: 1080px;
-}
-
-.page-head,
 .panel-toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-}
-
-.page-title {
-  margin: 0;
 }
 
 .panel {
@@ -730,11 +744,6 @@ onMounted(refreshAll)
 }
 
 @media (max-width: 1120px) {
-  .security-page {
-    min-width: 0;
-  }
-
-  .page-head,
   .panel-toolbar {
     align-items: stretch;
     flex-direction: column;

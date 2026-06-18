@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, h, onMounted, ref } from 'vue'
+import { computed, h, onMounted, ref, watch } from 'vue'
 import {
   NButton,
   NPopconfirm,
@@ -16,6 +16,7 @@ import { listDictItems, type DictItem } from '@/api/dict'
 import { getExamSubjects, type ExamSubject } from '@/api/exemption'
 import { listStudents, type Student } from '@/api/student'
 import { useUserStore } from '@/stores/user'
+import { useYearStore } from '@/stores/year'
 import {
   confirmAbilityTest,
   getAbilityTestValidity,
@@ -28,6 +29,7 @@ import {
 
 const message = useMessage()
 const userStore = useUserStore()
+const yearStore = useYearStore()
 
 const loading = ref(false)
 const saving = ref(false)
@@ -35,7 +37,7 @@ const importVisible = ref(false)
 const examVisible = ref(false)
 const validityVisible = ref(false)
 const keyword = ref('')
-const assessmentYear = ref('2026')
+const assessmentYear = ref(yearStore.assessmentYear)
 const conclusionFilter = ref<string | null>(null)
 const confirmFilter = ref<string | null>(null)
 const records = ref<AbilityTestResult[]>([])
@@ -226,6 +228,14 @@ onMounted(async () => {
   await loadOptions()
   await loadRecords()
 })
+
+watch(
+  () => yearStore.assessmentYear,
+  async (year) => {
+    assessmentYear.value = year
+    await loadRecords()
+  }
+)
 </script>
 
 <template>

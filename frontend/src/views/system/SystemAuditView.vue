@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { h, onMounted, reactive, ref } from 'vue'
-import { NButton, NPopconfirm, NTag, useMessage, type DataTableColumns, type FormInst, type FormRules } from 'naive-ui'
+import { computed, h, onMounted, reactive, ref } from 'vue'
+import { NButton, NPopconfirm, useMessage, type DataTableColumns, type FormInst, type FormRules } from 'naive-ui'
 import {
   deleteAuditLog,
   listAuditLogs,
@@ -12,8 +12,13 @@ import {
   type BackupRecord,
   type SysParam
 } from '@/api/systemAudit'
+import PageContainer from '@/components/PageContainer.vue'
+import StatusTag from '@/components/StatusTag.vue'
+import StatCard from '@/components/StatCard.vue'
+import { useUserStore } from '@/stores/user'
 
 const message = useMessage()
+const userStore = useUserStore()
 
 const paramLoading = ref(false)
 const auditLoading = ref(false)
@@ -49,6 +54,16 @@ const backupForm = reactive({
   scope: 'full',
   remark: ''
 })
+
+const canManageParam = computed(() => userStore.hasPerm('system:param:manage'))
+const canViewAudit = computed(() => userStore.hasPerm('audit:view'))
+const canBackup = computed(() => userStore.hasPerm('system:backup'))
+const summary = computed(() => ({
+  params: params.value.length,
+  audits: audits.value.length,
+  backups: backups.value.length,
+  completedBackups: backups.value.filter((item) => item.status === 'COMPLETED').length
+}))
 
 const paramRules: FormRules = {
   paramValue: [{ required: true, message: '请输入参数值', trigger: ['blur', 'input'] }]
@@ -229,7 +244,7 @@ function backupStatusTag(status: string) {
 }
 
 function tag(text: string | null | undefined, type: 'default' | 'info' | 'success' | 'warning' | 'error' = 'default') {
-  return h(NTag, { size: 'small', bordered: false, type }, { default: () => text || '-' })
+  return h(StatusTag, { text: text || '-' })
 }
 
 function showError(error: unknown, fallback: string) {
@@ -243,18 +258,24 @@ onMounted(async () => {
 </script>
 
 <template>
-  <n-space vertical :size="16" class="system-audit-page">
-    <div class="page-head">
-      <n-h2 class="page-title">参数审计备份</n-h2>
+  <PageContainer title="参数审计备份" description="系统参数热更新、审计日志检索与备份演练记录均沿用生产真实接口和权限点。">
+    <template #actions>
       <n-space>
-        <n-button secondary @click="loadParams">刷新参数</n-button>
-        <n-button secondary @click="loadAudits">刷新审计</n-button>
-        <n-button type="primary" @click="openBackupDrawer">记录备份演练</n-button>
+        <n-button v-if="canManageParam" secondary @click="loadParams">刷新参数</n-button>
+        <n-button v-if="canViewAudit" secondary @click="loadAudits">刷新审计</n-button>
+        <n-button v-if="canBackup" type="primary" @click="openBackupDrawer">记录备份演练</n-button>
       </n-space>
-    </div>
+    </template>
+
+    <n-grid :cols="4" :x-gap="12" responsive="screen" class="page-section">
+      <n-gi><StatCard label="系统参数" :value="summary.params" /></n-gi>
+      <n-gi><StatCard label="审计记录" :value="summary.audits" color="#2080f0" /></n-gi>
+      <n-gi><StatCard label="备份记录" :value="summary.backups" color="#4b5563" /></n-gi>
+      <n-gi><StatCard label="备份完成" :value="summary.completedBackups" color="#18a058" /></n-gi>
+    </n-grid>
 
     <n-tabs type="line" animated>
-      <n-tab-pane name="params" tab="系统参数">
+      <n-tab-pane v-if="canManageParam" name="params" tab="系统参数">
         <section class="panel">
           <div class="toolbar">
             <n-space :size="10" class="filters">
@@ -275,7 +296,7 @@ onMounted(async () => {
         </section>
       </n-tab-pane>
 
-      <n-tab-pane name="audit" tab="审计日志">
+      <n-tab-pane v-if="canViewAudit" name="audit" tab="审计日志">
         <section class="panel">
           <div class="toolbar">
             <n-space :size="10" class="filters">
@@ -300,7 +321,7 @@ onMounted(async () => {
         </section>
       </n-tab-pane>
 
-      <n-tab-pane name="backup" tab="备份记录">
+      <n-tab-pane v-if="canBackup" name="backup" tab="备份记录">
         <section class="panel">
           <div class="toolbar">
             <n-space :size="10" class="filters">
@@ -378,24 +399,15 @@ onMounted(async () => {
         </template>
       </n-drawer-content>
     </n-drawer>
-  </n-space>
+  </PageContainer>
 </template>
 
 <style scoped>
-.system-audit-page {
-  min-width: 1120px;
-}
-
-.page-head,
 .toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-}
-
-.page-title {
-  margin: 0;
 }
 
 .toolbar {
@@ -407,11 +419,6 @@ onMounted(async () => {
 }
 
 @media (max-width: 1120px) {
-  .system-audit-page {
-    min-width: 0;
-  }
-
-  .page-head,
   .toolbar {
     align-items: stretch;
     flex-direction: column;

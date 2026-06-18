@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, h, onMounted, reactive, ref } from 'vue'
+import { computed, h, onMounted, reactive, ref, watch } from 'vue'
 import { useMessage, type DataTableColumns, type SelectOption } from 'naive-ui'
 import PageContainer from '@/components/PageContainer.vue'
 import StatusTag from '@/components/StatusTag.vue'
@@ -14,9 +14,11 @@ import {
   type ExchangeQuery
 } from '@/api/exchange'
 import { useUserStore } from '@/stores/user'
+import { useYearStore } from '@/stores/year'
 
 const message = useMessage()
 const userStore = useUserStore()
+const yearStore = useYearStore()
 const exporting = ref(false)
 const loading = ref(false)
 const batches = ref<ExchangeBatch[]>([])
@@ -26,7 +28,7 @@ const goals = ref<DictItem[]>([])
 
 const query = reactive<ExchangeQuery>({
   keyword: '',
-  assessmentYear: '2026',
+  assessmentYear: yearStore.assessmentYear,
   collegeId: '',
   internalMajorCode: '',
   className: '',
@@ -123,7 +125,7 @@ function filename(type: string) {
 function resetQuery() {
   Object.assign(query, {
     keyword: '',
-    assessmentYear: '2026',
+    assessmentYear: yearStore.assessmentYear,
     collegeId: '',
     internalMajorCode: '',
     className: '',
@@ -143,6 +145,13 @@ onMounted(async () => {
   await loadOptions()
   await loadBatches()
 })
+
+watch(
+  () => yearStore.assessmentYear,
+  (year) => {
+    query.assessmentYear = year
+  }
+)
 </script>
 
 <template>

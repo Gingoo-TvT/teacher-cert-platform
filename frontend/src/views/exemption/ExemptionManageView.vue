@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, h, onMounted, reactive, ref } from 'vue'
+import { computed, h, onMounted, reactive, ref, watch } from 'vue'
 import {
   NButton,
   NPopconfirm,
@@ -15,6 +15,7 @@ import { listDictItems, type DictItem } from '@/api/dict'
 import { listStudents, type Student } from '@/api/student'
 import type { ReviewPayload } from '@/api/student'
 import { useUserStore } from '@/stores/user'
+import { useYearStore } from '@/stores/year'
 import {
   applyExemption,
   deleteExemptionMaterial,
@@ -42,6 +43,7 @@ interface SubjectRow {
 
 const message = useMessage()
 const userStore = useUserStore()
+const yearStore = useYearStore()
 
 const loading = ref(false)
 const saving = ref(false)
@@ -52,7 +54,7 @@ const examVisible = ref(false)
 const replaceVisible = ref(false)
 const previewVisible = ref(false)
 const keyword = ref('')
-const assessmentYear = ref('2026')
+const assessmentYear = ref(yearStore.assessmentYear)
 const statusFilter = ref<string | null>(null)
 const segmentFilter = ref<string | null>(null)
 const records = ref<ExemptionRequest[]>([])
@@ -74,7 +76,7 @@ const selfMode = computed(() => canApply.value && !canFirstReview.value && !canS
 
 const form = reactive({
   studentId: '',
-  assessmentYear: '2026',
+  assessmentYear: yearStore.assessmentYear,
   teachingSegment: '',
   rows: [] as SubjectRow[]
 })
@@ -386,6 +388,15 @@ onMounted(async () => {
   await loadSubjects(null)
   await loadRecords()
 })
+
+watch(
+  () => yearStore.assessmentYear,
+  async (year) => {
+    assessmentYear.value = year
+    if (!drawerVisible.value) form.assessmentYear = year
+    await loadRecords()
+  }
+)
 </script>
 
 <template>

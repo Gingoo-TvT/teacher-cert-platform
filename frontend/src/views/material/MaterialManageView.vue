@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, h, onMounted, reactive, ref } from 'vue'
+import { computed, h, onMounted, reactive, ref, watch } from 'vue'
 import {
   NButton,
   NPopconfirm,
@@ -14,6 +14,7 @@ import StatusTag from '@/components/StatusTag.vue'
 import { listDictItems, type DictItem } from '@/api/dict'
 import { listStudents, type Student } from '@/api/student'
 import { useUserStore } from '@/stores/user'
+import { useYearStore } from '@/stores/year'
 import {
   batchDownloadMaterials,
   deleteMaterial,
@@ -39,6 +40,7 @@ interface StatusRow {
 
 const message = useMessage()
 const userStore = useUserStore()
+const yearStore = useYearStore()
 
 const loading = ref(false)
 const saving = ref(false)
@@ -50,7 +52,7 @@ const previewVisible = ref(false)
 const keyword = ref('')
 const statusFilter = ref<string | null>(null)
 const categoryFilter = ref<string | null>(null)
-const assessmentYear = ref('2026')
+const assessmentYear = ref(yearStore.assessmentYear)
 const records = ref<ProcessMaterial[]>([])
 const students = ref<Student[]>([])
 const categories = ref<DictItem[]>([])
@@ -64,7 +66,7 @@ const previewUrl = ref('')
 
 const uploadForm = reactive({
   studentId: '',
-  assessmentYear: '2026',
+  assessmentYear: yearStore.assessmentYear,
   category: ''
 })
 
@@ -345,6 +347,15 @@ onMounted(async () => {
   await loadOptions()
   await loadRecords()
 })
+
+watch(
+  () => yearStore.assessmentYear,
+  async (year) => {
+    assessmentYear.value = year
+    if (!uploadVisible.value) uploadForm.assessmentYear = year
+    await loadRecords()
+  }
+)
 </script>
 
 <template>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, h, onMounted, reactive, ref } from 'vue'
+import { computed, h, onMounted, reactive, ref, watch } from 'vue'
 import {
   NButton,
   NPopconfirm,
@@ -28,9 +28,11 @@ import {
   type StudentPayload
 } from '@/api/student'
 import { useUserStore } from '@/stores/user'
+import { useYearStore } from '@/stores/year'
 
 const message = useMessage()
 const userStore = useUserStore()
+const yearStore = useYearStore()
 
 const loading = ref(false)
 const saving = ref(false)
@@ -42,7 +44,7 @@ const editingId = ref<string | null>(null)
 const reviewing = ref<{ student: Student; stage: 'first' | 'second' } | null>(null)
 const keyword = ref('')
 const statusFilter = ref<string | null>(null)
-const gradeFilter = ref('')
+const gradeFilter = ref(yearStore.assessmentYear)
 const collegeFilter = ref<string | null>(null)
 const records = ref<Student[]>([])
 const colleges = ref<College[]>([])
@@ -64,7 +66,7 @@ const form = reactive<StudentPayload>({
   sourceCounty: null,
   sourceFull: '',
   collegeId: '',
-  grade: '',
+  grade: yearStore.assessmentYear,
   className: ''
 })
 
@@ -211,7 +213,7 @@ function openDrawer(row?: Student) {
     sourceCounty: row?.sourceCounty || null,
     sourceFull: row?.sourceFull || '',
     collegeId: row?.collegeId || '',
-    grade: row?.grade || '',
+    grade: row?.grade || yearStore.assessmentYear,
     className: row?.className || ''
   })
   drawerVisible.value = true
@@ -305,6 +307,14 @@ onMounted(async () => {
   await loadOptions()
   await loadStudents()
 })
+
+watch(
+  () => yearStore.assessmentYear,
+  (year) => {
+    gradeFilter.value = year
+    if (!drawerVisible.value) form.grade = year
+  }
+)
 </script>
 
 <template>

@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, h, onMounted, reactive, ref } from 'vue'
+import { computed, h, onMounted, reactive, ref, watch } from 'vue'
 import { NButton, NPopconfirm, NSpace, useMessage, type DataTableColumns, type SelectOption } from 'naive-ui'
 import PageContainer from '@/components/PageContainer.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import StatCard from '@/components/StatCard.vue'
 import { listDictItems, type DictItem } from '@/api/dict'
 import { useUserStore } from '@/stores/user'
+import { useYearStore } from '@/stores/year'
 import {
   archiveCertificate,
   issueCertificate,
@@ -17,11 +18,12 @@ import {
 
 const message = useMessage()
 const userStore = useUserStore()
+const yearStore = useYearStore()
 const loading = ref(false)
 const saving = ref(false)
 const issueVisible = ref(false)
 const keyword = ref('')
-const assessmentYear = ref('2026')
+const assessmentYear = ref(yearStore.assessmentYear)
 const statusFilter = ref<string | null>('GENERATED')
 const records = ref<Certificate[]>([])
 const statuses = ref<DictItem[]>([])
@@ -162,6 +164,14 @@ onMounted(async () => {
   await loadOptions()
   await loadRecords()
 })
+
+watch(
+  () => yearStore.assessmentYear,
+  async (year) => {
+    assessmentYear.value = year
+    await loadRecords()
+  }
+)
 </script>
 
 <template>

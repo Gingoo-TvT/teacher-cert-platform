@@ -15,6 +15,15 @@
 
 ---
 
+## [2026-06-18] Phase 23 待复核小结（前端重建·系统管理/通知/工作台/全局学年）
+- 做了什么：从 `main` 切出 `feature/phase23-system-notice-dashboard-year`，用 Phase 19 设计系统重建系统管理、通知中心和角色感知工作台，并新增全局考核学年 Pinia store + 顶栏选择器。全包只改前端与进度日志，未改后端、迁移 V1-V22、API 契约或后端 IT。
+- 系统管理：`SecurityManageView` 接真实 `security` API，账号/角色/权限矩阵/数据范围动作按 `system:user:manage`、`system:role:manage`、`system:perm:manage` 显隐；`SystemAuditView` 接真实 `systemAudit` API，参数、审计、备份按 `system:param:manage`、`audit:view`、`system:backup` 显隐，SYS_ADMIN 具备全功能入口。
+- 通知中心：`NoticeCenterView` 支持列表、全部已读、已读/未读和类型过滤；未读红点覆盖顶栏角标、菜单“通知中心”项、列表未读行/标题，布局和页面均轮询未读数。
+- 工作台：`DashboardView` 按 `roles/perms` 区分学生、学院教务员、学院负责人、评审教师、教务处管理员、系统管理员视角，展示对应 StatCard、ChartBox 图表、快捷入口和最近通知，继续调用真实统计与通知 API。
+- 全局学年：新增 `useYearStore`，顶栏统一选择“考核学年”；已接入学生、培养、材料、免考、视频、测试、证书、导入模板/导出、统计页面，作为默认筛选或模板年度，切换后同步筛选并按页刷新。评审组管理入口继续保留在视频域，理由是建组、成员校验和按组指派都属于 `video:assign` 评审工作流。
+- 测试：`npm --prefix frontend run type-check` 通过；`npm --prefix frontend run build` 通过（仅既有 Vite chunk-size 警告）。
+- 下一步：`PROGRESS.md` 已置 **Phase 23 待复核**，等待 Claude 复核，未自行置 ✅。
+
 ## [2026-06-18] Phase 22 复核通过（Claude · REVIEW-GATE）✅ — 前端重建·测试/证书/导入导出/统计
 - 做了什么：复核 `feature/phase22-test-cert-exchange-stats` 单提交 `f14d5cf`（前端 6 页面 + 进度日志）。读 TestResult/CertificateManage/CertificateIssue/ExchangeImport/Stats 核心 + 确认 api/stores/后端/迁移零改动；前端 build-only gate。
 - 结论：**PASS**（一轮）。`type-check` 无错 + `built in 6.08s`。核对：① 测试只确认(WP-B)——imports 仅 confirm/importFile/importTests，**无 save/update**；perms 仅 test:import/test:confirm，**无 test:edit**；页内文案明示「不提供手工新建或编辑入口」。② 证书签发并入(item-12)——CertificateManage `canIssue=hasPerm('cert:issue')` + 页内 issueCertificate；CertificateIssue 仅按 cert:issue 门控，**无 CERT_ISSUER 角色判断**（grep 无命中），对教务处管理员开放；precheck 四项 + generate/correct/void/reissue 各按 perm。③ 导入——prevalidate + strategy(INSERT_ONLY 等) + confirmImport + rollback + 错误计数表。④ 统计——StatCard + ChartBox/ECharts。⑤ `src/api/*`/`stores/user` 未改；后端/迁移 V1–V22 冻结。

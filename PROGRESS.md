@@ -5,10 +5,10 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**Phase 22 / 前端重建·测试/证书/导入导出/统计 ✅ 已复核（Claude 06-18，PASS·一轮）**；下一步 Phase 23(前端·系统管理/通知/工作台/全局学年)。Phase 0~14 ✅，T-115 ✅，WP-A/B/C/D ✅，Phase 19/20/21 ✅。
+- 当前阶段：**Phase 23 / 前端重建·系统管理/通知/工作台/全局学年 待复核**。Phase 0~14 ✅，T-115 ✅，WP-A/B/C/D ✅，Phase 19/20/21/22 ✅。
 - 阻塞项：无
-- 最近更新：2026-06-18（Phase 22 复核通过：测试只确认无录入(WP-B)、证书签发并入证书管理走 cert:issue 无 CERT_ISSUER 依赖(item-12)、precheck+生命周期、导入向导+策略+回滚、导出文本化、统计卡+ECharts；type-check+build 绿；详见 docs/reviews/phase-22-review.md）
-- 下一步：Phase 23(前端·系统管理/通知/工作台/全局学年)——SYS_ADMIN 全功能、通知红点、角色工作台、全局学年选择器(WP-E)
+- 最近更新：2026-06-18（Phase 23 待复核：系统管理接 PageContainer/StatCard/StatusTag，通知中心列表+菜单+列表未读红点，角色感知工作台，全局考核学年 Pinia store + 顶栏选择器并接入学生/培养/材料/免考/视频/测试/证书/导入导出/统计；type-check+build 绿；未改后端/迁移/API）
+- 下一步：等待 Claude 复核 Phase 23 前端页面和 WP-E 全局学年
 
 ## 阶段汇总
 | Phase | 名称 | 优先级 | 任务数 | 完成 | 状态 |
@@ -265,6 +265,14 @@
 - [x] T-151 导入导出中心：导入页改为模板选择→上传预校验→V-01~V-13 错误表→策略确认四步向导，支持批次、异常报告下载与回滚；导出页支持标准/完整/证书汇总/异常表和附件视频打包。
 - [x] T-152 统计报表：重建 8 类统计，使用 `StatCard` 指标卡与 `ChartBox` ECharts，保留明细钻取与 Excel 导出，继续接真实 `/api/stats/{type}`。
 - 验证：`npm --prefix frontend run type-check` 通过；`npm --prefix frontend run build` 通过（仅既有 Vite chunk-size 警告）。等待 Claude 复核，未自行置 ✅。
+
+## 收官后 · Phase 23 / 前端重建·系统管理/通知/工作台/全局学年
+- Phase 23 / WP-F-5 + WP-E `前端重建·系统管理/通知/工作台/全局学年`：**待复核**（分支：`feature/phase23-system-notice-dashboard-year`）。系统管理、通知中心、角色感知工作台已使用 Phase 19 设计系统；新增全局考核学年 Pinia store 与顶栏选择器。评审组管理入口继续保留在视频域“评审组”标签页，不并入系统管理，理由是组成员校验和按组指派都属于视频评审工作流与 `video:assign` 权限。
+- [x] T-153 系统管理：账号/角色/权限矩阵/数据范围页接真实 `security` API，参数/审计/备份页接真实 `systemAudit` API；SYS_ADMIN 拥有相关权限时全功能可见，写按钮按 `system:user/role/perm:manage`、`system:param:manage`、`audit:view`、`system:backup` 显隐。
+- [x] T-154 通知中心：重建列表、全部已读、已读/未读与类型过滤；顶栏通知角标保留，菜单“通知中心”和列表未读项新增红点，列表和布局均轮询未读/通知。
+- [x] T-155 角色感知工作台：按学生、学院教务员、学院负责人、评审教师、教务处管理员、系统管理员角色展示不同关注项、指标卡、ECharts 图表和最近通知。
+- [x] T-156 全局学年选择器：新增 `useYearStore`，顶栏统一选择“考核学年”；学生、培养、材料、免考、视频、测试、证书、导入导出、统计页面消费该学年作为默认筛选/模板年度，切换后只读列表自动刷新或同步筛选。
+- [x] T-157 验证：`npm --prefix frontend run type-check` 通过；`npm --prefix frontend run build` 通过（仅既有 Vite chunk-size 警告）。等待 Claude 复核，未自行置 ✅。
 
 ---
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, h, onMounted, reactive, ref } from 'vue'
+import { computed, h, onMounted, reactive, ref, watch } from 'vue'
 import {
   NButton,
   NPopconfirm,
@@ -15,6 +15,7 @@ import { listDictItems, type DictItem } from '@/api/dict'
 import { listStudents, type Student } from '@/api/student'
 import { listUsers, type User } from '@/api/security'
 import { useUserStore } from '@/stores/user'
+import { useYearStore } from '@/stores/year'
 import {
   addReviewerGroupMember,
   arbitrateVideoReview,
@@ -52,6 +53,7 @@ type AssignMode = 'person' | 'group'
 
 const message = useMessage()
 const userStore = useUserStore()
+const yearStore = useYearStore()
 
 const loading = ref(false)
 const taskLoading = ref(false)
@@ -65,7 +67,7 @@ const returnVisible = ref(false)
 const groupVisible = ref(false)
 const memberVisible = ref(false)
 const keyword = ref('')
-const assessmentYear = ref('2026')
+const assessmentYear = ref(yearStore.assessmentYear)
 const statusFilter = ref<string | null>(null)
 const reviews = ref<VideoReview[]>([])
 const tasks = ref<VideoTask[]>([])
@@ -96,7 +98,7 @@ const selfMode = computed(() => canUpload.value && !canAssign.value && !canScore
 
 const uploadForm = reactive({
   studentId: '',
-  assessmentYear: '2026',
+  assessmentYear: yearStore.assessmentYear,
   durationSeconds: 900,
   chunkSize: 512 * 1024
 })
@@ -638,6 +640,15 @@ onMounted(async () => {
   await loadOptions()
   await Promise.all([loadReviews(), loadTasks(), loadGroups()])
 })
+
+watch(
+  () => yearStore.assessmentYear,
+  async (year) => {
+    assessmentYear.value = year
+    if (!uploadVisible.value) uploadForm.assessmentYear = year
+    await loadReviews()
+  }
+)
 </script>
 
 <template>

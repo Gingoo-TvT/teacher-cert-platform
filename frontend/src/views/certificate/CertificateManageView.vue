@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, h, onMounted, reactive, ref } from 'vue'
+import { computed, h, onMounted, reactive, ref, watch } from 'vue'
 import {
   NButton,
   NPopconfirm,
@@ -14,6 +14,7 @@ import StatCard from '@/components/StatCard.vue'
 import { listDictItems, type DictItem } from '@/api/dict'
 import { listStudents, type Student } from '@/api/student'
 import { useUserStore } from '@/stores/user'
+import { useYearStore } from '@/stores/year'
 import {
   archiveCertificate,
   correctCertificate,
@@ -32,6 +33,7 @@ import {
 
 const message = useMessage()
 const userStore = useUserStore()
+const yearStore = useYearStore()
 
 const loading = ref(false)
 const saving = ref(false)
@@ -41,7 +43,7 @@ const voidVisible = ref(false)
 const correctVisible = ref(false)
 const issueVisible = ref(false)
 const keyword = ref('')
-const assessmentYear = ref('2026')
+const assessmentYear = ref(yearStore.assessmentYear)
 const statusFilter = ref<string | null>(null)
 const records = ref<Certificate[]>([])
 const students = ref<Student[]>([])
@@ -60,7 +62,7 @@ const canView = computed(() => userStore.hasPerm('cert:view'))
 
 const generateForm = reactive({
   studentId: '',
-  assessmentYear: '2026'
+  assessmentYear: yearStore.assessmentYear
 })
 
 const voidForm = reactive({
@@ -364,6 +366,15 @@ onMounted(async () => {
   await loadOptions()
   await loadRecords()
 })
+
+watch(
+  () => yearStore.assessmentYear,
+  async (year) => {
+    assessmentYear.value = year
+    if (!generateVisible.value) generateForm.assessmentYear = year
+    await loadRecords()
+  }
+)
 </script>
 
 <template>

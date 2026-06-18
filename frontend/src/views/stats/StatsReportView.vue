@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, h, onMounted, reactive, ref } from 'vue'
+import { computed, h, onMounted, reactive, ref, watch } from 'vue'
 import type { EChartsOption } from 'echarts'
 import { useMessage, type DataTableColumns, type SelectOption } from 'naive-ui'
 import PageContainer from '@/components/PageContainer.vue'
@@ -7,6 +7,7 @@ import StatusTag from '@/components/StatusTag.vue'
 import StatCard from '@/components/StatCard.vue'
 import ChartBox from '@/components/ChartBox.vue'
 import { exportStatsReport, getStatsReport, saveStatsBlob, type StatsDetail, type StatsQuery, type StatsReport, type StatsRow } from '@/api/stats'
+import { useYearStore } from '@/stores/year'
 
 interface StatsTypeOption {
   label: string
@@ -15,12 +16,13 @@ interface StatsTypeOption {
 }
 
 const message = useMessage()
+const yearStore = useYearStore()
 const loading = ref(false)
 const exporting = ref(false)
 const selectedType = ref('submission')
 const report = ref<StatsReport | null>(null)
 const query = reactive<StatsQuery>({
-  assessmentYear: '2026',
+  assessmentYear: yearStore.assessmentYear,
   keyword: '',
   className: '',
   teachingSegment: '',
@@ -130,7 +132,7 @@ function selectType(value: string) {
 
 function resetQuery() {
   Object.assign(query, {
-    assessmentYear: '2026',
+    assessmentYear: yearStore.assessmentYear,
     keyword: '',
     className: '',
     teachingSegment: '',
@@ -170,6 +172,14 @@ function showError(error: unknown, fallback: string) {
 }
 
 onMounted(loadReport)
+
+watch(
+  () => yearStore.assessmentYear,
+  async (year) => {
+    query.assessmentYear = year
+    await loadReport()
+  }
+)
 </script>
 
 <template>

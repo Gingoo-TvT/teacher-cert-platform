@@ -28,9 +28,11 @@ import {
   type TrainingProfile
 } from '@/api/training'
 import { useUserStore } from '@/stores/user'
+import { useYearStore } from '@/stores/year'
 
 const message = useMessage()
 const userStore = useUserStore()
+const yearStore = useYearStore()
 
 const loading = ref(false)
 const saving = ref(false)
@@ -43,7 +45,7 @@ const editingId = ref<string | null>(null)
 const reviewing = ref<{ profile: TrainingProfile; stage: 'first' | 'second' } | null>(null)
 const selectedProfile = ref<TrainingProfile | null>(null)
 const keyword = ref('')
-const assessmentYear = ref('2026')
+const assessmentYear = ref(yearStore.assessmentYear)
 const statusFilter = ref<string | null>(null)
 const collegeFilter = ref<string | null>(null)
 const segmentFilter = ref<string | null>(null)
@@ -64,7 +66,7 @@ const allowedLocations = ref<string[]>([])
 const form = reactive<TrainingPayload>({
   studentId: '',
   collegeId: '',
-  assessmentYear: '2026',
+  assessmentYear: yearStore.assessmentYear,
   secondDisciplineCode: '',
   secondDisciplineName: '',
   internalMajorCode: '',
@@ -296,7 +298,7 @@ function resetForm(row?: TrainingProfile) {
   Object.assign(form, {
     studentId: row?.studentId || selfStudent?.id || '',
     collegeId: row?.collegeId || selfStudent?.collegeId || '',
-    assessmentYear: row?.assessmentYear || assessmentYear.value || '2026',
+    assessmentYear: row?.assessmentYear || assessmentYear.value || yearStore.assessmentYear,
     secondDisciplineCode: row?.secondDisciplineCode || '',
     secondDisciplineName: row?.secondDisciplineName || '',
     internalMajorCode: row?.internalMajorCode || '',
@@ -403,6 +405,15 @@ onMounted(async () => {
   await loadOptions()
   await loadRecords()
 })
+
+watch(
+  () => yearStore.assessmentYear,
+  async (year) => {
+    assessmentYear.value = year
+    if (!drawerVisible.value) form.assessmentYear = year
+    await loadRecords()
+  }
+)
 </script>
 
 <template>

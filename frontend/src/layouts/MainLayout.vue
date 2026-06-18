@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import { computed, h, onBeforeUnmount, onMounted, ref } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
-import { NBadge, NButton, NDropdown, NTag, type MenuOption } from 'naive-ui'
+import { NBadge, NButton, NDropdown, NTag, type MenuOption, type SelectOption } from 'naive-ui'
 import { unreadNoticeCount } from '@/api/notice'
 import { useUserStore } from '@/stores/user'
+import { useYearStore } from '@/stores/year'
 
 const router = useRouter()
 const route = useRoute()
 const userStore = useUserStore()
+const yearStore = useYearStore()
 const collapsed = ref(false)
 const unreadCount = ref(0)
 let noticeTimer: number | undefined
@@ -111,6 +113,7 @@ const displayName = computed(() => userStore.realName || userStore.username || '
 const roleLabel = computed(() => roleName(userStore.roles[0]))
 const roleColor = computed(() => roleColorByCode(userStore.roles[0]))
 const canViewNotice = computed(() => userStore.hasPerm('notice:view'))
+const yearOptions = computed<SelectOption[]>(() => yearStore.yearOptions.map((year) => ({ label: year, value: year })))
 
 const menuOptions = computed<MenuOption[]>(() => {
   return rawMenu
@@ -131,7 +134,7 @@ const menuOptions = computed<MenuOption[]>(() => {
         label: group.label,
         children: visibleChildren.map((leaf) => ({
           key: leaf.key,
-          label: () => h(RouterLink, { to: leaf.path }, { default: () => leaf.label })
+          label: () => renderMenuLabel(leaf)
         }))
       }
     })
@@ -159,6 +162,16 @@ onBeforeUnmount(() => {
 
 function canShowLeaf(leaf: AppMenuLeaf) {
   return !leaf.perms?.length || userStore.hasAnyPerm(leaf.perms)
+}
+
+function renderMenuLabel(leaf: AppMenuLeaf) {
+  const label = leaf.key === 'noticeCenter' && unreadCount.value > 0
+    ? h('span', { class: 'menu-label-with-dot' }, [
+        h('span', leaf.label),
+        h('span', { class: 'menu-dot' })
+      ])
+    : leaf.label
+  return h(RouterLink, { to: leaf.path }, { default: () => label })
 }
 
 async function refreshUnread() {
@@ -244,6 +257,17 @@ function roleColorByCode(code?: string) {
       <n-layout-header bordered class="app-header">
         <div class="page-title">{{ pageTitle }}</div>
         <div class="header-actions">
+          <div class="year-picker">
+            <span>考核学年</span>
+            <n-select
+              :value="yearStore.assessmentYear"
+              :options="yearOptions"
+              size="small"
+              tag
+              filterable
+              @update:value="(value: string) => yearStore.setYear(value)"
+            />
+          </div>
           <n-badge v-if="canViewNotice" :value="unreadCount" :max="99" :show-zero="false">
             <n-button quaternary size="small" @click="openNoticeCenter">通知</n-button>
           </n-badge>
@@ -343,6 +367,19 @@ function roleColorByCode(code?: string) {
   gap: 12px;
 }
 
+.year-picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 170px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.year-picker :deep(.n-select) {
+  width: 96px;
+}
+
 .user-chip {
   height: 40px;
   border: 0;
@@ -406,5 +443,19 @@ function roleColorByCode(code?: string) {
   color: var(--brand);
   font-size: 12px;
   font-weight: 700;
+}
+
+:deep(.menu-label-with-dot) {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+:deep(.menu-dot) {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #d03050;
+  box-shadow: 0 0 0 2px rgba(208, 48, 80, 0.12);
 }
 </style>

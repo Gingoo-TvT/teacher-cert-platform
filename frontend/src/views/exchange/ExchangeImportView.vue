@@ -25,8 +25,10 @@ import {
   type ImportPreviewRow,
   type PrevalidateResult
 } from '@/api/exchange'
+import { useYearStore } from '@/stores/year'
 
 const message = useMessage()
+const yearStore = useYearStore()
 const loading = ref(false)
 const uploading = ref(false)
 const confirming = ref(false)
@@ -110,7 +112,7 @@ async function loadBatches() {
 
 async function downloadTpl() {
   try {
-    const blob = await downloadTemplate()
+    const blob = await downloadTemplate({ assessmentYear: yearStore.assessmentYear })
     saveBlob(blob, '教育部标准导入模板.xlsx')
     activeStep.value = Math.max(activeStep.value, 2)
   } catch (error) {
