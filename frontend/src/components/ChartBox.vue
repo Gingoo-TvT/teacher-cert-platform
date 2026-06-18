@@ -1,7 +1,13 @@
 <script setup lang="ts">
 import * as echarts from 'echarts'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { chartAxisColor, chartPalette, chartSplitLineColor } from '@/theme/tokens'
+import {
+  chartAxisColor,
+  chartAxisLineColor,
+  chartPalette,
+  chartSplitLineColor,
+  chartTooltipBorderColor
+} from '@/theme/tokens'
 
 const props = defineProps<{
   option: echarts.EChartsOption
@@ -45,11 +51,25 @@ function normalizeOption(option: echarts.EChartsOption): echarts.EChartsOption {
   const rotate = maxLabelLength > 14 || categoryLabels.length > 10 ? 30 : 0
   const labelWidth = rotate ? 86 : 104
   const bottom = rotate ? 82 : Math.max(48, Math.min(72, maxLabelLength * 4 + 32))
+  const tooltip = isObject(option.tooltip) ? option.tooltip : {}
+  const tooltipTextStyle = isObject(tooltip.textStyle) ? tooltip.textStyle : {}
 
   return {
     color: [...chartPalette],
-    tooltip: { trigger: 'axis' },
     ...option,
+    tooltip: {
+      trigger: 'axis',
+      borderColor: chartTooltipBorderColor,
+      borderRadius: 12,
+      padding: [10, 12],
+      confine: true,
+      ...tooltip,
+      textStyle: {
+        color: chartAxisColor,
+        fontSize: 13,
+        ...tooltipTextStyle
+      }
+    },
     grid: {
       left: 48,
       right: 24,
@@ -64,6 +84,15 @@ function normalizeOption(option: echarts.EChartsOption): echarts.EChartsOption {
       axisTick: {
         ...(isObject(axis.axisTick) ? axis.axisTick : {}),
         alignWithLabel: true
+      },
+      axisLine: {
+        ...(isObject(axis.axisLine) ? axis.axisLine : {}),
+        lineStyle: {
+          ...(isObject((axis.axisLine as Record<string, unknown> | undefined)?.lineStyle)
+            ? (axis.axisLine as Record<string, Record<string, unknown>>).lineStyle
+            : {}),
+          color: chartAxisLineColor
+        }
       },
       axisLabel: {
         ...(isObject(axis.axisLabel) ? axis.axisLabel : {}),
@@ -89,9 +118,23 @@ function normalizeOption(option: echarts.EChartsOption): echarts.EChartsOption {
             ...lineStyle,
             color: chartSplitLineColor
           }
+        },
+        axisLine: {
+          ...(isObject(axis.axisLine) ? axis.axisLine : {}),
+          lineStyle: {
+            ...(isObject((axis.axisLine as Record<string, unknown> | undefined)?.lineStyle)
+              ? (axis.axisLine as Record<string, Record<string, unknown>>).lineStyle
+              : {}),
+            color: chartAxisLineColor
+          }
+        },
+        axisLabel: {
+          ...(isObject(axis.axisLabel) ? axis.axisLabel : {}),
+          color: chartAxisColor
         }
       }
-    }) as echarts.EChartsOption['yAxis']
+    }) as echarts.EChartsOption['yAxis'],
+    series: normalizeSeries(option.series) as echarts.EChartsOption['series']
   }
 }
 
@@ -111,6 +154,22 @@ function firstCategoryLabels(axis: echarts.EChartsOption['xAxis']) {
     if (isObject(item) && (typeof item.value === 'string' || typeof item.value === 'number')) return String(item.value)
     return ''
   })
+}
+
+function normalizeSeries(series: echarts.EChartsOption['series']) {
+  const normalize = (item: unknown) => {
+    if (!isObject(item) || item.type !== 'bar') return item
+    const itemStyle = isObject(item.itemStyle) ? item.itemStyle : {}
+    return {
+      barMaxWidth: 34,
+      ...item,
+      itemStyle: {
+        borderRadius: [6, 6, 0, 0],
+        ...itemStyle
+      }
+    }
+  }
+  return Array.isArray(series) ? series.map(normalize) : normalize(series)
 }
 
 function visibleLength(value: string) {

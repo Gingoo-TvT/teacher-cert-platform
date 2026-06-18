@@ -747,7 +747,7 @@ onMounted(refreshAll)
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-4);
 }
 
 .panel {
@@ -755,7 +755,7 @@ onMounted(refreshAll)
 }
 
 .panel-toolbar {
-  margin-bottom: 12px;
+  margin-bottom: var(--space-4);
 }
 
 .filters {
@@ -765,7 +765,7 @@ onMounted(refreshAll)
 .form-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 12px;
+  gap: var(--space-4);
 }
 
 @media (max-width: 1120px) {

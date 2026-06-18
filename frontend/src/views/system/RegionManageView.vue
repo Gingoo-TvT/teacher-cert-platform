@@ -195,7 +195,7 @@ onMounted(() => loadChildren())
 .region-layout {
   display: grid;
   grid-template-columns: minmax(560px, 1.3fr) minmax(360px, 0.7fr);
-  gap: 16px;
+  gap: var(--space-6);
   align-items: start;
 }
 
@@ -204,7 +204,7 @@ onMounted(() => loadChildren())
 }
 
 .panel-toolbar {
-  margin-bottom: 12px;
+  margin-bottom: var(--space-4);
 }
 
 .panel-toolbar strong,

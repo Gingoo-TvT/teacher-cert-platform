@@ -291,7 +291,7 @@ onMounted(async () => {
 .subject-layout {
   display: grid;
   grid-template-columns: minmax(680px, 1.25fr) minmax(360px, 0.75fr);
-  gap: 16px;
+  gap: var(--space-6);
   align-items: start;
 }
 
@@ -300,7 +300,7 @@ onMounted(async () => {
 }
 
 .panel-toolbar {
-  margin-bottom: 12px;
+  margin-bottom: var(--space-4);
 }
 
 .filters {
@@ -313,7 +313,7 @@ onMounted(async () => {
 
 .import-result {
   display: grid;
-  gap: 12px;
+  gap: var(--space-4);
 }
 
 @media (max-width: 1180px) {

@@ -468,7 +468,7 @@ watch(
   width: 100%;
   height: min(70vh, 720px);
   border: 1px solid var(--shell-border);
-  border-radius: 6px;
+  border-radius: var(--radius-card);
 }
 
 .mono-input :deep(input) {

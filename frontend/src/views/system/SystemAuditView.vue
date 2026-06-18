@@ -428,11 +428,11 @@ onMounted(loadVisibleSections)
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-4);
 }
 
 .toolbar {
-  margin-bottom: 12px;
+  margin-bottom: var(--space-4);
 }
 
 .filters {

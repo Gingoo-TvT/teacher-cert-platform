@@ -785,7 +785,7 @@ onMounted(async () => {
 .org-layout {
   display: grid;
   grid-template-columns: minmax(360px, 0.7fr) minmax(720px, 1.3fr);
-  gap: 16px;
+  gap: var(--space-6);
   align-items: start;
 }
 
@@ -796,8 +796,8 @@ onMounted(async () => {
 .panel-toolbar {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 12px;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
 }
 
 .panel-toolbar.wrap {
@@ -807,14 +807,14 @@ onMounted(async () => {
 .form-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 12px;
+  gap: var(--space-4);
 }
 
 .pill {
   display: inline-flex;
   align-items: center;
   height: 22px;
-  padding: 0 8px;
+  padding: 0 var(--space-3);
   border-radius: var(--radius-tag);
   background: var(--brand-soft);
   color: var(--brand);

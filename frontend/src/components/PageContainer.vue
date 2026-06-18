@@ -31,8 +31,8 @@ defineProps<{
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: var(--space-5);
-  margin-bottom: var(--space-5);
+  gap: var(--space-6);
+  margin-bottom: var(--space-6);
 }
 
 .page-title-block {
@@ -49,7 +49,7 @@ defineProps<{
 }
 
 .page-title-block p {
-  margin: 4px 0 0;
+  margin: var(--space-1) 0 0;
   font-size: 13px;
   line-height: 20px;
   color: var(--text-secondary);
@@ -59,9 +59,9 @@ defineProps<{
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: var(--space-2);
+  gap: var(--space-3);
   flex-wrap: wrap;
-  min-height: 34px;
+  min-height: 36px;
 }
 
 @media (max-width: 720px) {

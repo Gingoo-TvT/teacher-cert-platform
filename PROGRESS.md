@@ -5,10 +5,10 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**🎉 Phase 26 ✅ 已复核（Claude 06-18，PASS·一轮）—— 收官后重构 + 验收修复 + UI 提升 全部完成**。客观门槛（视觉-only/token 驱动/build 绿）已过，主观「好不好看」由用户在运行栈最终验收。
+- 当前阶段：**Phase 28 待复核 — UI 视觉重做·明亮圆润(青绿/友好 SaaS)·按新 frontend/DESIGN.md**。纯前端视觉/排版层，目标是与 Phase 26 政务蓝小圆角版肉眼明显不同。
 - 阻塞项：无
-- 最近更新：2026-06-18（Phase 26 复核通过：theme/naive.ts+tokens.ts+global.css 主题 token 收口、组件/视图按 DESIGN.md 重排、操作列 ≤3+更多 helper、登录/外壳/表格/卡片/图表提升；无路由/接口/权限/逻辑改动；type-check+build 绿；详见 docs/reviews/phase-26-review.md）
-- 下一步：用户在 :5173 视觉验收（合并后 vite 热更新）；如某些页需微调即起小修复包；可选 T-162(中职专业课全量学科种子)待学校确认
+- 最近更新：2026-06-19（Phase 28 完成待复核：青绿 `#0d9488` 主色、控件 10px/卡片表格 14px、内容 28px 留白、导航青绿 pill、登录明亮青绿分栏、图表圆角柱与明快色板；无路由/接口/权限/状态机/后端/迁移改动）
+- 下一步：等待 Claude 复核 Phase 28；不自行置 ✅；可选 T-162(中职专业课全量学科种子)待学校确认
 
 ## 阶段汇总
 | Phase | 名称 | 优先级 | 任务数 | 完成 | 状态 |
@@ -303,6 +303,16 @@
 - [x] T-173 前端 VideoReviewView 按人指派候选改用 `listReviewerCandidates()`；移除对 `listUsers`/`system:user:manage` 的依赖，负责人/教务处具 `video:assign` 即可加载候选；按组指派和评审组 CRUD 保持原流程。
 - [x] T-174 IT 覆盖：`Phase7VideoReviewIT` 新增候选端点范围与贯通用例，断言学院负责人只能看到本院 `REVIEW_TEACHER`、看不到跨院评审教师和非评审教师，评审教师访问候选端点 403；随后用端点返回的 2 名评审教师按人指派→评分→结算 PASS。
 - 验证：定向 `mvn -B -ntp -pl platform-boot -am "-Dit.test=Phase7VideoReviewIT" "-Dfailsafe.failIfNoSpecifiedTests=false" "-Dspring-boot.repackage.skip=true" verify` **11/11** 通过；全量 `mvn -B -ntp verify` **83/83** 通过；`npm --prefix frontend run type-check` 通过；`npm --prefix frontend run build` 通过（仅既有 Vite chunk-size warning）。未启动常驻前端/后端服务；等待 Claude 复核，未自行置 ✅。
+
+## 收官后 · Phase 28 / UI 视觉重做·明亮圆润(青绿/友好 SaaS)
+- Phase 28 `UI 视觉重做·按新 frontend/DESIGN.md`：**待复核**（分支：`feature/phase28-ui-bright-rounded`）。纯前端视觉/排版层重做，不改路由、接口、权限、状态机、业务逻辑、后端或迁移；目标是从 Phase 26 政务克制蓝/小圆角明显切换到青绿主色、大圆角、宽松留白、柔和阴影的友好 SaaS 风。
+- [x] T-175 主题 token 重写：`theme/global.css` 改为青绿/暖中性变量、`--page-bg:#f6f8f7`、控件 10px、卡片/表格 14px、柔和阴影和更宽间距；`theme/naive.ts` 重写 common/Button/DataTable/Menu/Tag/Card/Input/Form/Select/Pagination/Empty；`theme/tokens.ts` 改明快图表色板。
+- [x] T-176 外壳/导航：`MainLayout` 侧栏 248/64，选中态改青绿圆角 pill（无左色条），项间距加宽；顶栏页标题 20px、学年/通知青绿角标、青绿圆形头像；内容区 28 留白，`PageContainer` 间距加宽。
+- [x] T-177 列表/表格：全局 DataTable 圆角 14px 卡片化，表头浅青底、sticky、行高约 50、hover 青绿浅底、分页右对齐；操作列继续保持 ≤3/更多 popover；筛选条控件 34px 等高、10px 圆角。
+- [x] T-178 卡片/表单/标签/指标卡/空载态：白卡 14px + 柔和阴影；表单 label top 和禁用态沿 token；StatusTag pill soft 全枚举；StatCard 改青绿色点 + 32px 大数值；空/载/错态和弹层圆角统一。
+- [x] T-179 登录页：明亮青绿品牌分栏、浅暖背景、圆角白卡表单；保留真实 captcha/login/change-pwd 流程。
+- [x] T-180 图表：`ChartBox` 保留 Phase25 轴修复，新增明快色板、柱图顶圆角 `itemStyle.borderRadius:[6,6,0,0]`、`barMaxWidth:34`、圆角 tooltip 与浅色轴线。
+- [x] T-181 验证：`npm --prefix frontend run type-check` 通过；`npm --prefix frontend run build` 通过（仅既有 Vite chunk-size warning）；硬编码色自查：页面/组件/布局层无 `#`/`rgba` 色值，色值集中在 `frontend/src/theme/*`。
 
 ---
 

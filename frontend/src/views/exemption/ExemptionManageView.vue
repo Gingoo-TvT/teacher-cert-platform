@@ -522,16 +522,16 @@ watch(
 }
 
 .subject-row {
-  padding: 12px;
+  padding: var(--space-4);
   border: 1px solid var(--shell-border);
-  border-radius: 8px;
+  border-radius: var(--radius-card);
 }
 
 .preview-frame {
   width: 100%;
   height: min(70vh, 720px);
   border: 1px solid var(--shell-border);
-  border-radius: 6px;
+  border-radius: var(--radius-card);
 }
 
 .mono-input :deep(input) {

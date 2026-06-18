@@ -503,7 +503,7 @@ onMounted(loadTypes)
 .master-detail-grid {
   display: grid;
   grid-template-columns: minmax(340px, 0.8fr) minmax(560px, 1.2fr);
-  gap: 16px;
+  gap: var(--space-6);
   align-items: start;
 }
 
@@ -512,15 +512,15 @@ onMounted(loadTypes)
 }
 
 .panel-toolbar {
-  margin-bottom: 12px;
+  margin-bottom: var(--space-4);
 }
 
 .detail-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 12px;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
 }
 
 .detail-head strong,
@@ -531,7 +531,7 @@ onMounted(loadTypes)
 .form-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 12px;
+  gap: var(--space-4);
 }
 
 :deep(.is-selected-row td) {

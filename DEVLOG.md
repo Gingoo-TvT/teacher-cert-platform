@@ -15,6 +15,17 @@
 
 ---
 
+## [2026-06-19] Phase 28 待复核小结（UI 视觉重做·明亮圆润青绿 SaaS）
+- 做了什么：从最新 `main` 切出 `feature/phase28-ui-bright-rounded`，按新版 `frontend/DESIGN.md` 完成 T-175~T-181。纯前端视觉/排版层重做，未改路由、接口、权限、状态机、业务逻辑、后端代码或 Flyway 迁移。
+- T-175/T-176：`frontend/src/theme/global.css` 改为青绿 `#0d9488`、暖中性、`--page-bg:#f6f8f7`、控件 10px、卡片/表格 14px、宽松间距和柔和阴影；`theme/naive.ts` 重写 common/Button/DataTable/Menu/Tag/Card/Input/Form/Select/Pagination/Empty；`MainLayout` 改 248 侧栏、青绿圆角 pill 选中态（无左色条）、顶栏 20px 标题、青绿通知角标和头像、内容区 28px 留白。
+- T-177/T-178：全局 DataTable 卡片化、浅青表头、约 50px 行高、青绿 hover、分页右对齐；筛选条等高和宽松间距统一。StatusTag 维持全枚举 soft 但改 pill；StatCard 从左色条改青绿色点 + 32px 大数值；卡片、表单只读态、空态、弹层圆角/阴影统一。
+- T-179/T-180：登录页重做为明亮青绿品牌分栏 + 圆角白卡表单，保留 captcha/login/change-password 流程；`ChartBox` 保留 Phase25 轴修复并新增明快图表色板、柱图顶圆角、`barMaxWidth`、圆角 tooltip 与浅色轴线。
+- 关键决策与理由：本轮不新增 UI 框架，继续通过 `theme/global.css` + `theme/naive.ts` + `theme/tokens.ts` 收口视觉，页面层只做必要局部间距/圆角修正，确保与 Phase 26 的旧蓝小圆角肉眼明显不同且行为中性。
+- 问题与解决：`ChartBox` 需要在不覆盖页面自定义 tooltip/series 的前提下注入圆角柱和 tooltip 样式，采用 normalize 合并；局部系统页仍有 12px 间距和 6/8px 圆角，已改为 token。
+- 与规格的偏差/疑问：无。按用户硬约束执行 build-only；未启动前端/后端常驻服务；未自行置 ✅。
+- 测试：`npm --prefix frontend run type-check` 通过；`npm --prefix frontend run build` 通过（仅既有 Vite chunk-size warning）。硬编码色自查：页面/组件/布局层无 `#`/`rgba` 色值，色值集中在 `frontend/src/theme/*`。
+- 下一步：`PROGRESS.md` 已置 **Phase 28 待复核**，等待 Claude 复核；本地私有无 remote、不 push。
+
 ## [2026-06-18] Phase 26 复核通过（Claude · REVIEW-GATE）✅ — UI 设计提升·按 DESIGN.md
 - 做了什么：复核 `feature/phase26-ui-uplift` 单提交 `4350304`（33 前端文件）。读 theme/naive.ts、tokens.ts、utils/tableActions.ts + 抽查视图 diff 行为中性 + 确认 **无 api/router/stores/后端/迁移改动**；前端 build-only gate。
 - 结论：**PASS**（一轮，客观门槛）。`type-check` 无错 + `built in 7.15s`。核对：① 主题 token 收口——`theme/naive.ts` GlobalThemeOverrides(primaryColor #1d4ed8/radii 6·4px/Button·DataTable·Menu·Tag·Card·Input)、`tokens.ts` 8 色低饱和图表色板+轴色、`global.css`(+322) CSS 变量；硬编码色收敛至 theme/*。② 操作列 `renderTableActions` ≤3 内联/>3 收「更多」popover；StatCard/StatusTag/PageContainer/登录分栏/外壳导航按 DESIGN.md 重排。③ 抽查 StudentManageView 等 diff 仅列宽/类名/操作列 helper，handler/请求/权限判断未变；diff 名单无 src/api、src/router、src/stores、platform-*、migration。主观视觉质量交用户在运行栈验收。
