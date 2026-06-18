@@ -15,6 +15,11 @@
 
 ---
 
+## [2026-06-18] Phase 23 复核通过（Claude · REVIEW-GATE）✅ — 系统管理/通知/工作台/全局学年
+- 做了什么：复核 `feature/phase23-system-notice-dashboard-year` 单提交 `eba635b`（前端 19 文件：新增 stores/year.ts + MainLayout + Dashboard + Notice + 系统管理 2 页 + 9 列表接学年 + 进度日志）。读 year.ts/MainLayout/Dashboard/NoticeCenter + 抽查列表年store 接入；前端 build-only gate。
+- 结论：**PASS**（一轮）。`type-check` 无错 + `built in 5.97s`。核对：① WP-E 全局学年——`useYearStore`(assessmentYear persist localStorage + yearOptions 当前±2 + setYear)；MainLayout 顶栏 year-picker；9 列表(student/training/material/exemption/video/test/cert/exchange/stats)均 ref(yearStore.assessmentYear) + `watch(()=>yearStore.assessmentYear)→reload`，切换即全局生效。② 通知红点——MainLayout 菜单项 noticeCenter `unreadCount>0` 渲 menu-dot + 头部角标；NoticeCenter 列表项 readFlag===0 渲 notice-dot + StatusTag。③ 工作台——按 userStore.roles 6 角色(SYS_ADMIN/ACADEMIC_ADMIN/COLLEGE_AUDITOR/COLLEGE_CLERK/REVIEW_TEACHER/STUDENT)分别 StatCard+ChartBox+最近通知。④ 系统管理(Security/SystemAudit)接真实 API；评审组入口留视频域(已说明)。⑤ 仅新增前端内部 year store；后端/迁移 V1–V22 冻结。
+- 放行：PROGRESS Phase 23 置 ✅；合并 `main`（本地私有、无远程、不 push）。**前端重建 Phase 19–23 全完成**；下一步 Phase 24(字段规范收口 + 整体验收)。
+
 ## [2026-06-18] Phase 23 待复核小结（前端重建·系统管理/通知/工作台/全局学年）
 - 做了什么：从 `main` 切出 `feature/phase23-system-notice-dashboard-year`，用 Phase 19 设计系统重建系统管理、通知中心和角色感知工作台，并新增全局考核学年 Pinia store + 顶栏选择器。全包只改前端与进度日志，未改后端、迁移 V1-V22、API 契约或后端 IT。
 - 系统管理：`SecurityManageView` 接真实 `security` API，账号/角色/权限矩阵/数据范围动作按 `system:user:manage`、`system:role:manage`、`system:perm:manage` 显隐；`SystemAuditView` 接真实 `systemAudit` API，参数、审计、备份按 `system:param:manage`、`audit:view`、`system:backup` 显隐，SYS_ADMIN 具备全功能入口。
