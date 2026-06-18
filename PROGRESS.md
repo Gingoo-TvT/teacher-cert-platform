@@ -5,10 +5,10 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**Phase 26 待复核（UI 设计提升·按 frontend/DESIGN.md）**；纯视觉/排版层，不改路由/接口/权限/状态机/迁移。
+- 当前阶段：**🎉 Phase 26 ✅ 已复核（Claude 06-18，PASS·一轮）—— 收官后重构 + 验收修复 + UI 提升 全部完成**。客观门槛（视觉-only/token 驱动/build 绿）已过，主观「好不好看」由用户在运行栈最终验收。
 - 阻塞项：无
-- 最近更新：2026-06-18（Phase 26 完成 T-166~T-171：主题 token/Naive overrides 收口，外壳导航、表格列表、表单卡片标签指标卡空载态、登录页视觉提升；页面/组件层硬编码色清零，色值集中在 `frontend/src/theme/*`；`npm --prefix frontend run type-check` 与 `npm --prefix frontend run build` 通过，build 仅既有 Vite chunk-size warning）
-- 下一步：等待 Claude 复核 Phase 26；可选 T-162(中职专业课全量学科种子)待学校确认
+- 最近更新：2026-06-18（Phase 26 复核通过：theme/naive.ts+tokens.ts+global.css 主题 token 收口、组件/视图按 DESIGN.md 重排、操作列 ≤3+更多 helper、登录/外壳/表格/卡片/图表提升；无路由/接口/权限/逻辑改动；type-check+build 绿；详见 docs/reviews/phase-26-review.md）
+- 下一步：用户在 :5173 视觉验收（合并后 vite 热更新）；如某些页需微调即起小修复包；可选 T-162(中职专业课全量学科种子)待学校确认
 
 ## 阶段汇总
 | Phase | 名称 | 优先级 | 任务数 | 完成 | 状态 |

@@ -15,6 +15,11 @@
 
 ---
 
+## [2026-06-18] Phase 26 复核通过（Claude · REVIEW-GATE）✅ — UI 设计提升·按 DESIGN.md
+- 做了什么：复核 `feature/phase26-ui-uplift` 单提交 `4350304`（33 前端文件）。读 theme/naive.ts、tokens.ts、utils/tableActions.ts + 抽查视图 diff 行为中性 + 确认 **无 api/router/stores/后端/迁移改动**；前端 build-only gate。
+- 结论：**PASS**（一轮，客观门槛）。`type-check` 无错 + `built in 7.15s`。核对：① 主题 token 收口——`theme/naive.ts` GlobalThemeOverrides(primaryColor #1d4ed8/radii 6·4px/Button·DataTable·Menu·Tag·Card·Input)、`tokens.ts` 8 色低饱和图表色板+轴色、`global.css`(+322) CSS 变量；硬编码色收敛至 theme/*。② 操作列 `renderTableActions` ≤3 内联/>3 收「更多」popover；StatCard/StatusTag/PageContainer/登录分栏/外壳导航按 DESIGN.md 重排。③ 抽查 StudentManageView 等 diff 仅列宽/类名/操作列 helper，handler/请求/权限判断未变；diff 名单无 src/api、src/router、src/stores、platform-*、migration。主观视觉质量交用户在运行栈验收。
+- 放行：PROGRESS Phase 26 置 ✅；合并 `main`（本地私有、无远程、不 push）。运行 vite 合并后热更新供用户视觉验收。**收官后重构(WP-A~D + Phase19~24) + 验收修复(Phase25/27) + UI 提升(Phase26) 全部完成。**
+
 ## [2026-06-18] Phase 26 待复核小结（UI 设计提升·按 DESIGN.md）
 - 做了什么：从最新 `main` 切出 `feature/phase26-ui-uplift`，按 `frontend/DESIGN.md` 完成 T-166~T-171。纯前端视觉/排版层提升，未改路由、接口、权限、状态机、后端代码或 Flyway 迁移。
 - T-166：新增 `frontend/src/theme/naive.ts`，将 Naive `themeOverrides` 从 `App.vue` 移出并覆盖 common/Button/DataTable/Menu/Tag/Card/Input/Form/Select/Pagination/Empty；`global.css` 扩展低饱和政务蓝、灰阶、语义色、角色色、图表色板、字阶、间距、圆角、阴影 token；`ChartBox` 改用 `theme/tokens.ts`。
