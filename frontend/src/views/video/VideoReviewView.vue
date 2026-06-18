@@ -104,6 +104,7 @@ const statusOptions: SelectOption[] = [
   { label: '评审中', value: 'REVIEWING' },
   { label: '需复评', value: 'NEED_REVIEW' },
   { label: '评审完成', value: 'REVIEW_COMPLETED' },
+  { label: '已退回', value: 'RETURNED' },
   { label: '已确认', value: 'CONFIRMED' }
 ]
 

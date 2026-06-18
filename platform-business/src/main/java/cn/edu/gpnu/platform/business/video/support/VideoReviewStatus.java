@@ -10,6 +10,7 @@ public enum VideoReviewStatus {
     REVIEWING("评审中"),
     NEED_REVIEW("需复评"),
     REVIEW_COMPLETED("评审完成"),
+    RETURNED("已退回"),
     CONFIRMED("已确认");
 
     private final String label;
@@ -30,7 +31,8 @@ public enum VideoReviewStatus {
         return this == WAIT_UPLOAD
                 || this == VALIDATING
                 || this == VALIDATION_FAILED
-                || this == WAIT_REVIEW;
+                || this == WAIT_REVIEW
+                || this == RETURNED;
     }
 
     public static VideoReviewStatus of(String value) {

@@ -11,7 +11,9 @@ import cn.edu.gpnu.platform.business.video.mapper.VideoReviewMapper;
 import cn.edu.gpnu.platform.business.video.mapper.VideoReviewTaskMapper;
 import cn.edu.gpnu.platform.business.video.mapper.VideoUploadChunkMapper;
 import cn.edu.gpnu.platform.business.video.mapper.VideoUploadSessionMapper;
+import cn.edu.gpnu.platform.system.entity.SysAuditLog;
 import cn.edu.gpnu.platform.system.entity.SysParam;
+import cn.edu.gpnu.platform.system.mapper.SysAuditLogMapper;
 import cn.edu.gpnu.platform.system.entity.SysUser;
 import cn.edu.gpnu.platform.system.mapper.SysParamMapper;
 import cn.edu.gpnu.platform.system.mapper.SysUserMapper;
@@ -101,6 +103,9 @@ class Phase7VideoReviewIT {
 
     @Autowired
     private SysParamMapper paramMapper;
+
+    @Autowired
+    private SysAuditLogMapper auditLogMapper;
 
     @Autowired
     private PasswordEncoder passwordEncoder;
@@ -280,6 +285,95 @@ class Phase7VideoReviewIT {
     }
 
     @Test
+    void returnedVideoCanBeReuploadedReassignedAndSettledWithAudit() throws Exception {
+        LoginResult student = readyLogin("test_student");
+        LoginResult auditor = readyLogin("test_college_auditor");
+        LoginResult reviewerA = readyLogin("test_review_teacher");
+        LoginResult reviewerB = readyLogin("test_review_teacher_b");
+
+        String year = "P7-RETURN";
+        long reviewId = uploadValidatedVideo(student.accessToken(), 9001L, year);
+        assign(auditor.accessToken(), reviewId, 800000000000003005L, REVIEWER_B_USER_ID);
+        score(reviewerA.accessToken(), taskIdByReview(reviewerA.accessToken(), reviewId), 50, "FAIL");
+        score(reviewerB.accessToken(), taskIdByReview(reviewerB.accessToken(), reviewId), 55, "FAIL");
+        VideoReview failed = reviewMapper.selectById(reviewId);
+        assertThat(failed.getStatus()).isEqualTo("REVIEW_COMPLETED");
+        assertThat(failed.getFinalConclusion()).isEqualTo("FAIL");
+
+        returnVideo(auditor.accessToken(), reviewId, "退回重传修改");
+        VideoReview returned = reviewMapper.selectById(reviewId);
+        assertThat(returned.getStatus()).isEqualTo("RETURNED");
+        assertThat(returned.getFinalScore()).isNull();
+        assertThat(returned.getFinalConclusion()).isNull();
+        assertThat(returned.getLocked()).isZero();
+        SysAuditLog returnAudit = auditLogMapper.selectOne(new LambdaQueryWrapper<SysAuditLog>()
+                .eq(SysAuditLog::getBizType, "video")
+                .eq(SysAuditLog::getBizId, reviewId)
+                .eq(SysAuditLog::getOperation, "return")
+                .eq(SysAuditLog::getOldStatus, "REVIEW_COMPLETED")
+                .eq(SysAuditLog::getNewStatus, "RETURNED")
+                .last("LIMIT 1"));
+        assertThat(returnAudit).isNotNull();
+        assertThat(returnAudit.getComment()).isEqualTo("退回重传修改");
+        assertThat(returnAudit.getOperatorId()).isNotNull();
+        assertThat(returnAudit.getIp()).isNotBlank();
+        assertThat(returnAudit.getTarget()).contains(String.valueOf(reviewId)).contains(year);
+
+        byte[] replacement = mp4("returned-replacement");
+        String md5 = md5(replacement);
+        JsonNode init = initUpload(student.accessToken(), 9001L, year,
+                "lesson-" + year + "-reupload.mp4", "video/mp4", replacement.length, 4, md5, 900);
+        assertThat(init.at("/instantHit").asBoolean()).isFalse();
+        String uploadId = init.at("/uploadId").asText();
+        uploadAll(student.accessToken(), uploadId, replacement, 4);
+        JsonNode merged = merge(student.accessToken(), uploadId, 900);
+        assertThat(merged.at("/id").asLong()).isEqualTo(reviewId);
+        assertThat(merged.at("/status").asText()).isEqualTo("WAIT_REVIEW");
+        assertThat(taskCount(reviewId)).isZero();
+        VideoReview reset = reviewMapper.selectById(reviewId);
+        assertThat(reset.getFinalScore()).isNull();
+        assertThat(reset.getFinalConclusion()).isNull();
+        assertThat(reset.getVideoFileName()).isEqualTo("lesson-" + year + "-reupload.mp4");
+
+        assign(auditor.accessToken(), reviewId, 800000000000003005L, REVIEWER_B_USER_ID);
+        score(reviewerA.accessToken(), taskIdByReview(reviewerA.accessToken(), reviewId), 88, "PASS");
+        score(reviewerB.accessToken(), taskIdByReview(reviewerB.accessToken(), reviewId), 84, "PASS");
+        VideoReview settled = reviewMapper.selectById(reviewId);
+        assertThat(settled.getStatus()).isEqualTo("REVIEW_COMPLETED");
+        assertThat(settled.getFinalScore()).isEqualTo(86);
+        assertThat(settled.getFinalConclusion()).isEqualTo("PASS");
+    }
+
+    @Test
+    void confirmedVideoCannotBeReturnedOrReuploaded() throws Exception {
+        LoginResult student = readyLogin("test_student");
+        LoginResult auditor = readyLogin("test_college_auditor");
+        LoginResult reviewerA = readyLogin("test_review_teacher");
+        LoginResult reviewerB = readyLogin("test_review_teacher_b");
+
+        String year = "P7-CONFIRMED";
+        long reviewId = uploadValidatedVideo(student.accessToken(), 9001L, year);
+        assign(auditor.accessToken(), reviewId, 800000000000003005L, REVIEWER_B_USER_ID);
+        score(reviewerA.accessToken(), taskIdByReview(reviewerA.accessToken(), reviewId), 85, "PASS");
+        score(reviewerB.accessToken(), taskIdByReview(reviewerB.accessToken(), reviewId), 80, "PASS");
+        confirmVideo(auditor.accessToken(), reviewId);
+        assertThat(reviewMapper.selectById(reviewId).getStatus()).isEqualTo("CONFIRMED");
+
+        ResponseEntity<String> returned = exchange("/api/video/reviews/" + reviewId + "/return", HttpMethod.POST,
+                auditor.accessToken(), Map.of("comment", "已确认后退回"));
+        assertThat(json(returned).at("/code").asInt()).isEqualTo(1000);
+        assertThat(json(returned).at("/msg").asText()).contains("已确认视频不可退回");
+
+        byte[] replacement = mp4("confirmed-replacement");
+        ResponseEntity<String> reupload = exchange("/api/video/upload/init", HttpMethod.POST, student.accessToken(),
+                initBody(9001L, year, "confirmed-replacement.mp4", "video/mp4",
+                        replacement.length, 4, md5(replacement), 900));
+        assertThat(json(reupload).at("/code").asInt()).isEqualTo(1000);
+        assertThat(json(reupload).at("/msg").asText()).contains("评审进行中不可重新上传");
+        assertThat(reviewMapper.selectById(reviewId).getStatus()).isEqualTo("CONFIRMED");
+    }
+
+    @Test
     void sysParamChangesAffectThresholdAndReviewerCount() throws Exception {
         LoginResult student = readyLogin("test_student");
         LoginResult auditor = readyLogin("test_college_auditor");
@@ -423,6 +517,18 @@ class Phase7VideoReviewIT {
         body.put("reviewerId", reviewerId);
         ResponseEntity<String> response = exchange("/api/video/reviews/" + reviewId + "/third-review", HttpMethod.POST,
                 token, body);
+        assertThat(json(response).at("/code").asInt()).isEqualTo(0);
+    }
+
+    private void confirmVideo(String token, long reviewId) throws Exception {
+        ResponseEntity<String> response = exchange("/api/video/reviews/" + reviewId + "/confirm", HttpMethod.POST,
+                token, Map.of());
+        assertThat(json(response).at("/code").asInt()).isEqualTo(0);
+    }
+
+    private void returnVideo(String token, long reviewId, String comment) throws Exception {
+        ResponseEntity<String> response = exchange("/api/video/reviews/" + reviewId + "/return", HttpMethod.POST,
+                token, Map.of("comment", comment));
         assertThat(json(response).at("/code").asInt()).isEqualTo(0);
     }
 

@@ -5,10 +5,10 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**Phase 16 / WP-B 测试结果只确认 ✅ 已复核（Claude 06-18，PASS·一轮）**；下一步 Phase 17(WP-C 视频退回可重传)。Phase 0~14 ✅，T-115 ✅，WP-A ✅。
+- 当前阶段：**Phase 17 / WP-C 视频退回可重传：待复核**。Phase 0~14 ✅，T-115 ✅，WP-A ✅，WP-B ✅。
 - 阻塞项：无
-- 最近更新：2026-06-18（WP-B 复核通过：下线手工 POST/PUT `/api/test`、保留导入+确认、`V21` 撤 `test:edit`；**clean-room `mvn verify` 76/76 全绿（V1–V21 全新）**、前端 type-check/build 绿；详见 docs/reviews/wp-b-review.md）
-- 下一步：Phase 17(WP-C) 视频退回可重传（退回态 + 可编辑守卫，迁移 V22）
+- 最近更新：2026-06-18（WP-C 完成：新增视频 `RETURNED` 退回态与 `/api/video/reviews/{id}/return`；退回后学生可重传并重置旧任务/会话/终分；未新增 V22；全量 `mvn verify` 78/78、前端 type-check/build 通过）
+- 下一步：等待 Claude 复核 WP-C，不自行置 ✅
 
 ## 阶段汇总
 | Phase | 名称 | 优先级 | 任务数 | 完成 | 状态 |
@@ -216,6 +216,14 @@
 - [x] T-124 IT 调整：`Phase8TestResultIT` 与 `Phase14E2EIT` 改为导入成绩后确认；新增手工 POST/PUT 下线反例、锁定后重导入拒绝反例；跨学院写侧仍用 WP-A 后动作角色验证数据范围。
 - [x] T-125 前端最小收口：移除 `testResult.ts` 的 save/update 调用与测试结果管理页录入/编辑入口，菜单/路由不再依赖 `test:edit`。
 - 验证：定向 IT 28/28 通过；全量 `mvn -B -ntp verify` **76/76** 通过；`npm --prefix frontend run type-check` 与 `npm --prefix frontend run build` 通过（仅既有 Vite chunk-size 警告）。等待 Claude 复核，未自行置 ✅。
+
+## 收官后 · Phase 17 / WP-C 视频退回可重传
+- Phase 17 / WP-C `视频退回可重传`：**待复核**（分支：`feature/wp-c-video-return`）。本包只做后端状态机/守卫/反例与前端最小编译保障，不改 Phase 7 双盲、分差结算、鉴权播放和数据范围语义；退回动作复用 `video:confirm`/`video:arbitrate`，**未新增 V22**。
+- [x] T-125 视频评审状态机增 `RETURNED` 退回态与 `/api/video/reviews/{id}/return` 退回动作，退回意见必填，`CONFIRMED` 禁退回，富审计记录 old/new/意见/target。
+- [x] T-126 可编辑守卫放行 `RETURNED` 重传；`REVIEWING/NEED_REVIEW/REVIEW_COMPLETED/CONFIRMED` 仍拒绝重传，保留 Phase7 原反例。
+- [x] T-127 `RETURNED` 重传软删旧评分任务与旧上传会话/分片，清终分/结论/仲裁/确认字段，校验通过后回 `WAIT_REVIEW`，重新分配后再评审；退回通知学生、重传入待评审通知负责人。
+- [x] T-128 `Phase7VideoReviewIT` 覆盖退回→学生重传→重新指派→评分→结算、REVIEWING/NEED_REVIEW/CONFIRMED 重传拒绝、退回审计 old/new/意见可查、`CONFIRMED` 不可退回。
+- 验证：定向 `Phase7VideoReviewIT` 9/9 通过；全量 `mvn -B -ntp verify` **78/78** 通过；`npm --prefix frontend run type-check` 与 `npm --prefix frontend run build` 通过（仅既有 Vite chunk-size 警告）。等待 Claude 复核，未自行置 ✅。
 
 ---
 

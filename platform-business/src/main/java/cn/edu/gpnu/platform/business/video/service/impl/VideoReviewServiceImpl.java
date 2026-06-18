@@ -5,6 +5,7 @@ import cn.edu.gpnu.platform.business.student.mapper.StudentMapper;
 import cn.edu.gpnu.platform.business.video.dto.VideoArbitrateRequest;
 import cn.edu.gpnu.platform.business.video.dto.VideoAssignRequest;
 import cn.edu.gpnu.platform.business.video.dto.VideoQuery;
+import cn.edu.gpnu.platform.business.video.dto.VideoReturnRequest;
 import cn.edu.gpnu.platform.business.video.dto.VideoScoreRequest;
 import cn.edu.gpnu.platform.business.video.dto.VideoThirdReviewRequest;
 import cn.edu.gpnu.platform.business.video.dto.VideoUploadInitRequest;
@@ -110,10 +111,11 @@ public class VideoReviewServiceImpl implements VideoReviewService {
         ensureCanWriteStudent(student, "video:upload");
         validateUploadMeta(request.getFileName(), request.getContentType(), request.getSize());
         ensureReviewReuploadable(student.getId(), request.getAssessmentYear());
+        archiveReturnedUploadSessions(student.getId(), request.getAssessmentYear());
         FileObject existingFile = fileService.getByMd5(requiredTrim(request.getFileMd5(), "文件MD5不能为空"));
         if (existingFile != null) {
             VideoReview review = upsertReviewAfterValidation(student, request.getAssessmentYear(), existingFile,
-                    request.getFileMd5(), request.getDurationSeconds(), true);
+                    request.getFileMd5(), request.getDurationSeconds(), true, null);
             VideoUploadInitVO vo = new VideoUploadInitVO();
             vo.setUploadId(null);
             vo.setInstantHit(true);
@@ -232,7 +234,7 @@ public class VideoReviewServiceImpl implements VideoReviewService {
         FileObject file = registerComposedFile(session, objectKey);
         session.setFileId(file.getId());
         VideoReview review = upsertReviewAfterValidation(student, session.getAssessmentYear(), file,
-                session.getFileMd5(), duration, false);
+                session.getFileMd5(), duration, false, session.getUploadId());
         session.setStatus(VideoReviewStatus.of(review.getStatus()) == VideoReviewStatus.VALIDATION_FAILED
                 ? VideoUploadStatus.VALIDATION_FAILED.name()
                 : VideoUploadStatus.MERGED.name());
@@ -417,6 +419,30 @@ public class VideoReviewServiceImpl implements VideoReviewService {
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void returnReview(Long reviewId, VideoReturnRequest request) {
+        VideoReview review = requireReview(reviewId);
+        ensureCanReturnReview(review);
+        VideoReviewStatus status = VideoReviewStatus.of(review.getStatus());
+        if (status == VideoReviewStatus.CONFIRMED) {
+            throw new BizException("已确认视频不可退回");
+        }
+        if (!returnable(status)) {
+            throw new BizException("当前状态不可退回");
+        }
+        String comment = requiredTrim(request.getComment(), "退回意见不能为空");
+        String oldStatus = review.getStatus();
+        review.setStatus(VideoReviewStatus.RETURNED.name());
+        clearReviewOutcome(review);
+        review.setLocked(0);
+        updateReviewReturned(review);
+        auditLogService.record("video", review.getId(), videoTarget(review), "return",
+                oldStatus, review.getStatus(), comment);
+        notificationHelper.notifyReturnedToStudent(review.getStudentId(), "教学能力视频", "RETURN",
+                "video_review", review.getId());
+    }
+
+    @Override
     public VideoPlaybackVO playback(Long reviewId) {
         VideoReview review = requireReview(reviewId);
         ensurePlayable(review);
@@ -483,15 +509,21 @@ public class VideoReviewServiceImpl implements VideoReviewService {
     }
 
     private VideoReview upsertReviewAfterValidation(Student student, String year, FileObject file, String fileMd5,
-                                                     Integer durationSeconds, boolean instantHit) {
+                                                     Integer durationSeconds, boolean instantHit, String currentUploadId) {
         VideoReview review = existingReview(student.getId(), year);
+        boolean returnedReupload = false;
         if (review == null) {
             review = new VideoReview();
             review.setStudentId(student.getId());
             review.setCollegeId(student.getCollegeId());
             review.setAssessmentYear(requiredTrim(year, "考核年度不能为空"));
         } else {
+            VideoReviewStatus oldStatus = VideoReviewStatus.of(review.getStatus());
             ensureReuploadable(review);
+            returnedReupload = oldStatus == VideoReviewStatus.RETURNED;
+            if (returnedReupload) {
+                resetReturnedReviewForReupload(review, currentUploadId);
+            }
         }
         review.setVideoFileId(file.getId());
         review.setVideoFileName(file.getOriginalName());
@@ -503,7 +535,15 @@ public class VideoReviewServiceImpl implements VideoReviewService {
         if (review.getId() == null) {
             reviewMapper.insert(review);
         } else {
-            reviewMapper.updateById(review);
+            if (returnedReupload) {
+                updateReviewAfterReturnedReupload(review);
+            } else {
+                reviewMapper.updateById(review);
+            }
+        }
+        if (returnedReupload && VideoReviewStatus.of(review.getStatus()) == VideoReviewStatus.WAIT_REVIEW) {
+            notificationHelper.notifySubmitted(review.getCollegeId(), review.getStudentId(), "教学能力视频",
+                    "SECOND_REVIEW", "video_review", review.getId());
         }
         return review;
     }
@@ -519,9 +559,123 @@ public class VideoReviewServiceImpl implements VideoReviewService {
         VideoReviewStatus status = VideoReviewStatus.of(review.getStatus());
         Long taskCount = taskMapper.selectCount(new LambdaQueryWrapper<VideoReviewTask>()
                 .eq(VideoReviewTask::getVideoReviewId, review.getId()));
-        if (status.locked() || !status.reuploadable() || (taskCount != null && taskCount > 0)) {
+        if (status.locked() || !status.reuploadable()
+                || (status != VideoReviewStatus.RETURNED && taskCount != null && taskCount > 0)) {
             throw new BizException("评审进行中不可重新上传");
         }
+    }
+
+    private void ensureCanReturnReview(VideoReview review) {
+        if (UserContext.hasPermission("video:confirm")) {
+            ensureCanWriteReview(review, "video:confirm");
+            return;
+        }
+        if (UserContext.hasPermission("video:arbitrate")) {
+            ensureCanWriteReview(review, "video:arbitrate");
+            return;
+        }
+        throw new BizException(ResultCode.FORBIDDEN.getCode(), "无权退回该视频");
+    }
+
+    private boolean returnable(VideoReviewStatus status) {
+        return status == VideoReviewStatus.WAIT_REVIEW
+                || status == VideoReviewStatus.REVIEWING
+                || status == VideoReviewStatus.NEED_REVIEW
+                || status == VideoReviewStatus.REVIEW_COMPLETED;
+    }
+
+    private void resetReturnedReviewForReupload(VideoReview review, String currentUploadId) {
+        archiveReviewTasks(review.getId());
+        archiveUploadSessions(review.getStudentId(), review.getAssessmentYear(), currentUploadId);
+        clearReviewOutcome(review);
+        review.setLocked(0);
+    }
+
+    private void archiveReturnedUploadSessions(Long studentId, String assessmentYear) {
+        VideoReview existing = existingReview(studentId, assessmentYear);
+        if (existing != null && VideoReviewStatus.of(existing.getStatus()) == VideoReviewStatus.RETURNED) {
+            archiveUploadSessions(studentId, requiredTrim(assessmentYear, "考核年度不能为空"), null);
+        }
+    }
+
+    private void clearReviewOutcome(VideoReview review) {
+        review.setFinalScore(null);
+        review.setFinalConclusion(null);
+        review.setArbitrateReviewer(null);
+        review.setArbitrateMode(null);
+        review.setConfirmedBy(null);
+        review.setConfirmedAt(null);
+    }
+
+    private void updateReviewReturned(VideoReview review) {
+        reviewMapper.update(null, new LambdaUpdateWrapper<VideoReview>()
+                .eq(VideoReview::getId, review.getId())
+                .set(VideoReview::getStatus, review.getStatus())
+                .set(VideoReview::getLocked, review.getLocked())
+                .set(VideoReview::getFinalScore, null)
+                .set(VideoReview::getFinalConclusion, null)
+                .set(VideoReview::getArbitrateReviewer, null)
+                .set(VideoReview::getArbitrateMode, null)
+                .set(VideoReview::getConfirmedBy, null)
+                .set(VideoReview::getConfirmedAt, null));
+    }
+
+    private void updateReviewAfterReturnedReupload(VideoReview review) {
+        reviewMapper.update(null, new LambdaUpdateWrapper<VideoReview>()
+                .eq(VideoReview::getId, review.getId())
+                .set(VideoReview::getVideoFileId, review.getVideoFileId())
+                .set(VideoReview::getVideoFileName, review.getVideoFileName())
+                .set(VideoReview::getFileMd5, review.getFileMd5())
+                .set(VideoReview::getDurationSeconds, review.getDurationSeconds())
+                .set(VideoReview::getFormatCheck, review.getFormatCheck())
+                .set(VideoReview::getValidationMessage, review.getValidationMessage())
+                .set(VideoReview::getStatus, review.getStatus())
+                .set(VideoReview::getLocked, review.getLocked())
+                .set(VideoReview::getFinalScore, null)
+                .set(VideoReview::getFinalConclusion, null)
+                .set(VideoReview::getArbitrateReviewer, null)
+                .set(VideoReview::getArbitrateMode, null)
+                .set(VideoReview::getConfirmedBy, null)
+                .set(VideoReview::getConfirmedAt, null));
+    }
+
+    private void archiveReviewTasks(Long reviewId) {
+        taskMapper.update(null, new LambdaUpdateWrapper<VideoReviewTask>()
+                .eq(VideoReviewTask::getVideoReviewId, reviewId)
+                .set(VideoReviewTask::getUpdatedBy, UserContext.getUserIdOrSystem())
+                .set(VideoReviewTask::getUpdatedAt, LocalDateTime.now())
+                .setSql("reviewer_id = id, deleted = 1"));
+    }
+
+    private void archiveUploadSessions(Long studentId, String assessmentYear, String currentUploadId) {
+        LambdaQueryWrapper<VideoUploadSession> wrapper = new LambdaQueryWrapper<VideoUploadSession>()
+                .select(VideoUploadSession::getUploadId)
+                .eq(VideoUploadSession::getStudentId, studentId)
+                .eq(VideoUploadSession::getAssessmentYear, assessmentYear);
+        if (StringUtils.hasText(currentUploadId)) {
+            wrapper.ne(VideoUploadSession::getUploadId, currentUploadId);
+        }
+        List<String> uploadIds = sessionMapper.selectList(wrapper).stream()
+                .map(VideoUploadSession::getUploadId)
+                .toList();
+        if (uploadIds.isEmpty()) {
+            return;
+        }
+        chunkMapper.update(null, new LambdaUpdateWrapper<VideoUploadChunk>()
+                .in(VideoUploadChunk::getUploadId, uploadIds)
+                .set(VideoUploadChunk::getUpdatedBy, UserContext.getUserIdOrSystem())
+                .set(VideoUploadChunk::getUpdatedAt, LocalDateTime.now())
+                .setSql("deleted = 1"));
+        LambdaUpdateWrapper<VideoUploadSession> sessionUpdate = new LambdaUpdateWrapper<VideoUploadSession>()
+                .eq(VideoUploadSession::getStudentId, studentId)
+                .eq(VideoUploadSession::getAssessmentYear, assessmentYear)
+                .set(VideoUploadSession::getUpdatedBy, UserContext.getUserIdOrSystem())
+                .set(VideoUploadSession::getUpdatedAt, LocalDateTime.now())
+                .setSql("deleted = 1");
+        if (StringUtils.hasText(currentUploadId)) {
+            sessionUpdate.ne(VideoUploadSession::getUploadId, currentUploadId);
+        }
+        sessionMapper.update(null, sessionUpdate);
     }
 
     private void validateMergedVideo(VideoReview review, FileObject file, Integer durationSeconds, boolean instantHit) {

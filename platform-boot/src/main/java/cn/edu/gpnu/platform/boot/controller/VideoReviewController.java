@@ -3,6 +3,7 @@ package cn.edu.gpnu.platform.boot.controller;
 import cn.edu.gpnu.platform.business.video.dto.VideoArbitrateRequest;
 import cn.edu.gpnu.platform.business.video.dto.VideoAssignRequest;
 import cn.edu.gpnu.platform.business.video.dto.VideoQuery;
+import cn.edu.gpnu.platform.business.video.dto.VideoReturnRequest;
 import cn.edu.gpnu.platform.business.video.dto.VideoScoreRequest;
 import cn.edu.gpnu.platform.business.video.dto.VideoThirdReviewRequest;
 import cn.edu.gpnu.platform.business.video.dto.VideoUploadInitRequest;
@@ -165,6 +166,15 @@ public class VideoReviewController {
     @PostMapping("/reviews/{id}/confirm")
     public Result<Void> confirm(@PathVariable Long id) {
         videoReviewService.confirm(id);
+        return Result.ok();
+    }
+
+    @Operation(summary = "退回视频重新上传")
+    @PreAuthorize("@pms.has('video:confirm') or @pms.has('video:arbitrate')")
+    @PostMapping("/reviews/{id}/return")
+    public Result<Void> returnReview(@PathVariable Long id,
+                                     @Valid @RequestBody VideoReturnRequest request) {
+        videoReviewService.returnReview(id, request);
         return Result.ok();
     }
 

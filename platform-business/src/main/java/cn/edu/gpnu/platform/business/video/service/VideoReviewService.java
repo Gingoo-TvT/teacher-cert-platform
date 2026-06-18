@@ -3,6 +3,7 @@ package cn.edu.gpnu.platform.business.video.service;
 import cn.edu.gpnu.platform.business.video.dto.VideoArbitrateRequest;
 import cn.edu.gpnu.platform.business.video.dto.VideoAssignRequest;
 import cn.edu.gpnu.platform.business.video.dto.VideoQuery;
+import cn.edu.gpnu.platform.business.video.dto.VideoReturnRequest;
 import cn.edu.gpnu.platform.business.video.dto.VideoScoreRequest;
 import cn.edu.gpnu.platform.business.video.dto.VideoThirdReviewRequest;
 import cn.edu.gpnu.platform.business.video.dto.VideoUploadInitRequest;
@@ -44,6 +45,8 @@ public interface VideoReviewService {
     void arbitrate(Long reviewId, VideoArbitrateRequest request);
 
     void confirm(Long reviewId);
+
+    void returnReview(Long reviewId, VideoReturnRequest request);
 
     VideoPlaybackVO playback(Long reviewId);
 

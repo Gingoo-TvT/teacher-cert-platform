@@ -15,6 +15,16 @@
 
 ---
 
+## [2026-06-18] Phase 17 / WP-C 待复核小结（视频退回可重传）
+- 做了什么：从 `main` 切出 `feature/wp-c-video-return`，完成视频评审退回可重传。新增 `RETURNED` 视频评审状态与 `POST /api/video/reviews/{id}/return`，退回意见必填，复用 `video:confirm`/`video:arbitrate` 权限与服务层数据范围校验，未新增 `video:return` 权限点，因此**未新增 V22**，V1~V21 保持冻结。
+- 状态机与守卫：`CONFIRMED` 明确禁止退回；允许 `WAIT_REVIEW/REVIEWING/NEED_REVIEW/REVIEW_COMPLETED` 退回到 `RETURNED`。`ensureReuploadable` 仅对 `RETURNED` 放行已有旧任务下的重传，`REVIEWING/NEED_REVIEW/REVIEW_COMPLETED/CONFIRMED` 仍拒绝，Phase 7 原重传守卫反例保持。
+- 重传重置：`RETURNED` 重传时软删旧 `video_review_task` 与旧上传会话/分片，清空终分、结论、仲裁人、仲裁模式、确认人、确认时间并解锁；新视频校验通过后回 `WAIT_REVIEW`，可重新指派评审并重新结算，旧分数不参与新一轮评审。
+- 通知与审计：退回后通知学生；退回后重传并重新进入待评审时通知学院负责人。退回显式调用 `auditLogService.record("video", bizId, target, "return", old, "RETURNED", comment)`，记录 old/new/意见/操作人/IP/target；审计失败仍沿用既有 best-effort。
+- IT 覆盖：`Phase7VideoReviewIT` 新增 `returnedVideoCanBeReuploadedReassignedAndSettledWithAudit`，贯通退回→学生重传→重新指派→评分→结算，并断言退回审计 old/new/意见；新增 `confirmedVideoCannotBeReturnedOrReuploaded`，覆盖 `CONFIRMED` 不可退回且不可重传；原 `REVIEWING/NEED_REVIEW` 重传拒绝反例继续保留。
+- 前端最小变更：视频评审状态筛选增加 `RETURNED/已退回`，`video.ts` 预留 `returnVideoReview(id, comment)` API；不做完整退回/重传 UI（留 Phase 21）。
+- 测试：`mvn -B -ntp -DskipTests test-compile` 通过；定向 `mvn -B -ntp -pl platform-boot -am "-Dfailsafe.failIfNoSpecifiedTests=false" "-Dit.test=Phase7VideoReviewIT" verify` 通过，Phase7 **9/9**；全量 `mvn -B -ntp verify` 通过，Failsafe **78/78**；`npm --prefix frontend run type-check` 通过；`npm --prefix frontend run build` 通过（仅既有 Vite chunk-size 警告）。
+- 下一步：`PROGRESS.md` 已置 **Phase 17 / WP-C 待复核**，等待 Claude 复核退回态、守卫边界、审计通知与全回归，未自行置 ✅。
+
 ## [2026-06-18] Phase 16 / WP-B 复核通过（Claude · REVIEW-GATE）✅ — 测试结果只确认
 - 做了什么：复核 `feature/wp-b-test-confirm` 单提交 `f4ce3a8`。读 V21、控制器/Service（确认仅删手工 `save`/`update`，导入内部落库与 import/confirm/查询/有效性均在）、3 个 IT diff；clean-room：重置 dev schema → `mvn verify` 全新应用 V1–V21 + 前端 type-check/build。
 - 结论：**PASS**（一轮）。`mvn verify` **BUILD SUCCESS、Failsafe 76/76**（Phase8 由 4→5，新增 `manualCreateAndUpdateEndpointsAreOffline` 反例证 `POST/PUT /api/test` 已下线且不落库）；Flyway「now at v21」证 V21 全新可用；前端 `vue-tsc` 无错 + `built in 6.14s`。契约不变性已验证均经导入路径：前导零成绩文本、免考通过剔除应考科目、确认后锁定拒改（改走 import 仍报「已锁定」）、跨学院写数据范围 403。Phase2 契约钉死 auditor/academic `test:import+test:confirm` 且无 `test:edit`。V21 幂等撤 `test:edit` 保留权限点定义、V1–V20 冻结。

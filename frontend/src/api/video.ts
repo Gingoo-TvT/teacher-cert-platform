@@ -156,6 +156,10 @@ export function confirmVideoReview(id: string) {
   return request.post<unknown, ApiResult<null>>(`/video/reviews/${id}/confirm`, {})
 }
 
+export function returnVideoReview(id: string, comment: string) {
+  return request.post<unknown, ApiResult<null>>(`/video/reviews/${id}/return`, { comment })
+}
+
 export function playVideoReview(id: string) {
   return request.get<unknown, ApiResult<VideoPlayback>>(`/video/reviews/${id}/play`)
 }
