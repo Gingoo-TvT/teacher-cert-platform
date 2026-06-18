@@ -99,7 +99,7 @@ const paramColumns: DataTableColumns<SysParam> = [
     render: (row) =>
       h(
         NButton,
-        { size: 'small', quaternary: true, type: 'primary', disabled: row.editable !== 1, onClick: () => openParamDrawer(row) },
+        { size: 'small', quaternary: true, disabled: row.editable !== 1, onClick: () => openParamDrawer(row) },
         { default: () => '编辑' }
       )
   }
@@ -290,9 +290,9 @@ onMounted(loadVisibleSections)
 
     <n-grid v-if="hasVisibleSection" :cols="4" :x-gap="12" responsive="screen" class="page-section">
       <n-gi v-if="canManageParam"><StatCard label="系统参数" :value="summary.params" /></n-gi>
-      <n-gi v-if="canViewAudit"><StatCard label="审计记录" :value="summary.audits" color="#2080f0" /></n-gi>
-      <n-gi v-if="canBackup"><StatCard label="备份记录" :value="summary.backups" color="#4b5563" /></n-gi>
-      <n-gi v-if="canBackup"><StatCard label="备份完成" :value="summary.completedBackups" color="#18a058" /></n-gi>
+      <n-gi v-if="canViewAudit"><StatCard label="审计记录" :value="summary.audits" tone="info" /></n-gi>
+      <n-gi v-if="canBackup"><StatCard label="备份记录" :value="summary.backups" tone="neutral" /></n-gi>
+      <n-gi v-if="canBackup"><StatCard label="备份完成" :value="summary.completedBackups" tone="success" /></n-gi>
     </n-grid>
 
     <n-tabs v-if="hasVisibleSection" type="line" animated>

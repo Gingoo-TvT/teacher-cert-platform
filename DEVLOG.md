@@ -15,6 +15,17 @@
 
 ---
 
+## [2026-06-18] Phase 26 待复核小结（UI 设计提升·按 DESIGN.md）
+- 做了什么：从最新 `main` 切出 `feature/phase26-ui-uplift`，按 `frontend/DESIGN.md` 完成 T-166~T-171。纯前端视觉/排版层提升，未改路由、接口、权限、状态机、后端代码或 Flyway 迁移。
+- T-166：新增 `frontend/src/theme/naive.ts`，将 Naive `themeOverrides` 从 `App.vue` 移出并覆盖 common/Button/DataTable/Menu/Tag/Card/Input/Form/Select/Pagination/Empty；`global.css` 扩展低饱和政务蓝、灰阶、语义色、角色色、图表色板、字阶、间距、圆角、阴影 token；`ChartBox` 改用 `theme/tokens.ts`。
+- T-167/T-168：`MainLayout` 调整侧栏 240/64、白底右边线、分组选中 soft 底 + 左 3px 色条、顶栏 60、内容留白 24；`PageContainer` 统一页头节奏。表格全局表头浅底 sticky、行 hover、分页右对齐；`.mono/.numeric` 表格内右对齐；新增 `renderTableActions`，多于 3 个动作收进“更多”，主行动作实心、次动作文字。
+- T-169/T-170：`StatusTag` 扩展英文/中文状态枚举并统一 soft 方角标签；`StatCard` 改为语义 `tone`；表单只读/禁用态、卡片、空态、加载容器统一；登录页品牌分栏按 token 重做对比、层级和移动端布局，保留真实 captcha/login/change-pwd 流程。
+- 关键决策与理由：色值集中在 `frontend/src/theme/*`，组件和页面只引用 token 或语义 `tone`，避免后续视觉漂移；操作列使用轻量工具收纳多动作，不引入新 UI 框架，不改变任何业务回调。
+- 问题与解决：`StatCard` 原有 `color="#..."` 用法导致页面散落色值，本轮改为 `tone` 并逐页替换；Naive overrides 先用库内 `.d.ts` 核对变量名，`vue-tsc` 校验通过。
+- 与规格的偏差/疑问：无。按用户硬约束执行 build-only；未启动前端/后端常驻服务；未做运行期截图验收，留给 Claude 复核。
+- 测试：`npm --prefix frontend run type-check` 通过；`npm --prefix frontend run build` 通过（仅既有 Vite chunk-size warning）。硬编码色自查：页面/组件/布局层无 `#`/`rgba` 色值，色值集中在 `frontend/src/theme/*` token/overrides。
+- 下一步：`PROGRESS.md` 已置 **Phase 26 待复核**，等待 Claude 复核，未自行置 ✅；本地私有无 remote、不 push。
+
 ## [2026-06-18] Phase 27 复核通过（Claude · REVIEW-GATE）✅ — 负责人评审教师列表端点（闭环 Phase 25 Major）
 - 做了什么：复核 `feature/phase27-reviewer-list` 单提交 `716b7c9`（控制器/Service/Impl/VO + 前端 video.ts/VideoReviewView + Phase7 IT）。读端点/impl/IT/前端切换 + 确认 `selectEnabledByRoleAndCollege` 既存(SysUserMapper:42)、无新迁移；clean-room：重置 schema → `mvn verify`(全新 V1–V23) + 前端 type-check/build。
 - 结论：**PASS**（一轮）。`mvn verify` **BUILD SUCCESS、83/83**(Phase7 10→11)；Flyway v23(无新迁移)；前端绿。核对：① `GET /api/video/reviewer-candidates` `@pms.has('video:assign')`；impl `reviewerCandidateCollegeIds` 解析 video:assign 数据范围(NONE→403/allSchool→全校/COLLEGE→本院)，列 ENABLED+REVIEW_TEACHER，按 id dedup；VO 仅 id/realName/workNo 无敏感。② 前端按人选择器 `canAssign ? listReviewerCandidates() : null`，负责人(video:assign)现可加载候选，移除对 `/system/user`(system:user:manage) 的依赖。③ IT：负责人得本院 reviewerA/B、排除跨院 REVIEWER_D 与负责人自身；REVIEW_TEACHER 无 video:assign → 403；按人指派 2 人→评分 84/80→结算 82 PASS。

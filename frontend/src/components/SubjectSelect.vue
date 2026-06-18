@@ -269,7 +269,7 @@ onMounted(async () => {
 }
 
 .subject-option__code {
-  color: #666;
+  color: var(--text-secondary);
   font-size: 12px;
 }
 

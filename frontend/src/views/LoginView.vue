@@ -188,19 +188,31 @@ onMounted(loadCaptcha)
   height: 100vh;
   min-height: 640px;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 460px;
-  background: #fff;
+  grid-template-columns: minmax(0, 1fr) 456px;
+  background: var(--surface);
 }
 
 .brand-panel {
+  position: relative;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   justify-content: center;
   padding: 64px;
-  color: #fff;
+  color: var(--text-inverse);
   background:
-    linear-gradient(135deg, rgba(13, 38, 85, 0.96), rgba(31, 111, 235, 0.92)),
-    linear-gradient(90deg, #0f2e63, #1f6feb);
+    linear-gradient(135deg, var(--login-brand-start), var(--login-brand-end)),
+    var(--brand);
+}
+
+.brand-panel::after {
+  position: absolute;
+  inset: auto 48px 48px auto;
+  width: 180px;
+  height: 180px;
+  border: 1px solid var(--login-panel-line);
+  border-radius: 50%;
+  content: "";
 }
 
 .brand-mark {
@@ -208,10 +220,11 @@ onMounted(loadCaptcha)
   height: 46px;
   display: grid;
   place-items: center;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid var(--login-panel-line);
+  border-radius: var(--radius-card);
+  background: var(--login-glass);
   font-size: 22px;
-  font-weight: 800;
+  font-weight: 600;
 }
 
 .brand-kicker {
@@ -223,16 +236,16 @@ onMounted(loadCaptcha)
 .brand-panel h1 {
   max-width: 680px;
   margin: 12px 0 0;
-  font-size: clamp(28px, 4vw, 42px);
-  line-height: 1.22;
-  font-weight: 700;
+  font-size: 38px;
+  line-height: 48px;
+  font-weight: 600;
   letter-spacing: 0;
 }
 
 .brand-panel p {
   max-width: 560px;
   margin: 18px 0 0;
-  color: rgba(255, 255, 255, 0.84);
+  color: var(--login-text-soft);
   font-size: 15px;
   line-height: 1.8;
 }
@@ -247,9 +260,10 @@ onMounted(loadCaptcha)
 
 .brand-meta span {
   padding: 6px 10px;
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.14);
-  color: rgba(255, 255, 255, 0.9);
+  border: 1px solid var(--login-panel-line);
+  border-radius: var(--radius-control);
+  background: var(--login-glass);
+  color: var(--login-text-soft);
   font-size: 12px;
 }
 
@@ -258,11 +272,12 @@ onMounted(loadCaptcha)
   align-items: center;
   justify-content: center;
   padding: 32px;
-  background: #fff;
+  background: var(--surface);
 }
 
 .login-form-card {
   width: min(100%, 340px);
+  padding: 0;
 }
 
 .login-heading {
@@ -275,15 +290,16 @@ onMounted(loadCaptcha)
 }
 
 .login-heading span {
-  color: var(--text-muted);
+  color: var(--text-secondary);
   font-size: 13px;
 }
 
 .login-heading strong {
   margin-top: 4px;
-  color: #111827;
+  color: var(--text);
   font-size: 24px;
-  line-height: 1.35;
+  line-height: 32px;
+  font-weight: 600;
   letter-spacing: 0;
 }
 
@@ -297,11 +313,17 @@ onMounted(loadCaptcha)
 .captcha-button {
   height: 40px;
   padding: 0;
-  border: 1px solid #d9dee8;
-  border-radius: 6px;
-  background: #fff;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface);
   cursor: pointer;
   overflow: hidden;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.captcha-button:hover {
+  border-color: var(--brand);
+  box-shadow: var(--focus-ring);
 }
 
 .captcha-button img {
@@ -328,8 +350,13 @@ onMounted(loadCaptcha)
     padding: 36px 24px;
   }
 
+  .brand-panel::after {
+    display: none;
+  }
+
   .brand-panel h1 {
     font-size: 28px;
+    line-height: 36px;
   }
 
   .brand-meta {

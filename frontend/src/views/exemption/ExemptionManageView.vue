@@ -11,6 +11,7 @@ import {
 } from 'naive-ui'
 import PageContainer from '@/components/PageContainer.vue'
 import StatusTag from '@/components/StatusTag.vue'
+import { renderTableActions } from '@/utils/tableActions'
 import { listDictItems, type DictItem } from '@/api/dict'
 import { listStudents, type Student } from '@/api/student'
 import type { ReviewPayload } from '@/api/student'
@@ -143,12 +144,12 @@ const columns: DataTableColumns<ExemptionRequest> = [
     title: '操作',
     key: 'actions',
     fixed: 'right',
-    width: 380,
+    width: 240,
     render: (row) =>
-      h(NSpace, { size: 4 }, () => {
+      {
         const actions = []
         if (row.materials[0]) {
-          actions.push(h(NButton, { size: 'small', quaternary: true, type: 'primary', onClick: () => openPreview(row.materials[0]) }, { default: () => '预览' }))
+          actions.push(h(NButton, { size: 'small', type: 'primary', onClick: () => openPreview(row.materials[0]) }, { default: () => '预览' }))
         }
         if (canApply.value) {
           actions.push(h(NButton, { size: 'small', quaternary: true, onClick: () => submit(row) }, { default: () => '提交' }))
@@ -172,8 +173,8 @@ const columns: DataTableColumns<ExemptionRequest> = [
             )
           )
         }
-        return actions
-      })
+        return renderTableActions(actions)
+      }
   }
 ]
 

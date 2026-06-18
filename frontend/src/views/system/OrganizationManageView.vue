@@ -177,7 +177,7 @@ const collegeColumns = computed<DataTableColumns<College>>(() => {
   const columns: DataTableColumns<College> = [
     { title: '学院编码', key: 'code', minWidth: 130, ellipsis: { tooltip: true }, render: (row) => h('span', { class: 'mono' }, row.code) },
     { title: '学院名称', key: 'name', minWidth: 160, ellipsis: { tooltip: true } },
-    { title: '排序', key: 'sort', width: 72 },
+    { title: '排序', key: 'sort', width: 72, render: (row) => h('span', { class: 'numeric' }, String(row.sort ?? 0)) },
     { title: '状态', key: 'status', width: 82, render: (row) => h(StatusTag, { text: row.status === 1 ? '启用' : '停用' }) }
   ]
   if (canManageCollege.value) {
@@ -187,7 +187,7 @@ const collegeColumns = computed<DataTableColumns<College>>(() => {
       width: 146,
       render: (row) =>
         h(NSpace, { size: 6 }, () => [
-          h(NButton, { size: 'small', quaternary: true, type: 'primary', onClick: () => openCollegeDrawer(row) }, { default: () => '编辑' }),
+          h(NButton, { size: 'small', quaternary: true, onClick: () => openCollegeDrawer(row) }, { default: () => '编辑' }),
           h(
             NPopconfirm,
             { onPositiveClick: () => removeCollege(row) },
@@ -224,7 +224,7 @@ const majorColumns = computed<DataTableColumns<Major>>(() => {
       width: 220,
       render: (row) =>
         h(NSpace, { size: 6 }, () => [
-          h(NButton, { size: 'small', quaternary: true, type: 'primary', onClick: () => openMajorDrawer(row) }, { default: () => '编辑' }),
+          h(NButton, { size: 'small', quaternary: true, onClick: () => openMajorDrawer(row) }, { default: () => '编辑' }),
           h(NButton, { size: 'small', quaternary: true, onClick: () => openGoalDrawer(row) }, { default: () => '目标' }),
           h(
             NPopconfirm,
@@ -254,7 +254,7 @@ const configColumns = computed<DataTableColumns<TrainingGoalConfig>>(() => {
       title: '操作',
       key: 'actions',
       width: 92,
-      render: (row) => h(NButton, { size: 'small', quaternary: true, type: 'primary', onClick: () => openConfigDrawer(row) }, { default: () => '编辑' })
+      render: (row) => h(NButton, { size: 'small', quaternary: true, onClick: () => openConfigDrawer(row) }, { default: () => '编辑' })
     })
   }
   return columns
@@ -815,14 +815,14 @@ onMounted(async () => {
   align-items: center;
   height: 22px;
   padding: 0 8px;
-  border-radius: 6px;
-  background: #eef4ff;
+  border-radius: var(--radius-tag);
+  background: var(--brand-soft);
   color: var(--brand);
   font-size: 12px;
 }
 
 :deep(.is-selected-row td) {
-  background: #eef5ff;
+  background: var(--brand-soft);
 }
 
 @media (max-width: 1220px) {

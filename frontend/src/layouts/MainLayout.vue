@@ -228,7 +228,7 @@ function roleColorByCode(code?: string) {
       bordered
       collapse-mode="width"
       :collapsed-width="64"
-      :width="248"
+      :width="240"
       :collapsed="collapsed"
       show-trigger
       :native-scrollbar="false"
@@ -299,7 +299,8 @@ function roleColorByCode(code?: string) {
 }
 
 .app-sider {
-  background: #fff;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
 }
 
 .brand {
@@ -307,8 +308,9 @@ function roleColorByCode(code?: string) {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 0 16px;
+  padding: 0 var(--space-4);
   color: var(--brand);
+  border-bottom: 1px solid var(--border);
 }
 
 .brand-logo {
@@ -317,9 +319,9 @@ function roleColorByCode(code?: string) {
   flex: 0 0 32px;
   display: grid;
   place-items: center;
-  border-radius: 8px;
-  background: rgba(31, 111, 235, 0.1);
-  font-weight: 800;
+  border-radius: var(--radius-control);
+  background: var(--brand-soft);
+  font-weight: 600;
 }
 
 .brand-text {
@@ -330,6 +332,8 @@ function roleColorByCode(code?: string) {
 .brand-text strong {
   display: block;
   font-size: 15px;
+  line-height: 22px;
+  font-weight: 600;
   letter-spacing: 0;
 }
 
@@ -347,15 +351,17 @@ function roleColorByCode(code?: string) {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 0 20px;
-  background: #fff;
+  padding: 0 var(--space-6);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
 }
 
 .page-title {
   min-width: 0;
   font-size: 16px;
-  font-weight: 650;
-  color: #111827;
+  line-height: 24px;
+  font-weight: 600;
+  color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -382,14 +388,21 @@ function roleColorByCode(code?: string) {
 
 .user-chip {
   height: 40px;
-  border: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
   background: transparent;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 0;
+  padding: 0 6px;
   cursor: pointer;
   color: inherit;
+  transition: background-color 160ms ease, border-color 160ms ease;
+}
+
+.user-chip:hover {
+  background: var(--surface-muted);
+  border-color: var(--border);
 }
 
 .avatar {
@@ -397,10 +410,10 @@ function roleColorByCode(code?: string) {
   height: 30px;
   display: grid;
   place-items: center;
-  border-radius: 50%;
-  color: #fff;
+  border-radius: var(--radius-control);
+  color: var(--text-inverse);
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .user-meta {
@@ -429,7 +442,7 @@ function roleColorByCode(code?: string) {
 
 .app-content {
   background: var(--page-bg);
-  padding: 20px;
+  padding: var(--space-6);
   min-width: 0;
 }
 
@@ -438,11 +451,58 @@ function roleColorByCode(code?: string) {
   height: 22px;
   display: inline-grid;
   place-items: center;
-  border-radius: 6px;
-  background: #eef4ff;
+  border-radius: var(--radius-control);
+  background: var(--brand-soft);
   color: var(--brand);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
+}
+
+:deep(.n-menu) {
+  padding: var(--space-3) var(--space-2);
+}
+
+:deep(.n-menu .n-menu-item-content) {
+  margin: 2px 0;
+  min-height: 38px;
+  border-radius: var(--radius-control);
+}
+
+:deep(.n-menu .n-menu-item-content::before) {
+  border-radius: var(--radius-control);
+}
+
+:deep(.n-menu .n-menu-item-content.n-menu-item-content--selected) {
+  position: relative;
+  background: var(--brand-soft);
+}
+
+:deep(.n-menu .n-menu-item-content.n-menu-item-content--selected::after) {
+  position: absolute;
+  left: 0;
+  top: 7px;
+  bottom: 7px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--brand);
+  content: "";
+}
+
+:deep(.n-menu .n-menu-item-content-header) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+:deep(.n-menu .n-submenu-children .n-menu-item-content) {
+  padding-left: 44px !important;
+}
+
+:deep(.n-layout-toggle-button) {
+  border-color: var(--border);
+  background: var(--surface);
+  color: var(--text-secondary);
+  box-shadow: var(--shadow-card);
 }
 
 :deep(.menu-label-with-dot) {
@@ -455,7 +515,34 @@ function roleColorByCode(code?: string) {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #d03050;
-  box-shadow: 0 0 0 2px rgba(208, 48, 80, 0.12);
+  background: var(--error);
+  box-shadow: 0 0 0 2px var(--error-soft);
+}
+
+:deep(.page-container) {
+  max-width: 1480px;
+}
+
+@media (max-width: 900px) {
+  .app-header {
+    padding: 0 var(--space-4);
+  }
+
+  .header-actions {
+    gap: var(--space-2);
+  }
+
+  .year-picker > span,
+  .user-meta {
+    display: none;
+  }
+
+  .year-picker {
+    min-width: 98px;
+  }
+
+  .app-content {
+    padding: var(--space-4);
+  }
 }
 </style>

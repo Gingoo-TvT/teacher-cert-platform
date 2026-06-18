@@ -12,6 +12,7 @@ import {
 import PageContainer from '@/components/PageContainer.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import SubjectSelect from '@/components/SubjectSelect.vue'
+import { renderTableActions } from '@/utils/tableActions'
 import { listDictItems, type DictItem } from '@/api/dict'
 import { listColleges, listMajors, type College, type Major } from '@/api/organization'
 import { listStudents, type Student } from '@/api/student'
@@ -169,11 +170,11 @@ const columns: DataTableColumns<TrainingProfile> = [
     title: '操作',
     key: 'actions',
     fixed: 'right',
-    width: 300,
+    width: 220,
     render: (row) =>
-      h(NSpace, { size: 4 }, () => {
+      {
         const actions = [
-          h(NButton, { size: 'small', quaternary: true, type: 'primary', onClick: () => openDetail(row) }, { default: () => '详情' })
+          h(NButton, { size: 'small', type: 'primary', onClick: () => openDetail(row) }, { default: () => '详情' })
         ]
         if (canCreate.value) {
           actions.push(h(NButton, { size: 'small', quaternary: true, onClick: () => openDrawer(row) }, { default: () => '编辑' }))
@@ -185,8 +186,8 @@ const columns: DataTableColumns<TrainingProfile> = [
         if (canSecondReview.value) {
           actions.push(h(NButton, { size: 'small', quaternary: true, onClick: () => openReview(row, 'second') }, { default: () => '复审' }))
         }
-        return actions
-      })
+        return renderTableActions(actions)
+      }
   }
 ]
 

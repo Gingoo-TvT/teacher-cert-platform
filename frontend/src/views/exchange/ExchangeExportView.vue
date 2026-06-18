@@ -67,7 +67,7 @@ const batchColumns: DataTableColumns<ExchangeBatch> = [
   { title: '类型', key: 'type', width: 90 },
   { title: '导出项', key: 'strategy', width: 150, render: (row) => row.strategy || '-' },
   { title: '时间', key: 'operateTime', width: 170, render: (row) => row.operateTime || '-' },
-  { title: '数量', key: 'successCount', width: 90 },
+  { title: '数量', key: 'successCount', width: 90, render: (row) => h('span', { class: 'numeric' }, String(row.successCount ?? 0)) },
   { title: '状态', key: 'status', width: 120, render: (row) => h(StatusTag, { text: row.status }) },
   { title: '文件', key: 'fileName', minWidth: 180, ellipsis: { tooltip: true }, render: (row) => row.fileName || '-' }
 ]
@@ -180,8 +180,8 @@ watch(
 
     <n-grid v-if="canExport" :cols="3" :x-gap="12" responsive="screen" class="page-section">
       <n-gi><StatCard label="导出批次" :value="summary.total" /></n-gi>
-      <n-gi><StatCard label="已完成" :value="summary.exported" color="#18a058" /></n-gi>
-      <n-gi><StatCard label="生成文件" :value="summary.files" color="#2080f0" /></n-gi>
+      <n-gi><StatCard label="已完成" :value="summary.exported" tone="success" /></n-gi>
+      <n-gi><StatCard label="生成文件" :value="summary.files" tone="info" /></n-gi>
     </n-grid>
 
     <n-card v-if="canExport" :bordered="false" size="small" class="page-section">

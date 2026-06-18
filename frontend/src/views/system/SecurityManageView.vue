@@ -37,6 +37,7 @@ import {
 import PageContainer from '@/components/PageContainer.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import StatCard from '@/components/StatCard.vue'
+import { renderTableActions } from '@/utils/tableActions'
 import { useUserStore } from '@/stores/user'
 
 const message = useMessage()
@@ -168,12 +169,11 @@ const userColumns: DataTableColumns<User> = [
   {
     title: '操作',
     key: 'actions',
-    width: 292,
+    width: 230,
     render: (row) =>
-      h(NSpace, { size: 6 }, () =>
-        canManageUsers.value
-          ? [
-              h(NButton, { size: 'small', quaternary: true, type: 'primary', onClick: () => openUserDrawer(row) }, { default: () => '编辑' }),
+      canManageUsers.value
+        ? renderTableActions([
+              h(NButton, { size: 'small', quaternary: true, onClick: () => openUserDrawer(row) }, { default: () => '编辑' }),
               h(NButton, { size: 'small', quaternary: true, onClick: () => openScopeDrawer(row) }, { default: () => '范围' }),
               h(
                 NPopconfirm,
@@ -191,9 +191,8 @@ const userColumns: DataTableColumns<User> = [
                   default: () => '确认删除该用户？'
                 }
               )
-            ]
-          : []
-      )
+            ])
+        : null
   }
 ]
 
@@ -201,7 +200,7 @@ const roleColumns: DataTableColumns<Role> = [
   { title: '角色编码', key: 'code', minWidth: 150, ellipsis: { tooltip: true } },
   { title: '角色名称', key: 'name', minWidth: 150, ellipsis: { tooltip: true } },
   { title: '说明', key: 'description', minWidth: 220, ellipsis: { tooltip: true } },
-  { title: '排序', key: 'sort', width: 72 },
+  { title: '排序', key: 'sort', width: 72, render: (row) => h('span', { class: 'numeric' }, String(row.sort ?? 0)) },
   { title: '状态', key: 'status', width: 82, render: (row) => enabledTag(row.status) },
   {
     title: '操作',
@@ -211,7 +210,7 @@ const roleColumns: DataTableColumns<Role> = [
       h(NSpace, { size: 6 }, () =>
         canManageRoles.value
           ? [
-              h(NButton, { size: 'small', quaternary: true, type: 'primary', onClick: () => openRoleDrawer(row) }, { default: () => '编辑' }),
+              h(NButton, { size: 'small', quaternary: true, onClick: () => openRoleDrawer(row) }, { default: () => '编辑' }),
               h(NButton, { size: 'small', quaternary: true, onClick: () => openRolePermissionDrawer(row) }, { default: () => '权限' }),
               h(
                 NPopconfirm,
@@ -231,7 +230,7 @@ const permissionColumns: DataTableColumns<Permission> = [
   { title: '权限编码', key: 'code', minWidth: 230, ellipsis: { tooltip: true } },
   { title: '权限名称', key: 'name', minWidth: 180, ellipsis: { tooltip: true } },
   { title: '类型', key: 'type', width: 90 },
-  { title: '排序', key: 'sort', width: 72 },
+  { title: '排序', key: 'sort', width: 72, render: (row) => h('span', { class: 'numeric' }, String(row.sort ?? 0)) },
   { title: '状态', key: 'status', width: 82, render: (row) => enabledTag(row.status) }
 ]
 
@@ -531,9 +530,9 @@ onMounted(refreshAll)
 
     <n-grid v-if="hasVisibleSection" :cols="4" :x-gap="12" responsive="screen" class="page-section">
       <n-gi v-if="canManageUsers"><StatCard label="用户总数" :value="summary.users" /></n-gi>
-      <n-gi v-if="canManageUsers"><StatCard label="启用用户" :value="summary.enabledUsers" color="#18a058" /></n-gi>
-      <n-gi v-if="canManageRoles"><StatCard label="角色数" :value="summary.roles" color="#2080f0" /></n-gi>
-      <n-gi v-if="canManagePerms"><StatCard label="权限点" :value="summary.permissions" color="#4b5563" /></n-gi>
+      <n-gi v-if="canManageUsers"><StatCard label="启用用户" :value="summary.enabledUsers" tone="success" /></n-gi>
+      <n-gi v-if="canManageRoles"><StatCard label="角色数" :value="summary.roles" tone="info" /></n-gi>
+      <n-gi v-if="canManagePerms"><StatCard label="权限点" :value="summary.permissions" tone="neutral" /></n-gi>
     </n-grid>
 
     <n-tabs v-if="hasVisibleSection" type="line" animated>

@@ -63,7 +63,6 @@ const summary = computed(() => {
 const chartOption = computed<EChartsOption>(() => {
   const chartRows = rows.value.slice(0, 20)
   return {
-    color: ['#2563eb'],
     xAxis: {
       type: 'category',
       data: chartRows.map((row) => chartLabel(row))
@@ -83,7 +82,7 @@ const chartOption = computed<EChartsOption>(() => {
 const rowColumns: DataTableColumns<StatsRow> = [
   { title: '统计维度', key: 'dimensionLabel', minWidth: 180, render: (row) => row.dimensionLabel || row.dimension || '-' },
   { title: '状态', key: 'statusLabel', minWidth: 140, render: (row) => h(StatusTag, { text: row.statusLabel || row.status || '-' }) },
-  { title: '数量', key: 'count', width: 100, render: (row) => h('span', { class: 'mono' }, String(row.count || 0)) },
+  { title: '数量', key: 'count', width: 100, render: (row) => h('span', { class: 'numeric' }, String(row.count || 0)) },
   { title: '扩展指标', key: 'values', minWidth: 300, render: (row) => renderValues(row.values) }
 ]
 
@@ -217,9 +216,9 @@ watch(
 
     <n-grid v-if="canViewStats" :cols="4" :x-gap="12" responsive="screen" class="page-section">
       <n-gi><StatCard label="统计行数" :value="summary.rowCount" /></n-gi>
-      <n-gi><StatCard label="汇总数量" :value="summary.total" color="#18a058" /></n-gi>
-      <n-gi><StatCard label="维度数" :value="summary.dimensions" color="#2080f0" /></n-gi>
-      <n-gi><StatCard label="明细数" :value="summary.detailCount" color="#f0a020" /></n-gi>
+      <n-gi><StatCard label="汇总数量" :value="summary.total" tone="success" /></n-gi>
+      <n-gi><StatCard label="维度数" :value="summary.dimensions" tone="info" /></n-gi>
+      <n-gi><StatCard label="明细数" :value="summary.detailCount" tone="warning" /></n-gi>
     </n-grid>
 
     <n-grid v-if="canViewStats && metrics.length" :cols="4" :x-gap="12" responsive="screen" class="page-section">

@@ -11,6 +11,7 @@ import {
 import PageContainer from '@/components/PageContainer.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import StatCard from '@/components/StatCard.vue'
+import { renderTableActions } from '@/utils/tableActions'
 import { listDictItems, type DictItem } from '@/api/dict'
 import { listStudents, type Student } from '@/api/student'
 import { useUserStore } from '@/stores/user'
@@ -115,15 +116,15 @@ const columns: DataTableColumns<Certificate> = [
     title: '操作',
     key: 'actions',
     fixed: 'right',
-    width: 460,
+    width: 260,
     render: (row) =>
-      h(NSpace, { size: 4 }, () => {
+      {
         const actions = []
         if (canGenerate.value) {
           actions.push(h(NButton, { size: 'small', quaternary: true, onClick: () => openPrecheck(row) }, { default: () => '前置' }))
         }
         if (canIssue.value && row.status === 'GENERATED') {
-          actions.push(h(NButton, { size: 'small', quaternary: true, type: 'primary', onClick: () => openIssue(row) }, { default: () => '签发' }))
+          actions.push(h(NButton, { size: 'small', type: 'primary', onClick: () => openIssue(row) }, { default: () => '签发' }))
         }
         if (canView.value && row.status === 'ISSUED') {
           actions.push(confirmButton('已导出', '确认将该证书标记为已导出？', () => markExported(row)))
@@ -140,8 +141,8 @@ const columns: DataTableColumns<Certificate> = [
         if (canReissue.value && row.status === 'VOIDED') {
           actions.push(confirmButton('重开', '重开会生成新证书并关联原编号，是否继续？', () => reissue(row), 'warning'))
         }
-        return actions
-      })
+        return renderTableActions(actions)
+      }
   }
 ]
 
@@ -396,10 +397,10 @@ watch(
 
     <n-grid v-if="canView" :cols="5" :x-gap="12" responsive="screen" class="page-section">
       <n-gi><StatCard label="证书总数" :value="summary.total" /></n-gi>
-      <n-gi><StatCard label="待签发" :value="summary.generated" color="#f0a020" /></n-gi>
-      <n-gi><StatCard label="已签发" :value="summary.issued" color="#18a058" /></n-gi>
-      <n-gi><StatCard label="已导出" :value="summary.exported" color="#2080f0" /></n-gi>
-      <n-gi><StatCard label="已归档" :value="summary.archived" color="#4b5563" /></n-gi>
+      <n-gi><StatCard label="待签发" :value="summary.generated" tone="warning" /></n-gi>
+      <n-gi><StatCard label="已签发" :value="summary.issued" tone="success" /></n-gi>
+      <n-gi><StatCard label="已导出" :value="summary.exported" tone="info" /></n-gi>
+      <n-gi><StatCard label="已归档" :value="summary.archived" tone="neutral" /></n-gi>
     </n-grid>
 
     <n-card v-if="canView" :bordered="false" size="small" class="page-section">

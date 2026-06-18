@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import * as echarts from 'echarts'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { chartAxisColor, chartPalette, chartSplitLineColor } from '@/theme/tokens'
 
 const props = defineProps<{
   option: echarts.EChartsOption
@@ -46,7 +47,7 @@ function normalizeOption(option: echarts.EChartsOption): echarts.EChartsOption {
   const bottom = rotate ? 82 : Math.max(48, Math.min(72, maxLabelLength * 4 + 32))
 
   return {
-    color: ['#2563eb', '#16a34a', '#d97706', '#7c3aed', '#0891b2', '#dc2626', '#64748b', '#ca8a04'],
+    color: [...chartPalette],
     tooltip: { trigger: 'axis' },
     ...option,
     grid: {
@@ -71,7 +72,7 @@ function normalizeOption(option: echarts.EChartsOption): echarts.EChartsOption {
         overflow: 'truncate',
         hideOverlap: true,
         rotate,
-        color: '#64748b'
+        color: chartAxisColor
       }
     })) as echarts.EChartsOption['xAxis'],
     yAxis: normalizeAxis(option.yAxis, (axis) => {
@@ -86,7 +87,7 @@ function normalizeOption(option: echarts.EChartsOption): echarts.EChartsOption {
           ...splitLine,
           lineStyle: {
             ...lineStyle,
-            color: '#e5e7eb'
+            color: chartSplitLineColor
           }
         }
       }

@@ -59,9 +59,9 @@ const batchColumns: DataTableColumns<ExchangeBatch> = [
   { title: '批次号', key: 'batchNo', minWidth: 180, ellipsis: { tooltip: true }, render: (row) => h('span', { class: 'mono' }, row.batchNo) },
   { title: '类型', key: 'type', width: 90 },
   { title: '时间', key: 'operateTime', width: 170, render: (row) => row.operateTime || '-' },
-  { title: '总数', key: 'total', width: 80 },
-  { title: '成功', key: 'successCount', width: 80 },
-  { title: '失败', key: 'failCount', width: 80 },
+  { title: '总数', key: 'total', width: 80, render: (row) => h('span', { class: 'numeric' }, String(row.total ?? 0)) },
+  { title: '成功', key: 'successCount', width: 80, render: (row) => h('span', { class: 'numeric' }, String(row.successCount ?? 0)) },
+  { title: '失败', key: 'failCount', width: 80, render: (row) => h('span', { class: 'numeric' }, String(row.failCount ?? 0)) },
   { title: '策略', key: 'strategy', width: 130, render: (row) => row.strategy || '-' },
   { title: '状态', key: 'status', width: 120, render: (row) => h(StatusTag, { text: row.status }) },
   {
@@ -87,7 +87,7 @@ const batchColumns: DataTableColumns<ExchangeBatch> = [
 ]
 
 const previewColumns: DataTableColumns<ImportPreviewRow> = [
-  { title: '行号', key: 'rowNo', width: 80 },
+  { title: '行号', key: 'rowNo', width: 80, render: (row) => h('span', { class: 'numeric' }, String(row.rowNo)) },
   { title: '学号', key: 'studentNo', minWidth: 130, render: (row) => h('span', { class: 'mono' }, row.row.studentNo || '-') },
   { title: '姓名', key: 'name', width: 120, render: (row) => row.row.name || '-' },
   { title: '证件号', key: 'idCardNo', minWidth: 190, ellipsis: { tooltip: true }, render: (row) => h('span', { class: 'mono' }, row.row.idCardNo || '-') },
@@ -95,7 +95,7 @@ const previewColumns: DataTableColumns<ImportPreviewRow> = [
 ]
 
 const errorColumns: DataTableColumns<ImportError> = [
-  { title: '行号', key: 'rowNo', width: 80 },
+  { title: '行号', key: 'rowNo', width: 80, render: (row) => h('span', { class: 'numeric' }, String(row.rowNo)) },
   { title: '学号', key: 'studentNo', minWidth: 120, render: (row) => h('span', { class: 'mono' }, row.studentNo || '-') },
   { title: '姓名', key: 'studentName', width: 120, render: (row) => row.studentName || '-' },
   { title: '字段', key: 'fieldName', minWidth: 140 },
@@ -221,8 +221,8 @@ onMounted(() => {
 
     <n-grid :cols="3" :x-gap="12" responsive="screen" class="page-section">
       <n-gi><StatCard label="总行数" :value="prevalidate?.total ?? 0" /></n-gi>
-      <n-gi><StatCard label="预校验通过" :value="prevalidate?.successCount ?? 0" color="#18a058" /></n-gi>
-      <n-gi><StatCard label="异常数" :value="prevalidate?.failCount ?? 0" color="#d03050" /></n-gi>
+      <n-gi><StatCard label="预校验通过" :value="prevalidate?.successCount ?? 0" tone="success" /></n-gi>
+      <n-gi><StatCard label="异常数" :value="prevalidate?.failCount ?? 0" tone="error" /></n-gi>
     </n-grid>
 
     <n-card :bordered="false" size="small" class="page-section">

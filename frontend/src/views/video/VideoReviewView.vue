@@ -11,6 +11,7 @@ import {
 } from 'naive-ui'
 import PageContainer from '@/components/PageContainer.vue'
 import StatusTag from '@/components/StatusTag.vue'
+import { renderTableActions } from '@/utils/tableActions'
 import { listDictItems, type DictItem } from '@/api/dict'
 import { listStudents, type Student } from '@/api/student'
 import { useUserStore } from '@/stores/user'
@@ -178,20 +179,20 @@ const reviewColumns: DataTableColumns<VideoReview> = [
   { title: '姓名', key: 'studentName', minWidth: 110, ellipsis: { tooltip: true } },
   { title: '年度', key: 'assessmentYear', width: 96, render: (row) => h('span', { class: 'mono' }, row.assessmentYear) },
   { title: '视频文件', key: 'videoFileName', minWidth: 190, ellipsis: { tooltip: true } },
-  { title: '时长', key: 'durationSeconds', width: 86, render: (row) => `${row.durationSeconds || 0}s` },
+  { title: '时长', key: 'durationSeconds', width: 86, render: (row) => h('span', { class: 'numeric' }, `${row.durationSeconds || 0}s`) },
   { title: '状态', key: 'status', width: 108, render: (row) => h(StatusTag, { text: row.statusLabel || row.status }) },
-  { title: '终分', key: 'finalScore', width: 78, render: (row) => row.finalScore ?? '-' },
+  { title: '终分', key: 'finalScore', width: 78, render: (row) => h('span', { class: 'numeric' }, String(row.finalScore ?? '-')) },
   { title: '结论', key: 'finalConclusion', width: 88, render: (row) => h(StatusTag, { text: conclusionText(row.finalConclusion) }) },
   {
     title: '操作',
     key: 'actions',
     fixed: 'right',
-    width: 430,
+    width: 240,
     render: (row) =>
-      h(NSpace, { size: 4 }, () => {
+      {
         const actions = []
         if (canPlay.value) {
-          actions.push(h(NButton, { size: 'small', quaternary: true, type: 'primary', onClick: () => openPlayer(row) }, { default: () => '播放' }))
+          actions.push(h(NButton, { size: 'small', type: 'primary', onClick: () => openPlayer(row) }, { default: () => '播放' }))
         }
         if (canUpload.value && canReupload(row)) {
           actions.push(h(NButton, { size: 'small', quaternary: true, type: row.status === 'RETURNED' ? 'warning' : 'default', onClick: () => openUpload(row) }, { default: () => row.status === 'RETURNED' ? '重新上传' : '上传' }))
@@ -208,8 +209,8 @@ const reviewColumns: DataTableColumns<VideoReview> = [
         if ((canConfirm.value || canArbitrate.value) && row.status !== 'CONFIRMED') {
           actions.push(h(NButton, { size: 'small', quaternary: true, type: 'warning', onClick: () => openReturn(row) }, { default: () => '退回' }))
         }
-        return actions
-      })
+        return renderTableActions(actions)
+      }
   }
 ]
 
@@ -217,17 +218,17 @@ const taskColumns: DataTableColumns<VideoTask> = [
   { title: '评审记录', key: 'videoReviewId', minWidth: 150, render: (row) => h('span', { class: 'mono' }, row.videoReviewId) },
   { title: '评审角色', key: 'reviewerRole', width: 120, render: (row) => reviewerRoleText(row.reviewerRole) },
   { title: '提交状态', key: 'submitted', width: 100, render: (row) => h(StatusTag, { text: row.submitted === 1 ? '已提交' : '待评分' }) },
-  { title: '分数', key: 'score', width: 78, render: (row) => row.score ?? '-' },
+  { title: '分数', key: 'score', width: 78, render: (row) => h('span', { class: 'numeric' }, String(row.score ?? '-')) },
   { title: '结论', key: 'conclusion', width: 90, render: (row) => h(StatusTag, { text: conclusionText(row.conclusion) }) },
   { title: '提交时间', key: 'submitTime', minWidth: 160, ellipsis: { tooltip: true } },
   {
     title: '操作',
     key: 'actions',
     fixed: 'right',
-    width: 170,
+    width: 150,
     render: (row) =>
-      h(NSpace, { size: 4 }, () => [
-        h(NButton, { size: 'small', quaternary: true, type: 'primary', onClick: () => openPlayerByTask(row) }, { default: () => '播放' }),
+      renderTableActions([
+        h(NButton, { size: 'small', type: 'primary', onClick: () => openPlayerByTask(row) }, { default: () => '播放' }),
         row.submitted === 0 ? h(NButton, { size: 'small', quaternary: true, onClick: () => openScore(row) }, { default: () => '评分' }) : null
       ])
   }
@@ -235,7 +236,7 @@ const taskColumns: DataTableColumns<VideoTask> = [
 
 const groupColumns: DataTableColumns<ReviewerGroup> = [
   { title: '组名', key: 'name', minWidth: 180, ellipsis: { tooltip: true } },
-  { title: '成员数', key: 'memberCount', width: 90 },
+  { title: '成员数', key: 'memberCount', width: 90, render: (row) => h('span', { class: 'numeric' }, String(row.memberCount)) },
   { title: '状态', key: 'status', width: 90, render: (row) => h(StatusTag, { text: row.status === 'ENABLED' ? '启用' : '停用' }) },
   {
     title: '成员',
@@ -247,10 +248,10 @@ const groupColumns: DataTableColumns<ReviewerGroup> = [
     title: '操作',
     key: 'actions',
     fixed: 'right',
-    width: 260,
+    width: 190,
     render: (row) =>
-      h(NSpace, { size: 4 }, () => [
-        h(NButton, { size: 'small', quaternary: true, onClick: () => openGroup(row) }, { default: () => '编辑' }),
+      renderTableActions([
+        h(NButton, { size: 'small', type: 'primary', onClick: () => openGroup(row) }, { default: () => '编辑' }),
         h(NButton, { size: 'small', quaternary: true, onClick: () => openMember(row) }, { default: () => '成员' }),
         h(
           NPopconfirm,
@@ -889,9 +890,9 @@ watch(
   position: relative;
   width: 100%;
   aspect-ratio: 16 / 9;
-  background: #111827;
+  background: var(--video-bg);
   overflow: hidden;
-  border-radius: 8px;
+  border-radius: var(--radius-card);
 }
 
 .video-player {
@@ -901,10 +902,10 @@ watch(
 
 .watermark {
   position: absolute;
-  color: rgba(255, 255, 255, 0.72);
+  color: var(--video-watermark);
   font-size: 13px;
   pointer-events: none;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  text-shadow: 0 1px 2px var(--video-watermark-shadow);
   transition: left 0.4s ease, top 0.4s ease;
 }
 

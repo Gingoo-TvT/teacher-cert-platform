@@ -5,10 +5,10 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**Phase 27 ✅ 已复核（Claude 06-18，PASS·一轮）—— Phase 25 的 Major(负责人按人指派) 已闭环**；下一步 Phase 26(UI 设计提升·DESIGN.md)。Phase 25 ✅ 合并 main。
+- 当前阶段：**Phase 26 待复核（UI 设计提升·按 frontend/DESIGN.md）**；纯视觉/排版层，不改路由/接口/权限/状态机/迁移。
 - 阻塞项：无
-- 最近更新：2026-06-18（Phase 27 复核通过：`GET /api/video/reviewer-candidates`(video:assign 门控、数据范围列本院/全校 ENABLED REVIEW_TEACHER、dedup)，前端按人指派候选改用之，负责人不再空选择器；**clean-room `mvn verify` 83/83**(Phase7 11，含候选范围+跨院排除+无权 403+按人结算)+前端绿；无新迁移 V1-V23 冻结；详见 docs/reviews/phase-27-review.md）
-- 下一步：Phase 26(UI 设计提升·按 frontend/DESIGN.md)；可选 T-162(中职专业课全量学科种子)待学校确认
+- 最近更新：2026-06-18（Phase 26 完成 T-166~T-171：主题 token/Naive overrides 收口，外壳导航、表格列表、表单卡片标签指标卡空载态、登录页视觉提升；页面/组件层硬编码色清零，色值集中在 `frontend/src/theme/*`；`npm --prefix frontend run type-check` 与 `npm --prefix frontend run build` 通过，build 仅既有 Vite chunk-size warning）
+- 下一步：等待 Claude 复核 Phase 26；可选 T-162(中职专业课全量学科种子)待学校确认
 
 ## 阶段汇总
 | Phase | 名称 | 优先级 | 任务数 | 完成 | 状态 |
@@ -288,8 +288,17 @@
 - [x] T-165 全角色自检矩阵：已在 `DEVLOG.md` 记录 STUDENT/COLLEGE_CLERK/COLLEGE_AUDITOR/REVIEW_TEACHER/ACADEMIC_ADMIN/SYS_ADMIN 菜单入口与分区 API 条件加载口径；`CERT_ISSUER` 已在 WP-A 停用，签发入口按 `cert:issue` 并入教务处管理员。
 - 验证：`npm --prefix frontend run type-check` 通过；`npm --prefix frontend run build` 通过（仅既有 Vite chunk-size warning）。Claude 06-18 复核 PASS 并合并 main；Major backlog 转 Phase 27。
 
+## 收官后 · Phase 26 / UI 设计提升·按 DESIGN.md
+- Phase 26 `UI 设计提升·按 frontend/DESIGN.md`：**待复核**（分支：`feature/phase26-ui-uplift`）。纯前端视觉/排版层提升，不改路由、接口、权限、状态机或迁移；目标是政务·教育级专业后台质感，色板/字阶/间距/圆角/阴影/表格/表单/登录页按 `frontend/DESIGN.md` 收口。
+- [x] T-166 主题 token 收口：`frontend/src/theme/global.css` 扩展设计 token；新增 `frontend/src/theme/naive.ts` 集中 `themeOverrides`(common/Button/DataTable/Menu/Tag/Card/Input/Form 等)；`ChartBox` 改用 `theme/tokens.ts` 色板；页面/组件层不再写散落硬编码色。
+- [x] T-167 外壳导航：`MainLayout` 调整为 240/64 侧栏、白底右边线、分组选中 soft 底 + 左 3px 色条、顶栏 60、内容区 24 留白；`PageContainer` 统一页标题/描述/操作区和响应式。
+- [x] T-168 列表表格：全局 DataTable 表头浅底 sticky、行高/hover/分页右对齐；`.mono/.numeric` 在表格内右对齐；操作列新增 `renderTableActions`，多于 3 个动作收进“更多”，主行动作实心、次动作文字。
+- [x] T-169 表单/卡片/标签/指标卡/空载态：表单 label top 和禁用只读态统一；`StatusTag` 扩展英文/中文枚举 soft 配色；`StatCard` 改为语义 `tone`；空态、加载容器、卡片阴影/圆角统一。
+- [x] T-170 登录页：品牌分栏按 token 重做对比、层级与响应式；保留真实 captcha/login/change-pwd 流程，不改鉴权逻辑。
+- [x] T-171 验证：`npm --prefix frontend run type-check` 通过；`npm --prefix frontend run build` 通过（仅既有 Vite chunk-size warning）；硬编码色自查：页面/组件/布局层无 `#`/`rgba` 色值，色值集中在 `frontend/src/theme/*` token/overrides。
+
 ## 收官后 · Phase 27 / 后端·负责人评审教师列表端点（修按人指派）
-- Phase 27 `后端·负责人评审教师列表端点`：**待复核**（分支：`feature/phase27-reviewer-list`）。修复 Phase 25 backlog：视频“按人指派”候选不再依赖 `system:user:manage` 的 `/system/user`，改为 `video:assign` 门控的本院/全校评审教师候选端点。无新增权限点、无 Flyway 迁移，V1-V23 冻结。
+- Phase 27 `后端·负责人评审教师列表端点`：**✅ 已复核（Claude 06-18，PASS·一轮）**（分支：`feature/phase27-reviewer-list`）。修复 Phase 25 backlog：视频“按人指派”候选不再依赖 `system:user:manage` 的 `/system/user`，改为 `video:assign` 门控的本院/全校评审教师候选端点。无新增权限点、无 Flyway 迁移，V1-V23 冻结。
 - [x] T-172 新增 `GET /api/video/reviewer-candidates`：`@PreAuthorize("@pms.has('video:assign')")`；返回 `id/realName/workNo`；服务端按 `dataScopeService.resolve("video:assign")` 解析调用者数据范围，COLLEGE 仅查授权学院，SCHOOL 查全校；候选复用评审组成员校验口径，仅 ENABLED 且具 `REVIEW_TEACHER` 角色用户。
 - [x] T-173 前端 VideoReviewView 按人指派候选改用 `listReviewerCandidates()`；移除对 `listUsers`/`system:user:manage` 的依赖，负责人/教务处具 `video:assign` 即可加载候选；按组指派和评审组 CRUD 保持原流程。
 - [x] T-174 IT 覆盖：`Phase7VideoReviewIT` 新增候选端点范围与贯通用例，断言学院负责人只能看到本院 `REVIEW_TEACHER`、看不到跨院评审教师和非评审教师，评审教师访问候选端点 403；随后用端点返回的 2 名评审教师按人指派→评分→结算 PASS。

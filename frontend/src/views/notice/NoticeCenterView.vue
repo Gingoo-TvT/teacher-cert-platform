@@ -58,7 +58,7 @@ const columns: DataTableColumns<NotificationItem> = [
     width: 112,
     render: (row) =>
       row.readFlag === 0
-        ? h(NButton, { size: 'small', quaternary: true, type: 'primary', onClick: () => handleRead(row) }, { default: () => '标记已读' })
+        ? h(NButton, { size: 'small', quaternary: true, onClick: () => handleRead(row) }, { default: () => '标记已读' })
         : null
   }
 ]
@@ -138,8 +138,8 @@ function showError(error: unknown, fallback: string) {
 
     <n-grid :cols="3" :x-gap="12" responsive="screen" class="page-section">
       <n-gi><StatCard label="通知总数" :value="notices.length" /></n-gi>
-      <n-gi><StatCard label="未读" :value="unreadCount" color="#d03050" /></n-gi>
-      <n-gi><StatCard label="已读" :value="readCount" color="#18a058" /></n-gi>
+      <n-gi><StatCard label="未读" :value="unreadCount" tone="error" /></n-gi>
+      <n-gi><StatCard label="已读" :value="readCount" tone="success" /></n-gi>
     </n-grid>
 
     <n-card :bordered="false" size="small" class="page-section">
@@ -171,7 +171,7 @@ function showError(error: unknown, fallback: string) {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #d03050;
-  box-shadow: 0 0 0 3px rgba(208, 48, 80, 0.12);
+  background: var(--error);
+  box-shadow: 0 0 0 3px var(--error-soft);
 }
 </style>

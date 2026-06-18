@@ -62,7 +62,7 @@ const columns: DataTableColumns<Certificate> = [
     render: (row) =>
       h(NSpace, { size: 4 }, () => [
         canIssue.value && row.status === 'GENERATED'
-          ? h(NButton, { size: 'small', quaternary: true, type: 'primary', onClick: () => openIssue(row) }, { default: () => '签发' })
+          ? h(NButton, { size: 'small', type: 'primary', onClick: () => openIssue(row) }, { default: () => '签发' })
           : null,
         canMarkFlow.value && row.status === 'ISSUED'
           ? confirmButton('已导出', '确认将该证书标记为已导出？', () => markExported(row))
@@ -188,9 +188,9 @@ watch(
     <n-empty v-if="!canViewQueue" description="当前账号没有证书队列查看权限" class="page-section" />
 
     <n-grid v-if="canViewQueue" :cols="3" :x-gap="12" responsive="screen" class="page-section">
-      <n-gi><StatCard label="待签发" :value="summary.waiting" color="#f0a020" /></n-gi>
-      <n-gi><StatCard label="已签发" :value="summary.issued" color="#18a058" /></n-gi>
-      <n-gi><StatCard label="已导出待归档" :value="summary.exported" color="#2080f0" /></n-gi>
+      <n-gi><StatCard label="待签发" :value="summary.waiting" tone="warning" /></n-gi>
+      <n-gi><StatCard label="已签发" :value="summary.issued" tone="success" /></n-gi>
+      <n-gi><StatCard label="已导出待归档" :value="summary.exported" tone="info" /></n-gi>
     </n-grid>
 
     <n-card v-if="canViewQueue" :bordered="false" size="small" class="page-section">

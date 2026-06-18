@@ -23,14 +23,16 @@ defineProps<{
 <style scoped>
 .page-container {
   min-width: 0;
+  width: 100%;
+  margin: 0 auto;
 }
 
 .page-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 16px;
+  gap: var(--space-5);
+  margin-bottom: var(--space-5);
 }
 
 .page-title-block {
@@ -40,24 +42,37 @@ defineProps<{
 .page-title-block h1 {
   margin: 0;
   font-size: 20px;
-  line-height: 1.35;
-  font-weight: 650;
-  color: #111827;
+  line-height: 28px;
+  font-weight: 600;
+  color: var(--text);
   letter-spacing: 0;
 }
 
 .page-title-block p {
   margin: 4px 0 0;
   font-size: 13px;
-  line-height: 1.5;
-  color: var(--text-muted);
+  line-height: 20px;
+  color: var(--text-secondary);
 }
 
 .page-actions {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px;
+  gap: var(--space-2);
   flex-wrap: wrap;
+  min-height: 34px;
+}
+
+@media (max-width: 720px) {
+  .page-header {
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  .page-actions {
+    justify-content: flex-start;
+    width: 100%;
+  }
 }
 </style>

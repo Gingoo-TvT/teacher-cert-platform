@@ -11,6 +11,7 @@ import {
 } from 'naive-ui'
 import PageContainer from '@/components/PageContainer.vue'
 import StatusTag from '@/components/StatusTag.vue'
+import { renderTableActions } from '@/utils/tableActions'
 import { listDictItems, type DictItem } from '@/api/dict'
 import { listStudents, type Student } from '@/api/student'
 import { useUserStore } from '@/stores/user'
@@ -125,18 +126,18 @@ const columns: DataTableColumns<ProcessMaterial> = [
   { title: '年度', key: 'assessmentYear', width: 96, render: (row) => h('span', { class: 'mono' }, row.assessmentYear) },
   { title: '材料类别', key: 'categoryLabel', minWidth: 180, ellipsis: { tooltip: true } },
   { title: '文件名', key: 'fileName', minWidth: 220, ellipsis: { tooltip: true } },
-  { title: '大小', key: 'fileSize', width: 90, render: (row) => formatSize(row.fileSize || 0) },
+  { title: '大小', key: 'fileSize', width: 90, render: (row) => h('span', { class: 'numeric' }, formatSize(row.fileSize || 0)) },
   { title: '状态', key: 'status', width: 108, render: (row) => h(StatusTag, { text: row.statusLabel || row.status }) },
   { title: '锁定', key: 'locked', width: 78, render: (row) => h(StatusTag, { text: row.locked ? '已锁定' : '未锁定' }) },
   {
     title: '操作',
     key: 'actions',
     fixed: 'right',
-    width: 360,
+    width: 240,
     render: (row) =>
-      h(NSpace, { size: 4 }, () => {
+      {
         const actions = [
-          h(NButton, { size: 'small', quaternary: true, type: 'primary', onClick: () => openPreview(row) }, { default: () => '预览' })
+          h(NButton, { size: 'small', type: 'primary', onClick: () => openPreview(row) }, { default: () => '预览' })
         ]
         if (canUpload.value) {
           actions.push(h(NButton, { size: 'small', quaternary: true, onClick: () => openReplace(row) }, { default: () => '替换' }))
@@ -160,14 +161,14 @@ const columns: DataTableColumns<ProcessMaterial> = [
             )
           )
         }
-        return actions
-      })
+        return renderTableActions(actions)
+      }
   }
 ]
 
 const statusColumns: DataTableColumns<StatusRow> = [
   { title: '材料类别', key: 'label', minWidth: 180 },
-  { title: '总数', key: 'total', width: 80 },
+  { title: '总数', key: 'total', width: 80, render: (row) => h('span', { class: 'numeric' }, String(row.total)) },
   { title: '复审通过', key: 'passedCount', width: 100 },
   { title: '不通过', key: 'failedCount', width: 90 },
   { title: '类别结果', key: 'passed', width: 110, render: (row) => h(StatusTag, { text: row.passed ? '通过' : '未通过' }) }

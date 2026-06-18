@@ -73,14 +73,14 @@ const subjectColumns: DataTableColumns<SubjectTableRow> = [
     render: (row) =>
       h(
         NButton,
-        { size: 'small', quaternary: true, type: 'primary', disabled: !row.selectable, onClick: () => chooseSubject(row) },
+        { size: 'small', quaternary: true, disabled: !row.selectable, onClick: () => chooseSubject(row) },
         { default: () => '选择' }
       )
   }
 ]
 
 const errorColumns: DataTableColumns<SubjectImportError> = [
-  { title: '行号', key: 'rowNo', width: 80 },
+  { title: '行号', key: 'rowNo', width: 80, render: (row) => h('span', { class: 'numeric' }, String(row.rowNo)) },
   { title: '字段', key: 'field', width: 150, ellipsis: { tooltip: true } },
   { title: '错误值', key: 'errorValue', minWidth: 160, ellipsis: { tooltip: true } },
   { title: '原因', key: 'reason', minWidth: 220, ellipsis: { tooltip: true } }

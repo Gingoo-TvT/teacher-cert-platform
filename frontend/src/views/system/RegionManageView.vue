@@ -39,7 +39,7 @@ const columns: DataTableColumns<RegionTableRow> = [
   { title: '代码', key: 'code', width: 120, render: (row) => h('span', { class: 'mono' }, row.code) },
   { title: '层级', key: 'levelName', width: 100 },
   { title: '父级代码', key: 'parentCode', width: 120, render: (row) => row.parentCode ? h('span', { class: 'mono' }, row.parentCode) : '-' },
-  { title: '排序', key: 'sort', width: 72 },
+  { title: '排序', key: 'sort', width: 72, render: (row) => h('span', { class: 'numeric' }, String(row.sort ?? 0)) },
   {
     title: '节点',
     key: 'leaf',
@@ -53,7 +53,7 @@ const columns: DataTableColumns<RegionTableRow> = [
     render: (row) =>
       h(
         NButton,
-        { size: 'small', quaternary: true, type: 'primary', onClick: () => inspectNode(row) },
+        { size: 'small', quaternary: true, onClick: () => inspectNode(row) },
         { default: () => (row.leaf ? '路径' : '下级') }
       )
   }

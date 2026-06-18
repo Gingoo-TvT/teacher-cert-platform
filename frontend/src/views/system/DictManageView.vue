@@ -140,7 +140,7 @@ const typeColumns = computed<DataTableColumns<DictType>>(() => {
   const columns: DataTableColumns<DictType> = [
     { title: '类型编码', key: 'typeCode', minWidth: 170, ellipsis: { tooltip: true }, render: (row) => h('span', { class: 'mono' }, row.typeCode) },
     { title: '类型名称', key: 'typeName', minWidth: 150, ellipsis: { tooltip: true } },
-    { title: '排序', key: 'sort', width: 72 },
+    { title: '排序', key: 'sort', width: 72, render: (row) => h('span', { class: 'numeric' }, String(row.sort ?? 0)) },
     { title: '状态', key: 'status', width: 82, render: (row) => h(StatusTag, { text: row.status === 1 ? '启用' : '停用' }) }
   ]
   if (canManage.value) {
@@ -150,7 +150,7 @@ const typeColumns = computed<DataTableColumns<DictType>>(() => {
       width: 146,
       render: (row) =>
         h(NSpace, { size: 6 }, () => [
-          h(NButton, { size: 'small', quaternary: true, type: 'primary', onClick: () => openTypeDrawer(row) }, { default: () => '编辑' }),
+          h(NButton, { size: 'small', quaternary: true, onClick: () => openTypeDrawer(row) }, { default: () => '编辑' }),
           h(
             NPopconfirm,
             { onPositiveClick: () => removeType(row) },
@@ -171,7 +171,7 @@ const itemColumns = computed<DataTableColumns<DictItem>>(() => {
     { title: '项值', key: 'itemValue', minWidth: 190, ellipsis: { tooltip: true } },
     { title: '父级编码', key: 'parentCode', minWidth: 130, ellipsis: { tooltip: true }, render: (row) => row.parentCode ? h('span', { class: 'mono' }, row.parentCode) : '-' },
     { title: '年度', key: 'yearVersion', width: 104, render: (row) => h('span', { class: 'mono' }, row.yearVersion) },
-    { title: '排序', key: 'sort', width: 72 },
+    { title: '排序', key: 'sort', width: 72, render: (row) => h('span', { class: 'numeric' }, String(row.sort ?? 0)) },
     { title: '状态', key: 'status', width: 82, render: (row) => h(StatusTag, { text: row.status === 1 ? '启用' : '停用' }) }
   ]
   if (canManage.value) {
@@ -181,7 +181,7 @@ const itemColumns = computed<DataTableColumns<DictItem>>(() => {
       width: 146,
       render: (row) =>
         h(NSpace, { size: 6 }, () => [
-          h(NButton, { size: 'small', quaternary: true, type: 'primary', onClick: () => openItemDrawer(row) }, { default: () => '编辑' }),
+          h(NButton, { size: 'small', quaternary: true, onClick: () => openItemDrawer(row) }, { default: () => '编辑' }),
           h(
             NPopconfirm,
             { onPositiveClick: () => removeItem(row) },
@@ -535,7 +535,7 @@ onMounted(loadTypes)
 }
 
 :deep(.is-selected-row td) {
-  background: #eef5ff;
+  background: var(--brand-soft);
 }
 
 @media (max-width: 1180px) {

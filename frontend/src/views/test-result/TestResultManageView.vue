@@ -84,7 +84,7 @@ const columns: DataTableColumns<AbilityTestResult> = [
     width: 270,
     render: (row) =>
       h(NSpace, { size: 4 }, () => [
-        h(NButton, { size: 'small', quaternary: true, type: 'primary', onClick: () => showSubjects(row) }, { default: () => '应考' }),
+        h(NButton, { size: 'small', quaternary: true, onClick: () => showSubjects(row) }, { default: () => '应考' }),
         h(NButton, { size: 'small', quaternary: true, onClick: () => showValidity(row) }, { default: () => '有效性' }),
         canConfirm.value && row.id && row.confirmStatus !== 'CONFIRMED'
           ? h(
@@ -250,9 +250,9 @@ watch(
 
     <n-grid :cols="4" :x-gap="12" responsive="screen" class="page-section">
       <n-gi><StatCard label="结果总数" :value="summary.total" /></n-gi>
-      <n-gi><StatCard label="证书前置有效" :value="summary.valid" color="#18a058" /></n-gi>
-      <n-gi><StatCard label="待确认" :value="summary.pending" color="#f0a020" /></n-gi>
-      <n-gi><StatCard label="已确认" :value="summary.confirmed" color="#2080f0" /></n-gi>
+      <n-gi><StatCard label="证书前置有效" :value="summary.valid" tone="success" /></n-gi>
+      <n-gi><StatCard label="待确认" :value="summary.pending" tone="warning" /></n-gi>
+      <n-gi><StatCard label="已确认" :value="summary.confirmed" tone="info" /></n-gi>
     </n-grid>
 
     <n-card :bordered="false" size="small" class="page-section">

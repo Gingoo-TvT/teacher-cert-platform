@@ -13,6 +13,7 @@ import {
 import PageContainer from '@/components/PageContainer.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import RegionCascader, { type RegionSelection } from '@/components/RegionCascader.vue'
+import { renderTableActions } from '@/utils/tableActions'
 import { listDictItems, type DictItem } from '@/api/dict'
 import { listColleges, type College } from '@/api/organization'
 import {
@@ -131,11 +132,11 @@ const columns: DataTableColumns<Student> = [
     title: '操作',
     key: 'actions',
     fixed: 'right',
-    width: 300,
+    width: 240,
     render: (row) =>
-      h(NSpace, { size: 4 }, () => {
+      {
         const actions = [
-          h(NButton, { size: 'small', quaternary: true, type: 'primary', onClick: () => openDetail(row) }, { default: () => '详情' })
+          h(NButton, { size: 'small', type: 'primary', onClick: () => openDetail(row) }, { default: () => '详情' })
         ]
         if (canEdit.value) {
           actions.push(h(NButton, { size: 'small', quaternary: true, onClick: () => openDrawer(row) }, { default: () => '编辑' }))
@@ -159,8 +160,8 @@ const columns: DataTableColumns<Student> = [
             )
           )
         }
-        return actions
-      })
+        return renderTableActions(actions)
+      }
   }
 ]
 

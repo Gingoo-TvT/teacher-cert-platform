@@ -92,21 +92,20 @@ const statCards = computed(() => {
     label: item.label,
     value: item.value,
     sub: item.unit || null,
-    color: null as string | null
+    tone: 'brand' as const
   }))
   if (base.length) return base
   return [
-    { label: '统计行数', value: rows.value.length, sub: null, color: null },
-    { label: '汇总数量', value: rows.value.reduce((sum, row) => sum + Number(row.count || 0), 0), sub: null, color: '#18a058' },
-    { label: '未读通知', value: unread.value, sub: null, color: '#d03050' },
-    { label: '当前学年', value: yearStore.assessmentYear, sub: null, color: '#2080f0' }
+    { label: '统计行数', value: rows.value.length, sub: null, tone: 'brand' as const },
+    { label: '汇总数量', value: rows.value.reduce((sum, row) => sum + Number(row.count || 0), 0), sub: null, tone: 'success' as const },
+    { label: '未读通知', value: unread.value, sub: null, tone: 'error' as const },
+    { label: '当前学年', value: yearStore.assessmentYear, sub: null, tone: 'info' as const }
   ]
 })
 
 const chartOption = computed<EChartsOption>(() => {
   const chartRows = rows.value.slice(0, 12)
   return {
-    color: ['#2563eb'],
     xAxis: {
       type: 'category',
       data: chartRows.map((row) => chartLabel(row))
@@ -166,7 +165,7 @@ function showError(error: unknown, fallback: string) {
 
     <n-grid :cols="4" :x-gap="12" responsive="screen" class="page-section">
       <n-gi v-for="item in statCards" :key="item.label">
-        <StatCard :label="item.label" :value="item.value" :sub="item.sub" :color="item.color" />
+        <StatCard :label="item.label" :value="item.value" :sub="item.sub" :tone="item.tone" />
       </n-gi>
     </n-grid>
 
@@ -213,7 +212,7 @@ function showError(error: unknown, fallback: string) {
 
 .focus-card strong {
   font-size: 16px;
-  color: #111827;
+  color: var(--text);
 }
 
 .chart-card :deep(.n-card-header) {
