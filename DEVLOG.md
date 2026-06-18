@@ -15,6 +15,15 @@
 
 ---
 
+## [2026-06-18] Phase 24 待复核小结（字段规范收口 + 整体验收）
+- 做了什么：从 `main` 切出 `feature/phase24-acceptance`，完成字段规范终校与收口验收。新增 `V23__field_acceptance.sql`，按 `docs/refactor-ui-rbac-plan.md` 附录 A 将中职培养目标联动修正为默认/允许实习地点 `other`（中职→其他）；其余身份证件类型、身份类型、学历层次、培养目标、实习组织方式、实习地点、任教学段、面试组织方式、性别等字典枚举核对一致。V1-V22 冻结未改。
+- 收口 IT：新增 `Phase24AcceptanceIT`，覆盖字段枚举与 `/api/training/options` 联动、新 RBAC 全角色边界、主流程 E2E 与标准导出逐字段==录入。角色边界断言 SYS_ADMIN 全权、ACADEMIC_ADMIN 含 `cert:issue`、COLLEGE_AUDITOR 可复审/视频指派/测试导入确认、COLLEGE_CLERK 仅查看+初审且 secondReview/assign/test 写拒绝、REVIEW_TEACHER 可评分、STUDENT 本人可见/确认。
+- 主流程断言：标准导入→学生确认与初复审→培养初复审→四类材料合格→免考通过并剔除应考科目→视频 85/60 触发复评并以第三专家收口→测试成绩 `00000000000085` 导入确认→证书前置/生成/签发/导出/归档→标准导出。导出断言 26 列、H=`身份证件号码`、全列文本格式 `@`，并逐字段核对学号、姓名、证件号、出生日期、任教学科、证书号、有效期等与录入/生成值一致。
+- 回归调整：因 V23 将中职培养目标联动收敛为 `other`，同步更新 `Phase4TrainingIT` 和 `Phase9CertificateIT` 中职测试夹具，保持与附录 A 逐字一致。
+- 测试：定向 `mvn -B -ntp -pl platform-boot -am '-Dtest=Phase4TrainingIT,Phase9CertificateIT,Phase24AcceptanceIT' '-Dsurefire.failIfNoSpecifiedTests=false' test` 15/15 通过；全量 `mvn -B -ntp verify` **82/82** 通过。
+- 前端：`npm --prefix frontend run type-check` 通过；`npm --prefix frontend run build` 通过（仅既有 Vite chunk-size 警告）。
+- 下一步：`PROGRESS.md` 已置 **Phase 24 待复核**，等待 Claude 复核，未自行置 ✅；本地私有无远程、不 push。
+
 ## [2026-06-18] Phase 23 复核通过（Claude · REVIEW-GATE）✅ — 系统管理/通知/工作台/全局学年
 - 做了什么：复核 `feature/phase23-system-notice-dashboard-year` 单提交 `eba635b`（前端 19 文件：新增 stores/year.ts + MainLayout + Dashboard + Notice + 系统管理 2 页 + 9 列表接学年 + 进度日志）。读 year.ts/MainLayout/Dashboard/NoticeCenter + 抽查列表年store 接入；前端 build-only gate。
 - 结论：**PASS**（一轮）。`type-check` 无错 + `built in 5.97s`。核对：① WP-E 全局学年——`useYearStore`(assessmentYear persist localStorage + yearOptions 当前±2 + setYear)；MainLayout 顶栏 year-picker；9 列表(student/training/material/exemption/video/test/cert/exchange/stats)均 ref(yearStore.assessmentYear) + `watch(()=>yearStore.assessmentYear)→reload`，切换即全局生效。② 通知红点——MainLayout 菜单项 noticeCenter `unreadCount>0` 渲 menu-dot + 头部角标；NoticeCenter 列表项 readFlag===0 渲 notice-dot + StatusTag。③ 工作台——按 userStore.roles 6 角色(SYS_ADMIN/ACADEMIC_ADMIN/COLLEGE_AUDITOR/COLLEGE_CLERK/REVIEW_TEACHER/STUDENT)分别 StatCard+ChartBox+最近通知。④ 系统管理(Security/SystemAudit)接真实 API；评审组入口留视频域(已说明)。⑤ 仅新增前端内部 year store；后端/迁移 V1–V22 冻结。

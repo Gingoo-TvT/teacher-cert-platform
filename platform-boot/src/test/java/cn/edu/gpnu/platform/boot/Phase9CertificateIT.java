@@ -371,7 +371,7 @@ class Phase9CertificateIT {
         training.setEducationLevel("bachelor");
         training.setTrainingGoal(VOCATIONAL_SEGMENT.equals(segment) ? "secondary_vocational_school_teacher" : "senior_middle_school_teacher");
         training.setInternshipOrgMode("school_organized");
-        training.setInternshipLocation(VOCATIONAL_SEGMENT.equals(segment) ? "enterprise_vocational_education" : "primary_secondary_school");
+        training.setInternshipLocation(VOCATIONAL_SEGMENT.equals(segment) ? "other" : "primary_secondary_school");
         training.setTeachingSegment(segment);
         training.setTeachingSubjectId(requireSubjectId(subjectCode));
         training.setTeachingSubjectCode(subjectCode);

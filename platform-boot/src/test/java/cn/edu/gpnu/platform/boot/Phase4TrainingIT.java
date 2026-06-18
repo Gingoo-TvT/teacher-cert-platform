@@ -117,7 +117,7 @@ class Phase4TrainingIT {
                 "normal_student", COLLEGE_A));
         assertSaveFails(academic.accessToken(), training(vocationalId, COLLEGE_A, YEAR, "045120", "职业技术教育",
                 "P4_VOC_A", "职业技术教育专业", "bachelor", "secondary_vocational_school_teacher",
-                "enterprise_vocational_education", "secondary_vocational_school", "sv_cat_finance_commerce"),
+                "other", "secondary_vocational_school", "sv_cat_finance_commerce"),
                 "任教学科类别节点不可选择");
         assertSaveFails(academic.accessToken(), training(normalId, COLLEGE_A, YEAR, "050101", "汉语言文学",
                 "P4_NORMAL_A", "Phase4普通师范试点专业A", "bachelor", "primary_school_teacher",
@@ -251,7 +251,7 @@ class Phase4TrainingIT {
                 "normal_student", COLLEGE_A));
         long vocationalProfile = save(academic.accessToken(), training(vocationalId, COLLEGE_A, YEAR,
                 "045120", "职业技术教育", "P4_VOC_A", "职业技术教育专业", "bachelor",
-                "secondary_vocational_school_teacher", "enterprise_vocational_education",
+                "secondary_vocational_school_teacher", "other",
                 "secondary_vocational_school", "sv_ecommerce"));
         assertThat(vocationalProfile).isPositive();
 
