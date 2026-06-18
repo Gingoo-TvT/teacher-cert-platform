@@ -5,10 +5,10 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**Phase 20 / 前端重建·基础数据/学生/培养 ✅ 已复核（Claude 06-18，PASS·一轮）**；下一步 Phase 21(前端·材料/免考/视频)。Phase 0~14 ✅，T-115 ✅，WP-A/B/C/D ✅，Phase 19 ✅。
+- 当前阶段：**Phase 21 / 前端重建·材料/免考/视频：待复核**（分支：`feature/phase21-material-exemption-video`）。Phase 0~14 ✅，T-115 ✅，WP-A/B/C/D ✅，Phase 19/20 ✅。
 - 阻塞项：无
-- 最近更新：2026-06-18（Phase 20 复核通过：4 基础数据页+学生 manage/self+培养重建；性别/证件类型/身份类型等字典下拉、培养目标↔学段↔学科联动 server-driven、`major:manage` 控新增专业（教务员无此权限自动隐藏）、StudentSelf 锁定守卫；type-check+build 绿；详见 docs/reviews/phase-20-review.md）
-- 下一步：Phase 21(前端·材料/免考/视频)——内联预览、退回重传 UI、负责人指定/分组指派 UI
+- 最近更新：2026-06-18（完成 Phase 21：材料内联预览、免考多科申请/应考口径、视频退回重传 UI、按人/按组指派与评审组管理；前端 type-check/build 通过）
+- 下一步：等待 Claude 复核 Phase 21，未自行置 ✅
 
 ## 阶段汇总
 | Phase | 名称 | 优先级 | 任务数 | 完成 | 状态 |
@@ -248,6 +248,14 @@
 - [x] T-140 学生本人信息：自助确认页改用 `PageContainer/StatusTag/.mono`，保存与提交继续走真实 `confirmStudent/submitStudent`；`locked=1` 时表单只读并提示证书生成后锁定态。
 - [x] T-141 专业培养信息：列表支持关键词、状态、考核年度、学院、学段筛选，提供详情、编辑、提交、初审、复审；培养目标通过 `/training/options` 限制实习地点和任教学段，任教学科复用 `SubjectSelect` 且不可自由填。
 - [x] T-142 字段规范对齐：性别、身份证件类型、身份类型、学历层次、专业培养目标、实习组织方式、实习地点、任教学段、面试组织方式等均从字典或后端联动接口取值；前端 type-check/build 通过。
+
+## 收官后 · Phase 21 / 前端重建·材料/免考/视频
+- Phase 21 / WP-F-3 `前端重建·材料/免考/视频`：**待复核**（分支：`feature/phase21-material-exemption-video`）。重建过程性材料、免考、视频评审三域页面，继续沿用生产真实 API 与 `stores/user` 权限点判断；未改后端、迁移、API 契约或后端 IT。`npm --prefix frontend run type-check` 通过；`npm --prefix frontend run build` 通过（仅既有 Vite chunk-size 警告）。等待 Claude 复核，未自行置 ✅。
+- [x] T-143 过程性材料：四类材料上传/替换/提交、初审/复审、批量下载与四类合格判定重建；`/material/preview/{id}` 返回的预签名 URL 在弹窗内联预览 PDF/JPG/PNG，非可预览文件退化为打开链接。
+- [x] T-144 免考：多科申请、每科佐证上传/替换/删除/预览、二级审核重建；应考口径弹窗展示复审通过科目剔除结果，多科记录互不影响。
+- [x] T-145 视频评审：视频分片上传/秒传/进度保留；`RETURNED`、校验失败、待上传状态显示上传/重传入口；负责人可按人或按评审组指派，评审组 CRUD 与成员维护接真实 `/video/reviewer-groups`。
+- [x] T-146 视频播放与结算动作：鉴权播放页保留动态水印；我的评审支持 9 维评分；负责人侧支持第三专家复评、学院仲裁、确认、退回（意见必填，`CONFIRMED` 不显示退回入口）。
+- [x] T-147 字段/状态机对齐：三域列表、统计卡、弹窗均使用 `PageContainer`、`StatusTag`、`.mono`；动作按 `material:*`、`exemption:*`、`video:*` 权限显隐；前端 type-check/build 通过。
 
 ---
 

@@ -15,6 +15,16 @@
 
 ---
 
+## [2026-06-18] Phase 21 待复核小结（前端重建·材料/免考/视频）
+- 做了什么：从 `main` 切出 `feature/phase21-material-exemption-video`，用 Phase 19 设计系统重建过程性材料、免考、视频评审三域页面。所有页面继续接生产真实 `src/api/*` 与 `stores/user`，未改后端、迁移、API 契约或后端 IT。
+- 过程性材料：`MaterialManageView` 改为 `PageContainer` + 指标卡 + 表格；支持四类材料上传/替换/提交、初审/复审、批量下载和四类合格判定。预览改为弹窗内联 `object/iframe`，复用 `/material/preview/{id}` 返回的预签名 URL；PDF/JPG/PNG 内嵌预览，非可预览文件退化为打开链接。
+- 免考：`ExemptionManageView` 支持多科申请、每科佐证上传/替换/删除/预览、二级审核；应考口径弹窗调用 `/exemption/exam-subjects/{studentId}` 展示复审通过后剔除结果，多科记录在 UI 上按行独立操作，互不覆盖。
+- 视频评审：`VideoReviewView` 保留上传初始化、分片上传、秒传与进度；`RETURNED/VALIDATION_FAILED/WAIT_UPLOAD` 状态显示上传/重传入口，其他状态按后端守卫不展示重传。负责人侧新增按人/按组二选一指派，接 `assignVideoReview`/`assignVideoReviewGroup`；新增评审组 CRUD 和成员维护标签页，接 `/video/reviewer-groups`。
+- 视频播放与状态机动作：鉴权播放弹窗保留动态水印；我的评审支持 9 维评分；负责人侧支持第三专家复评、学院仲裁、确认与退回。退回意见按现有 `returnVideoReview(id, comment)` 提交；后端 `VideoReviewVO` 未暴露独立退回意见字段，本包不扩展契约，RETURNED 态展示状态提示并提供重新上传入口。
+- RBAC 与范围：动作显隐均按权限点判断（`material:*`、`exemption:*`、`video:*`），不改写后端数据范围或状态机语义。
+- 测试：`npm --prefix frontend run type-check` 通过；`npm --prefix frontend run build` 通过（仅既有 Vite chunk-size 警告）。
+- 下一步：`PROGRESS.md` 已置 **Phase 21 待复核**，等待 Claude 复核材料内联预览、免考应考口径、视频退回重传与分组指派 UI，未自行置 ✅。
+
 ## [2026-06-18] Phase 20 复核通过（Claude · REVIEW-GATE）✅ — 前端重建·基础数据/学生/培养
 - 做了什么：复核 `feature/phase20-base-student-training` 单提交 `6341cb0`（前端 7 页面 + 进度日志）。读 StudentManage/StudentSelf/TrainingManage/OrganizationManage 核心 + 确认 `src/api/`、`src/stores/`、后端/迁移零改动；前端 build-only gate。
 - 结论：**PASS**（一轮）。`type-check` 无错 + `built in 5.49s`。核对：① 字段下拉——gender/idCardType/identityType 等用 `listDictItems(typeCode,true)` 字典；training 用 dict + `/training/options`。② **联动 server-driven**——`reloadTrainingOptions(goal, segment)` 后端返回 allowedSegments/Locations，前端 watch goal/segment、违规自动重置 subject/location；与文档「中职→其他、高中→中小学」由后端单源生效。③ **教务员不能新增专业** ——`canManageMajor = hasPerm('major:manage')` + 按钮 `v-if="canManageMajor"`，与 WP-A V20 矩阵一致（COLLEGE_CLERK 无该权限自动隐藏，同样 v-if 应用于新增学院/培养目标配置）。④ StudentSelf 锁定守卫——`locked = student.locked===1`，全字段 `:disabled="locked"`、提交/保存按钮 disabled。⑤ 动作按 perm 显隐——`canEdit/canFirstReview/canSecondReview` 各按 student:edit/info:firstReview/info:secondReview。⑥ `src/api/*`、`stores/user` 未改，后端/迁移 V1–V22 冻结。

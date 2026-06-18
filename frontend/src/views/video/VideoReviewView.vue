@@ -2,30 +2,41 @@
 import { computed, h, onMounted, reactive, ref } from 'vue'
 import {
   NButton,
-  NInputNumber,
+  NPopconfirm,
   NSpace,
-  NTag,
   useMessage,
   type DataTableColumns,
   type SelectOption,
   type UploadFileInfo
 } from 'naive-ui'
+import PageContainer from '@/components/PageContainer.vue'
+import StatusTag from '@/components/StatusTag.vue'
 import { listDictItems, type DictItem } from '@/api/dict'
 import { listStudents, type Student } from '@/api/student'
 import { listUsers, type User } from '@/api/security'
 import { useUserStore } from '@/stores/user'
 import {
+  addReviewerGroupMember,
   arbitrateVideoReview,
   assignVideoReview,
+  assignVideoReviewGroup,
   confirmVideoReview,
+  createReviewerGroup,
+  deleteReviewerGroup,
   initVideoUpload,
   listMyVideoTasks,
+  listReviewerGroups,
   listVideoReviews,
   mergeVideoUpload,
   playVideoReview,
+  removeReviewerGroupMember,
+  returnVideoReview,
   submitVideoScore,
   thirdVideoReview,
+  updateReviewerGroup,
   uploadVideoChunk,
+  type ReviewerGroup,
+  type ReviewerGroupPayload,
   type VideoReview,
   type VideoScorePayload,
   type VideoTask
@@ -37,15 +48,22 @@ interface DimensionRow {
   score: number
 }
 
+type AssignMode = 'person' | 'group'
+
 const message = useMessage()
 const userStore = useUserStore()
+
 const loading = ref(false)
 const taskLoading = ref(false)
+const groupLoading = ref(false)
 const uploadVisible = ref(false)
 const scoreVisible = ref(false)
 const assignVisible = ref(false)
 const arbitrateVisible = ref(false)
 const playerVisible = ref(false)
+const returnVisible = ref(false)
+const groupVisible = ref(false)
+const memberVisible = ref(false)
 const keyword = ref('')
 const assessmentYear = ref('2026')
 const statusFilter = ref<string | null>(null)
@@ -54,12 +72,16 @@ const tasks = ref<VideoTask[]>([])
 const students = ref<Student[]>([])
 const reviewers = ref<User[]>([])
 const dimensions = ref<DictItem[]>([])
+const groups = ref<ReviewerGroup[]>([])
 const fileList = ref<UploadFileInfo[]>([])
 const uploadProgress = ref(0)
 const uploading = ref(false)
 const currentScoreTask = ref<VideoTask | null>(null)
 const assigning = ref<VideoReview | null>(null)
 const arbitrating = ref<VideoReview | null>(null)
+const returning = ref<VideoReview | null>(null)
+const editingGroup = ref<ReviewerGroup | null>(null)
+const memberGroup = ref<ReviewerGroup | null>(null)
 const playbackUrl = ref('')
 const watermarkText = ref('')
 const watermarkStyle = ref({ left: '12%', top: '18%' })
@@ -87,7 +109,9 @@ const scoreForm = reactive({
 })
 
 const assignForm = reactive({
-  reviewerIds: [] as string[]
+  mode: 'person' as AssignMode,
+  reviewerIds: [] as string[],
+  groupId: ''
 })
 
 const arbitrateForm = reactive({
@@ -96,6 +120,19 @@ const arbitrateForm = reactive({
   score: 60,
   conclusion: 'PASS' as 'PASS' | 'FAIL',
   comment: ''
+})
+
+const returnForm = reactive({
+  comment: ''
+})
+
+const groupForm = reactive<ReviewerGroupPayload>({
+  name: '',
+  status: 'ENABLED'
+})
+
+const memberForm = reactive({
+  reviewerUserId: ''
 })
 
 const statusOptions: SelectOption[] = [
@@ -108,54 +145,115 @@ const statusOptions: SelectOption[] = [
   { label: '已确认', value: 'CONFIRMED' }
 ]
 
+const conclusionOptions: SelectOption[] = [
+  { label: '合格', value: 'PASS' },
+  { label: '不合格', value: 'FAIL' }
+]
+
 const studentOptions = computed<SelectOption[]>(() =>
   students.value.map((item) => ({ label: `${item.studentNo} ${item.name}`, value: item.id }))
 )
 const reviewerOptions = computed<SelectOption[]>(() =>
   reviewers.value.map((item) => ({ label: `${item.realName} ${item.workNo || item.username}`, value: item.id }))
 )
+const groupOptions = computed<SelectOption[]>(() =>
+  groups.value.filter((item) => item.status === 'ENABLED').map((item) => ({ label: `${item.name} (${item.memberCount}人)`, value: item.id }))
+)
+const statusSummary = computed(() => {
+  const wait = reviews.value.filter((item) => item.status === 'WAIT_REVIEW').length
+  const reviewingCount = reviews.value.filter((item) => item.status === 'REVIEWING').length
+  const need = reviews.value.filter((item) => item.status === 'NEED_REVIEW').length
+  const returned = reviews.value.filter((item) => item.status === 'RETURNED').length
+  return { total: reviews.value.length, wait, reviewingCount, need, returned }
+})
 
 const reviewColumns: DataTableColumns<VideoReview> = [
-  { title: '学号', key: 'studentNo', width: 130, ellipsis: { tooltip: true } },
-  { title: '姓名', key: 'studentName', width: 110, ellipsis: { tooltip: true } },
-  { title: '年度', key: 'assessmentYear', width: 95 },
-  { title: '视频', key: 'videoFileName', minWidth: 190, ellipsis: { tooltip: true } },
-  { title: '时长', key: 'durationSeconds', width: 90, render: (row) => `${row.durationSeconds || 0}s` },
-  { title: '状态', key: 'status', width: 110, render: (row) => statusTag(row.status, row.statusLabel) },
-  { title: '终分', key: 'finalScore', width: 80, render: (row) => row.finalScore ?? '-' },
-  { title: '结论', key: 'finalConclusion', width: 90, render: (row) => conclusionText(row.finalConclusion) },
+  { title: '学号', key: 'studentNo', minWidth: 130, ellipsis: { tooltip: true }, render: (row) => h('span', { class: 'mono' }, row.studentNo || '-') },
+  { title: '姓名', key: 'studentName', minWidth: 110, ellipsis: { tooltip: true } },
+  { title: '年度', key: 'assessmentYear', width: 96, render: (row) => h('span', { class: 'mono' }, row.assessmentYear) },
+  { title: '视频文件', key: 'videoFileName', minWidth: 190, ellipsis: { tooltip: true } },
+  { title: '时长', key: 'durationSeconds', width: 86, render: (row) => `${row.durationSeconds || 0}s` },
+  { title: '状态', key: 'status', width: 108, render: (row) => h(StatusTag, { text: row.statusLabel || row.status }) },
+  { title: '终分', key: 'finalScore', width: 78, render: (row) => row.finalScore ?? '-' },
+  { title: '结论', key: 'finalConclusion', width: 88, render: (row) => h(StatusTag, { text: conclusionText(row.finalConclusion) }) },
   {
     title: '操作',
     key: 'actions',
-    width: 330,
+    fixed: 'right',
+    width: 430,
     render: (row) =>
-      h(NSpace, { size: 6 }, () => [
-        canPlay.value ? h(NButton, { size: 'small', quaternary: true, type: 'primary', onClick: () => openPlayer(row) }, { default: () => '播放' }) : null,
-        canAssign.value ? h(NButton, { size: 'small', quaternary: true, onClick: () => openAssign(row) }, { default: () => '分配' }) : null,
-        canArbitrate.value && row.status === 'NEED_REVIEW'
-          ? h(NButton, { size: 'small', quaternary: true, onClick: () => openArbitrate(row) }, { default: () => '复评' })
-          : null,
-        canConfirm.value && row.status === 'REVIEW_COMPLETED'
-          ? h(NButton, { size: 'small', quaternary: true, onClick: () => confirm(row) }, { default: () => '确认' })
-          : null
-      ])
+      h(NSpace, { size: 4 }, () => {
+        const actions = []
+        if (canPlay.value) {
+          actions.push(h(NButton, { size: 'small', quaternary: true, type: 'primary', onClick: () => openPlayer(row) }, { default: () => '播放' }))
+        }
+        if (canUpload.value && canReupload(row)) {
+          actions.push(h(NButton, { size: 'small', quaternary: true, type: row.status === 'RETURNED' ? 'warning' : 'default', onClick: () => openUpload(row) }, { default: () => row.status === 'RETURNED' ? '重新上传' : '上传' }))
+        }
+        if (canAssign.value) {
+          actions.push(h(NButton, { size: 'small', quaternary: true, onClick: () => openAssign(row) }, { default: () => '指派' }))
+        }
+        if (canArbitrate.value && row.status === 'NEED_REVIEW') {
+          actions.push(h(NButton, { size: 'small', quaternary: true, onClick: () => openArbitrate(row) }, { default: () => '复评/仲裁' }))
+        }
+        if (canConfirm.value && row.status === 'REVIEW_COMPLETED') {
+          actions.push(h(NButton, { size: 'small', quaternary: true, onClick: () => confirm(row) }, { default: () => '确认' }))
+        }
+        if ((canConfirm.value || canArbitrate.value) && row.status !== 'CONFIRMED') {
+          actions.push(h(NButton, { size: 'small', quaternary: true, type: 'warning', onClick: () => openReturn(row) }, { default: () => '退回' }))
+        }
+        return actions
+      })
   }
 ]
 
 const taskColumns: DataTableColumns<VideoTask> = [
-  { title: '评审ID', key: 'videoReviewId', width: 160 },
-  { title: '角色', key: 'reviewerRole', width: 120 },
-  { title: '状态', key: 'submitted', width: 100, render: (row) => (row.submitted === 1 ? '已提交' : '待评分') },
-  { title: '分数', key: 'score', width: 80, render: (row) => row.score ?? '-' },
-  { title: '结论', key: 'conclusion', width: 90, render: (row) => conclusionText(row.conclusion) },
+  { title: '评审记录', key: 'videoReviewId', minWidth: 150, render: (row) => h('span', { class: 'mono' }, row.videoReviewId) },
+  { title: '评审角色', key: 'reviewerRole', width: 120, render: (row) => reviewerRoleText(row.reviewerRole) },
+  { title: '提交状态', key: 'submitted', width: 100, render: (row) => h(StatusTag, { text: row.submitted === 1 ? '已提交' : '待评分' }) },
+  { title: '分数', key: 'score', width: 78, render: (row) => row.score ?? '-' },
+  { title: '结论', key: 'conclusion', width: 90, render: (row) => h(StatusTag, { text: conclusionText(row.conclusion) }) },
+  { title: '提交时间', key: 'submitTime', minWidth: 160, ellipsis: { tooltip: true } },
   {
     title: '操作',
     key: 'actions',
-    width: 210,
+    fixed: 'right',
+    width: 170,
     render: (row) =>
-      h(NSpace, { size: 6 }, () => [
+      h(NSpace, { size: 4 }, () => [
         h(NButton, { size: 'small', quaternary: true, type: 'primary', onClick: () => openPlayerByTask(row) }, { default: () => '播放' }),
         row.submitted === 0 ? h(NButton, { size: 'small', quaternary: true, onClick: () => openScore(row) }, { default: () => '评分' }) : null
+      ])
+  }
+]
+
+const groupColumns: DataTableColumns<ReviewerGroup> = [
+  { title: '组名', key: 'name', minWidth: 180, ellipsis: { tooltip: true } },
+  { title: '成员数', key: 'memberCount', width: 90 },
+  { title: '状态', key: 'status', width: 90, render: (row) => h(StatusTag, { text: row.status === 'ENABLED' ? '启用' : '停用' }) },
+  {
+    title: '成员',
+    key: 'members',
+    minWidth: 260,
+    render: (row) => row.members.map((item) => item.reviewerName || item.workNo || item.reviewerUserId).join('、') || '-'
+  },
+  {
+    title: '操作',
+    key: 'actions',
+    fixed: 'right',
+    width: 260,
+    render: (row) =>
+      h(NSpace, { size: 4 }, () => [
+        h(NButton, { size: 'small', quaternary: true, onClick: () => openGroup(row) }, { default: () => '编辑' }),
+        h(NButton, { size: 'small', quaternary: true, onClick: () => openMember(row) }, { default: () => '成员' }),
+        h(
+          NPopconfirm,
+          { onPositiveClick: () => removeGroup(row) },
+          {
+            trigger: () => h(NButton, { size: 'small', quaternary: true, type: 'error' }, { default: () => '删除' }),
+            default: () => '确认删除该评审组？'
+          }
+        )
       ])
   }
 ]
@@ -169,6 +267,8 @@ async function loadReviews() {
       assessmentYear: assessmentYear.value
     })
     reviews.value = res.data.records
+  } catch (error) {
+    showError(error, '视频评审列表加载失败')
   } finally {
     loading.value = false
   }
@@ -180,8 +280,23 @@ async function loadTasks() {
   try {
     const res = await listMyVideoTasks()
     tasks.value = res.data.records
+  } catch (error) {
+    showError(error, '评审任务加载失败')
   } finally {
     taskLoading.value = false
+  }
+}
+
+async function loadGroups() {
+  if (!canAssign.value) return
+  groupLoading.value = true
+  try {
+    const res = await listReviewerGroups()
+    groups.value = res.data
+  } catch (error) {
+    showError(error, '评审组加载失败')
+  } finally {
+    groupLoading.value = false
   }
 }
 
@@ -196,10 +311,10 @@ async function loadOptions() {
   reviewers.value = reviewerRes.data.records.filter((item) => item.roles.some((role) => role.code === 'REVIEW_TEACHER'))
 }
 
-function openUpload() {
-  uploadForm.studentId = selfMode.value ? userStore.currentUser?.studentId || students.value[0]?.id || '' : ''
-  uploadForm.assessmentYear = assessmentYear.value
-  uploadForm.durationSeconds = 900
+function openUpload(row?: VideoReview) {
+  uploadForm.studentId = row?.studentId || (selfMode.value ? userStore.currentUser?.studentId || students.value[0]?.id || '' : '')
+  uploadForm.assessmentYear = row?.assessmentYear || assessmentYear.value
+  uploadForm.durationSeconds = row?.durationSeconds || 900
   uploadProgress.value = 0
   fileList.value = []
   uploadVisible.value = true
@@ -227,7 +342,7 @@ async function uploadVideo() {
     })
     if (init.data.instantHit) {
       uploadProgress.value = 100
-      message.success('秒传命中，校验已完成')
+      message.success(init.data.validationMessage || '秒传命中')
       uploadVisible.value = false
       await loadReviews()
       return
@@ -250,6 +365,8 @@ async function uploadVideo() {
     message[merged.data.status === 'VALIDATION_FAILED' ? 'warning' : 'success'](merged.data.validationMessage || '上传完成')
     uploadVisible.value = false
     await loadReviews()
+  } catch (error) {
+    showError(error, '上传失败')
   } finally {
     uploading.value = false
   }
@@ -266,24 +383,46 @@ function openScore(task: VideoTask) {
 
 async function saveScore() {
   if (!currentScoreTask.value) return
-  await submitVideoScore(currentScoreTask.value.id, scorePayload())
-  message.success('评分已提交')
-  scoreVisible.value = false
-  await Promise.all([loadTasks(), loadReviews()])
+  try {
+    await submitVideoScore(currentScoreTask.value.id, scorePayload())
+    message.success('评分已提交')
+    scoreVisible.value = false
+    await Promise.all([loadTasks(), loadReviews()])
+  } catch (error) {
+    showError(error, '评分提交失败')
+  }
 }
 
 function openAssign(row: VideoReview) {
   assigning.value = row
+  assignForm.mode = 'person'
   assignForm.reviewerIds = row.tasks.filter((task) => task.reviewerRole === 'REVIEWER').map((task) => task.reviewerId)
+  assignForm.groupId = ''
   assignVisible.value = true
 }
 
 async function saveAssign() {
   if (!assigning.value) return
-  await assignVideoReview(assigning.value.id, assignForm.reviewerIds)
-  message.success('已分配评审教师')
-  assignVisible.value = false
-  await loadReviews()
+  try {
+    if (assignForm.mode === 'group') {
+      if (!assignForm.groupId) {
+        message.error('请选择评审组')
+        return
+      }
+      await assignVideoReviewGroup(assigning.value.id, assignForm.groupId)
+    } else {
+      if (!assignForm.reviewerIds.length) {
+        message.error('请选择评审教师')
+        return
+      }
+      await assignVideoReview(assigning.value.id, assignForm.reviewerIds)
+    }
+    message.success('已指派评审')
+    assignVisible.value = false
+    await loadReviews()
+  } catch (error) {
+    showError(error, '指派失败')
+  }
 }
 
 function openArbitrate(row: VideoReview) {
@@ -298,43 +437,156 @@ function openArbitrate(row: VideoReview) {
 
 async function saveArbitrate() {
   if (!arbitrating.value) return
-  if (arbitrateForm.mode === 'thirdExpert') {
-    await thirdVideoReview(arbitrating.value.id, { ...scorePayload(arbitrateForm.score, arbitrateForm.conclusion, arbitrateForm.comment), reviewerId: arbitrateForm.reviewerId })
-  } else {
-    await arbitrateVideoReview(arbitrating.value.id, {
-      finalScore: arbitrateForm.score,
-      conclusion: arbitrateForm.conclusion,
-      comment: arbitrateForm.comment
-    })
+  try {
+    if (arbitrateForm.mode === 'thirdExpert') {
+      if (!arbitrateForm.reviewerId) {
+        message.error('请选择第三专家')
+        return
+      }
+      await thirdVideoReview(arbitrating.value.id, {
+        ...scorePayload(arbitrateForm.score, arbitrateForm.conclusion, arbitrateForm.comment),
+        reviewerId: arbitrateForm.reviewerId
+      })
+    } else {
+      await arbitrateVideoReview(arbitrating.value.id, {
+        finalScore: arbitrateForm.score,
+        conclusion: arbitrateForm.conclusion,
+        comment: arbitrateForm.comment
+      })
+    }
+    message.success('复评/仲裁已完成')
+    arbitrateVisible.value = false
+    await loadReviews()
+  } catch (error) {
+    showError(error, '复评/仲裁失败')
   }
-  message.success('复评/仲裁已完成')
-  arbitrateVisible.value = false
-  await loadReviews()
 }
 
 async function confirm(row: VideoReview) {
-  await confirmVideoReview(row.id)
-  message.success('已确认结果')
-  await loadReviews()
+  try {
+    await confirmVideoReview(row.id)
+    message.success('已确认结果')
+    await loadReviews()
+  } catch (error) {
+    showError(error, '确认失败')
+  }
+}
+
+function openReturn(row: VideoReview) {
+  returning.value = row
+  returnForm.comment = row.status === 'RETURNED' ? row.validationMessage || '' : ''
+  returnVisible.value = true
+}
+
+async function saveReturn() {
+  if (!returning.value) return
+  const comment = returnForm.comment.trim()
+  if (!comment) {
+    message.error('请填写退回意见')
+    return
+  }
+  try {
+    await returnVideoReview(returning.value.id, comment)
+    message.success('已退回，学生可重新上传')
+    returnVisible.value = false
+    await loadReviews()
+  } catch (error) {
+    showError(error, '退回失败')
+  }
 }
 
 async function openPlayer(row: VideoReview) {
-  const res = await playVideoReview(row.id)
-  playbackUrl.value = res.data.url
-  watermarkText.value = res.data.watermarkText
-  moveWatermark()
-  playerVisible.value = true
+  try {
+    const res = await playVideoReview(row.id)
+    playbackUrl.value = res.data.url
+    watermarkText.value = res.data.watermarkText
+    moveWatermark()
+    playerVisible.value = true
+  } catch (error) {
+    showError(error, '播放鉴权失败')
+  }
 }
 
 async function openPlayerByTask(task: VideoTask) {
   const row = reviews.value.find((item) => item.id === task.videoReviewId)
   if (row) await openPlayer(row)
   else {
-    const res = await playVideoReview(task.videoReviewId)
-    playbackUrl.value = res.data.url
-    watermarkText.value = res.data.watermarkText
-    moveWatermark()
-    playerVisible.value = true
+    try {
+      const res = await playVideoReview(task.videoReviewId)
+      playbackUrl.value = res.data.url
+      watermarkText.value = res.data.watermarkText
+      moveWatermark()
+      playerVisible.value = true
+    } catch (error) {
+      showError(error, '播放鉴权失败')
+    }
+  }
+}
+
+function openGroup(row?: ReviewerGroup) {
+  editingGroup.value = row || null
+  groupForm.name = row?.name || ''
+  groupForm.status = row?.status || 'ENABLED'
+  groupVisible.value = true
+}
+
+async function saveGroup() {
+  if (!groupForm.name.trim()) {
+    message.error('请输入评审组名称')
+    return
+  }
+  try {
+    if (editingGroup.value) await updateReviewerGroup(editingGroup.value.id, groupForm)
+    else await createReviewerGroup(groupForm)
+    message.success('评审组已保存')
+    groupVisible.value = false
+    await loadGroups()
+  } catch (error) {
+    showError(error, '评审组保存失败')
+  }
+}
+
+async function removeGroup(row: ReviewerGroup) {
+  try {
+    await deleteReviewerGroup(row.id)
+    message.success('评审组已删除')
+    await loadGroups()
+  } catch (error) {
+    showError(error, '评审组删除失败')
+  }
+}
+
+function openMember(row: ReviewerGroup) {
+  memberGroup.value = row
+  memberForm.reviewerUserId = ''
+  memberVisible.value = true
+}
+
+async function addMember() {
+  if (!memberGroup.value || !memberForm.reviewerUserId) {
+    message.error('请选择评审教师')
+    return
+  }
+  try {
+    await addReviewerGroupMember(memberGroup.value.id, memberForm.reviewerUserId)
+    message.success('成员已添加')
+    memberForm.reviewerUserId = ''
+    await loadGroups()
+    memberGroup.value = groups.value.find((item) => item.id === memberGroup.value?.id) || memberGroup.value
+  } catch (error) {
+    showError(error, '成员添加失败')
+  }
+}
+
+async function removeMember(memberId: string) {
+  if (!memberGroup.value) return
+  try {
+    await removeReviewerGroupMember(memberGroup.value.id, memberId)
+    message.success('成员已移除')
+    await loadGroups()
+    memberGroup.value = groups.value.find((item) => item.id === memberGroup.value?.id) || memberGroup.value
+  } catch (error) {
+    showError(error, '成员移除失败')
   }
 }
 
@@ -353,9 +605,14 @@ function scorePayload(score = scoreForm.score, conclusion = scoreForm.conclusion
   return { score, conclusion, comment, dimensionScores }
 }
 
-function statusTag(status: string, label: string) {
-  const type = status === 'CONFIRMED' || status === 'REVIEW_COMPLETED' ? 'success' : status === 'VALIDATION_FAILED' ? 'error' : status === 'NEED_REVIEW' ? 'warning' : 'info'
-  return h(NTag, { size: 'small', type, bordered: false }, { default: () => label })
+function canReupload(row: VideoReview) {
+  return ['WAIT_UPLOAD', 'VALIDATION_FAILED', 'RETURNED'].includes(row.status)
+}
+
+function reviewerRoleText(role: string) {
+  if (role === 'REVIEWER') return '初评教师'
+  if (role === 'THIRD_EXPERT') return '第三专家'
+  return role || '-'
 }
 
 function conclusionText(value?: string | null) {
@@ -372,127 +629,244 @@ async function quickHash(blob: Blob) {
   return hash.toString(16).padStart(8, '0')
 }
 
+function showError(error: unknown, fallback: string) {
+  const detail = error instanceof Error ? error.message : fallback
+  message.error(detail || fallback)
+}
+
 onMounted(async () => {
   await loadOptions()
-  await Promise.all([loadReviews(), loadTasks()])
+  await Promise.all([loadReviews(), loadTasks(), loadGroups()])
 })
 </script>
 
 <template>
-  <n-space vertical size="large">
+  <PageContainer title="视频评审" description="教学能力视频上传、盲评评分、复评仲裁、退回重传与评审组指派。">
+    <template #actions>
+      <n-space>
+        <n-button secondary @click="loadReviews">刷新</n-button>
+        <n-button v-if="canUpload" type="primary" @click="openUpload()">上传视频</n-button>
+      </n-space>
+    </template>
+
     <n-tabs type="line" animated>
-      <n-tab-pane name="reviews" tab="视频评审">
-        <n-space vertical size="large">
-          <n-space justify="space-between" align="center">
-            <n-space>
-              <n-input v-model:value="keyword" clearable placeholder="文件名/MD5" style="width: 210px" @keyup.enter="loadReviews" />
-              <n-input v-model:value="assessmentYear" placeholder="考核年度" style="width: 120px" />
-              <n-select v-model:value="statusFilter" clearable :options="statusOptions" placeholder="状态" style="width: 145px" />
-              <n-button type="primary" @click="loadReviews">查询</n-button>
-            </n-space>
-            <n-button v-if="canUpload" type="primary" @click="openUpload">上传视频</n-button>
+      <n-tab-pane name="reviews" tab="评审管理">
+        <n-grid :cols="5" :x-gap="12" responsive="screen" class="page-section">
+          <n-gi><n-card size="small" :bordered="false"><n-statistic label="视频总数" :value="statusSummary.total" /></n-card></n-gi>
+          <n-gi><n-card size="small" :bordered="false"><n-statistic label="待评审" :value="statusSummary.wait" /></n-card></n-gi>
+          <n-gi><n-card size="small" :bordered="false"><n-statistic label="评审中" :value="statusSummary.reviewingCount" /></n-card></n-gi>
+          <n-gi><n-card size="small" :bordered="false"><n-statistic label="需复评" :value="statusSummary.need" /></n-card></n-gi>
+          <n-gi><n-card size="small" :bordered="false"><n-statistic label="已退回" :value="statusSummary.returned" /></n-card></n-gi>
+        </n-grid>
+
+        <n-card :bordered="false" size="small" class="page-section">
+          <n-space class="filters" :size="10">
+            <n-input v-model:value="keyword" clearable placeholder="学生 / 文件名 / MD5" style="width: 230px" @keyup.enter="loadReviews" />
+            <n-input v-model:value="assessmentYear" placeholder="考核年度" style="width: 120px" />
+            <n-select v-model:value="statusFilter" clearable :options="statusOptions" placeholder="状态" style="width: 150px" />
+            <n-button type="primary" @click="loadReviews">查询</n-button>
           </n-space>
-          <n-data-table :columns="reviewColumns" :data="reviews" :loading="loading" :row-key="(row: VideoReview) => row.id" :scroll-x="1180" />
-        </n-space>
+        </n-card>
+
+        <n-alert v-if="reviews.some((item) => item.status === 'RETURNED')" type="warning" :bordered="false" class="page-section">
+          已退回视频可由学生重新上传；评审中、需复评、已确认等状态仍按后端守卫禁止重传。
+        </n-alert>
+
+        <n-data-table
+          :columns="reviewColumns"
+          :data="reviews"
+          :loading="loading"
+          :row-key="(row: VideoReview) => row.id"
+          :scroll-x="1600"
+          :pagination="{ pageSize: 10 }"
+          striped
+        />
       </n-tab-pane>
 
       <n-tab-pane v-if="canScore" name="tasks" tab="我的评审">
-        <n-data-table :columns="taskColumns" :data="tasks" :loading="taskLoading" :row-key="(row: VideoTask) => row.id" :scroll-x="760" />
+        <n-space vertical>
+          <n-button secondary @click="loadTasks">刷新任务</n-button>
+          <n-data-table
+            :columns="taskColumns"
+            :data="tasks"
+            :loading="taskLoading"
+            :row-key="(row: VideoTask) => row.id"
+            :scroll-x="900"
+            :pagination="{ pageSize: 10 }"
+            striped
+          />
+        </n-space>
+      </n-tab-pane>
+
+      <n-tab-pane v-if="canAssign" name="groups" tab="评审组">
+        <n-space vertical>
+          <n-space justify="space-between">
+            <n-button secondary @click="loadGroups">刷新评审组</n-button>
+            <n-button type="primary" @click="openGroup()">新增评审组</n-button>
+          </n-space>
+          <n-data-table
+            :columns="groupColumns"
+            :data="groups"
+            :loading="groupLoading"
+            :row-key="(row: ReviewerGroup) => row.id"
+            :scroll-x="980"
+            :pagination="{ pageSize: 10 }"
+            striped
+          />
+        </n-space>
       </n-tab-pane>
     </n-tabs>
-  </n-space>
 
-  <n-drawer v-model:show="uploadVisible" :width="560">
-    <n-drawer-content title="上传教学能力视频" closable>
-      <n-space vertical>
-        <n-select v-model:value="uploadForm.studentId" :options="studentOptions" :disabled="selfMode" placeholder="学生" />
-        <n-input v-model:value="uploadForm.assessmentYear" placeholder="考核年度" />
-        <n-input-number v-model:value="uploadForm.durationSeconds" :min="1" style="width: 100%" placeholder="时长（秒）" />
-        <n-upload v-model:file-list="fileList" :max="1" accept="video/mp4,.mp4" :default-upload="false" />
-        <n-progress type="line" :percentage="uploadProgress" :indicator-placement="'inside'" />
-      </n-space>
-      <template #footer>
-        <n-space justify="end">
-          <n-button @click="uploadVisible = false">取消</n-button>
-          <n-button type="primary" :loading="uploading" @click="uploadVideo">开始上传</n-button>
+    <n-drawer v-model:show="uploadVisible" :width="580">
+      <n-drawer-content title="上传教学能力视频" closable>
+        <n-space vertical>
+          <n-alert type="info" :bordered="false">
+            仅退回、待上传或校验失败状态显示重传入口；其他状态由后端重传守卫拒绝。
+          </n-alert>
+          <n-select v-model:value="uploadForm.studentId" :options="studentOptions" :disabled="selfMode" filterable placeholder="学生" />
+          <n-input v-model:value="uploadForm.assessmentYear" placeholder="考核年度" class="mono-input" />
+          <n-input-number v-model:value="uploadForm.durationSeconds" :min="1" style="width: 100%" placeholder="时长（秒）" />
+          <n-upload v-model:file-list="fileList" :max="1" accept="video/mp4,.mp4" :default-upload="false" />
+          <n-progress type="line" :percentage="uploadProgress" indicator-placement="inside" />
         </n-space>
-      </template>
-    </n-drawer-content>
-  </n-drawer>
+        <template #footer>
+          <n-space justify="end">
+            <n-button @click="uploadVisible = false">取消</n-button>
+            <n-button type="primary" :loading="uploading" @click="uploadVideo">开始上传</n-button>
+          </n-space>
+        </template>
+      </n-drawer-content>
+    </n-drawer>
 
-  <n-modal v-model:show="scoreVisible" preset="card" title="提交评分" style="width: 680px">
-    <n-space vertical>
-      <n-grid :cols="3" :x-gap="12" :y-gap="12">
-        <n-gi v-for="item in scoreForm.dimensions" :key="item.code">
-          <n-form-item :label="item.label">
-            <n-input-number v-model:value="item.score" :min="0" :max="100" style="width: 100%" />
-          </n-form-item>
-        </n-gi>
-      </n-grid>
-      <n-input-number v-model:value="scoreForm.score" :min="0" :max="100" style="width: 100%" placeholder="总分" />
-      <n-select
-        v-model:value="scoreForm.conclusion"
-        :options="[
-          { label: '合格', value: 'PASS' },
-          { label: '不合格', value: 'FAIL' }
-        ]"
-      />
-      <n-input v-model:value="scoreForm.comment" type="textarea" placeholder="评审意见" />
-      <n-space justify="end">
-        <n-button @click="scoreVisible = false">取消</n-button>
-        <n-button type="primary" @click="saveScore">提交</n-button>
+    <n-modal v-model:show="scoreVisible" preset="card" title="提交评分" style="width: 720px">
+      <n-space vertical>
+        <n-grid :cols="3" :x-gap="12" :y-gap="12" responsive="screen">
+          <n-gi v-for="item in scoreForm.dimensions" :key="item.code">
+            <n-form-item :label="item.label">
+              <n-input-number v-model:value="item.score" :min="0" :max="100" style="width: 100%" />
+            </n-form-item>
+          </n-gi>
+        </n-grid>
+        <n-input-number v-model:value="scoreForm.score" :min="0" :max="100" style="width: 100%" placeholder="总分" />
+        <n-select v-model:value="scoreForm.conclusion" :options="conclusionOptions" />
+        <n-input v-model:value="scoreForm.comment" type="textarea" placeholder="评审意见" />
+        <n-space justify="end">
+          <n-button @click="scoreVisible = false">取消</n-button>
+          <n-button type="primary" @click="saveScore">提交</n-button>
+        </n-space>
       </n-space>
-    </n-space>
-  </n-modal>
+    </n-modal>
 
-  <n-modal v-model:show="assignVisible" preset="dialog" title="分配评审教师">
-    <n-space vertical>
-      <n-select v-model:value="assignForm.reviewerIds" multiple :options="reviewerOptions" placeholder="评审教师" />
-      <n-space justify="end">
-        <n-button @click="assignVisible = false">取消</n-button>
-        <n-button type="primary" @click="saveAssign">保存</n-button>
+    <n-modal v-model:show="assignVisible" preset="card" title="指派评审" style="width: 620px">
+      <n-space vertical>
+        <n-alert v-if="assigning" type="info" :bordered="false">
+          {{ assigning.studentNo }} / {{ assigning.studentName }} / 当前状态：{{ assigning.statusLabel }}
+        </n-alert>
+        <n-radio-group v-model:value="assignForm.mode">
+          <n-radio-button value="person">按人指派</n-radio-button>
+          <n-radio-button value="group">按组指派</n-radio-button>
+        </n-radio-group>
+        <n-select
+          v-if="assignForm.mode === 'person'"
+          v-model:value="assignForm.reviewerIds"
+          multiple
+          filterable
+          :options="reviewerOptions"
+          placeholder="选择评审教师"
+        />
+        <n-select v-else v-model:value="assignForm.groupId" filterable :options="groupOptions" placeholder="选择评审组" />
+        <n-space justify="end">
+          <n-button @click="assignVisible = false">取消</n-button>
+          <n-button type="primary" @click="saveAssign">保存</n-button>
+        </n-space>
       </n-space>
-    </n-space>
-  </n-modal>
+    </n-modal>
 
-  <n-modal v-model:show="arbitrateVisible" preset="card" title="复评/仲裁" style="width: 560px">
-    <n-space vertical>
-      <n-radio-group v-model:value="arbitrateForm.mode">
-        <n-radio-button value="thirdExpert">第三专家</n-radio-button>
-        <n-radio-button value="collegeArbitrate">学院仲裁</n-radio-button>
-      </n-radio-group>
-      <n-select v-if="arbitrateForm.mode === 'thirdExpert'" v-model:value="arbitrateForm.reviewerId" :options="reviewerOptions" placeholder="第三专家" />
-      <n-input-number v-model:value="arbitrateForm.score" :min="0" :max="100" style="width: 100%" placeholder="分数/终分" />
-      <n-select
-        v-model:value="arbitrateForm.conclusion"
-        :options="[
-          { label: '合格', value: 'PASS' },
-          { label: '不合格', value: 'FAIL' }
-        ]"
-      />
-      <n-input v-model:value="arbitrateForm.comment" type="textarea" placeholder="意见" />
-      <n-space justify="end">
-        <n-button @click="arbitrateVisible = false">取消</n-button>
-        <n-button type="primary" @click="saveArbitrate">保存</n-button>
+    <n-modal v-model:show="arbitrateVisible" preset="card" title="复评/仲裁" style="width: 580px">
+      <n-space vertical>
+        <n-radio-group v-model:value="arbitrateForm.mode">
+          <n-radio-button value="thirdExpert">第三专家</n-radio-button>
+          <n-radio-button value="collegeArbitrate">学院仲裁</n-radio-button>
+        </n-radio-group>
+        <n-select v-if="arbitrateForm.mode === 'thirdExpert'" v-model:value="arbitrateForm.reviewerId" :options="reviewerOptions" filterable placeholder="第三专家" />
+        <n-input-number v-model:value="arbitrateForm.score" :min="0" :max="100" style="width: 100%" placeholder="分数/终分" />
+        <n-select v-model:value="arbitrateForm.conclusion" :options="conclusionOptions" />
+        <n-input v-model:value="arbitrateForm.comment" type="textarea" placeholder="意见" />
+        <n-space justify="end">
+          <n-button @click="arbitrateVisible = false">取消</n-button>
+          <n-button type="primary" @click="saveArbitrate">保存</n-button>
+        </n-space>
       </n-space>
-    </n-space>
-  </n-modal>
+    </n-modal>
 
-  <n-modal v-model:show="playerVisible" preset="card" title="视频播放" style="width: min(960px, 94vw)">
-    <div class="player-shell">
-      <video :src="playbackUrl" controls class="video-player" @play="moveWatermark" />
-      <div class="watermark" :style="watermarkStyle">{{ watermarkText }}</div>
-    </div>
-  </n-modal>
+    <n-modal v-model:show="returnVisible" preset="dialog" title="退回视频">
+      <n-space vertical>
+        <n-alert v-if="returning" type="warning" :bordered="false">
+          {{ returning.studentNo }} / {{ returning.studentName }}。已确认视频不可退回；其他状态由后端状态机校验。
+        </n-alert>
+        <n-input v-model:value="returnForm.comment" type="textarea" placeholder="请输入退回意见，学生重传时可据此修改" />
+        <n-space justify="end">
+          <n-button @click="returnVisible = false">取消</n-button>
+          <n-button type="warning" @click="saveReturn">退回</n-button>
+        </n-space>
+      </n-space>
+    </n-modal>
+
+    <n-modal v-model:show="groupVisible" preset="dialog" :title="editingGroup ? '编辑评审组' : '新增评审组'">
+      <n-space vertical>
+        <n-input v-model:value="groupForm.name" placeholder="组名" />
+        <n-select
+          v-model:value="groupForm.status"
+          :options="[
+            { label: '启用', value: 'ENABLED' },
+            { label: '停用', value: 'DISABLED' }
+          ]"
+        />
+        <n-space justify="end">
+          <n-button @click="groupVisible = false">取消</n-button>
+          <n-button type="primary" @click="saveGroup">保存</n-button>
+        </n-space>
+      </n-space>
+    </n-modal>
+
+    <n-modal v-model:show="memberVisible" preset="card" :title="memberGroup ? `成员管理：${memberGroup.name}` : '成员管理'" style="width: 680px">
+      <n-space vertical>
+        <n-space>
+          <n-select v-model:value="memberForm.reviewerUserId" filterable :options="reviewerOptions" placeholder="本院评审教师" style="width: 320px" />
+          <n-button type="primary" @click="addMember">添加</n-button>
+        </n-space>
+        <n-list bordered>
+          <n-list-item v-for="member in memberGroup?.members || []" :key="member.id">
+            <n-space justify="space-between" align="center" style="width: 100%">
+              <span>{{ member.reviewerName || member.workNo || member.reviewerUserId }}</span>
+              <n-button size="small" quaternary type="error" @click="removeMember(member.id)">移除</n-button>
+            </n-space>
+          </n-list-item>
+        </n-list>
+      </n-space>
+    </n-modal>
+
+    <n-modal v-model:show="playerVisible" preset="card" title="视频播放" style="width: min(960px, 94vw)">
+      <div class="player-shell">
+        <video :src="playbackUrl" controls class="video-player" @play="moveWatermark" @timeupdate="moveWatermark" />
+        <div class="watermark" :style="watermarkStyle">{{ watermarkText }}</div>
+      </div>
+    </n-modal>
+  </PageContainer>
 </template>
 
 <style scoped>
+.filters {
+  flex-wrap: wrap;
+}
+
 .player-shell {
   position: relative;
   width: 100%;
   aspect-ratio: 16 / 9;
   background: #111827;
   overflow: hidden;
+  border-radius: 8px;
 }
 
 .video-player {
@@ -507,5 +881,9 @@ onMounted(async () => {
   pointer-events: none;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
   transition: left 0.4s ease, top 0.4s ease;
+}
+
+.mono-input :deep(input) {
+  font-family: var(--font-mono);
 }
 </style>
