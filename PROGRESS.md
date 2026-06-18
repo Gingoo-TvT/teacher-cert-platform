@@ -5,10 +5,10 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**Phase 19 / 前端重建·基座与设计系统：待复核**（分支：`feature/phase19-frontend-shell`）。Phase 0~14 ✅，T-115 ✅，WP-A/B/C/D ✅。
+- 当前阶段：**Phase 19 / 前端重建·基座与设计系统 ✅ 已复核（Claude 06-18，PASS·一轮）**；下一步 Phase 20(前端·基础数据/学生/培养)。Phase 0~14 ✅，T-115 ✅，WP-A/B/C/D ✅。
 - 阻塞项：无
-- 最近更新：2026-06-18（完成 Phase 19：前瞻版外壳/设计系统 + 生产 API/stores 保留 + 按权限菜单，修空壳父菜单）
-- 下一步：等待 Claude 复核 Phase 19，未自行置 ✅
+- 最近更新：2026-06-18（Phase 19 复核通过：前瞻版外壳/设计系统(PageContainer/StatusTag/ChartBox/StatCard/.mono/主题) + 真实登录(captcha/login/首登改密) + 按 perms 菜单且**空壳父菜单已修**；api/stores/后端未改；type-check + build 绿；详见 docs/reviews/phase-19-review.md）
+- 下一步：Phase 20(前端·基础数据/学生/培养)——逐域接真实 API 重建页面（性别枚举下拉、培养目标↔学段↔学科联动）
 
 ## 阶段汇总
 | Phase | 名称 | 优先级 | 任务数 | 完成 | 状态 |
@@ -234,7 +234,7 @@
 - 验证：定向 `Phase7VideoReviewIT,Phase12NotificationIT` **14/14** 通过；全量 `mvn -B -ntp verify` **79/79** 通过；`npm --prefix frontend run type-check` 与 `npm --prefix frontend run build` 通过（仅既有 Vite chunk-size 警告）。等待 Claude 复核，未自行置 ✅。
 
 ## 收官后 · Phase 19 / 前端重建·基座与设计系统
-- Phase 19 / WP-F-1 `前端重建·基座与设计系统`：**待复核**（分支：`feature/phase19-frontend-shell`）。以前瞻版视觉为底重建登录页与主外壳，迁入设计系统基础组件和全局主题；生产版 `src/api/*`、`api/request.ts`、`stores/user.ts` 与 `meta.perms + hasAnyPerm` 鉴权守卫保持真实集成，不回退 mock；菜单按权限过滤并修复子项全过滤后的空壳父菜单。
+- Phase 19 / WP-F-1 `前端重建·基座与设计系统`：**✅ 已复核（Claude 2026-06-18，PASS·一轮）**（分支：`feature/phase19-frontend-shell`）。以前瞻版视觉为底重建登录页与主外壳，迁入设计系统基础组件(PageContainer/StatusTag/ChartBox/StatCard/.mono)和全局主题；生产版 `src/api/*`、`api/request.ts`、`stores/user.ts` 与 `meta.perms + hasAnyPerm` 鉴权守卫保持真实集成，不回退 mock；登录走真实 captcha/login/首登改密；菜单按权限过滤并**修复空壳父菜单**（子项全过滤→隐藏父级，菜单 perms 同步 WP-B 去 test:edit）；既有业务页在新外壳下保持可用。`type-check` + `build` 绿（仅既有 chunk-size 警告）；api/stores/后端/迁移均未改。详见 `docs/reviews/phase-19-review.md`。
 - [x] T-133 设计系统与主题：新增 `PageContainer`、`StatusTag`、`ChartBox`、`StatCard`、全局 `.mono` 与角色色板，Naive UI 全局主题接入主色/圆角/中文 locale。
 - [x] T-134 保留真实集成层：沿用生产版 axios 拦截器、401 refresh、Blob 下载能力与 `useUserStore(token/perms/roles/hasPerm/hasAnyPerm)`。
 - [x] T-135 登录与鉴权：登录页改为前瞻版品牌分栏视觉，但仍走真实 `/auth/captcha`、`/auth/login` 与首登 `/auth/change-pwd`；路由守卫继续按权限点判断。

@@ -15,6 +15,11 @@
 
 ---
 
+## [2026-06-18] Phase 19 复核通过（Claude · REVIEW-GATE）✅ — 前端重建·基座与设计系统
+- 做了什么：复核 `feature/phase19-frontend-shell` 单提交 `9aa54cc`（前端 11 文件：4 设计组件 + theme + App/main + MainLayout 重建 + LoginView 真实鉴权）。读 MainLayout/LoginView 全文 + 确认 api/stores 未改、后端/迁移未改；前端 build-only gate。
+- 结论：**PASS**（一轮）。`npm run type-check` 无 TS 错 + `vite build` `✓ built`（仅既有 chunk-size 警告）。核对：① 菜单 `canShowLeaf=hasAnyPerm(perms)` 按权限过滤；**空壳父菜单已修**——`visibleChildren.length===0 → null → filter` 隐藏父级；菜单 perms 同步 WP-B（testResultManage 去 test:edit）。② 登录走真实 `getCaptcha/login/changePassword`（@/api/auth），首登 mustChangePwd 弹改密→loadMe→redirect，无 mock 角色快入。③ `src/api/*`、`api/request.ts`、`stores/user`(hasPerm/hasAnyPerm) 原样保留，真实集成不回退。④ PageContainer/StatusTag/ChartBox/StatCard/.mono/Naive 主题(主色/圆角/zhCN) 迁入；既有业务页在新外壳下可用（逐页重建留 Phase 20–23）。后端零改动、迁移 V1–V22 冻结。
+- 放行：PROGRESS Phase 19 置 ✅；合并 `main`（本地私有、无远程、不 push）。下一步 Phase 20(前端·基础数据/学生/培养)。
+
 ## [2026-06-18] Phase 19 待复核小结（前端重建·基座与设计系统）
 - 做了什么：从 `main` 切出 `feature/phase19-frontend-shell`，以前瞻版为视觉底重建生产前端外壳与登录页；新增 `frontend/src/theme/global.css`，迁入 `PageContainer`、`StatusTag`、`ChartBox`、`StatCard` 四个设计系统组件，统一主色、圆角、角色色板、`.mono` 等基础样式，并在 `App.vue` 接入 Naive UI 中文 locale、主题覆盖、loading/notification provider。
 - 真实集成保留：未引入前瞻版 mock store/role switcher，生产版 `src/api/*`、`api/request.ts`、`stores/user.ts`、`directives/perm.ts` 与 token refresh/Result 解包/Blob 下载能力保持不变；路由守卫继续按 `meta.perms + userStore.hasAnyPerm` 判断。
