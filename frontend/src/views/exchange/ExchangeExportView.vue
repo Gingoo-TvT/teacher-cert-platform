@@ -1,8 +1,18 @@
 <script setup lang="ts">
 import { computed, h, onMounted, reactive, ref } from 'vue'
-import { NButton, NSpace, NTag, useMessage, type DataTableColumns, type SelectOption } from 'naive-ui'
+import { useMessage, type DataTableColumns, type SelectOption } from 'naive-ui'
+import PageContainer from '@/components/PageContainer.vue'
+import StatusTag from '@/components/StatusTag.vue'
+import StatCard from '@/components/StatCard.vue'
 import { listDictItems, type DictItem } from '@/api/dict'
-import { exportExchange, exportExchangeAttachments, listExchangeBatches, saveBlob, type ExchangeBatch, type ExchangeQuery } from '@/api/exchange'
+import {
+  exportExchange,
+  exportExchangeAttachments,
+  listExchangeBatches,
+  saveBlob,
+  type ExchangeBatch,
+  type ExchangeQuery
+} from '@/api/exchange'
 import { useUserStore } from '@/stores/user'
 
 const message = useMessage()
@@ -27,7 +37,7 @@ const query = reactive<ExchangeQuery>({
 })
 
 const canFull = computed(() => userStore.hasPerm('exchange:export:full'))
-
+const exportType = ref('STANDARD')
 const exportOptions = computed<SelectOption[]>(() => [
   { label: '标准上报表', value: 'STANDARD' },
   ...(canFull.value
@@ -37,21 +47,25 @@ const exportOptions = computed<SelectOption[]>(() => [
         { label: '异常数据表', value: 'ERROR' }
       ]
     : []),
-  { label: '附件清单表', value: 'ATTACHMENT_LIST' }
+  { label: '附件与视频打包', value: 'ATTACHMENT_LIST' }
 ])
-const exportType = ref('STANDARD')
 const statusOptions = computed<SelectOption[]>(() => statuses.value.map((item) => ({ label: item.itemValue, value: item.itemCode })))
 const segmentOptions = computed<SelectOption[]>(() => segments.value.map((item) => ({ label: item.itemValue, value: item.itemCode })))
 const goalOptions = computed<SelectOption[]>(() => goals.value.map((item) => ({ label: item.itemValue, value: item.itemCode })))
+const summary = computed(() => ({
+  total: batches.value.length,
+  exported: batches.value.filter((item) => item.status === 'EXPORTED').length,
+  files: batches.value.filter((item) => item.fileName).length
+}))
 
 const batchColumns: DataTableColumns<ExchangeBatch> = [
-  { title: '批次号', key: 'batchNo', minWidth: 180, ellipsis: { tooltip: true } },
+  { title: '批次号', key: 'batchNo', minWidth: 180, ellipsis: { tooltip: true }, render: (row) => h('span', { class: 'mono' }, row.batchNo) },
   { title: '类型', key: 'type', width: 90 },
   { title: '导出项', key: 'strategy', width: 150, render: (row) => row.strategy || '-' },
   { title: '时间', key: 'operateTime', width: 170, render: (row) => row.operateTime || '-' },
   { title: '数量', key: 'successCount', width: 90 },
-  { title: '状态', key: 'status', width: 120, render: (row) => h(NTag, { size: 'small', type: 'success', bordered: false }, { default: () => row.status }) },
-  { title: '文件', key: 'fileName', minWidth: 160, ellipsis: { tooltip: true }, render: (row) => row.fileName || '-' }
+  { title: '状态', key: 'status', width: 120, render: (row) => h(StatusTag, { text: row.status }) },
+  { title: '文件', key: 'fileName', minWidth: 180, ellipsis: { tooltip: true }, render: (row) => row.fileName || '-' }
 ]
 
 async function loadOptions() {
@@ -70,6 +84,8 @@ async function loadBatches() {
   try {
     const res = await listExchangeBatches('export')
     batches.value = res.data.records
+  } catch (error) {
+    showError(error, '导出批次加载失败')
   } finally {
     loading.value = false
   }
@@ -87,6 +103,8 @@ async function runExport() {
     }
     message.success('导出已生成')
     await loadBatches()
+  } catch (error) {
+    showError(error, '导出失败')
   } finally {
     exporting.value = false
   }
@@ -116,6 +134,11 @@ function resetQuery() {
   })
 }
 
+function showError(error: unknown, fallback: string) {
+  const detail = error instanceof Error ? error.message : fallback
+  message.error(detail || fallback)
+}
+
 onMounted(async () => {
   await loadOptions()
   await loadBatches()
@@ -123,46 +146,49 @@ onMounted(async () => {
 </script>
 
 <template>
-  <n-space vertical size="large">
-    <n-grid :cols="4" :x-gap="12" :y-gap="12" responsive="screen">
-      <n-gi>
-        <n-select v-model:value="exportType" :options="exportOptions" />
-      </n-gi>
-      <n-gi>
-        <n-input v-model:value="query.assessmentYear" placeholder="考核年度" />
-      </n-gi>
-      <n-gi>
-        <n-input v-model:value="query.keyword" clearable placeholder="学号/姓名/证书编号" />
-      </n-gi>
-      <n-gi>
-        <n-input v-model:value="query.collegeId" clearable placeholder="学院ID" />
-      </n-gi>
-      <n-gi>
-        <n-input v-model:value="query.internalMajorCode" clearable placeholder="校内专业代码" />
-      </n-gi>
-      <n-gi>
-        <n-input v-model:value="query.className" clearable placeholder="班级" />
-      </n-gi>
-      <n-gi>
-        <n-select v-model:value="query.trainingGoal" clearable :options="goalOptions" placeholder="培养目标" />
-      </n-gi>
-      <n-gi>
-        <n-select v-model:value="query.teachingSegment" clearable :options="segmentOptions" placeholder="任教学段" />
-      </n-gi>
-      <n-gi>
-        <n-input v-model:value="query.auditStatus" clearable placeholder="审核状态" />
-      </n-gi>
-      <n-gi>
-        <n-select v-model:value="query.certStatus" clearable :options="statusOptions" placeholder="证书状态" />
-      </n-gi>
-      <n-gi>
-        <n-space>
-          <n-button type="primary" :loading="exporting" @click="runExport">导出</n-button>
-          <n-button @click="resetQuery">重置</n-button>
-        </n-space>
-      </n-gi>
+  <PageContainer title="导出中心" description="标准上报表、完整审核表、证书汇总、异常数据和附件视频打包导出均复用后端文本化 Excel 能力。">
+    <template #actions>
+      <n-space>
+        <n-button secondary @click="loadBatches">刷新批次</n-button>
+        <n-button type="primary" :loading="exporting" @click="runExport">导出</n-button>
+      </n-space>
+    </template>
+
+    <n-grid :cols="3" :x-gap="12" responsive="screen" class="page-section">
+      <n-gi><StatCard label="导出批次" :value="summary.total" /></n-gi>
+      <n-gi><StatCard label="已完成" :value="summary.exported" color="#18a058" /></n-gi>
+      <n-gi><StatCard label="生成文件" :value="summary.files" color="#2080f0" /></n-gi>
     </n-grid>
 
-    <n-data-table :columns="batchColumns" :data="batches" :loading="loading" :row-key="(row: ExchangeBatch) => row.id" :scroll-x="960" />
-  </n-space>
+    <n-card :bordered="false" size="small" class="page-section">
+      <n-grid :cols="4" :x-gap="12" :y-gap="12" responsive="screen">
+        <n-gi><n-select v-model:value="exportType" :options="exportOptions" placeholder="导出类型" /></n-gi>
+        <n-gi><n-input v-model:value="query.assessmentYear" placeholder="考核年度" /></n-gi>
+        <n-gi><n-input v-model:value="query.keyword" clearable placeholder="学号/姓名/证书编号" /></n-gi>
+        <n-gi><n-input v-model:value="query.collegeId" clearable placeholder="学院ID" /></n-gi>
+        <n-gi><n-input v-model:value="query.internalMajorCode" clearable placeholder="校内专业代码" /></n-gi>
+        <n-gi><n-input v-model:value="query.className" clearable placeholder="班级" /></n-gi>
+        <n-gi><n-select v-model:value="query.trainingGoal" clearable :options="goalOptions" placeholder="培养目标" /></n-gi>
+        <n-gi><n-select v-model:value="query.teachingSegment" clearable :options="segmentOptions" placeholder="任教学段" /></n-gi>
+        <n-gi><n-input v-model:value="query.auditStatus" clearable placeholder="审核状态" /></n-gi>
+        <n-gi><n-select v-model:value="query.certStatus" clearable :options="statusOptions" placeholder="证书状态" /></n-gi>
+        <n-gi>
+          <n-space>
+            <n-button type="primary" :loading="exporting" @click="runExport">导出</n-button>
+            <n-button @click="resetQuery">重置</n-button>
+          </n-space>
+        </n-gi>
+      </n-grid>
+    </n-card>
+
+    <n-data-table
+      :columns="batchColumns"
+      :data="batches"
+      :loading="loading"
+      :row-key="(row: ExchangeBatch) => row.id"
+      :scroll-x="1040"
+      :pagination="{ pageSize: 10 }"
+      striped
+    />
+  </PageContainer>
 </template>

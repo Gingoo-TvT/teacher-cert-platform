@@ -15,6 +15,16 @@
 
 ---
 
+## [2026-06-18] Phase 22 待复核小结（前端重建·测试/证书/导入导出/统计）
+- 做了什么：从 `main` 切出 `feature/phase22-test-cert-exchange-stats`，用 Phase 19 设计系统重建测试结果、证书管理、证书签发、导入中心、导出中心、统计报表页面。所有页面继续接生产真实 `src/api/*` 与 `stores/user`，未改后端、迁移、API 契约或后端 IT。
+- 测试结果：`TestResultManageView` 落实 WP-B 只确认，移除手工新建/编辑入口，仅保留 `/test/import`、`/test/import-file` 导入、`/test/{id}/confirm` 确认、列表查询、有效性提示与应考科目口径展示；成绩用 `.mono` 文本只读展示，前导零不做数值化。
+- 证书：`CertificateManageView` 整合同页生命周期：前置校验、生成 18 位编号、更正、作废、重开、签发、标记导出、归档；签发动作按 `cert:issue` 显隐并并入教务处管理员入口，不再依赖独立 `CERT_ISSUER` 角色语义。`CertificateIssueView` 保留为签发队列辅助页，沿用同一权限点。
+- 导入导出：`ExchangeImportView` 改为四步向导（模板→上传预校验→V-01~V-13 错误表→策略确认），支持 `INSERT_ONLY/OVERWRITE/SKIP_DUPLICATE/UPDATE_EMPTY`、批次列表、异常报告下载与回滚；`ExchangeExportView` 支持标准/完整/证书汇总/异常表和附件视频打包导出。
+- 统计报表：`StatsReportView` 使用 `StatCard` 与 `ChartBox` 重建 8 类统计，保留筛选、指标、柱状图、统计表、钻取明细和 Excel 导出，继续调用真实 `/api/stats/{type}` 与 `/api/stats/{type}/export`。
+- 权限与范围：前端动作显隐按 `test:*`、`cert:*`、`exchange:*`、`stats:view` 权限点判断；数据范围、状态机与文本化 Excel 语义全部由后端既有契约承载，本包不改。
+- 测试：`npm --prefix frontend run type-check` 通过；`npm --prefix frontend run build` 通过（仅既有 Vite chunk-size 警告）。
+- 下一步：`PROGRESS.md` 已置 **Phase 22 待复核**，等待 Claude 复核，未自行置 ✅。
+
 ## [2026-06-18] Phase 21 复核通过（Claude · REVIEW-GATE）✅ — 前端重建·材料/免考/视频
 - 做了什么：复核 `feature/phase21-material-exemption-video` 单提交 `8653846`（前端 3 域页面 + 进度日志）。读 MaterialManage/ExemptionManage/VideoReview 核心 + 确认 api/stores/后端/迁移零改动；前端 build-only gate。
 - 结论：**PASS**（一轮）。`type-check` 无错 + `built in 6.07s`。核对：① 材料内联预览——`previewable` 按 content-type/扩展名判 pdf/image/png，`<object>/<iframe>` 内联、否则 `n-result`「打开文件」下载兜底；初/复审按 material:firstReview/secondReview，批量下载按 material:batchDownload。② 免考——`form.rows` 多科逐行(subject+basis+佐证文件，必填校验)→ `applyExemption({items})`；二级审核按 exemption:firstReview/secondReview；examSubjects 展示应考剔除。③ 视频——RETURNED 态行内按钮显「重新上传」(WP-C)；`saveAssign` 按 `assignForm.mode` group/person 二选一分别 `assignVideoReviewGroup`/`assignVideoReview` + 校验(WP-D)；评审组 CRUD；thirdReview/arbitrate/confirm/returnVideoReview/playVideoReview 全按 video:* perm 显隐。④ 沿用 WP-C/WP-D 已加的真实 API；`src/api/*`/`stores/user` 未改；后端/迁移 V1–V22 冻结。
