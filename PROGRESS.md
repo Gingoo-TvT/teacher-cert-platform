@@ -5,10 +5,10 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**Phase 18 / WP-D 评审指定与分组：待复核**（分支：`feature/wp-d-reviewer-group`）。Phase 0~14 ✅，T-115 ✅，WP-A ✅，WP-B ✅，WP-C ✅。
+- 当前阶段：**Phase 18 / WP-D 评审指定与分组 ✅ 已复核（Claude 06-18，PASS·一轮）**；下一步 Phase 19(前端重建·基座与设计系统)——进入前端「以前瞻版为底重建」主体。Phase 0~14 ✅，T-115 ✅，WP-A/B/C ✅。
 - 阻塞项：无
-- 最近更新：2026-06-18（WP-D 完成：V22 评审组表、按组/按人指派、数据范围硬校验、`mvn verify` 79/79、前端绿）
-- 下一步：等待 Claude 复核 WP-D，未自行置 ✅
+- 最近更新：2026-06-18（WP-D 复核通过：V22 评审组表、按组/按人指派 XOR、组与成员数据范围硬校验（college 取负责人非请求、成员本院 REVIEW_TEACHER、跨院组/成员/评审全拒）；**clean-room `mvn verify` 79/79**（Phase7 10）+ 前端绿；详见 docs/reviews/wp-d-review.md）
+- 下一步：Phase 19(前端重建·基座与设计系统)——前瞻版骨架/设计系统 + 接生产 API/stores + 按权限菜单（修空壳菜单）
 
 ## 阶段汇总
 | Phase | 名称 | 优先级 | 任务数 | 完成 | 状态 |
@@ -226,7 +226,7 @@
 - 验证：定向 `Phase7VideoReviewIT` 9/9 通过；全量 `mvn -B -ntp verify` **78/78** 通过；`npm --prefix frontend run type-check` 与 `npm --prefix frontend run build` 通过（仅既有 Vite chunk-size 警告）。等待 Claude 复核，未自行置 ✅。
 
 ## 收官后 · Phase 18 / WP-D 评审指定与分组
-- Phase 18 / WP-D `评审指定与分组`：**待复核**（分支：`feature/wp-d-reviewer-group`）。新增 `V22__reviewer_group.sql`，创建 `reviewer_group` 与 `reviewer_group_member`，复用 `video:assign` 权限，不新增权限点；评审组 CRUD 与成员增删均按 `video:assign` 写范围校验，组归属取当前负责人学院，成员必须是本院启用 `REVIEW_TEACHER`。
+- Phase 18 / WP-D `评审指定与分组`：**✅ 已复核（Claude 2026-06-18，PASS·一轮）**（分支：`feature/wp-d-reviewer-group`）。新增 `V22__reviewer_group.sql`（reviewer_group + reviewer_group_member，幂等 DDL、唯一约束防同组重复/同院重名），复用 `video:assign`（不新增权限点）；CRUD 与成员增删按 `video:assign` 写范围校验、组归属取负责人学院（非请求）、成员须本院启用 `REVIEW_TEACHER`；`assign` 支持 `reviewerIds` 或 `groupId` 二选一，解析后校验人数=`video.reviewerCount` 且各评审本院+启用+REVIEW_TEACHER；`reviewer_group` 入数据范围 TABLE_RULES。**clean-room `mvn verify` 79/79**（Phase7 10：按组结算88/按人结算81/人数不足/跨院成员·组·评审全拒）+ 前端绿。详见 `docs/reviews/wp-d-review.md`。
 - [x] T-129 评审组模型与接口：`GET/POST/PUT/DELETE /api/video/reviewer-groups`、成员增删，注册数据范围规则，写操作留 `@AuditLog`。
 - [x] T-130 指派增强：`POST /api/video/reviews/{id}/assign` 支持 `reviewerIds` 或 `groupId` 二选一；按组解析成员后复用原任务分配、通知和 `video.reviewerCount` 校验；按人路径保持向后兼容并新增同学院/评审教师校验。
 - [x] T-131 数据范围硬校验：建组/改组/加成员/按组指派均限本学院；跨院成员、跨院评审人、跨院视频/组指派拒绝（跨院视频由读写范围可返回 404）。

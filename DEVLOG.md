@@ -15,6 +15,11 @@
 
 ---
 
+## [2026-06-18] Phase 18 / WP-D 复核通过（Claude · REVIEW-GATE）✅ — 评审指定与分组
+- 做了什么：复核 `feature/wp-d-reviewer-group` 单提交 `4999233`。读 V22、ReviewerGroupServiceImpl(+265)/Controller、VideoReviewServiceImpl assign 扩展、DataScopeSqlHandler、Phase7 IT(+84)；clean-room：重置 schema → `mvn verify`（全新 V1–V22）+ 前端 type-check/build。
+- 结论：**PASS**（一轮）。`mvn verify` **BUILD SUCCESS、79/79**（Phase7 9→10）；Flyway v22；前端 `vue-tsc`+build 绿。核对：① V22 reviewer_group/member 幂等 DDL + 唯一约束（同院重名、同组重复成员）+ 索引。② 组 CRUD 全程 `ensureCanManageCollege`，create 的 collegeId 取负责人 scope（非请求），addMember 校验本院启用 REVIEW_TEACHER；list 按 video:assign scope 显式过滤；delete/removeMember 用 `name#id`/`reviewer_user_id=id` 避免唯一冲突。③ assign `reviewerIds` XOR `groupId`，组解析校验同院+ENABLED，人数=video.reviewerCount，`requireReviewerForReview` 硬校验各评审 同院+ENABLED+REVIEW_TEACHER（连带硬化按人路径）。④ Controller 全 `video:assign` + 写操作 `@AuditLog`；reviewer_group 入 TABLE_RULES。⑤ IT 覆盖 按组88/按人81/人数不足/跨院成员·组·评审 全拒，向后兼容。
+- 放行：PROGRESS WP-D 置 ✅；合并 `main`（本地私有、无远程、不 push）。下一步 Phase 19(前端重建·基座与设计系统)——进入前端重建主体。
+
 ## [2026-06-18] Phase 18 / WP-D 待复核小结（评审指定与分组）
 - 做了什么：从 `main` 切出 `feature/wp-d-reviewer-group`，完成评审组模型与按组/按人指派增强。新增 `V22__reviewer_group.sql`，创建 `reviewer_group`、`reviewer_group_member`，唯一约束防同组重复成员；未新增 `video:return`/`video:group` 等权限点，评审组管理和指派继续复用 `video:assign`。
 - 后端实现：新增评审组实体、Mapper、DTO/VO、`ReviewerGroupService` 与 `/api/video/reviewer-groups` CRUD/成员增删接口；写操作接 `@AuditLog`。`VideoAssignRequest` 支持 `reviewerIds` 或 `groupId` 二选一，`VideoReviewServiceImpl.assign` 按组解析成员后沿用既有任务创建、通知和结算流程。
