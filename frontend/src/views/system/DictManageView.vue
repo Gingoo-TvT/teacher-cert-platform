@@ -377,7 +377,7 @@ onMounted(loadTypes)
 </script>
 
 <template>
-  <PageContainer title="数据字典" description="标准字段枚举的唯一来源。管理动作按 dict:manage 显隐，无权限账号保持只读浏览。">
+  <PageContainer title="数据字典" description="维护系统数据字典与标准字段枚举。">
     <template #actions>
       <n-space>
         <n-button secondary @click="loadTypes">刷新</n-button>

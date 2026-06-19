@@ -277,7 +277,7 @@ onMounted(loadVisibleSections)
 </script>
 
 <template>
-  <PageContainer title="参数审计备份" description="系统参数热更新、审计日志检索与备份演练记录均沿用生产真实接口和权限点。">
+  <PageContainer title="参数审计备份" description="系统参数、审计日志与备份记录管理。">
     <template #actions>
       <n-space>
         <n-button v-if="canManageParam" secondary @click="loadParams">刷新参数</n-button>
@@ -308,6 +308,7 @@ onMounted(loadVisibleSections)
           <n-data-table
             :columns="paramColumns"
             :data="params"
+            :scroll-x="960"
             :loading="paramLoading"
             :row-key="(row: SysParam) => row.id"
             size="small"
@@ -333,6 +334,7 @@ onMounted(loadVisibleSections)
           <n-data-table
             :columns="auditColumns"
             :data="audits"
+            :scroll-x="1200"
             :loading="auditLoading"
             :row-key="(row: AuditLog) => row.id"
             size="small"

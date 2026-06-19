@@ -208,7 +208,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <PageContainer title="任教学科库" description="学段到学科的标准库，类别节点仅用于分组，具体学科由后端 validate 接口校验。">
+  <PageContainer title="任教学科库" description="任教学段与学科标准库维护。">
     <template #actions>
       <n-space>
         <n-button secondary @click="refreshAll">刷新</n-button>

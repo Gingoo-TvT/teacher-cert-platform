@@ -562,7 +562,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <PageContainer title="组织与专业" description="维护学校、学院、专业与培养目标联动配置。写操作按 college:manage / major:manage 显隐。">
+  <PageContainer title="组织与专业" description="维护学校、学院、专业与培养目标配置。">
     <template #actions>
       <n-space>
         <n-tag :bordered="false">学校：{{ schoolText }}</n-tag>

@@ -402,7 +402,7 @@ watch(
 </script>
 
 <template>
-  <PageContainer title="免考管理" description="支持多科独立申请、每科佐证、二级审核与应考科目口径展示。">
+  <PageContainer title="免考管理" description="多科免考申请、佐证上传、二级审核与应考科目展示。">
     <template #actions>
       <n-space>
         <n-button secondary @click="loadRecords">刷新</n-button>

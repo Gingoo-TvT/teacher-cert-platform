@@ -180,7 +180,7 @@ watch(
 </script>
 
 <template>
-  <PageContainer title="证书签发队列" description="签发权限已并入教务处/全校管理员；本页作为证书管理的签发队列视图。">
+  <PageContainer title="证书签发队列" description="待签发证书队列。">
     <template #actions>
       <n-button v-if="canViewQueue" secondary @click="loadRecords">刷新</n-button>
     </template>

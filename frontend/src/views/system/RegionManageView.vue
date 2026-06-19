@@ -125,7 +125,7 @@ onMounted(() => loadChildren())
 </script>
 
 <template>
-  <PageContainer title="行政区划" description="广东省三级区划联动查询，生源地等表单复用同一 RegionCascader。">
+  <PageContainer title="行政区划" description="行政区划三级联动查询。">
     <template #actions>
       <n-space>
         <n-button secondary @click="loadChildren()">回到省级</n-button>

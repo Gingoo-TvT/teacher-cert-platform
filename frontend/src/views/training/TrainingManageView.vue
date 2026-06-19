@@ -419,7 +419,7 @@ watch(
 </script>
 
 <template>
-  <PageContainer title="专业培养信息" description="培养目标、实习地点、任教学段与任教学科按标准配置联动；初审与复审按权限显隐。">
+  <PageContainer title="专业培养信息" description="专业培养信息维护，培养目标、学段与学科按标准联动。">
     <template #actions>
       <n-space>
         <n-button secondary @click="loadRecords">刷新</n-button>

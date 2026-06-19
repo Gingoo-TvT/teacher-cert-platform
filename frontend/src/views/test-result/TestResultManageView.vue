@@ -240,7 +240,7 @@ watch(
 </script>
 
 <template>
-  <PageContainer title="测试结果" description="测试成绩仅通过导入产生，院校人员只做确认锁定；成绩按文本只读展示。">
+  <PageContainer title="测试结果" description="测试成绩通过导入产生，院校人员确认锁定。">
     <template #actions>
       <n-space>
         <n-button secondary @click="loadRecords">刷新</n-button>

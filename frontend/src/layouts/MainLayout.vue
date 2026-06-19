@@ -115,6 +115,10 @@ const canViewNotice = computed(() => userStore.hasPerm('notice:view'))
 const yearOptions = computed<SelectOption[]>(() => yearStore.yearOptions.map((year) => ({ label: year, value: year })))
 
 const menuOptions = computed<MenuOption[]>(() => {
+  // 展开态用干净文本菜单；仅在折叠态保留单字标识作为图标占位（否则折叠后无任何可视字形）。
+  const markIcon = collapsed.value
+    ? (group: AppMenuGroup) => () => h('span', { class: 'menu-mark' }, group.mark)
+    : () => undefined
   return rawMenu
     .map((group) => {
       const visibleChildren = group.children.filter(canShowLeaf)
@@ -123,13 +127,13 @@ const menuOptions = computed<MenuOption[]>(() => {
         const leaf = visibleChildren[0]
         return {
           key: leaf.key,
-          icon: () => h('span', { class: 'menu-mark' }, group.mark),
+          icon: markIcon(group),
           label: () => h(RouterLink, { to: leaf.path }, { default: () => leaf.label })
         }
       }
       return {
         key: group.key,
-        icon: () => h('span', { class: 'menu-mark' }, group.mark),
+        icon: markIcon(group),
         label: group.label,
         children: visibleChildren.map((leaf) => ({
           key: leaf.key,

@@ -364,7 +364,7 @@ watch(
 </script>
 
 <template>
-  <PageContainer title="过程性材料" description="四类材料上传、替换、提交与二级审核；四类均复审通过后过程性考核合格。">
+  <PageContainer title="过程性材料" description="四类过程性材料上传、提交与审核；四类均通过即合格。">
     <template #actions>
       <n-space>
         <n-button secondary @click="loadRecords">刷新</n-button>

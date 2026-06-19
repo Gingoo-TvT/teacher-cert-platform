@@ -185,7 +185,7 @@ watch(
 </script>
 
 <template>
-  <PageContainer title="统计报表" description="八类统计报表按当前账号数据范围实时聚合，图表、表格与 Excel 导出共用后端统计口径。">
+  <PageContainer title="统计报表" description="统计报表，支持图表、表格与 Excel 导出。">
     <template #actions>
       <n-space>
         <n-button v-if="canViewStats" secondary :loading="loading" @click="loadReport">刷新</n-button>

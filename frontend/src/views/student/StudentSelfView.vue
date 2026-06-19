@@ -151,7 +151,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <PageContainer title="本人基本信息" description="学生自助核对证件、身份类型与生源地信息；证书生成后关键字段进入锁定态。">
+  <PageContainer title="本人基本信息" description="核对并确认本人基本信息；证书生成后关键字段锁定。">
     <template #actions>
       <n-space>
         <n-button secondary @click="load">刷新</n-button>

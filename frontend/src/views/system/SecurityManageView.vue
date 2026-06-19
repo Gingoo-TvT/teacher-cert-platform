@@ -521,7 +521,7 @@ onMounted(refreshAll)
 </script>
 
 <template>
-  <PageContainer title="账号权限" description="系统管理员拥有账号、角色、权限矩阵与数据范围维护能力；其他角色只按权限查看可访问内容。">
+  <PageContainer title="账号权限" description="账号、角色、权限与数据范围管理。">
     <template #actions>
       <n-button v-if="hasVisibleSection" secondary @click="refreshAll">刷新</n-button>
     </template>
@@ -559,6 +559,7 @@ onMounted(refreshAll)
           <n-data-table
             :columns="userColumns"
             :data="users"
+            :scroll-x="1040"
             :loading="userLoading"
             :row-key="(row: User) => row.id"
             size="small"
@@ -592,11 +593,12 @@ onMounted(refreshAll)
       <n-tab-pane v-if="canManagePerms" name="permissions" tab="权限">
         <section class="panel page-section">
           <n-alert v-if="canManagePerms" type="info" :bordered="false" class="page-section">
-            权限点由后端迁移维护，本页用于查看权限树并在角色授权中配置矩阵。
+            权限点为系统预置；本页用于查看权限树并在角色授权中配置。
           </n-alert>
           <n-data-table
             :columns="permissionColumns"
             :data="permissions"
+            :scroll-x="1200"
             :loading="permissionLoading"
             :row-key="(row: Permission) => row.id"
             size="small"

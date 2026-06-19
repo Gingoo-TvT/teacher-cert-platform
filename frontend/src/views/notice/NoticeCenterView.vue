@@ -128,7 +128,7 @@ function showError(error: unknown, fallback: string) {
 </script>
 
 <template>
-  <PageContainer title="通知中心" description="站内信只展示当前登录用户本人通知；未读通知在菜单、角标和列表中同步提示。">
+  <PageContainer title="通知中心" description="本人站内通知；未读在菜单与角标提示。">
     <template #actions>
       <n-space>
         <n-button secondary :loading="loading" @click="loadNotices">刷新</n-button>

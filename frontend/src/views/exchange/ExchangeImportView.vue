@@ -207,7 +207,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <PageContainer title="导入中心" description="按模板下载、上传预校验、V-01~V-13 异常定位、策略确认导入与批次回滚的四步流程。">
+  <PageContainer title="导入中心" description="模板下载、上传预校验、异常定位、确认导入与批次回滚。">
     <template #actions>
       <n-button v-if="canViewBatches" secondary @click="loadBatches">刷新批次</n-button>
     </template>
@@ -215,7 +215,7 @@ onMounted(() => {
     <n-steps v-model:current="activeStep" class="page-section">
       <n-step title="模板" description="下载标准 26 列模板" />
       <n-step title="上传" description="上传 Excel 并预校验" />
-      <n-step title="异常" description="查看 V-01~V-13 错误表" />
+      <n-step title="异常" description="查看校验错误明细" />
       <n-step title="导入" description="选择策略确认入库" />
     </n-steps>
 

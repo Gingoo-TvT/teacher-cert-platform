@@ -168,7 +168,7 @@ watch(
 </script>
 
 <template>
-  <PageContainer title="导出中心" description="标准上报表、完整审核表、证书汇总、异常数据和附件视频打包导出均复用后端文本化 Excel 能力。">
+  <PageContainer title="导出中心" description="导出标准上报表、完整审核表、证书汇总、异常数据与附件打包。">
     <template #actions>
       <n-space>
         <n-button v-if="canExport" secondary @click="loadBatches">刷新批次</n-button>

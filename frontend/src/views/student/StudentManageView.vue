@@ -319,7 +319,7 @@ watch(
 </script>
 
 <template>
-  <PageContainer title="学生基本信息" description="列表支持关键词、状态、学院与年级筛选；初审由教务员执行，复审由学院负责人执行。">
+  <PageContainer title="学生基本信息" description="学生基本信息查询、初审与复审。">
     <template #actions>
       <n-space>
         <n-button secondary @click="loadStudents">刷新</n-button>

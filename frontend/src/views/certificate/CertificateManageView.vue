@@ -385,7 +385,7 @@ watch(
 </script>
 
 <template>
-  <PageContainer title="证书管理" description="证书生成、签发、导出、归档、更正、作废与重开均由教务处管理员按权限在同一页面处理。">
+  <PageContainer title="证书管理" description="证书生成、签发、导出、归档、更正、作废与重开。">
     <template #actions>
       <n-space>
         <n-button v-if="canView" secondary @click="loadRecords">刷新</n-button>
