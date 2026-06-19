@@ -19,6 +19,7 @@ interface AppMenuLeaf {
   key: string
   path: string
   perms?: string[]
+  studentOnly?: boolean
 }
 
 interface AppMenuGroup {
@@ -43,7 +44,7 @@ const rawMenu: AppMenuGroup[] = [
     mark: '基',
     children: [
       { label: '学生基本信息', key: 'studentManage', path: '/students', perms: ['student:view'] },
-      { label: '本人基本信息', key: 'studentSelf', path: '/student/self', perms: ['student:confirm'] },
+      { label: '本人基本信息', key: 'studentSelf', path: '/student/self', perms: ['student:confirm'], studentOnly: true },
       { label: '专业培养信息', key: 'trainingManage', path: '/training', perms: ['student:view', 'training:confirm'] }
     ]
   },
@@ -164,6 +165,8 @@ onBeforeUnmount(() => {
 })
 
 function canShowLeaf(leaf: AppMenuLeaf) {
+  // 「本人…」自助页仅对学生本人有意义：超级管理员虽持全部权限点，但无学生档案，应隐藏。
+  if (leaf.studentOnly && !userStore.roles.includes('STUDENT')) return false
   return !leaf.perms?.length || userStore.hasAnyPerm(leaf.perms)
 }
 
