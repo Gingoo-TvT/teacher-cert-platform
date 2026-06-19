@@ -15,6 +15,11 @@
 
 ---
 
+## [2026-06-19] Phase 28 复核通过（Claude · REVIEW-GATE）✅ — UI 视觉重做·明亮圆润青绿 SaaS
+- 做了什么：复核 `feature/phase28-ui-bright-rounded` 单提交 `004ae10`（18 前端文件）。读 theme/naive.ts、global.css、tokens.ts + 确认新方向落地、**无 api/router/stores/后端/迁移改动**；前端 build-only gate。
+- 结论：**PASS**（一轮，客观门槛）。`type-check` 无错 + `built in 6.18s`。核对：① 新方向落地——naive.ts primaryColor #0d9488(青绿)、borderRadius 控件 10px/小 8px；global.css --brand #0d9488、--brand-soft #f0fdfa、--page-bg #f6f8f7(暖)、--radius-card 14px/--radius-tag 999px(pill)、阴影更柔更大；tokens.ts 图表色板首色 #14b8a6。② 导航青绿 pill、登录青绿分栏、卡片/表格圆角化、图表圆角柱。③ 与 Phase 26 蓝/6px 对比：主色蓝→青绿、圆角翻倍、留白加宽，肉眼明显不同。④ diff 无 src/api/router/stores/platform-*/migration——纯视觉。主观观感交用户运行栈终验。
+- 放行：PROGRESS Phase 28 置 ✅；合并 `main`（本地私有、无远程、不 push）。合并后重启 vite 供用户硬刷新视觉终验。
+
 ## [2026-06-19] Phase 28 待复核小结（UI 视觉重做·明亮圆润青绿 SaaS）
 - 做了什么：从最新 `main` 切出 `feature/phase28-ui-bright-rounded`，按新版 `frontend/DESIGN.md` 完成 T-175~T-181。纯前端视觉/排版层重做，未改路由、接口、权限、状态机、业务逻辑、后端代码或 Flyway 迁移。
 - T-175/T-176：`frontend/src/theme/global.css` 改为青绿 `#0d9488`、暖中性、`--page-bg:#f6f8f7`、控件 10px、卡片/表格 14px、宽松间距和柔和阴影；`theme/naive.ts` 重写 common/Button/DataTable/Menu/Tag/Card/Input/Form/Select/Pagination/Empty；`MainLayout` 改 248 侧栏、青绿圆角 pill 选中态（无左色条）、顶栏 20px 标题、青绿通知角标和头像、内容区 28px 留白。
