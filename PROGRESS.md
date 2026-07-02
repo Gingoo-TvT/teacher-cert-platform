@@ -5,10 +5,10 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**Phase 30 待复核**（分支：`feature/phase30-ux-foundation`）—— 体验基建 + 全局观感，示范接入页为学生列表、参数审计备份。
+- 当前阶段：**Phase 30 ✅ 已复核（Claude 07-02，PASS·一轮+1 处复核修补）**——体验基建落地；下一步 Phase 31（12 个业务列表页铺开，frontend-quality-plan §4-Phase31）。
 - 阻塞项：无
-- 最近更新：2026-07-02（Phase 30 T-190~T-195：新增 `@vicons/ionicons5`、格式化/状态映射工具、6 个体验组件；外壳图标/铃铛/favicon/标题同步/学年限制；登录页文案；ChartBox v2 色板与单系列规则；Dashboard 统计口径；学生列表与参数审计备份结构化接入。纯前端，不改后端/契约/迁移。）
-- 下一步：等待 Claude 按 Phase 30 gate ①-⑥ 复核；本地私有仓库无 remote，不 push。
+- 最近更新：2026-07-02（Phase 30 复核通过：gate ①-⑥ 全过——6 组件/外壳图标铃铛 favicon 标题同步/黑名单 grep 复跑为空/示范页格式化+状态中文/ChartBox v2 色板逐字节一致+W7 闭环/构建绿；复核修补 ReviewDialog「退回必填意见」校验；详见 docs/reviews/phase-30-review.md）
+- 下一步：Phase 31（业务列表页铺开）；派发词见 frontend-quality-plan 附录 D。
 
 ## 阶段汇总
 | Phase | 名称 | 优先级 | 任务数 | 完成 | 状态 |
@@ -315,7 +315,7 @@
 - [x] T-181 验证：`npm --prefix frontend run type-check` 通过；`npm --prefix frontend run build` 通过（仅既有 Vite chunk-size warning）；硬编码色自查：页面/组件/布局层无 `#`/`rgba` 色值，色值集中在 `frontend/src/theme/*`。
 
 ## 收官后 · Phase 30 / 体验基建 + 全局观感
-- Phase 30 `体验基建 + 全局观感`：**待复核**（分支：`feature/phase30-ux-foundation`）。纯前端展示与体验结构调整；不改后端代码、契约、权限、状态机或迁移；新依赖仅 `@vicons/ionicons5`。
+- Phase 30 `体验基建 + 全局观感`：**✅ 已复核（Claude 2026-07-02，PASS·一轮+1 处复核修补）**（分支：`feature/phase30-ux-foundation`）。gate ①-⑥ 全过；复核修补 ReviewDialog 退回必填意见校验（P6）。详见 `docs/reviews/phase-30-review.md`。纯前端；新依赖仅 `@vicons/ionicons5`。
 - [x] T-190 依赖与工具：新增 `@vicons/ionicons5`；新增 `frontend/src/utils/format.ts` 与 `frontend/src/constants/statusLabels.ts`；`global.css` 增 `.tabular-nums`。
 - [x] T-191 通用组件：新增 `FilterBar.vue`、`DataPanel.vue`、`EmptyState.vue`、`TableSkeleton.vue`、`DetailPanel.vue`、`ReviewDialog.vue`；`StatCard` 增 icon slot/青绿圆底/tabular 数字。
 - [x] T-192 外壳：菜单组接 ionicons；通知按钮改铃铛角标；`router.afterEach` 同步标题；新增 `frontend/public/favicon.svg`；学年选择器限制 4 位年份且移除自由输入。

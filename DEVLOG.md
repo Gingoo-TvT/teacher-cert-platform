@@ -15,6 +15,12 @@
 
 ---
 
+## [2026-07-02] Phase 30 复核通过（Claude · frontend-quality-plan §5）✅ — 体验基建 + 全局观感
+- 做了什么：复核 `feature/phase30-ux-foundation` 单提交 `325c88d`（35 文件）。逐项核 gate ①-⑥：读 6 组件/tokens/format/statusLabels/ChartBox v2/外壳/示范页 diff；复跑附录 A 黑名单 grep（输出为空）；`npm install`+`vue-tsc`+`vite build` 读输出全绿。
+- 结论：**PASS**（一轮+1 处复核修补）。色板与验证值逐字节一致、单系列柱规则/图例规则/柱顶圆角符合附录 C；Dashboard 指标改后端 total+unread-count（W7 闭环）、类目去 `\n`；学生列表 grade 解绑学年（B5 闭环）；审计学院下拉提前完成（原 P32 项）。DEVLOG 首次完全符合 W9/W10（按页分节+肉眼变化+诚实报告 grep.exe 故障）。
+- 复核修补（Minor，随分支合入）：ReviewDialog 增「退回/不通过必填意见」校验+表单 error 反馈（P6 规格缺口），修补后 type-check/build 复跑绿。
+- 放行：PROGRESS Phase 30 置 ✅；合并 `main`（本地私有、无远程、不 push）；重启验收栈供目验；下一步 Phase 31。
+
 ## [2026-07-02] Phase 30 待复核小结（体验基建 + 全局观感）
 - 做了什么：从 `main` 切出 `feature/phase30-ux-foundation`，执行 `docs/frontend-quality-plan.md` §4 Phase 30（T-190~T-195）。纯前端展示与体验结构调整；未改后端、契约、权限、状态机或迁移；新依赖仅 `@vicons/ionicons5`。
 - 关键决策与理由：先落 `FilterBar/DataPanel/EmptyState/TableSkeleton/DetailPanel/ReviewDialog` 与 `format/statusLabels`，再在学生列表、参数审计备份两个示范页接入，避免继续在页面内复制筛选、表格卡头、空态、详情和审核结构。ChartBox 直接按附录 C 固定色板与单系列柱规则，避免页面裸配置漂移。

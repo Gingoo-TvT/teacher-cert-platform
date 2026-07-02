@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { reactive, watch } from 'vue'
+import { reactive, ref, watch } from 'vue'
 import type { SelectOption } from 'naive-ui'
 import StatusTag from '@/components/StatusTag.vue'
 
@@ -26,6 +26,7 @@ const form = reactive({
 })
 
 const actionOptions = computedOptions()
+const commentMissing = ref(false)
 
 watch(
   () => props.show,
@@ -33,6 +34,14 @@ watch(
     if (!show) return
     form.action = 'PASS'
     form.comment = ''
+    commentMissing.value = false
+  }
+)
+
+watch(
+  () => [form.action, form.comment],
+  () => {
+    if (commentMissing.value && form.comment.trim()) commentMissing.value = false
   }
 )
 
@@ -50,6 +59,10 @@ function close() {
 }
 
 function submit() {
+  if (form.action !== 'PASS' && !form.comment.trim()) {
+    commentMissing.value = true
+    return
+  }
   emit('submit', { action: form.action, comment: form.comment.trim() })
 }
 
@@ -79,7 +92,11 @@ function text(value?: string | number | null) {
           </n-space>
         </n-radio-group>
       </n-form-item>
-      <n-form-item :label="form.action === 'PASS' ? '审核意见' : '退回或不通过原因'">
+      <n-form-item
+        :label="form.action === 'PASS' ? '审核意见' : '退回或不通过原因'"
+        :validation-status="commentMissing ? 'error' : undefined"
+        :feedback="commentMissing ? '退回或不通过时必须填写原因' : undefined"
+      >
         <n-input v-model:value="form.comment" type="textarea" maxlength="500" show-count placeholder="请输入审核意见" />
       </n-form-item>
     </n-form>
