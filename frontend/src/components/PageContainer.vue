@@ -16,6 +16,9 @@ defineProps<{
         <slot name="actions" />
       </div>
     </header>
+    <div v-if="$slots.stats" class="page-stats">
+      <slot name="stats" />
+    </div>
     <slot />
   </section>
 </template>
@@ -62,6 +65,10 @@ defineProps<{
   gap: var(--space-3);
   flex-wrap: wrap;
   min-height: 36px;
+}
+
+.page-stats {
+  margin-bottom: var(--space-6);
 }
 
 @media (max-width: 720px) {

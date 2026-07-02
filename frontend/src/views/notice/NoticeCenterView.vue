@@ -5,6 +5,7 @@ import PageContainer from '@/components/PageContainer.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import StatCard from '@/components/StatCard.vue'
 import { listNotices, markAllNoticesRead, markNoticeRead, type NotificationItem } from '@/api/notice'
+import { formatDateTime } from '@/utils/format'
 
 type ReadFilter = 'all' | 'unread' | 'read'
 
@@ -50,7 +51,7 @@ const columns: DataTableColumns<NotificationItem> = [
   },
   { title: '内容', key: 'content', minWidth: 320, ellipsis: { tooltip: true }, render: (row) => row.content || '-' },
   { title: '业务', key: 'bizType', width: 130, ellipsis: { tooltip: true }, render: (row) => row.bizType || '-' },
-  { title: '时间', key: 'createdAt', width: 170, render: (row) => row.createdAt || '-' },
+  { title: '时间', key: 'createdAt', width: 170, render: (row) => h('span', { class: 'mono tabular-nums' }, formatDateTime(row.createdAt)) },
   {
     title: '操作',
     key: 'actions',

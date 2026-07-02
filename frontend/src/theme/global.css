@@ -40,14 +40,12 @@
   --role-academic-admin: #8b5cf6;
   --role-sys-admin: #6366f1;
 
-  --chart-1: #14b8a6;
-  --chart-2: #0ea5e9;
-  --chart-3: #f59e0b;
-  --chart-4: #8b5cf6;
-  --chart-5: #ef4444;
-  --chart-6: #10b981;
-  --chart-7: #6366f1;
-  --chart-8: #f97316;
+  --chart-1: #0d9488;
+  --chart-2: #c2410c;
+  --chart-3: #4338ca;
+  --chart-4: #db2777;
+  --chart-5: #a16207;
+  --chart-6: #6d28d9;
 
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", Inter, Roboto, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, Consolas, "Liberation Mono", Menlo, monospace;
@@ -131,6 +129,10 @@ select {
 
 .mono {
   font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.tabular-nums {
   font-variant-numeric: tabular-nums;
 }
 

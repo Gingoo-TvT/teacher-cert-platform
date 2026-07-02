@@ -1,7 +1,18 @@
 <script setup lang="ts">
 import { computed, h, onBeforeUnmount, onMounted, ref } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
-import { NBadge, NButton, NDropdown, NTag, type MenuOption, type SelectOption } from 'naive-ui'
+import { NBadge, NButton, NDropdown, NIcon, NTag, type MenuOption, type SelectOption } from 'naive-ui'
+import {
+  BarChartOutline,
+  HomeOutline,
+  FolderOpenOutline,
+  NotificationsOutline,
+  PersonOutline,
+  RibbonOutline,
+  ServerOutline,
+  SettingsOutline,
+  VideocamOutline
+} from '@vicons/ionicons5'
 import { unreadNoticeCount } from '@/api/notice'
 import { useUserStore } from '@/stores/user'
 import { useYearStore } from '@/stores/year'
@@ -25,7 +36,7 @@ interface AppMenuLeaf {
 interface AppMenuGroup {
   label: string
   key: string
-  mark: string
+  icon: typeof HomeOutline
   children: AppMenuLeaf[]
 }
 
@@ -33,7 +44,7 @@ const rawMenu: AppMenuGroup[] = [
   {
     label: '工作台',
     key: 'g-dashboard',
-    mark: '概',
+    icon: HomeOutline,
     children: [
       { label: '首页', key: 'dashboard', path: '/' }
     ]
@@ -41,7 +52,7 @@ const rawMenu: AppMenuGroup[] = [
   {
     label: '基本信息',
     key: 'g-basic',
-    mark: '基',
+    icon: PersonOutline,
     children: [
       { label: '学生基本信息', key: 'studentManage', path: '/students', perms: ['student:view'] },
       { label: '本人基本信息', key: 'studentSelf', path: '/student/self', perms: ['student:confirm'], studentOnly: true },
@@ -51,7 +62,7 @@ const rawMenu: AppMenuGroup[] = [
   {
     label: '材料与免考',
     key: 'g-material',
-    mark: '材',
+    icon: FolderOpenOutline,
     children: [
       { label: '过程性材料', key: 'materialManage', path: '/materials', perms: ['material:upload', 'material:firstReview', 'material:secondReview', 'material:batchDownload'] },
       { label: '免考管理', key: 'exemptionManage', path: '/exemptions', perms: ['exemption:apply', 'exemption:firstReview', 'exemption:secondReview'] }
@@ -60,7 +71,7 @@ const rawMenu: AppMenuGroup[] = [
   {
     label: '视频与测试',
     key: 'g-video',
-    mark: '评',
+    icon: VideocamOutline,
     children: [
       { label: '视频评审', key: 'videoReview', path: '/videos', perms: ['video:upload', 'video:score', 'video:assign', 'video:arbitrate', 'video:confirm', 'video:play'] },
       { label: '测试结果', key: 'testResultManage', path: '/tests', perms: ['student:view', 'test:import', 'test:confirm'] }
@@ -69,7 +80,7 @@ const rawMenu: AppMenuGroup[] = [
   {
     label: '证书与交换',
     key: 'g-cert',
-    mark: '证',
+    icon: RibbonOutline,
     children: [
       { label: '证书管理', key: 'certificateManage', path: '/certificates', perms: ['cert:view', 'cert:generate', 'cert:correct', 'cert:void', 'cert:reissue'] },
       { label: '证书签发', key: 'certificateIssue', path: '/certificate-issue', perms: ['cert:issue'] },
@@ -80,7 +91,7 @@ const rawMenu: AppMenuGroup[] = [
   {
     label: '统计与通知',
     key: 'g-stats',
-    mark: '统',
+    icon: BarChartOutline,
     children: [
       { label: '统计报表', key: 'statsReport', path: '/stats', perms: ['stats:view'] },
       { label: '通知中心', key: 'noticeCenter', path: '/notice', perms: ['notice:view'] }
@@ -89,7 +100,7 @@ const rawMenu: AppMenuGroup[] = [
   {
     label: '基础数据',
     key: 'g-base-data',
-    mark: '数',
+    icon: ServerOutline,
     children: [
       { label: '字典管理', key: 'dictManage', path: '/system/dicts', perms: ['dict:manage'] },
       { label: '行政区划', key: 'regionManage', path: '/system/regions', perms: ['region:manage'] },
@@ -100,7 +111,7 @@ const rawMenu: AppMenuGroup[] = [
   {
     label: '系统管理',
     key: 'g-system',
-    mark: '系',
+    icon: SettingsOutline,
     children: [
       { label: '账号权限', key: 'securityManage', path: '/system/security', perms: ['system:user:manage', 'system:role:manage', 'system:perm:manage'] },
       { label: '参数审计备份', key: 'systemAudit', path: '/system/audit', perms: ['system:param:manage', 'audit:view', 'system:backup'] }
@@ -116,10 +127,6 @@ const canViewNotice = computed(() => userStore.hasPerm('notice:view'))
 const yearOptions = computed<SelectOption[]>(() => yearStore.yearOptions.map((year) => ({ label: year, value: year })))
 
 const menuOptions = computed<MenuOption[]>(() => {
-  // 展开态用干净文本菜单；仅在折叠态保留单字标识作为图标占位（否则折叠后无任何可视字形）。
-  const markIcon = collapsed.value
-    ? (group: AppMenuGroup) => () => h('span', { class: 'menu-mark' }, group.mark)
-    : () => undefined
   return rawMenu
     .map((group) => {
       const visibleChildren = group.children.filter(canShowLeaf)
@@ -128,13 +135,13 @@ const menuOptions = computed<MenuOption[]>(() => {
         const leaf = visibleChildren[0]
         return {
           key: leaf.key,
-          icon: markIcon(group),
+          icon: renderMenuIcon(group.icon),
           label: () => h(RouterLink, { to: leaf.path }, { default: () => leaf.label })
         }
       }
       return {
         key: group.key,
-        icon: markIcon(group),
+        icon: renderMenuIcon(group.icon),
         label: group.label,
         children: visibleChildren.map((leaf) => ({
           key: leaf.key,
@@ -178,6 +185,10 @@ function renderMenuLabel(leaf: AppMenuLeaf) {
       ])
     : leaf.label
   return h(RouterLink, { to: leaf.path }, { default: () => label })
+}
+
+function renderMenuIcon(icon: typeof HomeOutline) {
+  return () => h(NIcon, { component: icon, size: 19 })
 }
 
 async function refreshUnread() {
@@ -258,13 +269,15 @@ function roleName(code?: string) {
               :value="yearStore.assessmentYear"
               :options="yearOptions"
               size="small"
-              tag
-              filterable
               @update:value="(value: string) => yearStore.setYear(value)"
             />
           </div>
           <n-badge v-if="canViewNotice" :value="unreadCount" :max="99" :show-zero="false" color="var(--brand)">
-            <n-button quaternary size="small" @click="openNoticeCenter">通知</n-button>
+            <n-button quaternary circle size="small" title="通知中心" @click="openNoticeCenter">
+              <template #icon>
+                <n-icon :component="NotificationsOutline" />
+              </template>
+            </n-button>
           </n-badge>
           <n-tag v-if="userStore.mustChangePwd" size="small" type="warning" :bordered="false">初始密码</n-tag>
           <n-dropdown :options="userMenu" @select="onUserMenu">
@@ -443,18 +456,6 @@ function roleName(code?: string) {
   background: var(--page-bg);
   padding: var(--space-7);
   min-width: 0;
-}
-
-:deep(.menu-mark) {
-  width: 22px;
-  height: 22px;
-  display: inline-grid;
-  place-items: center;
-  border-radius: 999px;
-  background: var(--brand-soft);
-  color: var(--brand);
-  font-size: 12px;
-  font-weight: 600;
 }
 
 :deep(.n-menu) {

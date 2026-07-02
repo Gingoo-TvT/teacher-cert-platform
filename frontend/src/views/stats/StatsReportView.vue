@@ -2,6 +2,7 @@
 import { computed, h, onMounted, reactive, ref, watch } from 'vue'
 import type { EChartsOption } from 'echarts'
 import { useMessage, type DataTableColumns, type SelectOption } from 'naive-ui'
+import { BarChartOutline, GridOutline, ListOutline, PeopleOutline } from '@vicons/ionicons5'
 import PageContainer from '@/components/PageContainer.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import StatCard from '@/components/StatCard.vue'
@@ -148,7 +149,7 @@ function cleanQuery(): StatsQuery {
 function chartLabel(row: StatsRow) {
   const dimension = row.dimensionLabel || row.dimension || '-'
   const status = row.statusLabel || row.status
-  return status ? `${dimension}\n${status}` : dimension
+  return status ? `${dimension} / ${status}` : dimension
 }
 
 function renderValues(values?: Record<string, string>) {
@@ -215,10 +216,10 @@ watch(
     </n-card>
 
     <n-grid v-if="canViewStats" :cols="4" :x-gap="12" responsive="screen" class="page-section">
-      <n-gi><StatCard label="统计行数" :value="summary.rowCount" /></n-gi>
-      <n-gi><StatCard label="汇总数量" :value="summary.total" tone="success" /></n-gi>
-      <n-gi><StatCard label="维度数" :value="summary.dimensions" tone="info" /></n-gi>
-      <n-gi><StatCard label="明细数" :value="summary.detailCount" tone="warning" /></n-gi>
+      <n-gi><StatCard label="统计行数" :value="summary.rowCount" :icon="ListOutline" /></n-gi>
+      <n-gi><StatCard label="汇总数量" :value="summary.total" :icon="BarChartOutline" tone="success" /></n-gi>
+      <n-gi><StatCard label="维度数" :value="summary.dimensions" :icon="GridOutline" tone="info" /></n-gi>
+      <n-gi><StatCard label="明细数" :value="summary.detailCount" :icon="PeopleOutline" tone="warning" /></n-gi>
     </n-grid>
 
     <n-grid v-if="canViewStats && metrics.length" :cols="4" :x-gap="12" responsive="screen" class="page-section">

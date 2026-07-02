@@ -1,19 +1,26 @@
 <script setup lang="ts">
+import type { Component } from 'vue'
+
 defineProps<{
   label: string
   value: string | number
   sub?: string | null
+  icon?: Component
   tone?: 'default' | 'brand' | 'success' | 'warning' | 'error' | 'info' | 'neutral'
 }>()
 </script>
 
 <template>
   <n-card :bordered="false" size="small" class="stat-card" :class="`stat-card--${tone || 'brand'}`">
-    <div class="stat-label">
-      <span class="stat-dot" />
-      <span>{{ label }}</span>
+    <div class="stat-head">
+      <div class="stat-icon">
+        <slot name="icon">
+          <n-icon v-if="icon" :component="icon" />
+        </slot>
+      </div>
+      <div class="stat-label">{{ label }}</div>
     </div>
-    <div class="stat-value">{{ value }}</div>
+    <div class="stat-value tabular-nums">{{ value }}</div>
     <div v-if="sub" class="stat-sub">{{ sub }}</div>
   </n-card>
 </template>
@@ -27,6 +34,7 @@ defineProps<{
   box-shadow: var(--shadow-card);
   transition: box-shadow 180ms ease, transform 180ms ease;
   --stat-tone: var(--brand);
+  --stat-tone-soft: var(--brand-soft);
 }
 
 .stat-card:hover {
@@ -35,6 +43,7 @@ defineProps<{
 
 .stat-card--success {
   --stat-tone: var(--success);
+  --stat-tone-soft: var(--success-soft);
 }
 
 .stat-card--success .stat-value {
@@ -43,6 +52,7 @@ defineProps<{
 
 .stat-card--warning {
   --stat-tone: var(--warning);
+  --stat-tone-soft: var(--warning-soft);
 }
 
 .stat-card--warning .stat-value {
@@ -51,6 +61,7 @@ defineProps<{
 
 .stat-card--error {
   --stat-tone: var(--error);
+  --stat-tone-soft: var(--error-soft);
 }
 
 .stat-card--error .stat-value {
@@ -60,6 +71,7 @@ defineProps<{
 .stat-card--info,
 .stat-card--brand {
   --stat-tone: var(--brand);
+  --stat-tone-soft: var(--brand-soft);
 }
 
 .stat-card--info .stat-value,
@@ -69,6 +81,7 @@ defineProps<{
 
 .stat-card--neutral {
   --stat-tone: var(--text-secondary);
+  --stat-tone-soft: var(--surface-muted);
 }
 
 .stat-card--neutral .stat-value {
@@ -77,35 +90,45 @@ defineProps<{
 
 .stat-card--default {
   --stat-tone: var(--text);
+  --stat-tone-soft: var(--surface-muted);
 }
 
 .stat-card--default .stat-value {
   color: var(--text);
 }
 
-.stat-label {
+.stat-head {
   display: flex;
   align-items: center;
   gap: var(--space-2);
+}
+
+.stat-icon {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--stat-tone-soft);
+  color: var(--stat-tone);
+  font-size: 19px;
+}
+
+.stat-icon:empty {
+  display: none;
+}
+
+.stat-label {
   font-size: 13px;
   line-height: 20px;
   color: var(--text-secondary);
 }
 
-.stat-dot {
-  width: 10px;
-  height: 10px;
-  flex: 0 0 10px;
-  border-radius: 999px;
-  background: var(--stat-tone);
-  box-shadow: 0 0 0 4px var(--brand-soft);
-}
-
 .stat-value {
   margin-top: var(--space-3);
-  font-size: 32px;
+  font-size: 30px;
   line-height: 38px;
-  font-weight: 600;
+  font-weight: 650;
   letter-spacing: 0;
   color: var(--brand);
 }

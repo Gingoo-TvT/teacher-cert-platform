@@ -532,7 +532,7 @@ onMounted(refreshAll)
       <n-gi v-if="canManageUsers"><StatCard label="用户总数" :value="summary.users" /></n-gi>
       <n-gi v-if="canManageUsers"><StatCard label="启用用户" :value="summary.enabledUsers" tone="success" /></n-gi>
       <n-gi v-if="canManageRoles"><StatCard label="角色数" :value="summary.roles" tone="info" /></n-gi>
-      <n-gi v-if="canManagePerms"><StatCard label="权限点" :value="summary.permissions" tone="neutral" /></n-gi>
+      <n-gi v-if="canManagePerms"><StatCard label="功能权限" :value="summary.permissions" tone="neutral" /></n-gi>
     </n-grid>
 
     <n-tabs v-if="hasVisibleSection" type="line" animated>
@@ -593,7 +593,7 @@ onMounted(refreshAll)
       <n-tab-pane v-if="canManagePerms" name="permissions" tab="权限">
         <section class="panel page-section">
           <n-alert v-if="canManagePerms" type="info" :bordered="false" class="page-section">
-            权限点为系统预置；本页用于查看权限树并在角色授权中配置。
+            功能权限为系统预置；本页用于查看权限树并在角色授权中配置。
           </n-alert>
           <n-data-table
             :columns="permissionColumns"

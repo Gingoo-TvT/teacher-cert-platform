@@ -695,7 +695,7 @@ watch(
         </n-card>
 
         <n-alert v-if="reviews.some((item) => item.status === 'RETURNED')" type="warning" :bordered="false" class="page-section">
-          已退回视频可由学生重新上传；评审中、需复评、已确认等状态仍按后端守卫禁止重传。
+          已退回视频可由学生重新上传；评审中、需复评、已确认等状态仍按系统校验禁止重传。
         </n-alert>
 
         <n-data-table
@@ -747,7 +747,7 @@ watch(
       <n-drawer-content title="上传教学能力视频" closable>
         <n-space vertical>
           <n-alert type="info" :bordered="false">
-            仅退回、待上传或校验失败状态显示重传入口；其他状态由后端重传守卫拒绝。
+          仅退回、待上传或校验失败状态显示重传入口；其他状态由系统校验拒绝。
           </n-alert>
           <n-select v-model:value="uploadForm.studentId" :options="studentOptions" :disabled="selfMode" filterable placeholder="学生" />
           <n-input v-model:value="uploadForm.assessmentYear" placeholder="考核年度" class="mono-input" />
@@ -828,7 +828,7 @@ watch(
     <n-modal v-model:show="returnVisible" preset="dialog" title="退回视频">
       <n-space vertical>
         <n-alert v-if="returning" type="warning" :bordered="false">
-          {{ returning.studentNo }} / {{ returning.studentName }}。已确认视频不可退回；其他状态由后端状态机校验。
+          {{ returning.studentNo }} / {{ returning.studentName }}。已确认视频不可退回；其他状态由系统状态校验。
         </n-alert>
         <n-input v-model:value="returnForm.comment" type="textarea" placeholder="请输入退回意见，学生重传时可据此修改" />
         <n-space justify="end">

@@ -2,14 +2,17 @@
 import { computed, h, onMounted, ref, watch } from 'vue'
 import type { EChartsOption } from 'echarts'
 import { useMessage, type DataTableColumns } from 'naive-ui'
+import { BarChartOutline, NotificationsOutline, SchoolOutline, StatsChartOutline } from '@vicons/ionicons5'
 import PageContainer from '@/components/PageContainer.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import StatCard from '@/components/StatCard.vue'
 import ChartBox from '@/components/ChartBox.vue'
 import { listNotices, type NotificationItem } from '@/api/notice'
+import { unreadNoticeCount } from '@/api/notice'
 import { getStatsReport, type StatsReport, type StatsRow } from '@/api/stats'
 import { useUserStore } from '@/stores/user'
 import { useYearStore } from '@/stores/year'
+import { formatDateTime } from '@/utils/format'
 
 interface DashboardProfile {
   title: string
@@ -23,6 +26,8 @@ const userStore = useUserStore()
 const yearStore = useYearStore()
 const loading = ref(false)
 const notices = ref<NotificationItem[]>([])
+const noticeTotal = ref(0)
+const unreadTotal = ref(0)
 const report = ref<StatsReport | null>(null)
 
 const profile = computed<DashboardProfile>(() => {
@@ -84,22 +89,24 @@ const profile = computed<DashboardProfile>(() => {
 
 const metrics = computed(() => report.value?.metrics || [])
 const rows = computed(() => report.value?.rows || [])
-const unread = computed(() => notices.value.filter((item) => item.readFlag === 0).length)
 const canViewStats = computed(() => userStore.hasPerm('stats:view'))
 const canViewNotice = computed(() => userStore.hasPerm('notice:view'))
 const statCards = computed(() => {
-  const base = metrics.value.slice(0, 4).map((item) => ({
+  const icons = [StatsChartOutline, BarChartOutline, SchoolOutline, NotificationsOutline]
+  const base = metrics.value.slice(0, 4).map((item, index) => ({
     label: item.label,
     value: item.value,
     sub: item.unit || null,
+    icon: icons[index] || StatsChartOutline,
     tone: 'brand' as const
   }))
   if (base.length) return base
+  const statsTotal = rows.value.reduce((sum, row) => sum + Number(row.count || 0), 0)
   return [
-    { label: '统计行数', value: rows.value.length, sub: null, tone: 'brand' as const },
-    { label: '汇总数量', value: rows.value.reduce((sum, row) => sum + Number(row.count || 0), 0), sub: null, tone: 'success' as const },
-    { label: '未读通知', value: unread.value, sub: null, tone: 'error' as const },
-    { label: '当前学年', value: yearStore.assessmentYear, sub: null, tone: 'info' as const }
+    { label: '统计汇总', value: statsTotal, sub: null, icon: BarChartOutline, tone: 'brand' as const },
+    { label: '未读通知', value: unreadTotal.value, sub: null, icon: NotificationsOutline, tone: 'error' as const },
+    { label: '通知总数', value: noticeTotal.value, sub: null, icon: NotificationsOutline, tone: 'info' as const },
+    { label: '当前学年', value: yearStore.assessmentYear, sub: null, icon: SchoolOutline, tone: 'neutral' as const }
   ]
 })
 
@@ -119,7 +126,7 @@ const noticeColumns: DataTableColumns<NotificationItem> = [
   { title: '状态', key: 'readFlag', width: 90, render: (row) => h(StatusTag, { text: row.readFlag === 0 ? '未读' : '已读' }) },
   { title: '标题', key: 'title', minWidth: 180, ellipsis: { tooltip: true }, render: (row) => row.title || '-' },
   { title: '内容', key: 'content', minWidth: 280, ellipsis: { tooltip: true }, render: (row) => row.content || '-' },
-  { title: '时间', key: 'createdAt', width: 170, render: (row) => row.createdAt || '-' }
+  { title: '时间', key: 'createdAt', width: 170, render: (row) => h('span', { class: 'mono tabular-nums' }, formatDateTime(row.createdAt)) }
 ]
 
 onMounted(loadDashboard)
@@ -132,12 +139,15 @@ watch(
 async function loadDashboard() {
   loading.value = true
   try {
-    const [statsRes, noticeRes] = await Promise.all([
+    const [statsRes, noticeRes, unreadRes] = await Promise.all([
       canViewStats.value ? getStatsReport(profile.value.statType, { assessmentYear: yearStore.assessmentYear }) : Promise.resolve(null),
-      canViewNotice.value ? listNotices(null) : Promise.resolve({ data: { records: [] as NotificationItem[], total: 0 } })
+      canViewNotice.value ? listNotices(null) : Promise.resolve({ data: { records: [] as NotificationItem[], total: 0 } }),
+      canViewNotice.value ? unreadNoticeCount() : Promise.resolve({ data: 0 })
     ])
     report.value = statsRes?.data || null
     notices.value = noticeRes.data.records.slice(0, 8)
+    noticeTotal.value = noticeRes.data.total
+    unreadTotal.value = Number(unreadRes.data || 0)
   } catch (error) {
     showError(error, '工作台加载失败')
   } finally {
@@ -148,7 +158,7 @@ async function loadDashboard() {
 function chartLabel(row: StatsRow) {
   const dimension = row.dimensionLabel || row.dimension || '-'
   const status = row.statusLabel || row.status
-  return status ? `${dimension}\n${status}` : dimension
+  return status ? `${dimension} / ${status}` : dimension
 }
 
 function showError(error: unknown, fallback: string) {
@@ -165,7 +175,7 @@ function showError(error: unknown, fallback: string) {
 
     <n-grid :cols="4" :x-gap="12" responsive="screen" class="page-section">
       <n-gi v-for="item in statCards" :key="item.label">
-        <StatCard :label="item.label" :value="item.value" :sub="item.sub" :tone="item.tone" />
+        <StatCard :label="item.label" :value="item.value" :sub="item.sub" :tone="item.tone" :icon="item.icon" />
       </n-gi>
     </n-grid>
 

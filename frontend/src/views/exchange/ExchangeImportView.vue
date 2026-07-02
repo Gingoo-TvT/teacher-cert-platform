@@ -27,6 +27,7 @@ import {
 } from '@/api/exchange'
 import { useUserStore } from '@/stores/user'
 import { useYearStore } from '@/stores/year'
+import { formatDateTime } from '@/utils/format'
 
 const message = useMessage()
 const userStore = useUserStore()
@@ -58,7 +59,7 @@ const canViewBatches = computed(() => canImport.value)
 const batchColumns: DataTableColumns<ExchangeBatch> = [
   { title: '批次号', key: 'batchNo', minWidth: 180, ellipsis: { tooltip: true }, render: (row) => h('span', { class: 'mono' }, row.batchNo) },
   { title: '类型', key: 'type', width: 90 },
-  { title: '时间', key: 'operateTime', width: 170, render: (row) => row.operateTime || '-' },
+  { title: '时间', key: 'operateTime', width: 170, render: (row) => h('span', { class: 'mono tabular-nums' }, formatDateTime(row.operateTime)) },
   { title: '总数', key: 'total', width: 80, render: (row) => h('span', { class: 'numeric' }, String(row.total ?? 0)) },
   { title: '成功', key: 'successCount', width: 80, render: (row) => h('span', { class: 'numeric' }, String(row.successCount ?? 0)) },
   { title: '失败', key: 'failCount', width: 80, render: (row) => h('span', { class: 'numeric' }, String(row.failCount ?? 0)) },

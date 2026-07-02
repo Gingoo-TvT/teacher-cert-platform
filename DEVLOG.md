@@ -15,6 +15,133 @@
 
 ---
 
+## [2026-07-02] Phase 30 待复核小结（体验基建 + 全局观感）
+- 做了什么：从 `main` 切出 `feature/phase30-ux-foundation`，执行 `docs/frontend-quality-plan.md` §4 Phase 30（T-190~T-195）。纯前端展示与体验结构调整；未改后端、契约、权限、状态机或迁移；新依赖仅 `@vicons/ionicons5`。
+- 关键决策与理由：先落 `FilterBar/DataPanel/EmptyState/TableSkeleton/DetailPanel/ReviewDialog` 与 `format/statusLabels`，再在学生列表、参数审计备份两个示范页接入，避免继续在页面内复制筛选、表格卡头、空态、详情和审核结构。ChartBox 直接按附录 C 固定色板与单系列柱规则，避免页面裸配置漂移。
+- 问题与解决：本机 MSYS/Git `grep.exe` 运行时报 Win32 error 5，无法直接执行附录 A 原始管道；本轮用 `git grep`/`rg` 跑同正则并贴空输出，复核环境可重跑附录原命令。为满足 W4，顺手把通知、导入、导出 3 个既有时间列改为 `formatDateTime`。
+- 与规格的偏差/疑问：无。未启动常驻前端/后端服务；未 push。
+
+### 通用组件与外壳 — T-190/T-191/T-192
+- 新增结构件：`FilterBar.vue`（内联 label、查询/重置、更多筛选）、`DataPanel.vue`（卡头标题+总数徽标+刷新/主操作+分页总数）、`EmptyState.vue`、`TableSkeleton.vue`、`DetailPanel.vue`、`ReviewDialog.vue`。
+- 工具与映射：`formatDateTime/formatDate/formatFileSize`；`STATUS_LABELS/OPERATION_LABELS/statusLabel/operationLabel`；`.tabular-nums`。
+- 外壳肉眼变化：侧栏菜单从单字色块变为 ionicons 图标；顶栏通知为铃铛 icon+角标；学年选择器只能选固定年份；浏览器标题随路由变更；新增青绿“师”字 favicon。
+
+### LoginView — T-193
+- 结构/文案：登录页 chips 改为「全流程线上办理 / 审核进度透明 / 证书全程可溯」，品牌副标题保持中文校名。
+- 肉眼变化：登录页不再出现开发建设术语，左侧价值标签面向办理流程。
+
+### StudentManageView — 示范页
+- 新增结构件：`FilterBar`、`DataPanel`、`EmptyState`、`DetailPanel`、`ReviewDialog`。
+- 业务展示：状态列走 `StatusTag + statusLabel`；表格卡头显示记录数；查看详情为只读 2 列说明面板；审核弹窗统一对象摘要→结论→意见。
+- T-195：年级筛选独立为空，新增/编辑表单年级不再默认取全局学年。
+- 肉眼变化：学生列表出现带标签筛选区、白色表格卡头与总数徽标、空态引导和独立详情面板。
+
+### SystemAuditView — 示范页
+- 新增结构件：参数、审计、备份三个分区分别接 `FilterBar + DataPanel`，分页显示总数并保留刷新/主操作。
+- 展示修正：参数更新时间、审计时间、备份开始/完成时间全部 `formatDateTime`；审计操作走 `operationLabel`；旧/新状态走 `statusLabel + StatusTag`。
+- 筛选修正：审计学院筛选由文本输入改学院下拉；学生筛选占位改「学生ID（数字）」并放入更多筛选。
+- 肉眼变化：参数/审计/备份不再是裸表格，审计状态从 `SECOND_REVIEW` 这类码变为中文标签。
+
+### DashboardView — T-194/T-195
+- 图表：类目标签去掉 `\n` 拼接；图表依赖 `ChartBox` 默认 tooltip/grid/色板/单系列规则。
+- 数据正确性：指标不再使用 `records.length`；通知数量来自 `PageResult.total`，未读数量来自 `/notice/unread-count`，统计汇总来自统计接口 rows。
+- 肉眼变化：工作台指标卡有图标圆底，通知时间显示为 `YYYY-MM-DD HH:mm`，柱图为青绿色单系列并有 tooltip。
+
+### StatsReportView — T-194
+- 图表：类目标签去掉 `\n` 拼接，继续通过 `ChartBox` 渲染。
+- 指标卡：接入 icon 版本 `StatCard`。
+- 肉眼变化：统计页顶部指标卡出现图标圆底，图表不再使用换行类目标签。
+
+### NoticeCenterView / ExchangeImportView / ExchangeExportView — W4 时间列
+- 展示修正：3 个页面的 `createdAt/operateTime` 表格列改为 `formatDateTime`。
+- 肉眼变化：通知、导入批次、导出批次的时间从 ISO 串变为 `YYYY-MM-DD HH:mm`。
+
+### DictManageView / OrganizationManageView / SecurityManageView / VideoReviewView — W3 文案清理
+- 文案：移除用户可见「后端」「权限点」等术语，改为“系统校验”“功能权限”等用户视角文本。
+- 肉眼变化：系统管理和视频页不再出现开发/内部术语。
+
+### 6 角色静态走查矩阵（build-only）
+| 角色 | 学生列表 | 参数审计备份 | 工作台/统计 |
+|---|---|---|---|
+| STUDENT | 可按本人范围进入学生信息相关入口；年级筛选不受全局学年强制过滤 | 无系统治理分区 | 工作台可见本人进度与通知 |
+| COLLEGE_CLERK | 可见学院范围学生列表与初审入口 | 仅加载有权审计分区时不触发参数/备份分区 | 工作台可见学院初审关注项 |
+| COLLEGE_AUDITOR | 可见学院范围学生列表与复审入口 | 仅加载有权审计分区时不触发参数/备份分区 | 工作台可见复审/视频关注项 |
+| REVIEW_TEACHER | 无学生列表管理入口 | 无系统治理分区 | 工作台可见视频评审关注项 |
+| ACADEMIC_ADMIN | 可见校级学生列表 | 可见参数与审计分区，不加载备份分区 | 工作台与统计可见校级口径 |
+| SYS_ADMIN | 按现有权限可见系统治理分区 | 可见参数/审计/备份分区 | 工作台可见系统治理关注项 |
+
+### 自检证据（W2）
+组件/工具存在：
+```
+$ rg --files frontend/src/components frontend/src/utils frontend/src/constants frontend/public | rg "(FilterBar|DataPanel|EmptyState|TableSkeleton|DetailPanel|ReviewDialog|format\\.ts|statusLabels\\.ts|favicon\\.svg)"
+frontend/public\favicon.svg
+frontend/src/utils\format.ts
+frontend/src/constants\statusLabels.ts
+frontend/src/components\FilterBar.vue
+frontend/src/components\EmptyState.vue
+frontend/src/components\DetailPanel.vue
+frontend/src/components\DataPanel.vue
+frontend/src/components\ReviewDialog.vue
+frontend/src/components\TableSkeleton.vue
+```
+
+附录 A 黑名单同正则输出为空：
+```
+$ git grep -n -E '(权限点|权限码|[a-z]+:[a-z]+:?[a-zA-Z]*['"'"'\\"]?\\s*(显隐|控制)|后端|接口|API|迁移|Flyway|RBAC|SPI|V-0[0-9])' -- frontend/src/views frontend/src/layouts frontend/src/components '*.vue' | rg -v '//|/\\*|import|hasPerm|perms:|@/api'
+<empty>
+```
+
+W4 时间列检查：
+```
+$ rg -n "key: '(createdAt|updatedAt|operateTime|startedAt|finishedAt|.*ReviewTime)'" frontend/src/views
+frontend/src/views\DashboardView.vue:129:  { title: '时间', key: 'createdAt', width: 170, render: (row) => h('span', { class: 'mono tabular-nums' }, formatDateTime(row.createdAt)) }
+frontend/src/views\exchange\ExchangeImportView.vue:62:  { title: '时间', key: 'operateTime', width: 170, render: (row) => h('span', { class: 'mono tabular-nums' }, formatDateTime(row.operateTime)) },
+frontend/src/views\exchange\ExchangeExportView.vue:70:  { title: '时间', key: 'operateTime', width: 170, render: (row) => h('span', { class: 'mono tabular-nums' }, formatDateTime(row.operateTime)) },
+frontend/src/views\notice\NoticeCenterView.vue:54:  { title: '时间', key: 'createdAt', width: 170, render: (row) => h('span', { class: 'mono tabular-nums' }, formatDateTime(row.createdAt)) },
+frontend/src/views\system\SystemAuditView.vue:104:  { title: '更新时间', key: 'updatedAt', minWidth: 170, render: (row) => h('span', { class: 'mono tabular-nums' }, formatDateTime(row.updatedAt)) },
+frontend/src/views\system\SystemAuditView.vue:119:  { title: '时间', key: 'operateTime', minWidth: 168, render: (row) => h('span', { class: 'mono tabular-nums' }, formatDateTime(row.operateTime)) },
+frontend/src/views\system\SystemAuditView.vue:149:  { title: '开始', key: 'startedAt', minWidth: 166, render: (row) => h('span', { class: 'mono tabular-nums' }, formatDateTime(row.startedAt)) },
+frontend/src/views\system\SystemAuditView.vue:150:  { title: '完成', key: 'finishedAt', minWidth: 166, render: (row) => h('span', { class: 'mono tabular-nums' }, formatDateTime(row.finishedAt)) },
+```
+
+Dashboard 禁用 `records.length`：
+```
+$ rg -n "records\\.length" frontend/src/views/DashboardView.vue
+<empty>
+```
+
+Dashboard/统计页类目换行拼接：
+```
+$ rg -n "\\n" frontend/src/views/DashboardView.vue frontend/src/views/stats/StatsReportView.vue
+<empty>
+```
+
+纯前端范围：
+```
+$ git diff --name-only | rg "^(platform-|pom\\.xml|docker-compose|.*db/migration|.*Controller|.*Service|.*Mapper|.*\\.java)"
+<empty>
+```
+
+新增依赖范围：
+```
+$ git diff -- frontend/package.json
++    "@vicons/ionicons5": "^0.13.0",
+```
+
+Build-only 验证：
+```
+$ npm --prefix frontend run type-check
+> teacher-cert-platform-frontend@1.0.0 type-check
+> vue-tsc --noEmit
+
+$ npm --prefix frontend run build
+> teacher-cert-platform-frontend@1.0.0 build
+> vite build
+✓ built in 8.14s
+(!) Some chunks are larger than 500 kB after minification.
+```
+- 下一步：提交本分支单提交后等待 Claude 按 Phase 30 gate ①-⑥ 复核。
+
 ## [2026-06-19] Phase 28 复核通过（Claude · REVIEW-GATE）✅ — UI 视觉重做·明亮圆润青绿 SaaS
 - 做了什么：复核 `feature/phase28-ui-bright-rounded` 单提交 `004ae10`（18 前端文件）。读 theme/naive.ts、global.css、tokens.ts + 确认新方向落地、**无 api/router/stores/后端/迁移改动**；前端 build-only gate。
 - 结论：**PASS**（一轮，客观门槛）。`type-check` 无错 + `built in 6.18s`。核对：① 新方向落地——naive.ts primaryColor #0d9488(青绿)、borderRadius 控件 10px/小 8px；global.css --brand #0d9488、--brand-soft #f0fdfa、--page-bg #f6f8f7(暖)、--radius-card 14px/--radius-tag 999px(pill)、阴影更柔更大；tokens.ts 图表色板首色 #14b8a6。② 导航青绿 pill、登录青绿分栏、卡片/表格圆角化、图表圆角柱。③ 与 Phase 26 蓝/6px 对比：主色蓝→青绿、圆角翻倍、留白加宽，肉眼明显不同。④ diff 无 src/api/router/stores/platform-*/migration——纯视觉。主观观感交用户运行栈终验。

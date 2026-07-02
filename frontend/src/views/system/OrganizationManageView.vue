@@ -193,7 +193,7 @@ const collegeColumns = computed<DataTableColumns<College>>(() => {
             { onPositiveClick: () => removeCollege(row) },
             {
               trigger: () => h(NButton, { size: 'small', quaternary: true, type: 'error' }, { default: () => '删除' }),
-              default: () => '删除学院会由后端校验是否存在专业。'
+                default: () => '删除学院会校验是否存在专业。'
             }
           )
         ])

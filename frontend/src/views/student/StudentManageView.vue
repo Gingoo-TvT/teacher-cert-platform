@@ -3,17 +3,22 @@ import { computed, h, onMounted, reactive, ref, watch } from 'vue'
 import {
   NButton,
   NPopconfirm,
-  NSpace,
   useMessage,
   type DataTableColumns,
   type FormInst,
   type FormRules,
   type SelectOption
 } from 'naive-ui'
+import { PersonAddOutline } from '@vicons/ionicons5'
+import DataPanel from '@/components/DataPanel.vue'
+import DetailPanel from '@/components/DetailPanel.vue'
+import FilterBar from '@/components/FilterBar.vue'
 import PageContainer from '@/components/PageContainer.vue'
+import ReviewDialog from '@/components/ReviewDialog.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import RegionCascader, { type RegionSelection } from '@/components/RegionCascader.vue'
 import { renderTableActions } from '@/utils/tableActions'
+import { statusLabel } from '@/constants/statusLabels'
 import { listDictItems, type DictItem } from '@/api/dict'
 import { listColleges, type College } from '@/api/organization'
 import {
@@ -29,14 +34,13 @@ import {
   type StudentPayload
 } from '@/api/student'
 import { useUserStore } from '@/stores/user'
-import { useYearStore } from '@/stores/year'
 
 const message = useMessage()
 const userStore = useUserStore()
-const yearStore = useYearStore()
 
 const loading = ref(false)
 const saving = ref(false)
+const reviewSaving = ref(false)
 const drawerVisible = ref(false)
 const reviewVisible = ref(false)
 const detailVisible = ref(false)
@@ -45,9 +49,10 @@ const editingId = ref<string | null>(null)
 const reviewing = ref<{ student: Student; stage: 'first' | 'second' } | null>(null)
 const keyword = ref('')
 const statusFilter = ref<string | null>(null)
-const gradeFilter = ref(yearStore.assessmentYear)
+const gradeFilter = ref('')
 const collegeFilter = ref<string | null>(null)
 const records = ref<Student[]>([])
+const studentTotal = ref(0)
 const colleges = ref<College[]>([])
 const genders = ref<DictItem[]>([])
 const idCardTypes = ref<DictItem[]>([])
@@ -67,13 +72,8 @@ const form = reactive<StudentPayload>({
   sourceCounty: null,
   sourceFull: '',
   collegeId: '',
-  grade: yearStore.assessmentYear,
+  grade: '',
   className: ''
-})
-
-const reviewForm = reactive<ReviewPayload>({
-  action: 'PASS',
-  comment: ''
 })
 
 const rules: FormRules = {
@@ -97,12 +97,6 @@ const statusOptions: SelectOption[] = [
   { label: '不合格', value: 'FAILED' }
 ]
 
-const reviewActionOptions: SelectOption[] = [
-  { label: '通过', value: 'PASS' },
-  { label: '退回', value: 'REJECT' },
-  { label: '不通过', value: 'FAIL' }
-]
-
 const canEdit = computed(() => userStore.hasPerm('student:edit'))
 const canFirstReview = computed(() => userStore.hasPerm('info:firstReview'))
 const canSecondReview = computed(() => userStore.hasPerm('info:secondReview'))
@@ -117,6 +111,26 @@ const filteredRecords = computed(() => {
   if (!grade) return records.value
   return records.value.filter((row) => [row.grade || '', row.className || ''].some((text) => text.includes(grade)))
 })
+const detailItems = computed(() => {
+  const row = selectedStudent.value
+  if (!row) return []
+  return [
+    { label: '学号', value: row.studentNo, mono: true },
+    { label: '姓名', value: row.name },
+    { label: '性别', value: dictLabel(genders.value, row.gender) },
+    { label: '身份类型', value: dictLabel(identityTypes.value, row.identityType) },
+    { label: '证件类型', value: dictLabel(idCardTypes.value, row.idCardType) },
+    { label: '证件号码', value: row.idCardNo, mono: true },
+    { label: '出生日期', value: row.birthDate, mono: true },
+    { label: '学院', value: collegeName(row.collegeId) },
+    { label: '年级/班级', value: [row.grade, row.className].filter(Boolean).join(' / ') || '-' },
+    { label: '生源地', value: row.sourceFull || '-', span: 2 },
+    { label: '状态', status: row.status },
+    { label: '锁定', value: row.locked ? '已锁定' : '未锁定' },
+    { label: '初审意见', value: row.firstReviewComment || '-', span: 2 },
+    { label: '复审意见', value: row.secondReviewComment || '-', span: 2 }
+  ]
+})
 
 const columns: DataTableColumns<Student> = [
   { title: '学号', key: 'studentNo', minWidth: 130, ellipsis: { tooltip: true }, render: (row) => h('span', { class: 'mono' }, row.studentNo) },
@@ -126,7 +140,7 @@ const columns: DataTableColumns<Student> = [
   { title: '证件号', key: 'idCardNo', minWidth: 190, ellipsis: { tooltip: true }, render: (row) => h('span', { class: 'mono' }, row.idCardNo) },
   { title: '生源地', key: 'sourceFull', minWidth: 170, ellipsis: { tooltip: true } },
   { title: '年级/班级', key: 'grade', minWidth: 130, ellipsis: { tooltip: true }, render: (row) => [row.grade, row.className].filter(Boolean).join(' / ') || '-' },
-  { title: '状态', key: 'status', width: 108, render: (row) => h(StatusTag, { text: row.statusLabel || row.status }) },
+  { title: '状态', key: 'status', width: 108, render: (row) => h(StatusTag, { value: row.status, text: row.statusLabel || statusLabel(row.status) }) },
   { title: '锁定', key: 'locked', width: 76, render: (row) => h(StatusTag, { text: row.locked ? '已锁定' : '未锁定' }) },
   {
     title: '操作',
@@ -174,6 +188,7 @@ async function loadStudents() {
       collegeId: collegeFilter.value
     })
     records.value = res.data.records
+    studentTotal.value = res.data.total
   } catch (error) {
     showError(error, '学生列表加载失败')
   } finally {
@@ -214,7 +229,7 @@ function openDrawer(row?: Student) {
     sourceCounty: row?.sourceCounty || null,
     sourceFull: row?.sourceFull || '',
     collegeId: row?.collegeId || '',
-    grade: row?.grade || yearStore.assessmentYear,
+    grade: row?.grade || '',
     className: row?.className || ''
   })
   drawerVisible.value = true
@@ -258,26 +273,35 @@ async function remove(row: Student) {
 
 function openReview(row: Student, stage: 'first' | 'second') {
   reviewing.value = { student: row, stage }
-  reviewForm.action = 'PASS'
-  reviewForm.comment = ''
   reviewVisible.value = true
 }
 
-async function saveReview() {
+async function saveReview(payload: ReviewPayload) {
   if (!reviewing.value) return
-  if (reviewForm.action !== 'PASS' && !reviewForm.comment?.trim()) {
+  if (payload.action !== 'PASS' && !payload.comment?.trim()) {
     message.error('退回或不通过必须填写原因')
     return
   }
+  reviewSaving.value = true
   try {
-    if (reviewing.value.stage === 'first') await firstReviewStudent(reviewing.value.student.id, reviewForm)
-    else await secondReviewStudent(reviewing.value.student.id, reviewForm)
+    if (reviewing.value.stage === 'first') await firstReviewStudent(reviewing.value.student.id, payload)
+    else await secondReviewStudent(reviewing.value.student.id, payload)
     message.success('审核完成')
     reviewVisible.value = false
     await loadStudents()
   } catch (error) {
     showError(error, '审核失败')
+  } finally {
+    reviewSaving.value = false
   }
+}
+
+function resetFilters() {
+  keyword.value = ''
+  statusFilter.value = null
+  collegeFilter.value = null
+  gradeFilter.value = ''
+  void loadStudents()
 }
 
 function handleRegionChange(payload: RegionSelection | null) {
@@ -308,51 +332,60 @@ onMounted(async () => {
   await loadOptions()
   await loadStudents()
 })
-
-watch(
-  () => yearStore.assessmentYear,
-  (year) => {
-    gradeFilter.value = year
-    if (!drawerVisible.value) form.grade = year
-  }
-)
 </script>
 
 <template>
   <PageContainer title="学生基本信息" description="学生基本信息查询、初审与复审。">
-    <template #actions>
-      <n-space>
-        <n-button secondary @click="loadStudents">刷新</n-button>
-        <n-button v-if="canEdit" type="primary" @click="openDrawer()">新增学生</n-button>
-      </n-space>
-    </template>
-
-    <n-card :bordered="false" size="small" class="page-section">
-      <n-space class="filters" :size="10">
+    <FilterBar :loading="loading" @submit="loadStudents" @reset="resetFilters">
+      <label class="filter-field">
+        <span>关键词</span>
         <n-input v-model:value="keyword" clearable placeholder="学号 / 姓名" style="width: 220px" @keyup.enter="loadStudents" />
-        <n-select v-model:value="statusFilter" clearable :options="statusOptions" placeholder="状态" style="width: 150px" />
-        <n-select v-model:value="collegeFilter" clearable filterable :options="collegeOptions" placeholder="学院" style="width: 200px" />
-        <n-input v-model:value="gradeFilter" clearable placeholder="学年/年级/班级" style="width: 160px" />
-        <n-button type="primary" @click="loadStudents">查询</n-button>
-      </n-space>
-    </n-card>
+      </label>
+      <label class="filter-field">
+        <span>状态</span>
+        <n-select v-model:value="statusFilter" clearable :options="statusOptions" placeholder="全部状态" style="width: 150px" />
+      </label>
+      <label class="filter-field">
+        <span>学院</span>
+        <n-select v-model:value="collegeFilter" clearable filterable :options="collegeOptions" placeholder="全部学院" style="width: 220px" />
+      </label>
+      <label class="filter-field">
+        <span>年级/班级</span>
+        <n-input v-model:value="gradeFilter" clearable placeholder="如 2022 / 1 班" style="width: 170px" />
+      </label>
+    </FilterBar>
 
-    <n-data-table
+    <DataPanel
+      title="学生列表"
       :columns="columns"
       :data="filteredRecords"
+      :total="gradeFilter ? filteredRecords.length : studentTotal"
       :loading="loading"
-      :row-key="(row: Student) => row.id"
       :scroll-x="1440"
-      :pagination="{ pageSize: 10 }"
-      striped
-    />
+      empty-title="暂无学生数据"
+      empty-description="当前筛选条件下没有学生记录。"
+      @refresh="loadStudents"
+    >
+      <template #actions>
+        <n-button v-if="canEdit" type="primary" size="small" @click="openDrawer()">
+          <template #icon>
+            <n-icon :component="PersonAddOutline" />
+          </template>
+          新增学生
+        </n-button>
+      </template>
+      <template v-if="canEdit" #emptyAction>
+        <n-button type="primary" @click="openDrawer()">新增学生</n-button>
+      </template>
+    </DataPanel>
 
-    <n-drawer v-model:show="drawerVisible" :width="620">
+    <n-drawer v-model:show="drawerVisible" :width="560">
       <n-drawer-content :title="editingId ? '编辑学生' : '新增学生'" closable>
         <n-alert v-if="editingId" type="info" :bordered="false" class="page-section">
           如证件号已脱敏显示，请重新录入完整证件号后保存。
         </n-alert>
         <n-form ref="formRef" :model="form" :rules="rules" label-placement="top">
+          <div class="form-section-title">基本信息</div>
           <n-grid :cols="2" :x-gap="12">
             <n-form-item-gi label="学号" path="studentNo"><n-input v-model:value="form.studentNo" /></n-form-item-gi>
             <n-form-item-gi label="姓名" path="name"><n-input v-model:value="form.name" /></n-form-item-gi>
@@ -361,10 +394,14 @@ watch(
             <n-form-item-gi label="证件类型" path="idCardType"><n-select v-model:value="form.idCardType" :options="idCardTypeOptions" /></n-form-item-gi>
             <n-form-item-gi label="证件号码" path="idCardNo"><n-input v-model:value="form.idCardNo" /></n-form-item-gi>
             <n-form-item-gi label="出生日期" path="birthDate"><n-input v-model:value="form.birthDate" placeholder="2000/12/31" /></n-form-item-gi>
+          </n-grid>
+          <div class="form-section-title">就读信息</div>
+          <n-grid :cols="2" :x-gap="12">
             <n-form-item-gi label="学院" path="collegeId"><n-select v-model:value="form.collegeId" filterable :options="collegeOptions" /></n-form-item-gi>
-            <n-form-item-gi label="年级"><n-input v-model:value="form.grade" placeholder="2026" /></n-form-item-gi>
+            <n-form-item-gi label="年级"><n-input v-model:value="form.grade" placeholder="如 2022" /></n-form-item-gi>
             <n-form-item-gi label="班级"><n-input v-model:value="form.className" /></n-form-item-gi>
           </n-grid>
+          <div class="form-section-title">生源信息</div>
           <n-form-item label="生源地">
             <RegionCascader :value="form.sourceCounty" @change="handleRegionChange" />
           </n-form-item>
@@ -378,43 +415,36 @@ watch(
       </n-drawer-content>
     </n-drawer>
 
-    <n-drawer v-model:show="detailVisible" :width="520">
+    <n-drawer v-model:show="detailVisible" :width="620">
       <n-drawer-content title="学生详情" closable>
-        <n-descriptions v-if="selectedStudent" bordered :column="1" size="small">
-          <n-descriptions-item label="学号"><span class="mono">{{ selectedStudent.studentNo }}</span></n-descriptions-item>
-          <n-descriptions-item label="姓名">{{ selectedStudent.name }}</n-descriptions-item>
-          <n-descriptions-item label="性别">{{ dictLabel(genders, selectedStudent.gender) }}</n-descriptions-item>
-          <n-descriptions-item label="身份类型">{{ dictLabel(identityTypes, selectedStudent.identityType) }}</n-descriptions-item>
-          <n-descriptions-item label="证件类型">{{ dictLabel(idCardTypes, selectedStudent.idCardType) }}</n-descriptions-item>
-          <n-descriptions-item label="证件号"><span class="mono">{{ selectedStudent.idCardNo }}</span></n-descriptions-item>
-          <n-descriptions-item label="出生日期"><span class="mono">{{ selectedStudent.birthDate }}</span></n-descriptions-item>
-          <n-descriptions-item label="学院">{{ collegeName(selectedStudent.collegeId) }}</n-descriptions-item>
-          <n-descriptions-item label="生源地">{{ selectedStudent.sourceFull || '-' }}</n-descriptions-item>
-          <n-descriptions-item label="状态"><StatusTag :text="selectedStudent.statusLabel || selectedStudent.status" /></n-descriptions-item>
-          <n-descriptions-item label="初审意见">{{ selectedStudent.firstReviewComment || '-' }}</n-descriptions-item>
-          <n-descriptions-item label="复审意见">{{ selectedStudent.secondReviewComment || '-' }}</n-descriptions-item>
-        </n-descriptions>
+        <DetailPanel v-if="selectedStudent" :items="detailItems" :columns="2" />
       </n-drawer-content>
     </n-drawer>
 
-    <n-modal v-model:show="reviewVisible" preset="dialog" :title="reviewing?.stage === 'first' ? '学生信息初审' : '学生信息复审'">
-      <n-space vertical>
-        <n-alert v-if="reviewing" type="info" :bordered="false">
-          {{ reviewing.student.studentNo }} / {{ reviewing.student.name }} / 当前状态：{{ reviewing.student.statusLabel }}
-        </n-alert>
-        <n-select v-model:value="reviewForm.action" :options="reviewActionOptions" />
-        <n-input v-model:value="reviewForm.comment" type="textarea" placeholder="退回或不通过必须填写原因" />
-        <n-space justify="end">
-          <n-button @click="reviewVisible = false">取消</n-button>
-          <n-button type="primary" @click="saveReview">确认</n-button>
-        </n-space>
-      </n-space>
-    </n-modal>
+    <ReviewDialog
+      v-model:show="reviewVisible"
+      :title="reviewing?.stage === 'first' ? '学生信息初审' : '学生信息复审'"
+      :loading="reviewSaving"
+      allow-fail
+      :summary="reviewing ? [
+        { label: '学号', value: reviewing.student.studentNo },
+        { label: '姓名', value: reviewing.student.name },
+        { label: '当前状态', status: reviewing.student.status }
+      ] : []"
+      @submit="saveReview"
+    />
   </PageContainer>
 </template>
 
 <style scoped>
-.filters {
-  flex-wrap: wrap;
+.form-section-title {
+  margin: var(--space-2) 0 var(--space-3);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.form-section-title:first-child {
+  margin-top: 0;
 }
 </style>

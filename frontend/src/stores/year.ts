@@ -21,7 +21,7 @@ export const useYearStore = defineStore('year', () => {
 
   function setYear(year: string) {
     const text = year.trim()
-    if (!text) return
+    if (!/^\d{4}$/.test(text)) return
     assessmentYear.value = text
     localStorage.setItem(STORAGE_KEY, text)
   }

@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, h, onMounted, reactive, ref } from 'vue'
-import { NButton, NPopconfirm, useMessage, type DataTableColumns, type FormInst, type FormRules } from 'naive-ui'
+import { NButton, NPopconfirm, useMessage, type DataTableColumns, type FormInst, type FormRules, type SelectOption } from 'naive-ui'
+import DataPanel from '@/components/DataPanel.vue'
+import FilterBar from '@/components/FilterBar.vue'
 import {
   deleteAuditLog,
   listAuditLogs,
@@ -15,6 +17,9 @@ import {
 import PageContainer from '@/components/PageContainer.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import StatCard from '@/components/StatCard.vue'
+import { listColleges, type College } from '@/api/organization'
+import { formatDateTime } from '@/utils/format'
+import { operationLabel, statusLabel } from '@/constants/statusLabels'
 import { useUserStore } from '@/stores/user'
 
 const message = useMessage()
@@ -32,6 +37,10 @@ const editingParam = ref<SysParam | null>(null)
 const params = ref<SysParam[]>([])
 const audits = ref<AuditLog[]>([])
 const backups = ref<BackupRecord[]>([])
+const colleges = ref<College[]>([])
+const paramTotal = ref(0)
+const auditTotal = ref(0)
+const backupTotal = ref(0)
 
 const paramQuery = reactive({ group: null as string | null, keyword: '' })
 const auditQuery = reactive({
@@ -60,11 +69,12 @@ const canViewAudit = computed(() => userStore.hasPerm('audit:view'))
 const canBackup = computed(() => userStore.hasPerm('system:backup'))
 const hasVisibleSection = computed(() => canManageParam.value || canViewAudit.value || canBackup.value)
 const summary = computed(() => ({
-  params: params.value.length,
-  audits: audits.value.length,
-  backups: backups.value.length,
+  params: paramTotal.value,
+  audits: auditTotal.value,
+  backups: backupTotal.value,
   completedBackups: backups.value.filter((item) => item.status === 'COMPLETED').length
 }))
+const collegeOptions = computed<SelectOption[]>(() => colleges.value.map((item) => ({ label: item.name, value: item.id })))
 
 const paramRules: FormRules = {
   paramValue: [{ required: true, message: '请输入参数值', trigger: ['blur', 'input'] }]
@@ -91,7 +101,7 @@ const paramColumns: DataTableColumns<SysParam> = [
   { title: '类型', key: 'paramType', width: 88 },
   { title: '分组', key: 'paramGroup', width: 90, render: (row) => tag(row.paramGroup, 'info') },
   { title: '说明', key: 'description', minWidth: 260, ellipsis: { tooltip: true } },
-  { title: '更新时间', key: 'updatedAt', minWidth: 170 },
+  { title: '更新时间', key: 'updatedAt', minWidth: 170, render: (row) => h('span', { class: 'mono tabular-nums' }, formatDateTime(row.updatedAt)) },
   {
     title: '操作',
     key: 'actions',
@@ -106,12 +116,12 @@ const paramColumns: DataTableColumns<SysParam> = [
 ]
 
 const auditColumns: DataTableColumns<AuditLog> = [
-  { title: '时间', key: 'operateTime', minWidth: 168 },
+  { title: '时间', key: 'operateTime', minWidth: 168, render: (row) => h('span', { class: 'mono tabular-nums' }, formatDateTime(row.operateTime)) },
   { title: '业务', key: 'bizType', width: 118, ellipsis: { tooltip: true } },
-  { title: '操作', key: 'operation', width: 126, ellipsis: { tooltip: true } },
+  { title: '操作', key: 'operation', width: 126, ellipsis: { tooltip: true }, render: (row) => operationLabel(row.operation) },
   { title: '对象', key: 'target', minWidth: 180, ellipsis: { tooltip: true } },
-  { title: '旧状态', key: 'oldStatus', width: 126, ellipsis: { tooltip: true } },
-  { title: '新状态', key: 'newStatus', width: 126, ellipsis: { tooltip: true } },
+  { title: '旧状态', key: 'oldStatus', width: 126, ellipsis: { tooltip: true }, render: (row) => row.oldStatus ? h(StatusTag, { value: row.oldStatus, text: statusLabel(row.oldStatus) }) : '-' },
+  { title: '新状态', key: 'newStatus', width: 126, ellipsis: { tooltip: true }, render: (row) => row.newStatus ? h(StatusTag, { value: row.newStatus, text: statusLabel(row.newStatus) }) : '-' },
   { title: '意见', key: 'comment', minWidth: 190, ellipsis: { tooltip: true } },
   { title: '操作人', key: 'operatorName', width: 140, ellipsis: { tooltip: true } },
   { title: 'IP', key: 'ip', width: 128, ellipsis: { tooltip: true } },
@@ -136,8 +146,8 @@ const backupColumns: DataTableColumns<BackupRecord> = [
   { title: '状态', key: 'status', width: 110, render: (row) => backupStatusTag(row.status) },
   { title: '范围', key: 'scope', width: 120, ellipsis: { tooltip: true } },
   { title: '位置', key: 'storageUri', minWidth: 260, ellipsis: { tooltip: true } },
-  { title: '开始', key: 'startedAt', minWidth: 166 },
-  { title: '完成', key: 'finishedAt', minWidth: 166 },
+  { title: '开始', key: 'startedAt', minWidth: 166, render: (row) => h('span', { class: 'mono tabular-nums' }, formatDateTime(row.startedAt)) },
+  { title: '完成', key: 'finishedAt', minWidth: 166, render: (row) => h('span', { class: 'mono tabular-nums' }, formatDateTime(row.finishedAt)) },
   { title: '备注', key: 'remark', minWidth: 200, ellipsis: { tooltip: true } }
 ]
 
@@ -150,6 +160,7 @@ async function loadParams() {
   try {
     const res = await listSystemParams(paramQuery)
     params.value = res.data.records
+    paramTotal.value = res.data.total
   } catch (error) {
     showError(error, '参数加载失败')
   } finally {
@@ -166,6 +177,7 @@ async function loadAudits() {
   try {
     const res = await listAuditLogs(auditQuery)
     audits.value = res.data.records
+    auditTotal.value = res.data.total
   } catch (error) {
     showError(error, '审计日志加载失败')
   } finally {
@@ -182,6 +194,7 @@ async function loadBackups() {
   try {
     const res = await listBackups(backupStatus.value)
     backups.value = res.data.records
+    backupTotal.value = res.data.total
   } catch (error) {
     showError(error, '备份记录加载失败')
   } finally {
@@ -252,8 +265,8 @@ async function tryDeleteAudit(row: AuditLog) {
 }
 
 function backupStatusTag(status: string) {
-  const type = status === 'COMPLETED' ? 'success' : status === 'FAILED' ? 'error' : 'warning'
-  return tag(status, type)
+  const text = status === 'FAILED' ? '失败' : statusLabel(status)
+  return h(StatusTag, { text, value: status })
 }
 
 function tag(text: string | null | undefined, type: 'default' | 'info' | 'success' | 'warning' | 'error' = 'default') {
@@ -267,10 +280,39 @@ function showError(error: unknown, fallback: string) {
 
 async function loadVisibleSections() {
   const tasks: Promise<void>[] = []
+  if (canViewAudit.value) tasks.push(loadColleges())
   if (canManageParam.value) tasks.push(loadParams())
   if (canViewAudit.value) tasks.push(loadAudits())
   if (canBackup.value) tasks.push(loadBackups())
   await Promise.all(tasks)
+}
+
+async function loadColleges() {
+  const res = await listColleges()
+  colleges.value = res.data
+}
+
+function resetParamQuery() {
+  paramQuery.group = null
+  paramQuery.keyword = ''
+  void loadParams()
+}
+
+function resetAuditQuery() {
+  Object.assign(auditQuery, {
+    bizType: '',
+    operation: '',
+    keyword: '',
+    collegeId: '',
+    studentId: '',
+    batchNo: ''
+  })
+  void loadAudits()
+}
+
+function resetBackupQuery() {
+  backupStatus.value = null
+  void loadBackups()
 }
 
 onMounted(loadVisibleSections)
@@ -297,81 +339,103 @@ onMounted(loadVisibleSections)
 
     <n-tabs v-if="hasVisibleSection" type="line" animated>
       <n-tab-pane v-if="canManageParam" name="params" tab="系统参数">
-        <section class="panel">
-          <div class="toolbar">
-            <n-space :size="10" class="filters">
-              <n-select v-model:value="paramQuery.group" clearable placeholder="分组" :options="paramGroupOptions" style="width: 140px" />
-              <n-input v-model:value="paramQuery.keyword" clearable placeholder="参数键 / 说明" style="width: 240px" />
-              <n-button secondary @click="loadParams">查询</n-button>
-            </n-space>
-          </div>
-          <n-data-table
-            :columns="paramColumns"
-            :data="params"
-            :scroll-x="960"
-            :loading="paramLoading"
-            :row-key="(row: SysParam) => row.id"
-            size="small"
-            striped
-            :max-height="640"
-          />
-        </section>
+        <FilterBar :loading="paramLoading" @submit="loadParams" @reset="resetParamQuery">
+          <label class="filter-field">
+            <span>分组</span>
+            <n-select v-model:value="paramQuery.group" clearable placeholder="全部分组" :options="paramGroupOptions" style="width: 150px" />
+          </label>
+          <label class="filter-field">
+            <span>关键词</span>
+            <n-input v-model:value="paramQuery.keyword" clearable placeholder="参数键 / 说明" style="width: 240px" @keyup.enter="loadParams" />
+          </label>
+        </FilterBar>
+        <DataPanel
+          title="系统参数"
+          :columns="paramColumns"
+          :data="params"
+          :total="paramTotal"
+          :scroll-x="960"
+          :loading="paramLoading"
+          empty-title="暂无系统参数"
+          empty-description="当前筛选条件下没有系统参数记录。"
+          @refresh="loadParams"
+        />
       </n-tab-pane>
 
       <n-tab-pane v-if="canViewAudit" name="audit" tab="审计日志">
-        <section class="panel">
-          <div class="toolbar">
-            <n-space :size="10" class="filters">
-              <n-input v-model:value="auditQuery.bizType" clearable placeholder="业务类型" style="width: 140px" />
-              <n-input v-model:value="auditQuery.operation" clearable placeholder="操作" style="width: 140px" />
-              <n-input v-model:value="auditQuery.collegeId" clearable placeholder="学院ID" style="width: 150px" />
-              <n-input v-model:value="auditQuery.studentId" clearable placeholder="学生ID" style="width: 150px" />
-              <n-input v-model:value="auditQuery.batchNo" clearable placeholder="批次号" style="width: 150px" />
-              <n-input v-model:value="auditQuery.keyword" clearable placeholder="对象 / 意见 / 关键词" style="width: 220px" />
-              <n-button secondary @click="loadAudits">查询</n-button>
-            </n-space>
-          </div>
-          <n-data-table
-            :columns="auditColumns"
-            :data="audits"
-            :scroll-x="1200"
-            :loading="auditLoading"
-            :row-key="(row: AuditLog) => row.id"
-            size="small"
-            striped
-            :max-height="640"
-          />
-        </section>
+        <FilterBar :loading="auditLoading" @submit="loadAudits" @reset="resetAuditQuery">
+          <label class="filter-field">
+            <span>业务</span>
+            <n-input v-model:value="auditQuery.bizType" clearable placeholder="业务类型" style="width: 140px" @keyup.enter="loadAudits" />
+          </label>
+          <label class="filter-field">
+            <span>操作</span>
+            <n-input v-model:value="auditQuery.operation" clearable placeholder="操作名称" style="width: 140px" @keyup.enter="loadAudits" />
+          </label>
+          <label class="filter-field">
+            <span>学院</span>
+            <n-select v-model:value="auditQuery.collegeId" clearable filterable placeholder="全部学院" :options="collegeOptions" style="width: 220px" />
+          </label>
+          <label class="filter-field">
+            <span>关键词</span>
+            <n-input v-model:value="auditQuery.keyword" clearable placeholder="对象 / 意见 / 关键词" style="width: 220px" @keyup.enter="loadAudits" />
+          </label>
+          <template #more>
+            <label class="filter-field">
+              <span>学生</span>
+              <n-input v-model:value="auditQuery.studentId" clearable placeholder="学生ID（数字）" style="width: 150px" @keyup.enter="loadAudits" />
+            </label>
+            <label class="filter-field">
+              <span>批次</span>
+              <n-input v-model:value="auditQuery.batchNo" clearable placeholder="批次号" style="width: 150px" @keyup.enter="loadAudits" />
+            </label>
+          </template>
+        </FilterBar>
+        <DataPanel
+          title="审计日志"
+          :columns="auditColumns"
+          :data="audits"
+          :total="auditTotal"
+          :scroll-x="1280"
+          :loading="auditLoading"
+          empty-title="暂无审计日志"
+          empty-description="当前筛选条件下没有审计记录。"
+          @refresh="loadAudits"
+        />
       </n-tab-pane>
 
       <n-tab-pane v-if="canBackup" name="backup" tab="备份记录">
-        <section class="panel">
-          <div class="toolbar">
-            <n-space :size="10" class="filters">
-              <n-select
-                v-model:value="backupStatus"
-                clearable
-                placeholder="状态"
-                style="width: 150px"
-                :options="[
-                  { label: '已完成', value: 'COMPLETED' },
-                  { label: '失败', value: 'FAILED' },
-                  { label: '运行中', value: 'RUNNING' }
-                ]"
-              />
-              <n-button secondary @click="loadBackups">查询</n-button>
-            </n-space>
-          </div>
-          <n-data-table
-            :columns="backupColumns"
-            :data="backups"
-            :loading="backupLoading"
-            :row-key="(row: BackupRecord) => row.id"
-            size="small"
-            striped
-            :max-height="640"
-          />
-        </section>
+        <FilterBar :loading="backupLoading" @submit="loadBackups" @reset="resetBackupQuery">
+          <label class="filter-field">
+            <span>状态</span>
+            <n-select
+              v-model:value="backupStatus"
+              clearable
+              placeholder="全部状态"
+              style="width: 150px"
+              :options="[
+                { label: '已完成', value: 'COMPLETED' },
+                { label: '失败', value: 'FAILED' },
+                { label: '运行中', value: 'RUNNING' }
+              ]"
+            />
+          </label>
+        </FilterBar>
+        <DataPanel
+          title="备份记录"
+          :columns="backupColumns"
+          :data="backups"
+          :total="backupTotal"
+          :scroll-x="1120"
+          :loading="backupLoading"
+          empty-title="暂无备份记录"
+          empty-description="当前筛选条件下没有备份演练记录。"
+          @refresh="loadBackups"
+        >
+          <template #actions>
+            <n-button type="primary" size="small" @click="openBackupDrawer">记录备份演练</n-button>
+          </template>
+        </DataPanel>
       </n-tab-pane>
     </n-tabs>
 
@@ -426,25 +490,7 @@ onMounted(loadVisibleSections)
 </template>
 
 <style scoped>
-.toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-4);
-}
-
-.toolbar {
-  margin-bottom: var(--space-4);
-}
-
-.filters {
-  flex-wrap: wrap;
-}
-
-@media (max-width: 1120px) {
-  .toolbar {
-    align-items: stretch;
-    flex-direction: column;
-  }
+.n-tabs {
+  margin-top: var(--space-2);
 }
 </style>

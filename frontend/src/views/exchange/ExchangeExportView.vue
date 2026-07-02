@@ -15,6 +15,7 @@ import {
 } from '@/api/exchange'
 import { useUserStore } from '@/stores/user'
 import { useYearStore } from '@/stores/year'
+import { formatDateTime } from '@/utils/format'
 
 const message = useMessage()
 const userStore = useUserStore()
@@ -66,7 +67,7 @@ const batchColumns: DataTableColumns<ExchangeBatch> = [
   { title: '批次号', key: 'batchNo', minWidth: 180, ellipsis: { tooltip: true }, render: (row) => h('span', { class: 'mono' }, row.batchNo) },
   { title: '类型', key: 'type', width: 90 },
   { title: '导出项', key: 'strategy', width: 150, render: (row) => row.strategy || '-' },
-  { title: '时间', key: 'operateTime', width: 170, render: (row) => row.operateTime || '-' },
+  { title: '时间', key: 'operateTime', width: 170, render: (row) => h('span', { class: 'mono tabular-nums' }, formatDateTime(row.operateTime)) },
   { title: '数量', key: 'successCount', width: 90, render: (row) => h('span', { class: 'numeric' }, String(row.successCount ?? 0)) },
   { title: '状态', key: 'status', width: 120, render: (row) => h(StatusTag, { text: row.status }) },
   { title: '文件', key: 'fileName', minWidth: 180, ellipsis: { tooltip: true }, render: (row) => row.fileName || '-' }

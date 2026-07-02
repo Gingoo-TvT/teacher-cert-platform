@@ -156,7 +156,7 @@ const typeColumns = computed<DataTableColumns<DictType>>(() => {
             { onPositiveClick: () => removeType(row) },
             {
               trigger: () => h(NButton, { size: 'small', quaternary: true, type: 'error' }, { default: () => '删除' }),
-              default: () => '删除字典类型会由后端校验是否存在字典项。'
+                default: () => '删除字典类型会校验是否存在字典项。'
             }
           )
         ])

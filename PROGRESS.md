@@ -5,10 +5,10 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**Phase 28 ✅ 已复核（Claude 06-19，PASS·一轮）—— UI 重做为明亮圆润(青绿)，与旧蓝版肉眼明显不同**。客观门槛（新方向落地/视觉-only/build 绿）已过，主观观感由用户在运行栈终验。
+- 当前阶段：**Phase 30 待复核**（分支：`feature/phase30-ux-foundation`）—— 体验基建 + 全局观感，示范接入页为学生列表、参数审计备份。
 - 阻塞项：无
-- 最近更新：2026-06-19（Phase 28 复核通过：青绿 #0d9488 主色 + 卡片/表格 14px/控件 10px + pill 标签 + 暖底 #f6f8f7 + 柔和大阴影 + 青绿 chart 色板；theme/naive.ts+global.css+tokens.ts 重写、导航青绿 pill、登录青绿分栏；无逻辑/接口/迁移改动；type-check+build 绿；详见 docs/reviews/phase-28-review.md）
-- 下一步：合并后重启 vite，用户硬刷新视觉终验；可选 T-162 待学校确认；交付前部署冒烟+Excel/WPS 核对
+- 最近更新：2026-07-02（Phase 30 T-190~T-195：新增 `@vicons/ionicons5`、格式化/状态映射工具、6 个体验组件；外壳图标/铃铛/favicon/标题同步/学年限制；登录页文案；ChartBox v2 色板与单系列规则；Dashboard 统计口径；学生列表与参数审计备份结构化接入。纯前端，不改后端/契约/迁移。）
+- 下一步：等待 Claude 按 Phase 30 gate ①-⑥ 复核；本地私有仓库无 remote，不 push。
 
 ## 阶段汇总
 | Phase | 名称 | 优先级 | 任务数 | 完成 | 状态 |
@@ -313,6 +313,16 @@
 - [x] T-179 登录页：明亮青绿品牌分栏、浅暖背景、圆角白卡表单；保留真实 captcha/login/change-pwd 流程。
 - [x] T-180 图表：`ChartBox` 保留 Phase25 轴修复，新增明快色板、柱图顶圆角 `itemStyle.borderRadius:[6,6,0,0]`、`barMaxWidth:34`、圆角 tooltip 与浅色轴线。
 - [x] T-181 验证：`npm --prefix frontend run type-check` 通过；`npm --prefix frontend run build` 通过（仅既有 Vite chunk-size warning）；硬编码色自查：页面/组件/布局层无 `#`/`rgba` 色值，色值集中在 `frontend/src/theme/*`。
+
+## 收官后 · Phase 30 / 体验基建 + 全局观感
+- Phase 30 `体验基建 + 全局观感`：**待复核**（分支：`feature/phase30-ux-foundation`）。纯前端展示与体验结构调整；不改后端代码、契约、权限、状态机或迁移；新依赖仅 `@vicons/ionicons5`。
+- [x] T-190 依赖与工具：新增 `@vicons/ionicons5`；新增 `frontend/src/utils/format.ts` 与 `frontend/src/constants/statusLabels.ts`；`global.css` 增 `.tabular-nums`。
+- [x] T-191 通用组件：新增 `FilterBar.vue`、`DataPanel.vue`、`EmptyState.vue`、`TableSkeleton.vue`、`DetailPanel.vue`、`ReviewDialog.vue`；`StatCard` 增 icon slot/青绿圆底/tabular 数字。
+- [x] T-192 外壳：菜单组接 ionicons；通知按钮改铃铛角标；`router.afterEach` 同步标题；新增 `frontend/public/favicon.svg`；学年选择器限制 4 位年份且移除自由输入。
+- [x] T-193 全局文案：登录页 chips 改用户价值文案，品牌副标题为中文校名；黑名单文案清理。
+- [x] T-194 图表：`tokens.ts` 使用附录 C 色板；`ChartBox` 内置 tooltip/grid/legend/单系列柱规则；Dashboard/统计页去掉类目换行拼接。
+- [x] T-195 数据正确性：Dashboard 指标不再用 `records.length`；学生列表年级筛选独立为空，新增/编辑表单不再默认取全局学年。
+- 验证：`npm --prefix frontend run type-check` 通过；`npm --prefix frontend run build` 通过（仅既有 Vite chunk-size warning）。等待 Claude 复核，未自行置阶段通过。
 
 ---
 

@@ -171,4 +171,9 @@ router.beforeEach(async (to) => {
   return true
 })
 
+router.afterEach((to) => {
+  const title = String(to.meta.title || '登录')
+  document.title = `${title} · 师范生考核与证书管理平台`
+})
+
 export default router

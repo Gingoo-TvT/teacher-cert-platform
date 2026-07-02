@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { statusLabel } from '@/constants/statusLabels'
 
 const props = defineProps<{
   text?: string | null
   value?: string | null
 }>()
 
-const label = computed(() => props.text || props.value || '-')
+const rawValue = computed(() => props.value || props.text || '')
+const label = computed(() => props.text || statusLabel(props.value) || '-')
 
 const MAP: Record<string, 'default' | 'success' | 'warning' | 'error' | 'info'> = {
   DRAFT: 'default',
@@ -90,7 +92,7 @@ const MAP: Record<string, 'default' | 'success' | 'warning' | 'error' | 'info'> 
   失败: 'error'
 }
 
-const type = computed(() => MAP[label.value] ?? 'default')
+const type = computed(() => MAP[rawValue.value] ?? MAP[label.value] ?? 'default')
 const tagClass = computed(() => ['status-soft', `status-${type.value}`])
 </script>
 

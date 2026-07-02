@@ -5,6 +5,7 @@ import {
   chartAxisColor,
   chartAxisLineColor,
   chartPalette,
+  chartSingleBarColor,
   chartSplitLineColor,
   chartTooltipBorderColor
 } from '@/theme/tokens'
@@ -53,6 +54,8 @@ function normalizeOption(option: echarts.EChartsOption): echarts.EChartsOption {
   const bottom = rotate ? 82 : Math.max(48, Math.min(72, maxLabelLength * 4 + 32))
   const tooltip = isObject(option.tooltip) ? option.tooltip : {}
   const tooltipTextStyle = isObject(tooltip.textStyle) ? tooltip.textStyle : {}
+  const seriesCount = Array.isArray(option.series) ? option.series.length : option.series ? 1 : 0
+  const legend = isObject(option.legend) ? option.legend : {}
 
   return {
     color: [...chartPalette],
@@ -70,10 +73,23 @@ function normalizeOption(option: echarts.EChartsOption): echarts.EChartsOption {
         ...tooltipTextStyle
       }
     },
+    legend: seriesCount > 1
+      ? {
+          top: 0,
+          right: 0,
+          itemWidth: 10,
+          itemHeight: 10,
+          textStyle: { color: chartAxisColor },
+          ...legend
+        }
+      : {
+          ...legend,
+          show: false
+        },
     grid: {
       left: 48,
       right: 24,
-      top: 28,
+      top: seriesCount > 1 ? 48 : 28,
       bottom,
       containLabel: true,
       ...(isObject(option.grid) ? option.grid : {})
@@ -134,7 +150,7 @@ function normalizeOption(option: echarts.EChartsOption): echarts.EChartsOption {
         }
       }
     }) as echarts.EChartsOption['yAxis'],
-    series: normalizeSeries(option.series) as echarts.EChartsOption['series']
+    series: normalizeSeries(option.series, seriesCount) as echarts.EChartsOption['series']
   }
 }
 
@@ -156,7 +172,7 @@ function firstCategoryLabels(axis: echarts.EChartsOption['xAxis']) {
   })
 }
 
-function normalizeSeries(series: echarts.EChartsOption['series']) {
+function normalizeSeries(series: echarts.EChartsOption['series'], seriesCount: number) {
   const normalize = (item: unknown) => {
     if (!isObject(item) || item.type !== 'bar') return item
     const itemStyle = isObject(item.itemStyle) ? item.itemStyle : {}
@@ -164,8 +180,9 @@ function normalizeSeries(series: echarts.EChartsOption['series']) {
       barMaxWidth: 34,
       ...item,
       itemStyle: {
-        borderRadius: [6, 6, 0, 0],
-        ...itemStyle
+        ...itemStyle,
+        color: seriesCount === 1 ? chartSingleBarColor : itemStyle.color,
+        borderRadius: [4, 4, 0, 0]
       }
     }
   }

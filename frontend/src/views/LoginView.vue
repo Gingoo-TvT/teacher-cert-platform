@@ -131,9 +131,9 @@ onMounted(loadCaptcha)
       <h1>师范生教育教学能力考核与教师职业能力证书管理平台</h1>
       <p>基本信息、培养过程、材料审核、视频评审、测试结果、证书编号与上报数据的全流程管理。</p>
       <div class="brand-meta">
-        <span>真实后端接入</span>
-        <span>权限按功能点控制</span>
-        <span>全链路留痕</span>
+        <span>全流程线上办理</span>
+        <span>审核进度透明</span>
+        <span>证书全程可溯</span>
       </div>
     </section>
 
