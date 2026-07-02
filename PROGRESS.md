@@ -5,10 +5,10 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**Phase 30 ✅ 已复核（Claude 07-02，PASS·一轮+1 处复核修补）**——体验基建落地；下一步 Phase 31（12 个业务列表页铺开，frontend-quality-plan §4-Phase31）。
+- 当前阶段：**Phase 31 待复核**——12 个业务列表页铺开（frontend-quality-plan §4-Phase31），分支 `feature/phase31-list-rollout`。
 - 阻塞项：无
-- 最近更新：2026-07-02（Phase 30 复核通过：gate ①-⑥ 全过——6 组件/外壳图标铃铛 favicon 标题同步/黑名单 grep 复跑为空/示范页格式化+状态中文/ChartBox v2 色板逐字节一致+W7 闭环/构建绿；复核修补 ReviewDialog「退回必填意见」校验；详见 docs/reviews/phase-30-review.md）
-- 下一步：Phase 31（业务列表页铺开）；派发词见 frontend-quality-plan 附录 D。
+- 最近更新：2026-07-03（Phase 31 待复核：学生/培养/材料/免考/视频列表/测试/证书/签发/导入/导出/统计/通知 12 页套用 P1/P2/P3/P7/P8 与附录 B 格式化；导出学院下拉、通知列表化等特有项已落地；`type-check` + `build` 通过，仅 Vite chunk-size warning；详见 DEVLOG）
+- 下一步：等待 Claude 按 Phase 31 gate 逐页复核与 6 角色走查；通过后进入 Phase 32。
 
 ## 阶段汇总
 | Phase | 名称 | 优先级 | 任务数 | 完成 | 状态 |
@@ -323,6 +323,15 @@
 - [x] T-194 图表：`tokens.ts` 使用附录 C 色板；`ChartBox` 内置 tooltip/grid/legend/单系列柱规则；Dashboard/统计页去掉类目换行拼接。
 - [x] T-195 数据正确性：Dashboard 指标不再用 `records.length`；学生列表年级筛选独立为空，新增/编辑表单不再默认取全局学年。
 - 验证：`npm --prefix frontend run type-check` 通过；`npm --prefix frontend run build` 通过（仅既有 Vite chunk-size warning）。等待 Claude 复核，未自行置阶段通过。
+
+## 收官后 · Phase 31 / 业务域列表页铺开
+- Phase 31 `业务域列表页铺开`：**待复核**（分支：`feature/phase31-list-rollout`）。纯前端展示层改造；未改后端、契约、迁移或 stores 逻辑；未新增依赖。
+- [x] 学生/培养：接入统一筛选、DataPanel、状态映射与操作收敛；学生空态引导“去导入”；培养详情与审核弹窗统一并保持联动字段中文展示。
+- [x] 材料/免考：接入统一筛选、DataPanel、StatCard、ReviewDialog；材料类别/文件大小格式化与预览 icon；免考科目/依据中文与佐证文件徽标。
+- [x] 视频/测试：视频评审列表、我的评审、评审组卡化；`RETURNED` 显示“已退回”；任务提交时间格式化。测试成绩 mono 右对齐，结论/确认状态 StatusTag。
+- [x] 证书/签发：证书号 mono；签发日期/有效期 `formatDate`；生命周期状态映射；签发队列卡化。
+- [x] 导入/导出/统计/通知：导入批次时间/策略中文，异常表卡化；导出学院筛选改学院下拉并继续传 id；统计表格卡化且 ChartBox 保持附录 C；通知改 `n-list`、未读圆点/标题加粗/灰色时间、行点击标记已读并打开全文抽屉。
+- 验证：`npm --prefix frontend run type-check` 通过；`npm --prefix frontend run build` 通过（仅 Vite chunk-size warning）；附录 A 黑名单与纯前端范围检查输出为空。等待 Claude 复核，未自行置阶段通过。
 
 ---
 

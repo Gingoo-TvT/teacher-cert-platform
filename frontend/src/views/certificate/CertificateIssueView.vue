@@ -1,9 +1,14 @@
 <script setup lang="ts">
 import { computed, h, onMounted, reactive, ref, watch } from 'vue'
-import { NButton, NPopconfirm, NSpace, useMessage, type DataTableColumns, type SelectOption } from 'naive-ui'
+import { NButton, NPopconfirm, useMessage, type DataTableColumns, type SelectOption } from 'naive-ui'
+import DataPanel from '@/components/DataPanel.vue'
+import FilterBar from '@/components/FilterBar.vue'
 import PageContainer from '@/components/PageContainer.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import StatCard from '@/components/StatCard.vue'
+import { renderTableActions } from '@/utils/tableActions'
+import { statusLabel } from '@/constants/statusLabels'
+import { formatDate } from '@/utils/format'
 import { listDictItems, type DictItem } from '@/api/dict'
 import { useUserStore } from '@/stores/user'
 import { useYearStore } from '@/stores/year'
@@ -51,16 +56,16 @@ const columns: DataTableColumns<Certificate> = [
   { title: '年度', key: 'assessmentYear', width: 96, render: (row) => h('span', { class: 'mono' }, row.assessmentYear) },
   { title: '任教学科', key: 'teachingSubjectName', minWidth: 150, ellipsis: { tooltip: true } },
   { title: '签发人', key: 'issuer', width: 110, render: (row) => row.issuer || '-' },
-  { title: '签发日期', key: 'issueDate', width: 120, render: (row) => row.issueDate || '-' },
-  { title: '有效期至', key: 'validUntil', width: 120, render: (row) => h('span', { class: 'mono' }, row.validUntil || '-') },
-  { title: '状态', key: 'status', width: 108, render: (row) => h(StatusTag, { text: row.statusLabel || row.status }) },
+  { title: '签发日期', key: 'issueDate', width: 120, render: (row) => h('span', { class: 'mono tabular-nums' }, formatDate(row.issueDate)) },
+  { title: '有效期至', key: 'validUntil', width: 120, render: (row) => h('span', { class: 'mono tabular-nums' }, formatDate(row.validUntil)) },
+  { title: '状态', key: 'status', width: 108, render: (row) => h(StatusTag, { value: row.status, text: row.statusLabel || statusLabel(row.status) }) },
   {
     title: '操作',
     key: 'actions',
     fixed: 'right',
     width: 260,
     render: (row) =>
-      h(NSpace, { size: 4 }, () => [
+      renderTableActions([
         canIssue.value && row.status === 'GENERATED'
           ? h(NButton, { size: 'small', type: 'primary', onClick: () => openIssue(row) }, { default: () => '签发' })
           : null,
@@ -155,6 +160,13 @@ function confirmButton(label: string, text: string, onPositiveClick: () => void,
   )
 }
 
+function resetFilters() {
+  keyword.value = ''
+  assessmentYear.value = yearStore.assessmentYear
+  statusFilter.value = 'GENERATED'
+  void loadRecords()
+}
+
 function todayText() {
   const now = new Date()
   return `${now.getFullYear()}/${now.getMonth() + 1}/${now.getDate()}`
@@ -181,10 +193,6 @@ watch(
 
 <template>
   <PageContainer title="证书签发队列" description="待签发证书队列。">
-    <template #actions>
-      <n-button v-if="canViewQueue" secondary @click="loadRecords">刷新</n-button>
-    </template>
-
     <n-empty v-if="!canViewQueue" description="当前账号没有证书队列查看权限" class="page-section" />
 
     <n-grid v-if="canViewQueue" :cols="3" :x-gap="12" responsive="screen" class="page-section">
@@ -193,24 +201,32 @@ watch(
       <n-gi><StatCard label="已导出待归档" :value="summary.exported" tone="info" /></n-gi>
     </n-grid>
 
-    <n-card v-if="canViewQueue" :bordered="false" size="small" class="page-section">
-      <n-space class="filters" :size="10">
+    <FilterBar v-if="canViewQueue" :loading="loading" @submit="loadRecords" @reset="resetFilters">
+      <label class="filter-field">
+        <span>关键词</span>
         <n-input v-model:value="keyword" clearable placeholder="证书编号 / 学号 / 姓名" style="width: 240px" @keyup.enter="loadRecords" />
+      </label>
+      <label class="filter-field">
+        <span>年度</span>
         <n-input v-model:value="assessmentYear" placeholder="考核年度" style="width: 120px" />
-        <n-select v-model:value="statusFilter" clearable :options="statusOptions" placeholder="证书状态" style="width: 150px" />
-        <n-button type="primary" @click="loadRecords">查询</n-button>
-      </n-space>
-    </n-card>
+      </label>
+      <label class="filter-field">
+        <span>状态</span>
+        <n-select v-model:value="statusFilter" clearable :options="statusOptions" placeholder="全部状态" style="width: 150px" />
+      </label>
+    </FilterBar>
 
-    <n-data-table
+    <DataPanel
       v-if="canViewQueue"
+      title="签发队列"
       :columns="columns"
       :data="records"
+      :total="records.length"
       :loading="loading"
-      :row-key="(row: Certificate) => row.id"
       :scroll-x="1320"
-      :pagination="{ pageSize: 10 }"
-      striped
+      empty-title="暂无待签发证书"
+      empty-description="当前筛选条件下没有证书签发记录。"
+      @refresh="loadRecords"
     />
 
     <n-modal v-model:show="issueVisible" preset="card" title="签发证书" style="width: 520px">
@@ -227,7 +243,4 @@ watch(
 </template>
 
 <style scoped>
-.filters {
-  flex-wrap: wrap;
-}
 </style>

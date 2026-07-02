@@ -3,15 +3,18 @@ import { computed, h, onMounted, ref, watch } from 'vue'
 import {
   NButton,
   NPopconfirm,
-  NSpace,
   useMessage,
   type DataTableColumns,
   type SelectOption,
   type UploadFileInfo
 } from 'naive-ui'
+import DataPanel from '@/components/DataPanel.vue'
+import FilterBar from '@/components/FilterBar.vue'
 import PageContainer from '@/components/PageContainer.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import StatCard from '@/components/StatCard.vue'
+import { renderTableActions } from '@/utils/tableActions'
+import { statusLabel } from '@/constants/statusLabels'
 import { listDictItems, type DictItem } from '@/api/dict'
 import { getExamSubjects, type ExamSubject } from '@/api/exemption'
 import { listStudents, type Student } from '@/api/student'
@@ -73,17 +76,17 @@ const columns: DataTableColumns<AbilityTestResult> = [
   { title: '年度', key: 'assessmentYear', width: 96, render: (row) => h('span', { class: 'mono' }, row.assessmentYear) },
   { title: '组织方式', key: 'examOrgModeLabel', minWidth: 190, ellipsis: { tooltip: true } },
   { title: '应考科目', key: 'examSubjects', minWidth: 220, render: (row) => subjectText(row.examSubjects) },
-  { title: '成绩', key: 'score', minWidth: 150, ellipsis: { tooltip: true }, render: (row) => h('span', { class: 'mono' }, row.score || '-') },
-  { title: '结论', key: 'conclusion', width: 106, render: (row) => h(StatusTag, { text: row.conclusionLabel || row.conclusion }) },
+  { title: '成绩', key: 'score', minWidth: 150, ellipsis: { tooltip: true }, render: (row) => h('span', { class: 'mono numeric tabular-nums' }, row.score || '-') },
+  { title: '结论', key: 'conclusion', width: 106, render: (row) => h(StatusTag, { value: row.conclusion, text: row.conclusionLabel || statusLabel(row.conclusion) }) },
   { title: '证书有效', key: 'validForCertificate', width: 108, render: (row) => h(StatusTag, { text: row.validForCertificate ? '有效' : '无效' }) },
-  { title: '确认', key: 'confirmStatusLabel', width: 106, render: (row) => h(StatusTag, { text: row.confirmStatusLabel || row.confirmStatus }) },
+  { title: '确认', key: 'confirmStatusLabel', width: 106, render: (row) => h(StatusTag, { value: row.confirmStatus, text: row.confirmStatusLabel || statusLabel(row.confirmStatus) }) },
   {
     title: '操作',
     key: 'actions',
     fixed: 'right',
     width: 270,
     render: (row) =>
-      h(NSpace, { size: 4 }, () => [
+      renderTableActions([
         h(NButton, { size: 'small', quaternary: true, onClick: () => showSubjects(row) }, { default: () => '应考' }),
         h(NButton, { size: 'small', quaternary: true, onClick: () => showValidity(row) }, { default: () => '有效性' }),
         canConfirm.value && row.id && row.confirmStatus !== 'CONFIRMED'
@@ -220,6 +223,14 @@ function subjectText(subjects: ExamSubject[]) {
   return labels.length ? labels.join('、') : '无应考科目'
 }
 
+function resetFilters() {
+  keyword.value = ''
+  assessmentYear.value = yearStore.assessmentYear
+  conclusionFilter.value = null
+  confirmFilter.value = null
+  void loadRecords()
+}
+
 function showError(error: unknown, fallback: string) {
   const detail = error instanceof Error ? error.message : fallback
   message.error(detail || fallback)
@@ -241,13 +252,6 @@ watch(
 
 <template>
   <PageContainer title="测试结果" description="测试成绩通过导入产生，院校人员确认锁定。">
-    <template #actions>
-      <n-space>
-        <n-button secondary @click="loadRecords">刷新</n-button>
-        <n-button v-if="canImport" type="primary" @click="openImport">导入测试结果</n-button>
-      </n-space>
-    </template>
-
     <n-grid :cols="4" :x-gap="12" responsive="screen" class="page-section">
       <n-gi><StatCard label="结果总数" :value="summary.total" /></n-gi>
       <n-gi><StatCard label="证书前置有效" :value="summary.valid" tone="success" /></n-gi>
@@ -255,25 +259,43 @@ watch(
       <n-gi><StatCard label="已确认" :value="summary.confirmed" tone="info" /></n-gi>
     </n-grid>
 
-    <n-card :bordered="false" size="small" class="page-section">
-      <n-space class="filters" :size="10">
+    <FilterBar :loading="loading" @submit="loadRecords" @reset="resetFilters">
+      <label class="filter-field">
+        <span>关键词</span>
         <n-input v-model:value="keyword" clearable placeholder="学号 / 姓名 / 成绩" style="width: 220px" @keyup.enter="loadRecords" />
+      </label>
+      <label class="filter-field">
+        <span>年度</span>
         <n-input v-model:value="assessmentYear" placeholder="考核年度" style="width: 120px" />
-        <n-select v-model:value="conclusionFilter" clearable :options="conclusionOptions" placeholder="结论" style="width: 150px" />
-        <n-select v-model:value="confirmFilter" clearable :options="confirmOptions" placeholder="确认状态" style="width: 150px" />
-        <n-button type="primary" @click="loadRecords">查询</n-button>
-      </n-space>
-    </n-card>
+      </label>
+      <label class="filter-field">
+        <span>结论</span>
+        <n-select v-model:value="conclusionFilter" clearable :options="conclusionOptions" placeholder="全部结论" style="width: 150px" />
+      </label>
+      <label class="filter-field">
+        <span>确认</span>
+        <n-select v-model:value="confirmFilter" clearable :options="confirmOptions" placeholder="全部状态" style="width: 150px" />
+      </label>
+    </FilterBar>
 
-    <n-data-table
+    <DataPanel
+      title="测试结果列表"
       :columns="columns"
       :data="records"
+      :total="records.length"
       :loading="loading"
-      :row-key="(row: AbilityTestResult) => row.id || row.studentId"
       :scroll-x="1460"
-      :pagination="{ pageSize: 10 }"
-      striped
-    />
+      empty-title="暂无测试结果"
+      empty-description="当前筛选条件下没有测试结果记录。"
+      @refresh="loadRecords"
+    >
+      <template #actions>
+        <n-button v-if="canImport" type="primary" size="small" @click="openImport">导入测试结果</n-button>
+      </template>
+      <template v-if="canImport" #emptyAction>
+        <n-button type="primary" @click="openImport">导入测试结果</n-button>
+      </template>
+    </DataPanel>
 
     <n-modal v-model:show="importVisible" preset="card" title="导入测试结果" style="width: 760px">
       <n-space vertical>
@@ -309,7 +331,4 @@ watch(
 </template>
 
 <style scoped>
-.filters {
-  flex-wrap: wrap;
-}
 </style>

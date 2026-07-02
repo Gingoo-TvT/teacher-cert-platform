@@ -2,17 +2,21 @@
 import { computed, h, onMounted, reactive, ref, watch } from 'vue'
 import {
   NButton,
-  NSpace,
   useMessage,
   type DataTableColumns,
   type FormInst,
   type FormRules,
   type SelectOption
 } from 'naive-ui'
+import DataPanel from '@/components/DataPanel.vue'
+import DetailPanel from '@/components/DetailPanel.vue'
+import FilterBar from '@/components/FilterBar.vue'
 import PageContainer from '@/components/PageContainer.vue'
+import ReviewDialog from '@/components/ReviewDialog.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import SubjectSelect from '@/components/SubjectSelect.vue'
 import { renderTableActions } from '@/utils/tableActions'
+import { statusLabel } from '@/constants/statusLabels'
 import { listDictItems, type DictItem } from '@/api/dict'
 import { listColleges, listMajors, type College, type Major } from '@/api/organization'
 import { listStudents, type Student } from '@/api/student'
@@ -37,6 +41,7 @@ const yearStore = useYearStore()
 
 const loading = ref(false)
 const saving = ref(false)
+const reviewSaving = ref(false)
 const submitting = ref(false)
 const drawerVisible = ref(false)
 const reviewVisible = ref(false)
@@ -82,11 +87,6 @@ const form = reactive<TrainingPayload>({
   abilityTestConclusion: ''
 })
 
-const reviewForm = reactive<ReviewPayload>({
-  action: 'PASS',
-  comment: ''
-})
-
 const rules: FormRules = {
   studentId: [{ required: true, message: '请选择学生', trigger: ['change'] }],
   assessmentYear: [{ required: true, message: '请输入考核年度', trigger: ['blur', 'input'] }],
@@ -109,12 +109,6 @@ const statusOptions: SelectOption[] = [
   { label: '复审退回', value: 'SECOND_REJECTED' },
   { label: '复审通过', value: 'PASSED' },
   { label: '不合格', value: 'FAILED' }
-]
-
-const reviewActionOptions: SelectOption[] = [
-  { label: '通过', value: 'PASS' },
-  { label: '退回', value: 'REJECT' },
-  { label: '不通过', value: 'FAIL' }
 ]
 
 const canEdit = computed(() => userStore.hasPerm('training:edit'))
@@ -154,6 +148,28 @@ const filteredRecords = computed(() => {
   if (!segment) return records.value
   return records.value.filter((row) => row.teachingSegment === segment)
 })
+const detailItems = computed(() => {
+  const row = selectedProfile.value
+  if (!row) return []
+  return [
+    { label: '学生', value: [row.studentNo, row.studentName].filter(Boolean).join(' / ') || '-' },
+    { label: '学院', value: collegeName(row.collegeId) },
+    { label: '考核年度', value: row.assessmentYear, mono: true },
+    { label: '校内专业', value: row.internalMajorName || '-' },
+    { label: '二级学科', value: [row.secondDisciplineCode, row.secondDisciplineName].filter(Boolean).join(' / ') || '-' },
+    { label: '学历层次', value: dictLabel(educationLevels.value, row.educationLevel) },
+    { label: '培养目标', value: dictLabel(trainingGoals.value, row.trainingGoal) },
+    { label: '实习组织方式', value: dictLabel(internshipModes.value, row.internshipOrgMode) },
+    { label: '实习地点', value: dictLabel(internshipLocations.value, row.internshipLocation) },
+    { label: '任教学段', value: dictLabel(segments.value, row.teachingSegment) },
+    { label: '任教学科', value: [row.teachingSubjectName, row.teachingSubjectCode].filter(Boolean).join(' / ') || '-' },
+    { label: '面试组织方式', value: dictLabel(interviewModes.value, row.interviewOrgMode) },
+    { label: '测试结论', value: dictLabel(conclusions.value, row.abilityTestConclusion) },
+    { label: '状态', status: row.status },
+    { label: '初审意见', value: row.firstReviewComment || '-', span: 2 },
+    { label: '复审意见', value: row.secondReviewComment || '-', span: 2 }
+  ]
+})
 
 const columns: DataTableColumns<TrainingProfile> = [
   { title: '学号', key: 'studentNo', minWidth: 130, ellipsis: { tooltip: true }, render: (row) => h('span', { class: 'mono' }, row.studentNo || '-') },
@@ -165,7 +181,7 @@ const columns: DataTableColumns<TrainingProfile> = [
   { title: '实习地点', key: 'internshipLocation', minWidth: 120, render: (row) => dictLabel(internshipLocations.value, row.internshipLocation) },
   { title: '学段', key: 'teachingSegment', minWidth: 120, render: (row) => dictLabel(segments.value, row.teachingSegment) },
   { title: '学科', key: 'teachingSubjectName', minWidth: 150, ellipsis: { tooltip: true } },
-  { title: '状态', key: 'status', width: 108, render: (row) => h(StatusTag, { text: row.statusLabel || row.status }) },
+  { title: '状态', key: 'status', width: 108, render: (row) => h(StatusTag, { value: row.status, text: row.statusLabel || statusLabel(row.status) }) },
   {
     title: '操作',
     key: 'actions',
@@ -349,26 +365,36 @@ async function submit(row: TrainingProfile) {
 
 function openReview(row: TrainingProfile, stage: 'first' | 'second') {
   reviewing.value = { profile: row, stage }
-  reviewForm.action = 'PASS'
-  reviewForm.comment = ''
   reviewVisible.value = true
 }
 
-async function saveReview() {
+async function saveReview(payload: ReviewPayload) {
   if (!reviewing.value) return
-  if (reviewForm.action !== 'PASS' && !reviewForm.comment?.trim()) {
+  if (payload.action !== 'PASS' && !payload.comment?.trim()) {
     message.error('退回或不通过必须填写原因')
     return
   }
+  reviewSaving.value = true
   try {
-    if (reviewing.value.stage === 'first') await firstReviewTrainingProfile(reviewing.value.profile.id, reviewForm)
-    else await secondReviewTrainingProfile(reviewing.value.profile.id, reviewForm)
+    if (reviewing.value.stage === 'first') await firstReviewTrainingProfile(reviewing.value.profile.id, payload)
+    else await secondReviewTrainingProfile(reviewing.value.profile.id, payload)
     message.success('审核完成')
     reviewVisible.value = false
     await loadRecords()
   } catch (error) {
     showError(error, '审核失败')
+  } finally {
+    reviewSaving.value = false
   }
+}
+
+function resetFilters() {
+  keyword.value = ''
+  assessmentYear.value = yearStore.assessmentYear
+  statusFilter.value = null
+  collegeFilter.value = null
+  segmentFilter.value = null
+  void loadRecords()
 }
 
 function handleStudentChange(studentId: string | number | null) {
@@ -420,33 +446,47 @@ watch(
 
 <template>
   <PageContainer title="专业培养信息" description="专业培养信息维护，培养目标、学段与学科按标准联动。">
-    <template #actions>
-      <n-space>
-        <n-button secondary @click="loadRecords">刷新</n-button>
-        <n-button v-if="canCreate" type="primary" @click="openDrawer()">新增培养信息</n-button>
-      </n-space>
-    </template>
-
-    <n-card :bordered="false" size="small" class="page-section">
-      <n-space class="filters" :size="10">
+    <FilterBar :loading="loading" @submit="loadRecords" @reset="resetFilters">
+      <label class="filter-field">
+        <span>关键词</span>
         <n-input v-model:value="keyword" clearable placeholder="学生 / 专业 / 学科" style="width: 220px" @keyup.enter="loadRecords" />
+      </label>
+      <label class="filter-field">
+        <span>年度</span>
         <n-input v-model:value="assessmentYear" placeholder="考核年度" style="width: 120px" />
-        <n-select v-model:value="collegeFilter" clearable filterable :options="collegeOptions" placeholder="学院" style="width: 200px" />
-        <n-select v-model:value="statusFilter" clearable :options="statusOptions" placeholder="状态" style="width: 150px" />
-        <n-select v-model:value="segmentFilter" clearable :options="segmentFilterOptions" placeholder="学段" style="width: 150px" />
-        <n-button type="primary" @click="loadRecords">查询</n-button>
-      </n-space>
-    </n-card>
+      </label>
+      <label class="filter-field">
+        <span>学院</span>
+        <n-select v-model:value="collegeFilter" clearable filterable :options="collegeOptions" placeholder="全部学院" style="width: 200px" />
+      </label>
+      <label class="filter-field">
+        <span>状态</span>
+        <n-select v-model:value="statusFilter" clearable :options="statusOptions" placeholder="全部状态" style="width: 150px" />
+      </label>
+      <label class="filter-field">
+        <span>学段</span>
+        <n-select v-model:value="segmentFilter" clearable :options="segmentFilterOptions" placeholder="全部学段" style="width: 150px" />
+      </label>
+    </FilterBar>
 
-    <n-data-table
+    <DataPanel
+      title="培养信息列表"
       :columns="columns"
       :data="filteredRecords"
+      :total="filteredRecords.length"
       :loading="loading"
-      :row-key="(row: TrainingProfile) => row.id"
       :scroll-x="1550"
-      :pagination="{ pageSize: 10 }"
-      striped
-    />
+      empty-title="暂无培养信息"
+      empty-description="当前筛选条件下没有专业培养信息。"
+      @refresh="loadRecords"
+    >
+      <template #actions>
+        <n-button v-if="canCreate" type="primary" size="small" @click="openDrawer()">新增培养信息</n-button>
+      </template>
+      <template v-if="canCreate" #emptyAction>
+        <n-button type="primary" @click="openDrawer()">新增培养信息</n-button>
+      </template>
+    </DataPanel>
 
     <n-drawer v-model:show="drawerVisible" :width="720">
       <n-drawer-content :title="editingId ? '编辑专业培养信息' : '新增专业培养信息'" closable>
@@ -513,47 +553,26 @@ watch(
 
     <n-drawer v-model:show="detailVisible" :width="560">
       <n-drawer-content title="培养信息详情" closable>
-        <n-descriptions v-if="selectedProfile" bordered :column="1" size="small">
-          <n-descriptions-item label="学生">{{ selectedProfile.studentNo }} / {{ selectedProfile.studentName }}</n-descriptions-item>
-          <n-descriptions-item label="学院">{{ collegeName(selectedProfile.collegeId) }}</n-descriptions-item>
-          <n-descriptions-item label="考核年度"><span class="mono">{{ selectedProfile.assessmentYear }}</span></n-descriptions-item>
-          <n-descriptions-item label="校内专业">{{ selectedProfile.internalMajorName || '-' }}</n-descriptions-item>
-          <n-descriptions-item label="二级学科">{{ selectedProfile.secondDisciplineCode }} / {{ selectedProfile.secondDisciplineName }}</n-descriptions-item>
-          <n-descriptions-item label="学历层次">{{ dictLabel(educationLevels, selectedProfile.educationLevel) }}</n-descriptions-item>
-          <n-descriptions-item label="培养目标">{{ dictLabel(trainingGoals, selectedProfile.trainingGoal) }}</n-descriptions-item>
-          <n-descriptions-item label="实习组织方式">{{ dictLabel(internshipModes, selectedProfile.internshipOrgMode) }}</n-descriptions-item>
-          <n-descriptions-item label="实习地点">{{ dictLabel(internshipLocations, selectedProfile.internshipLocation) }}</n-descriptions-item>
-          <n-descriptions-item label="任教学段">{{ dictLabel(segments, selectedProfile.teachingSegment) }}</n-descriptions-item>
-          <n-descriptions-item label="任教学科">{{ selectedProfile.teachingSubjectName }} / {{ selectedProfile.teachingSubjectCode }}</n-descriptions-item>
-          <n-descriptions-item label="面试组织方式">{{ dictLabel(interviewModes, selectedProfile.interviewOrgMode) }}</n-descriptions-item>
-          <n-descriptions-item label="状态"><StatusTag :text="selectedProfile.statusLabel || selectedProfile.status" /></n-descriptions-item>
-          <n-descriptions-item label="初审意见">{{ selectedProfile.firstReviewComment || '-' }}</n-descriptions-item>
-          <n-descriptions-item label="复审意见">{{ selectedProfile.secondReviewComment || '-' }}</n-descriptions-item>
-        </n-descriptions>
+        <DetailPanel v-if="selectedProfile" :items="detailItems" :columns="2" />
       </n-drawer-content>
     </n-drawer>
 
-    <n-modal v-model:show="reviewVisible" preset="dialog" :title="reviewing?.stage === 'first' ? '培养信息初审' : '培养信息复审'">
-      <n-space vertical>
-        <n-alert v-if="reviewing" type="info" :bordered="false">
-          {{ reviewing.profile.studentNo }} / {{ reviewing.profile.studentName }} / 当前状态：{{ reviewing.profile.statusLabel }}
-        </n-alert>
-        <n-select v-model:value="reviewForm.action" :options="reviewActionOptions" />
-        <n-input v-model:value="reviewForm.comment" type="textarea" placeholder="退回或不通过必须填写原因" />
-        <n-space justify="end">
-          <n-button @click="reviewVisible = false">取消</n-button>
-          <n-button type="primary" @click="saveReview">确认</n-button>
-        </n-space>
-      </n-space>
-    </n-modal>
+    <ReviewDialog
+      v-model:show="reviewVisible"
+      :title="reviewing?.stage === 'first' ? '培养信息初审' : '培养信息复审'"
+      :loading="reviewSaving"
+      allow-fail
+      :summary="reviewing ? [
+        { label: '学号', value: reviewing.profile.studentNo },
+        { label: '姓名', value: reviewing.profile.studentName },
+        { label: '当前状态', status: reviewing.profile.status }
+      ] : []"
+      @submit="saveReview"
+    />
   </PageContainer>
 </template>
 
 <style scoped>
-.filters {
-  flex-wrap: wrap;
-}
-
 .mono-input :deep(input) {
   font-family: var(--font-mono);
 }

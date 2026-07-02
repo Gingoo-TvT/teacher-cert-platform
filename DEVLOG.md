@@ -15,6 +15,152 @@
 
 ---
 
+## [2026-07-03] Phase 31 待复核小结（业务域列表页铺开）
+- 做了什么：从最新 `main` 切出 `feature/phase31-list-rollout`，执行 `docs/frontend-quality-plan.md` §4 Phase 31。12 个业务列表页逐页套用 P1/P2/P3/P7/P8 与附录 B 格式化；纯前端展示层改造，未改后端、契约、迁移或 stores 逻辑；未新增依赖。
+- 关键决策与理由：复用 Phase 30 的 `FilterBar/DataPanel/EmptyState/DetailPanel/ReviewDialog/StatCard/StatusTag` 与 `format/statusLabels`，优先收敛列表页结构和状态/时间/文件格式化；通知页按阶段要求从表格改为列表交互，导出页只读取学院列表并继续提交既有 `collegeId`。
+- 问题与解决：批次状态 `FAILED` 在导入/导出语境应显示“失败”，未改全局状态字典，改为页面本地批次状态文案兜底，避免影响学生/材料等“不合格”语境。视频页当前没有分差展示列，本轮不新增契约字段，只保留评分逻辑和既有显示。
+- 与规格的偏差/疑问：无。按 build-only 要求未启动常驻前端/后端服务，6 角色无 403/空壳留待 Claude 起栈复核；本轮记录静态权限/页面覆盖口径。未 push。
+
+### StudentManageView — 学生列表
+- 结构件：沿用 Phase 30 的 `FilterBar + DataPanel + DetailPanel + ReviewDialog`，状态列继续 `StatusTag + statusLabel`，操作列继续收敛。
+- 特有项：空态动作从“新增学生”改为“去导入”，跳转导入中心；保留顶部新增入口。
+- 肉眼变化：无数据时主表空态直接引导批量导入，而不是让用户单条新增。
+- 自检证据：`frontend/src/views/student/StudentManageView.vue` 出现在本轮 diff；见下方 `git diff --name-only` 与 build-only 证据。
+
+### TrainingManageView — 专业培养信息
+- 结构件：新增 `FilterBar + DataPanel + DetailPanel + ReviewDialog`，主表卡头带总数，筛选项带业务标签。
+- 特有项：学段、培养目标、实习地点、学历层次、面试方式等联动字段在列表/详情中用字典中文展示；状态列走 `statusLabel`。
+- 肉眼变化：培养详情从旧描述表变为双列只读详情面板，审核弹窗与学生页一致。
+- 自检证据：`frontend/src/views/training/TrainingManageView.vue` 出现在本轮 diff；`type-check` 已验证 `DetailPanel`/`ReviewDialog` 参数类型。
+
+### MaterialManageView — 过程性材料
+- 结构件：新增 `FilterBar + DataPanel + StatCard + ReviewDialog`，主操作进入 DataPanel 卡头。
+- 特有项：材料类别中文兜底；文件列合并“文件名 + formatFileSize”；预览按钮增加 `EyeOutline` 图标；状态列走 `statusLabel`。
+- 肉眼变化：文件信息不再拆成两列，用户能在同一列看到文件名和 KB/MB 大小。
+- 自检证据：`frontend/src/views/material/MaterialManageView.vue` 出现在本轮 diff；`formatFileSize` 由 type-check/build 验证引用。
+
+### ExemptionManageView — 免考管理
+- 结构件：新增 `FilterBar + DataPanel + StatCard + ReviewDialog`，主表卡化。
+- 特有项：学段/科目/依据用后端 label 与字典中文兜底；佐证列显示文件徽标、首个文件名与大小；预览按钮加 icon。
+- 肉眼变化：佐证列从“n 份”变为带徽标的文件摘要，更容易识别附件状态。
+- 自检证据：`frontend/src/views/exemption/ExemptionManageView.vue` 出现在本轮 diff；`formatFileSize` 与状态映射通过 type-check。
+
+### VideoReviewView — 视频评审列表 tab
+- 结构件：评审管理、我的评审、评审组三个列表均接 `DataPanel`；评审管理筛选接 `FilterBar`；统计块改 `StatCard`。
+- 特有项：`RETURNED` 通过 `statusLabel` 显示“已退回”；我的评审提交时间走 `formatDateTime`；评审组状态中文映射。分差列本页现状无契约字段，本轮未新增字段。
+- 肉眼变化：视频三个 tab 都有统一卡头、总数徽标、空态和刷新入口。
+- 自检证据：W4 时间列 grep 中包含 `VideoReviewView.vue:227` 的 `formatDateTime(row.submitTime)`。
+
+### TestResultManageView — 测试结果
+- 结构件：新增 `FilterBar + DataPanel`，导入动作进入 DataPanel 卡头。
+- 特有项：成绩列使用 `mono numeric tabular-nums` 右对齐；结论和确认状态用 `StatusTag + statusLabel`。
+- 肉眼变化：成绩文本在表格中按数字列对齐，但仍保持字符串显示，不做数值化。
+- 自检证据：`frontend/src/views/test-result/TestResultManageView.vue` 出现在本轮 diff；type-check 通过。
+
+### CertificateManageView — 证书管理
+- 结构件：新增 `FilterBar + DataPanel`，生成证书动作进入 DataPanel 卡头。
+- 特有项：证书号保留 mono；签发日期、有效期用 `formatDate`；生命周期状态走 `statusLabel`。
+- 肉眼变化：证书日期从原始文本收敛为 `YYYY-MM-DD`，生命周期状态统一中文标签。
+- 自检证据：`frontend/src/views/certificate/CertificateManageView.vue` 出现在本轮 diff；build 通过。
+
+### CertificateIssueView — 证书签发队列
+- 结构件：新增 `FilterBar + DataPanel`，操作列改 `renderTableActions`。
+- 特有项：证书号保留 mono；签发日期、有效期用 `formatDate`；状态映射中文。
+- 肉眼变化：签发队列从裸表格变为带卡头和空态的队列表。
+- 自检证据：`frontend/src/views/certificate/CertificateIssueView.vue` 出现在本轮 diff；build 通过。
+
+### ExchangeImportView — 导入中心
+- 结构件：上传控制区接 `FilterBar`；成功预览、异常明细、批次记录三张表接 `DataPanel`。
+- 特有项：批次时间走 `formatDateTime`；批次类型、策略、状态中文化；异常表卡化。
+- 肉眼变化：异常明细 tab 有卡头、总数徽标和空态，不再是裸错误表。
+- 自检证据：W4 时间列 grep 中包含 `ExchangeImportView.vue:64` 的 `formatDateTime(row.operateTime)`。
+
+### ExchangeExportView — 导出中心
+- 结构件：导出筛选区接 `FilterBar`，更多筛选折叠；导出批次接 `DataPanel`。
+- 特有项：学院筛选由“学院ID”输入改为 `listColleges` 下拉，仍传 `query.collegeId`；导出批次时间格式化，导出项/状态中文化。
+- 肉眼变化：用户按学院名称筛选导出，不需要手填学院 ID。
+- 自检证据：`rg` 黑名单未检出“学院ID”；W4 时间列 grep 中包含 `ExchangeExportView.vue:75`。
+
+### StatsReportView — 统计报表
+- 结构件：筛选区接 `FilterBar`；统计汇总表和钻取明细表接 `DataPanel`。
+- 特有项：图表继续使用 `ChartBox`，保持 Phase 30 附录 C 色板/tooltip/grid 默认；表格卡化。
+- 肉眼变化：统计页图表下方的数据表也有卡头、总数徽标、刷新/空态。
+- 自检证据：`frontend/src/views/stats/StatsReportView.vue` 出现在本轮 diff；build 通过。
+
+### NoticeCenterView — 通知中心
+- 结构件：筛选区接 `FilterBar`；主内容从 `n-data-table` 改为 `n-list`；空态接 `EmptyState`。
+- 特有项：未读圆点、未读标题加粗、时间灰色；点击通知行会标记已读并打开抽屉查看全文；“全部已读”保留。
+- 肉眼变化：通知中心变为消息列表形态，用户可直接点行阅读正文。
+- 自检证据：`frontend/src/views/notice/NoticeCenterView.vue` 出现在本轮 diff；build 通过。
+
+### 6 角色静态走查矩阵（build-only 口径）
+| 角色 | 列表入口覆盖 | 空壳/403 静态口径 |
+|---|---|---|
+| STUDENT | 学生自助、材料/免考/视频上传、通知 | 本轮未新增 API 调用；导入/导出/统计等仍由路由权限守卫 |
+| COLLEGE_CLERK | 学生/培养/材料/免考初审相关列表 | 辅助学生/学院下拉沿用既有权限判断；无 stores/契约变更 |
+| COLLEGE_AUDITOR | 学生/培养/材料/免考复审、视频管理 | 视频候选/评审组加载条件沿用既有 `video:*` 权限 |
+| REVIEW_TEACHER | 视频“我的评审”、通知 | 视频任务列表只在 `canScore` 下加载；无管理列表强制加载 |
+| ACADEMIC_ADMIN | 证书、签发、导入导出、统计 | 导出学院下拉读取既有学院列表；导出仍提交 `collegeId` |
+| SYS_ADMIN | 系统外壳可访问授权业务列表 | 本轮未改路由/权限矩阵；无后端范围改动 |
+
+### 自检证据（W2）
+变更文件范围：
+```
+$ git diff --name-only
+frontend/src/views/certificate/CertificateIssueView.vue
+frontend/src/views/certificate/CertificateManageView.vue
+frontend/src/views/exchange/ExchangeExportView.vue
+frontend/src/views/exchange/ExchangeImportView.vue
+frontend/src/views/exemption/ExemptionManageView.vue
+frontend/src/views/material/MaterialManageView.vue
+frontend/src/views/notice/NoticeCenterView.vue
+frontend/src/views/stats/StatsReportView.vue
+frontend/src/views/student/StudentManageView.vue
+frontend/src/views/test-result/TestResultManageView.vue
+frontend/src/views/training/TrainingManageView.vue
+frontend/src/views/video/VideoReviewView.vue
+```
+
+附录 A 黑名单输出为空：
+```
+$ rg -n --glob '*.vue' '(权限点|权限码|[a-z]+:[a-z]+:?[a-zA-Z]*[''"]?\s*(显隐|控制)|后端|接口|API|迁移|Flyway|RBAC|SPI|V-0[0-9])' frontend/src/views frontend/src/layouts frontend/src/components | rg -v '//|/\*|import|hasPerm|perms:|@/api'
+<empty>
+```
+
+W4 时间列检查：
+```
+$ rg -n "key: '(createdAt|updatedAt|operateTime|startedAt|finishedAt|.*ReviewTime|submitTime)'" frontend/src/views
+frontend/src/views\video\VideoReviewView.vue:227:  { title: '提交时间', key: 'submitTime', minWidth: 160, ellipsis: { tooltip: true }, render: (row) => h('span', { class: 'mono tabular-nums' }, formatDateTime(row.submitTime)) },
+frontend/src/views\exchange\ExchangeImportView.vue:64:  { title: '时间', key: 'operateTime', width: 170, render: (row) => h('span', { class: 'mono tabular-nums' }, formatDateTime(row.operateTime)) },
+frontend/src/views\DashboardView.vue:129:  { title: '时间', key: 'createdAt', width: 170, render: (row) => h('span', { class: 'mono tabular-nums' }, formatDateTime(row.createdAt)) }
+frontend/src/views\exchange\ExchangeExportView.vue:75:  { title: '时间', key: 'operateTime', width: 170, render: (row) => h('span', { class: 'mono tabular-nums' }, formatDateTime(row.operateTime)) },
+frontend/src/views\system\SystemAuditView.vue:104:  { title: '更新时间', key: 'updatedAt', minWidth: 170, render: (row) => h('span', { class: 'mono tabular-nums' }, formatDateTime(row.updatedAt)) },
+frontend/src/views\system\SystemAuditView.vue:119:  { title: '时间', key: 'operateTime', minWidth: 168, render: (row) => h('span', { class: 'mono tabular-nums' }, formatDateTime(row.operateTime)) },
+frontend/src/views\system\SystemAuditView.vue:149:  { title: '开始', key: 'startedAt', minWidth: 166, render: (row) => h('span', { class: 'mono tabular-nums' }, formatDateTime(row.startedAt)) },
+frontend/src/views\system\SystemAuditView.vue:150:  { title: '完成', key: 'finishedAt', minWidth: 166, render: (row) => h('span', { class: 'mono tabular-nums' }, formatDateTime(row.finishedAt)) },
+```
+
+纯前端范围输出为空：
+```
+$ git diff --name-only | rg "^(platform-|pom\.xml|docker-compose|.*db/migration|.*Controller|.*Service|.*Mapper|.*\.java)"
+<empty>
+```
+
+Build-only 验证：
+```
+$ npm --prefix frontend run type-check
+> teacher-cert-platform-frontend@1.0.0 type-check
+> vue-tsc --noEmit
+
+$ npm --prefix frontend run build
+> teacher-cert-platform-frontend@1.0.0 build
+> vite build
+✓ 4864 modules transformed.
+✓ built in 8.31s
+(!) Some chunks are larger than 500 kB after minification.
+```
+- 下一步：单分支单提交后等待 Claude 按 Phase 31 gate 逐页复核与 6 角色起栈走查。
+
 ## [2026-07-02] Phase 30 复核通过（Claude · frontend-quality-plan §5）✅ — 体验基建 + 全局观感
 - 做了什么：复核 `feature/phase30-ux-foundation` 单提交 `325c88d`（35 文件）。逐项核 gate ①-⑥：读 6 组件/tokens/format/statusLabels/ChartBox v2/外壳/示范页 diff；复跑附录 A 黑名单 grep（输出为空）；`npm install`+`vue-tsc`+`vite build` 读输出全绿。
 - 结论：**PASS**（一轮+1 处复核修补）。色板与验证值逐字节一致、单系列柱规则/图例规则/柱顶圆角符合附录 C；Dashboard 指标改后端 total+unread-count（W7 闭环）、类目去 `\n`；学生列表 grade 解绑学年（B5 闭环）；审计学院下拉提前完成（原 P32 项）。DEVLOG 首次完全符合 W9/W10（按页分节+肉眼变化+诚实报告 grep.exe 故障）。

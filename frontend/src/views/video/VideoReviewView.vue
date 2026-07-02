@@ -3,15 +3,19 @@ import { computed, h, onMounted, reactive, ref, watch } from 'vue'
 import {
   NButton,
   NPopconfirm,
-  NSpace,
   useMessage,
   type DataTableColumns,
   type SelectOption,
   type UploadFileInfo
 } from 'naive-ui'
+import DataPanel from '@/components/DataPanel.vue'
+import FilterBar from '@/components/FilterBar.vue'
 import PageContainer from '@/components/PageContainer.vue'
+import StatCard from '@/components/StatCard.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import { renderTableActions } from '@/utils/tableActions'
+import { statusLabel } from '@/constants/statusLabels'
+import { formatDateTime } from '@/utils/format'
 import { listDictItems, type DictItem } from '@/api/dict'
 import { listStudents, type Student } from '@/api/student'
 import { useUserStore } from '@/stores/user'
@@ -180,7 +184,7 @@ const reviewColumns: DataTableColumns<VideoReview> = [
   { title: '年度', key: 'assessmentYear', width: 96, render: (row) => h('span', { class: 'mono' }, row.assessmentYear) },
   { title: '视频文件', key: 'videoFileName', minWidth: 190, ellipsis: { tooltip: true } },
   { title: '时长', key: 'durationSeconds', width: 86, render: (row) => h('span', { class: 'numeric' }, `${row.durationSeconds || 0}s`) },
-  { title: '状态', key: 'status', width: 108, render: (row) => h(StatusTag, { text: row.statusLabel || row.status }) },
+  { title: '状态', key: 'status', width: 108, render: (row) => h(StatusTag, { value: row.status, text: row.statusLabel || statusLabel(row.status) }) },
   { title: '终分', key: 'finalScore', width: 78, render: (row) => h('span', { class: 'numeric' }, String(row.finalScore ?? '-')) },
   { title: '结论', key: 'finalConclusion', width: 88, render: (row) => h(StatusTag, { text: conclusionText(row.finalConclusion) }) },
   {
@@ -220,7 +224,7 @@ const taskColumns: DataTableColumns<VideoTask> = [
   { title: '提交状态', key: 'submitted', width: 100, render: (row) => h(StatusTag, { text: row.submitted === 1 ? '已提交' : '待评分' }) },
   { title: '分数', key: 'score', width: 78, render: (row) => h('span', { class: 'numeric' }, String(row.score ?? '-')) },
   { title: '结论', key: 'conclusion', width: 90, render: (row) => h(StatusTag, { text: conclusionText(row.conclusion) }) },
-  { title: '提交时间', key: 'submitTime', minWidth: 160, ellipsis: { tooltip: true } },
+  { title: '提交时间', key: 'submitTime', minWidth: 160, ellipsis: { tooltip: true }, render: (row) => h('span', { class: 'mono tabular-nums' }, formatDateTime(row.submitTime)) },
   {
     title: '操作',
     key: 'actions',
@@ -237,7 +241,7 @@ const taskColumns: DataTableColumns<VideoTask> = [
 const groupColumns: DataTableColumns<ReviewerGroup> = [
   { title: '组名', key: 'name', minWidth: 180, ellipsis: { tooltip: true } },
   { title: '成员数', key: 'memberCount', width: 90, render: (row) => h('span', { class: 'numeric' }, String(row.memberCount)) },
-  { title: '状态', key: 'status', width: 90, render: (row) => h(StatusTag, { text: row.status === 'ENABLED' ? '启用' : '停用' }) },
+  { title: '状态', key: 'status', width: 90, render: (row) => h(StatusTag, { value: row.status, text: statusLabel(row.status) }) },
   {
     title: '成员',
     key: 'members',
@@ -541,6 +545,13 @@ function openGroup(row?: ReviewerGroup) {
   groupVisible.value = true
 }
 
+function resetReviewFilters() {
+  keyword.value = ''
+  assessmentYear.value = yearStore.assessmentYear
+  statusFilter.value = null
+  void loadReviews()
+}
+
 async function saveGroup() {
   if (!groupForm.name.trim()) {
     message.error('请输入评审组名称')
@@ -666,80 +677,90 @@ watch(
 
 <template>
   <PageContainer title="视频评审" description="教学能力视频上传、盲评评分、复评仲裁、退回重传与评审组指派。">
-    <template #actions>
-      <n-space>
-        <n-button v-if="canListReviews" secondary @click="loadReviews">刷新</n-button>
-        <n-button v-if="canUpload" type="primary" @click="openUpload()">上传视频</n-button>
-      </n-space>
-    </template>
-
     <n-empty v-if="!hasVisibleSection" description="当前账号没有可访问的视频分区" class="page-section" />
 
     <n-tabs v-if="hasVisibleSection" type="line" animated>
       <n-tab-pane v-if="canListReviews" name="reviews" tab="评审管理">
         <n-grid :cols="5" :x-gap="12" responsive="screen" class="page-section">
-          <n-gi><n-card size="small" :bordered="false"><n-statistic label="视频总数" :value="statusSummary.total" /></n-card></n-gi>
-          <n-gi><n-card size="small" :bordered="false"><n-statistic label="待评审" :value="statusSummary.wait" /></n-card></n-gi>
-          <n-gi><n-card size="small" :bordered="false"><n-statistic label="评审中" :value="statusSummary.reviewingCount" /></n-card></n-gi>
-          <n-gi><n-card size="small" :bordered="false"><n-statistic label="需复评" :value="statusSummary.need" /></n-card></n-gi>
-          <n-gi><n-card size="small" :bordered="false"><n-statistic label="已退回" :value="statusSummary.returned" /></n-card></n-gi>
+          <n-gi><StatCard label="视频总数" :value="statusSummary.total" /></n-gi>
+          <n-gi><StatCard label="待评审" :value="statusSummary.wait" tone="warning" /></n-gi>
+          <n-gi><StatCard label="评审中" :value="statusSummary.reviewingCount" tone="info" /></n-gi>
+          <n-gi><StatCard label="需复评" :value="statusSummary.need" tone="warning" /></n-gi>
+          <n-gi><StatCard label="已退回" :value="statusSummary.returned" tone="error" /></n-gi>
         </n-grid>
 
-        <n-card :bordered="false" size="small" class="page-section">
-          <n-space class="filters" :size="10">
+        <FilterBar :loading="loading" @submit="loadReviews" @reset="resetReviewFilters">
+          <label class="filter-field">
+            <span>关键词</span>
             <n-input v-model:value="keyword" clearable placeholder="学生 / 文件名 / MD5" style="width: 230px" @keyup.enter="loadReviews" />
+          </label>
+          <label class="filter-field">
+            <span>年度</span>
             <n-input v-model:value="assessmentYear" placeholder="考核年度" style="width: 120px" />
-            <n-select v-model:value="statusFilter" clearable :options="statusOptions" placeholder="状态" style="width: 150px" />
-            <n-button type="primary" @click="loadReviews">查询</n-button>
-          </n-space>
-        </n-card>
+          </label>
+          <label class="filter-field">
+            <span>状态</span>
+            <n-select v-model:value="statusFilter" clearable :options="statusOptions" placeholder="全部状态" style="width: 150px" />
+          </label>
+        </FilterBar>
 
         <n-alert v-if="reviews.some((item) => item.status === 'RETURNED')" type="warning" :bordered="false" class="page-section">
           已退回视频可由学生重新上传；评审中、需复评、已确认等状态仍按系统校验禁止重传。
         </n-alert>
 
-        <n-data-table
+        <DataPanel
+          title="视频评审列表"
           :columns="reviewColumns"
           :data="reviews"
+          :total="reviews.length"
           :loading="loading"
-          :row-key="(row: VideoReview) => row.id"
           :scroll-x="1600"
-          :pagination="{ pageSize: 10 }"
-          striped
-        />
+          empty-title="暂无视频评审记录"
+          empty-description="当前筛选条件下没有视频评审记录。"
+          @refresh="loadReviews"
+        >
+          <template #actions>
+            <n-button v-if="canUpload" type="primary" size="small" @click="openUpload()">上传视频</n-button>
+          </template>
+          <template v-if="canUpload" #emptyAction>
+            <n-button type="primary" @click="openUpload()">上传视频</n-button>
+          </template>
+        </DataPanel>
       </n-tab-pane>
 
       <n-tab-pane v-if="canScore" name="tasks" tab="我的评审">
-        <n-space vertical>
-          <n-button secondary @click="loadTasks">刷新任务</n-button>
-          <n-data-table
-            :columns="taskColumns"
-            :data="tasks"
-            :loading="taskLoading"
-            :row-key="(row: VideoTask) => row.id"
-            :scroll-x="900"
-            :pagination="{ pageSize: 10 }"
-            striped
-          />
-        </n-space>
+        <DataPanel
+          title="我的评审任务"
+          :columns="taskColumns"
+          :data="tasks"
+          :total="tasks.length"
+          :loading="taskLoading"
+          :scroll-x="900"
+          empty-title="暂无评审任务"
+          empty-description="当前没有需要处理的视频评审任务。"
+          @refresh="loadTasks"
+        />
       </n-tab-pane>
 
       <n-tab-pane v-if="canAssign" name="groups" tab="评审组">
-        <n-space vertical>
-          <n-space justify="space-between">
-            <n-button secondary @click="loadGroups">刷新评审组</n-button>
+        <DataPanel
+          title="评审组列表"
+          :columns="groupColumns"
+          :data="groups"
+          :total="groups.length"
+          :loading="groupLoading"
+          :scroll-x="980"
+          empty-title="暂无评审组"
+          empty-description="当前学院还没有可用的评审组。"
+          @refresh="loadGroups"
+        >
+          <template #actions>
+            <n-button type="primary" size="small" @click="openGroup()">新增评审组</n-button>
+          </template>
+          <template #emptyAction>
             <n-button type="primary" @click="openGroup()">新增评审组</n-button>
-          </n-space>
-          <n-data-table
-            :columns="groupColumns"
-            :data="groups"
-            :loading="groupLoading"
-            :row-key="(row: ReviewerGroup) => row.id"
-            :scroll-x="980"
-            :pagination="{ pageSize: 10 }"
-            striped
-          />
-        </n-space>
+          </template>
+        </DataPanel>
       </n-tab-pane>
     </n-tabs>
 
@@ -882,10 +903,6 @@ watch(
 </template>
 
 <style scoped>
-.filters {
-  flex-wrap: wrap;
-}
-
 .player-shell {
   position: relative;
   width: 100%;

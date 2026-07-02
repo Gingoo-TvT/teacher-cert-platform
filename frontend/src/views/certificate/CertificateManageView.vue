@@ -3,15 +3,18 @@ import { computed, h, onMounted, reactive, ref, watch } from 'vue'
 import {
   NButton,
   NPopconfirm,
-  NSpace,
   useMessage,
   type DataTableColumns,
   type SelectOption
 } from 'naive-ui'
+import DataPanel from '@/components/DataPanel.vue'
+import FilterBar from '@/components/FilterBar.vue'
 import PageContainer from '@/components/PageContainer.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import StatCard from '@/components/StatCard.vue'
 import { renderTableActions } from '@/utils/tableActions'
+import { statusLabel } from '@/constants/statusLabels'
+import { formatDate } from '@/utils/format'
 import { listDictItems, type DictItem } from '@/api/dict'
 import { listStudents, type Student } from '@/api/student'
 import { useUserStore } from '@/stores/user'
@@ -109,9 +112,9 @@ const columns: DataTableColumns<Certificate> = [
   { title: '学段', key: 'teachingSegment', minWidth: 120, render: (row) => dictLabel(segments.value, row.teachingSegment) },
   { title: '任教学科', key: 'teachingSubjectName', minWidth: 150, ellipsis: { tooltip: true } },
   { title: '签发人', key: 'issuer', width: 110, render: (row) => row.issuer || '-' },
-  { title: '签发日期', key: 'issueDate', width: 120, render: (row) => row.issueDate || '-' },
-  { title: '有效期至', key: 'validUntil', width: 120, render: (row) => h('span', { class: 'mono' }, row.validUntil || '-') },
-  { title: '状态', key: 'status', width: 108, render: (row) => h(StatusTag, { text: row.statusLabel || row.status }) },
+  { title: '签发日期', key: 'issueDate', width: 120, render: (row) => h('span', { class: 'mono tabular-nums' }, formatDate(row.issueDate)) },
+  { title: '有效期至', key: 'validUntil', width: 120, render: (row) => h('span', { class: 'mono tabular-nums' }, formatDate(row.validUntil)) },
+  { title: '状态', key: 'status', width: 108, render: (row) => h(StatusTag, { value: row.status, text: row.statusLabel || statusLabel(row.status) }) },
   {
     title: '操作',
     key: 'actions',
@@ -355,6 +358,13 @@ function dictLabel(items: DictItem[], code?: string | null) {
   return items.find((item) => item.itemCode === code)?.itemValue || code
 }
 
+function resetFilters() {
+  keyword.value = ''
+  assessmentYear.value = yearStore.assessmentYear
+  statusFilter.value = null
+  void loadRecords()
+}
+
 function missingText(items: string[]) {
   return items.length ? items.join('、') : '无'
 }
@@ -386,13 +396,6 @@ watch(
 
 <template>
   <PageContainer title="证书管理" description="证书生成、签发、导出、归档、更正、作废与重开。">
-    <template #actions>
-      <n-space>
-        <n-button v-if="canView" secondary @click="loadRecords">刷新</n-button>
-        <n-button v-if="canOpenGenerate" type="primary" @click="openGenerate">生成证书</n-button>
-      </n-space>
-    </template>
-
     <n-empty v-if="!hasVisibleSection" description="当前账号没有可访问的证书分区" class="page-section" />
 
     <n-grid v-if="canView" :cols="5" :x-gap="12" responsive="screen" class="page-section">
@@ -403,25 +406,40 @@ watch(
       <n-gi><StatCard label="已归档" :value="summary.archived" tone="neutral" /></n-gi>
     </n-grid>
 
-    <n-card v-if="canView" :bordered="false" size="small" class="page-section">
-      <n-space class="filters" :size="10">
+    <FilterBar v-if="canView" :loading="loading" @submit="loadRecords" @reset="resetFilters">
+      <label class="filter-field">
+        <span>关键词</span>
         <n-input v-model:value="keyword" clearable placeholder="证书编号 / 学号 / 姓名" style="width: 240px" @keyup.enter="loadRecords" />
+      </label>
+      <label class="filter-field">
+        <span>年度</span>
         <n-input v-model:value="assessmentYear" placeholder="考核年度" style="width: 120px" />
-        <n-select v-model:value="statusFilter" clearable :options="statusOptions" placeholder="证书状态" style="width: 150px" />
-        <n-button type="primary" @click="loadRecords">查询</n-button>
-      </n-space>
-    </n-card>
+      </label>
+      <label class="filter-field">
+        <span>状态</span>
+        <n-select v-model:value="statusFilter" clearable :options="statusOptions" placeholder="全部状态" style="width: 150px" />
+      </label>
+    </FilterBar>
 
-    <n-data-table
+    <DataPanel
       v-if="canView"
+      title="证书列表"
       :columns="columns"
       :data="records"
+      :total="records.length"
       :loading="loading"
-      :row-key="(row: Certificate) => row.id"
       :scroll-x="1750"
-      :pagination="{ pageSize: 10 }"
-      striped
-    />
+      empty-title="暂无证书"
+      empty-description="当前筛选条件下没有证书记录。"
+      @refresh="loadRecords"
+    >
+      <template #actions>
+        <n-button v-if="canOpenGenerate" type="primary" size="small" @click="openGenerate">生成证书</n-button>
+      </template>
+      <template v-if="canOpenGenerate" #emptyAction>
+        <n-button type="primary" @click="openGenerate">生成证书</n-button>
+      </template>
+    </DataPanel>
 
     <n-drawer v-model:show="generateVisible" :width="560">
       <n-drawer-content title="生成证书编号" closable>
@@ -496,10 +514,6 @@ watch(
 </template>
 
 <style scoped>
-.filters {
-  flex-wrap: wrap;
-}
-
 .mono-input :deep(input) {
   font-family: var(--font-mono);
 }

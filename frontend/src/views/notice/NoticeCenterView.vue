@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { computed, h, onBeforeUnmount, onMounted, ref } from 'vue'
-import { NBadge, NButton, NSpace, useMessage, type DataTableColumns, type SelectOption } from 'naive-ui'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useMessage, type SelectOption } from 'naive-ui'
+import EmptyState from '@/components/EmptyState.vue'
+import FilterBar from '@/components/FilterBar.vue'
 import PageContainer from '@/components/PageContainer.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import StatCard from '@/components/StatCard.vue'
@@ -14,6 +16,8 @@ const loading = ref(false)
 const notices = ref<NotificationItem[]>([])
 const readFilter = ref<ReadFilter>('all')
 const typeFilter = ref<string | null>(null)
+const selectedNotice = ref<NotificationItem | null>(null)
+const drawerVisible = ref(false)
 let noticeTimer: number | undefined
 
 const unreadCount = computed(() => notices.value.filter((item) => item.readFlag === 0).length)
@@ -31,37 +35,6 @@ const filterOptions: SelectOption[] = [
   { label: '全部', value: 'all' },
   { label: '未读', value: 'unread' },
   { label: '已读', value: 'read' }
-]
-
-const columns: DataTableColumns<NotificationItem> = [
-  {
-    title: '',
-    key: 'unread',
-    width: 42,
-    render: (row) => row.readFlag === 0 ? h('span', { class: 'notice-dot' }) : null
-  },
-  { title: '状态', key: 'readFlag', width: 92, render: (row) => h(StatusTag, { text: row.readFlag === 0 ? '未读' : '已读' }) },
-  { title: '类型', key: 'type', width: 130, render: (row) => h(StatusTag, { text: typeName(row.type) }) },
-  {
-    title: '标题',
-    key: 'title',
-    minWidth: 220,
-    ellipsis: { tooltip: true },
-    render: (row) => row.readFlag === 0 ? h(NBadge, { dot: true }, { default: () => h('strong', row.title) }) : row.title
-  },
-  { title: '内容', key: 'content', minWidth: 320, ellipsis: { tooltip: true }, render: (row) => row.content || '-' },
-  { title: '业务', key: 'bizType', width: 130, ellipsis: { tooltip: true }, render: (row) => row.bizType || '-' },
-  { title: '时间', key: 'createdAt', width: 170, render: (row) => h('span', { class: 'mono tabular-nums' }, formatDateTime(row.createdAt)) },
-  {
-    title: '操作',
-    key: 'actions',
-    fixed: 'right',
-    width: 112,
-    render: (row) =>
-      row.readFlag === 0
-        ? h(NButton, { size: 'small', quaternary: true, onClick: () => handleRead(row) }, { default: () => '标记已读' })
-        : null
-  }
 ]
 
 onMounted(() => {
@@ -86,11 +59,13 @@ async function loadNotices() {
   }
 }
 
-async function handleRead(row: NotificationItem) {
+async function openNotice(row: NotificationItem) {
+  selectedNotice.value = row
+  drawerVisible.value = true
+  if (row.readFlag !== 0) return
   try {
     await markNoticeRead(row.id)
     row.readFlag = 1
-    message.success('已标记为已读')
   } catch (error) {
     showError(error, '操作失败')
   }
@@ -109,6 +84,12 @@ async function handleReadAll() {
 async function onReadFilterChange() {
   typeFilter.value = null
   await loadNotices()
+}
+
+function resetFilters() {
+  readFilter.value = 'all'
+  typeFilter.value = null
+  void loadNotices()
 }
 
 function typeName(type?: string | null) {
@@ -143,30 +124,66 @@ function showError(error: unknown, fallback: string) {
       <n-gi><StatCard label="已读" :value="readCount" tone="success" /></n-gi>
     </n-grid>
 
-    <n-card :bordered="false" size="small" class="page-section">
-      <n-space class="filters" :size="10">
+    <FilterBar :loading="loading" submit-text="刷新" @submit="loadNotices" @reset="resetFilters">
+      <label class="filter-field">
+        <span>阅读状态</span>
         <n-segmented v-model:value="readFilter" :options="filterOptions" @update:value="onReadFilterChange" />
+      </label>
+      <label class="filter-field">
+        <span>通知类型</span>
         <n-select v-model:value="typeFilter" clearable :options="typeOptions" placeholder="通知类型" style="width: 170px" />
-      </n-space>
-    </n-card>
+      </label>
+    </FilterBar>
 
-    <n-data-table
-      :loading="loading"
-      :columns="columns"
-      :data="filteredNotices"
-      :row-key="(row: NotificationItem) => row.id"
-      :scroll-x="1180"
-      :pagination="{ pageSize: 12 }"
-      striped
-    />
+    <n-spin :show="loading">
+      <n-list v-if="filteredNotices.length" bordered class="notice-list">
+        <n-list-item
+          v-for="item in filteredNotices"
+          :key="item.id"
+          class="notice-row"
+          :class="{ 'notice-row--unread': item.readFlag === 0 }"
+          @click="openNotice(item)"
+        >
+          <div class="notice-row__dot">
+            <span v-if="item.readFlag === 0" class="notice-dot" />
+          </div>
+          <div class="notice-row__main">
+            <div class="notice-row__title-line">
+              <strong>{{ item.title }}</strong>
+              <StatusTag :text="typeName(item.type)" />
+              <StatusTag :text="item.readFlag === 0 ? '未读' : '已读'" />
+            </div>
+            <div class="notice-row__content">{{ item.content || '-' }}</div>
+            <div class="notice-row__meta">
+              <span>{{ item.bizType || '站内通知' }}</span>
+              <span class="mono tabular-nums">{{ formatDateTime(item.createdAt) }}</span>
+            </div>
+          </div>
+        </n-list-item>
+      </n-list>
+      <EmptyState v-else title="暂无通知" description="当前筛选条件下没有通知。" />
+    </n-spin>
+
+    <n-drawer v-model:show="drawerVisible" :width="560">
+      <n-drawer-content :title="selectedNotice?.title || '通知详情'" closable>
+        <n-space v-if="selectedNotice" vertical :size="16">
+          <n-space>
+            <StatusTag :text="typeName(selectedNotice.type)" />
+            <StatusTag :text="selectedNotice.readFlag === 0 ? '未读' : '已读'" />
+            <span class="notice-time mono tabular-nums">{{ formatDateTime(selectedNotice.createdAt) }}</span>
+          </n-space>
+          <div class="notice-detail-content">{{ selectedNotice.content || '-' }}</div>
+          <div class="notice-detail-meta">
+            <span>业务类型</span>
+            <strong>{{ selectedNotice.bizType || '-' }}</strong>
+          </div>
+        </n-space>
+      </n-drawer-content>
+    </n-drawer>
   </PageContainer>
 </template>
 
 <style scoped>
-.filters {
-  flex-wrap: wrap;
-}
-
 .notice-dot {
   display: inline-block;
   width: 8px;
@@ -174,5 +191,102 @@ function showError(error: unknown, fallback: string) {
   border-radius: 50%;
   background: var(--error);
   box-shadow: 0 0 0 3px var(--error-soft);
+}
+
+.notice-list {
+  margin-bottom: var(--space-7);
+  background: var(--surface);
+}
+
+.notice-row {
+  cursor: pointer;
+  transition: background 0.18s ease;
+}
+
+.notice-row:hover {
+  background: var(--surface-muted);
+}
+
+.notice-row :deep(.n-list-item__main) {
+  display: flex;
+  min-width: 0;
+  gap: var(--space-3);
+}
+
+.notice-row__dot {
+  flex: 0 0 14px;
+  padding-top: 8px;
+}
+
+.notice-row__main {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.notice-row__title-line {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.notice-row__title-line strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notice-row--unread .notice-row__title-line strong {
+  font-weight: 700;
+}
+
+.notice-row__content {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notice-row__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--text-muted);
+  font-size: 12px;
+  flex-wrap: wrap;
+}
+
+.notice-time {
+  color: var(--text-muted);
+}
+
+.notice-detail-content {
+  white-space: pre-wrap;
+  line-height: 1.7;
+  color: var(--text);
+}
+
+.notice-detail-meta {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: var(--space-3);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--shell-border);
+}
+
+.notice-detail-meta span {
+  color: var(--text-secondary);
+}
+
+.notice-detail-meta strong {
+  font-weight: 500;
 }
 </style>

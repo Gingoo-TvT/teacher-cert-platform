@@ -2,16 +2,23 @@
 import { computed, h, onMounted, reactive, ref, watch } from 'vue'
 import {
   NButton,
+  NIcon,
   NPopconfirm,
-  NSpace,
   useMessage,
   type DataTableColumns,
   type SelectOption,
   type UploadFileInfo
 } from 'naive-ui'
+import { EyeOutline } from '@vicons/ionicons5'
+import DataPanel from '@/components/DataPanel.vue'
+import FilterBar from '@/components/FilterBar.vue'
 import PageContainer from '@/components/PageContainer.vue'
+import ReviewDialog from '@/components/ReviewDialog.vue'
+import StatCard from '@/components/StatCard.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import { renderTableActions } from '@/utils/tableActions'
+import { statusLabel } from '@/constants/statusLabels'
+import { formatFileSize } from '@/utils/format'
 import { listDictItems, type DictItem } from '@/api/dict'
 import { listStudents, type Student } from '@/api/student'
 import type { ReviewPayload } from '@/api/student'
@@ -83,11 +90,6 @@ const form = reactive({
   rows: [] as SubjectRow[]
 })
 
-const reviewForm = reactive<ReviewPayload>({
-  action: 'PASS',
-  comment: ''
-})
-
 const statusOptions: SelectOption[] = [
   { label: '草稿', value: 'DRAFT' },
   { label: '待初审', value: 'FIRST_REVIEW' },
@@ -96,12 +98,6 @@ const statusOptions: SelectOption[] = [
   { label: '复审退回', value: 'SECOND_REJECTED' },
   { label: '复审通过', value: 'PASSED' },
   { label: '不合格', value: 'FAILED' }
-]
-
-const reviewActionOptions: SelectOption[] = [
-  { label: '通过', value: 'PASS' },
-  { label: '退回', value: 'REJECT' },
-  { label: '不通过', value: 'FAIL' }
 ]
 
 const studentOptions = computed<SelectOption[]>(() =>
@@ -134,12 +130,12 @@ const columns: DataTableColumns<ExemptionRequest> = [
   { title: '学号', key: 'studentNo', minWidth: 130, ellipsis: { tooltip: true }, render: (row) => h('span', { class: 'mono' }, row.studentNo || '-') },
   { title: '姓名', key: 'studentName', minWidth: 110, ellipsis: { tooltip: true } },
   { title: '年度', key: 'assessmentYear', width: 96, render: (row) => h('span', { class: 'mono' }, row.assessmentYear) },
-  { title: '学段', key: 'teachingSegmentLabel', minWidth: 120, ellipsis: { tooltip: true } },
-  { title: '免考科目', key: 'subjectLabel', minWidth: 180, ellipsis: { tooltip: true } },
-  { title: '依据', key: 'basisLabel', minWidth: 150, ellipsis: { tooltip: true } },
-  { title: '佐证', key: 'materials', width: 84, render: (row) => `${row.materials.length} 份` },
+  { title: '学段', key: 'teachingSegmentLabel', minWidth: 120, ellipsis: { tooltip: true }, render: (row) => row.teachingSegmentLabel || dictLabel(segments.value, row.teachingSegment) },
+  { title: '免考科目', key: 'subjectLabel', minWidth: 180, ellipsis: { tooltip: true }, render: (row) => row.subjectLabel || dictLabel(subjects.value, row.subject) },
+  { title: '依据', key: 'basisLabel', minWidth: 150, ellipsis: { tooltip: true }, render: (row) => row.basisLabel || dictLabel(bases.value, row.basis) },
+  { title: '佐证', key: 'materials', minWidth: 170, render: (row) => renderEvidence(row.materials) },
   { title: '应考口径', key: 'includedInExam', width: 102, render: (row) => h(StatusTag, { text: row.includedInExam === 0 ? '已移出' : '应考' }) },
-  { title: '状态', key: 'finalStatus', width: 108, render: (row) => h(StatusTag, { text: row.statusLabel || row.finalStatus }) },
+  { title: '状态', key: 'finalStatus', width: 108, render: (row) => h(StatusTag, { value: row.finalStatus, text: row.statusLabel || statusLabel(row.finalStatus) }) },
   {
     title: '操作',
     key: 'actions',
@@ -149,7 +145,13 @@ const columns: DataTableColumns<ExemptionRequest> = [
       {
         const actions = []
         if (row.materials[0]) {
-          actions.push(h(NButton, { size: 'small', type: 'primary', onClick: () => openPreview(row.materials[0]) }, { default: () => '预览' }))
+          actions.push(
+            h(
+              NButton,
+              { size: 'small', type: 'primary', onClick: () => openPreview(row.materials[0]) },
+              { icon: () => h(NIcon, { component: EyeOutline }), default: () => '预览' }
+            )
+          )
         }
         if (canApply.value) {
           actions.push(h(NButton, { size: 'small', quaternary: true, onClick: () => submit(row) }, { default: () => '提交' }))
@@ -339,21 +341,19 @@ async function submit(row: ExemptionRequest) {
 
 function openReview(row: ExemptionRequest, stage: 'first' | 'second') {
   reviewing.value = { record: row, stage }
-  reviewForm.action = 'PASS'
-  reviewForm.comment = ''
   reviewVisible.value = true
 }
 
-async function saveReview() {
+async function saveReview(payload: ReviewPayload) {
   if (!reviewing.value) return
-  if (reviewForm.action !== 'PASS' && !reviewForm.comment?.trim()) {
+  if (payload.action !== 'PASS' && !payload.comment?.trim()) {
     message.error('退回或不通过必须填写原因')
     return
   }
   reviewSaving.value = true
   try {
-    if (reviewing.value.stage === 'first') await firstReviewExemption(reviewing.value.record.id, reviewForm)
-    else await secondReviewExemption(reviewing.value.record.id, reviewForm)
+    if (reviewing.value.stage === 'first') await firstReviewExemption(reviewing.value.record.id, payload)
+    else await secondReviewExemption(reviewing.value.record.id, payload)
     message.success('审核完成')
     reviewVisible.value = false
     await loadRecords()
@@ -380,6 +380,32 @@ async function showExamSubjects() {
   }
 }
 
+function resetFilters() {
+  keyword.value = ''
+  assessmentYear.value = yearStore.assessmentYear
+  statusFilter.value = null
+  segmentFilter.value = null
+  void loadSubjects(null)
+  void loadRecords()
+}
+
+function handleFilterSegmentChange(value: string | number | null) {
+  void loadSubjects(typeof value === 'string' ? value : null)
+}
+
+function dictLabel(items: DictItem[], code?: string | null) {
+  return items.find((item) => item.itemCode === code)?.itemValue || code || '-'
+}
+
+function renderEvidence(materials: ExemptionMaterial[]) {
+  if (!materials.length) return h('span', { class: 'evidence-muted' }, '无佐证')
+  const first = materials[0]
+  return h('div', { class: 'evidence-cell' }, [
+    h('span', { class: 'evidence-badge' }, `${materials.length} 份`),
+    h('span', { class: 'evidence-file' }, `${first.fileName || '-'} · ${formatFileSize(first.fileSize)}`)
+  ])
+}
+
 function showError(error: unknown, fallback: string) {
   const detail = error instanceof Error ? error.message : fallback
   message.error(detail || fallback)
@@ -403,40 +429,51 @@ watch(
 
 <template>
   <PageContainer title="免考管理" description="多科免考申请、佐证上传、二级审核与应考科目展示。">
-    <template #actions>
-      <n-space>
-        <n-button secondary @click="loadRecords">刷新</n-button>
-        <n-button @click="showExamSubjects">应考口径</n-button>
-        <n-button v-if="canApply" type="primary" @click="openApply">免考申请</n-button>
-      </n-space>
-    </template>
-
     <n-grid :cols="4" :x-gap="12" responsive="screen" class="page-section">
-      <n-gi><n-card size="small" :bordered="false"><n-statistic label="申请科次" :value="statusSummary.total" /></n-card></n-gi>
-      <n-gi><n-card size="small" :bordered="false"><n-statistic label="复审通过" :value="statusSummary.passed" /></n-card></n-gi>
-      <n-gi><n-card size="small" :bordered="false"><n-statistic label="已移出应考" :value="statusSummary.removed" /></n-card></n-gi>
-      <n-gi><n-card size="small" :bordered="false"><n-statistic label="待审核" :value="statusSummary.pending" /></n-card></n-gi>
+      <n-gi><StatCard label="申请科次" :value="statusSummary.total" /></n-gi>
+      <n-gi><StatCard label="复审通过" :value="statusSummary.passed" tone="success" /></n-gi>
+      <n-gi><StatCard label="已移出应考" :value="statusSummary.removed" tone="info" /></n-gi>
+      <n-gi><StatCard label="待审核" :value="statusSummary.pending" tone="warning" /></n-gi>
     </n-grid>
 
-    <n-card :bordered="false" size="small" class="page-section">
-      <n-space class="filters" :size="10">
+    <FilterBar :loading="loading" @submit="loadRecords" @reset="resetFilters">
+      <label class="filter-field">
+        <span>关键词</span>
         <n-input v-model:value="keyword" clearable placeholder="科目 / 依据 / 学生" style="width: 220px" @keyup.enter="loadRecords" />
+      </label>
+      <label class="filter-field">
+        <span>年度</span>
         <n-input v-model:value="assessmentYear" placeholder="考核年度" style="width: 120px" />
-        <n-select v-model:value="segmentFilter" clearable :options="segmentOptions" placeholder="学段" style="width: 150px" @update:value="loadSubjects" />
-        <n-select v-model:value="statusFilter" clearable :options="statusOptions" placeholder="状态" style="width: 150px" />
-        <n-button type="primary" @click="loadRecords">查询</n-button>
-      </n-space>
-    </n-card>
+      </label>
+      <label class="filter-field">
+        <span>学段</span>
+        <n-select v-model:value="segmentFilter" clearable :options="segmentOptions" placeholder="全部学段" style="width: 150px" @update:value="handleFilterSegmentChange" />
+      </label>
+      <label class="filter-field">
+        <span>状态</span>
+        <n-select v-model:value="statusFilter" clearable :options="statusOptions" placeholder="全部状态" style="width: 150px" />
+      </label>
+    </FilterBar>
 
-    <n-data-table
+    <DataPanel
+      title="免考申请列表"
       :columns="columns"
       :data="records"
+      :total="records.length"
       :loading="loading"
-      :row-key="(row: ExemptionRequest) => row.id"
       :scroll-x="1520"
-      :pagination="{ pageSize: 10 }"
-      striped
-    />
+      empty-title="暂无免考申请"
+      empty-description="当前筛选条件下没有免考申请记录。"
+      @refresh="loadRecords"
+    >
+      <template #actions>
+        <n-button size="small" @click="showExamSubjects">应考口径</n-button>
+        <n-button v-if="canApply" type="primary" size="small" @click="openApply">免考申请</n-button>
+      </template>
+      <template v-if="canApply" #emptyAction>
+        <n-button type="primary" @click="openApply">免考申请</n-button>
+      </template>
+    </DataPanel>
 
     <n-drawer v-model:show="drawerVisible" :width="720">
       <n-drawer-content title="免考申请" closable>
@@ -496,19 +533,19 @@ watch(
       </n-space>
     </n-modal>
 
-    <n-modal v-model:show="reviewVisible" preset="dialog" :title="reviewing?.stage === 'first' ? '免考初审' : '免考复审'">
-      <n-space vertical>
-        <n-alert v-if="reviewing" type="info" :bordered="false">
-          {{ reviewing.record.studentNo }} / {{ reviewing.record.studentName }} / {{ reviewing.record.subjectLabel }} / 当前：{{ reviewing.record.statusLabel }}
-        </n-alert>
-        <n-select v-model:value="reviewForm.action" :options="reviewActionOptions" />
-        <n-input v-model:value="reviewForm.comment" type="textarea" placeholder="退回或不通过必须填写原因" />
-        <n-space justify="end">
-          <n-button @click="reviewVisible = false">取消</n-button>
-          <n-button type="primary" :loading="reviewSaving" @click="saveReview">确认</n-button>
-        </n-space>
-      </n-space>
-    </n-modal>
+    <ReviewDialog
+      v-model:show="reviewVisible"
+      :title="reviewing?.stage === 'first' ? '免考初审' : '免考复审'"
+      :loading="reviewSaving"
+      allow-fail
+      :summary="reviewing ? [
+        { label: '学号', value: reviewing.record.studentNo },
+        { label: '姓名', value: reviewing.record.studentName },
+        { label: '免考科目', value: reviewing.record.subjectLabel || dictLabel(subjects, reviewing.record.subject) },
+        { label: '当前状态', status: reviewing.record.finalStatus }
+      ] : []"
+      @submit="saveReview"
+    />
 
     <n-modal v-model:show="examVisible" preset="card" title="应考科目口径" style="width: 680px">
       <n-data-table :columns="examColumns" :data="examSubjects" :pagination="false" />
@@ -517,10 +554,6 @@ watch(
 </template>
 
 <style scoped>
-.filters {
-  flex-wrap: wrap;
-}
-
 .subject-row {
   padding: var(--space-4);
   border: 1px solid var(--shell-border);
@@ -536,5 +569,35 @@ watch(
 
 .mono-input :deep(input) {
   font-family: var(--font-mono);
+}
+
+.evidence-cell {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.evidence-badge {
+  width: fit-content;
+  padding: 1px 8px;
+  border-radius: 999px;
+  color: var(--brand);
+  background: var(--brand-soft);
+  font-size: 12px;
+  line-height: 20px;
+}
+
+.evidence-file {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.evidence-muted {
+  color: var(--text-muted);
 }
 </style>

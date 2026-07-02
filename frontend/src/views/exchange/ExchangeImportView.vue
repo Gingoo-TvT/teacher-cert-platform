@@ -3,15 +3,17 @@ import { computed, h, onMounted, ref } from 'vue'
 import {
   NButton,
   NPopconfirm,
-  NSpace,
   useMessage,
   type DataTableColumns,
   type SelectOption,
   type UploadFileInfo
 } from 'naive-ui'
+import DataPanel from '@/components/DataPanel.vue'
+import FilterBar from '@/components/FilterBar.vue'
 import PageContainer from '@/components/PageContainer.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import StatCard from '@/components/StatCard.vue'
+import { renderTableActions } from '@/utils/tableActions'
 import {
   confirmExchangeImport,
   downloadErrorReport,
@@ -58,20 +60,20 @@ const canViewBatches = computed(() => canImport.value)
 
 const batchColumns: DataTableColumns<ExchangeBatch> = [
   { title: '批次号', key: 'batchNo', minWidth: 180, ellipsis: { tooltip: true }, render: (row) => h('span', { class: 'mono' }, row.batchNo) },
-  { title: '类型', key: 'type', width: 90 },
+  { title: '类型', key: 'type', width: 90, render: (row) => batchTypeLabel(row.type) },
   { title: '时间', key: 'operateTime', width: 170, render: (row) => h('span', { class: 'mono tabular-nums' }, formatDateTime(row.operateTime)) },
   { title: '总数', key: 'total', width: 80, render: (row) => h('span', { class: 'numeric' }, String(row.total ?? 0)) },
   { title: '成功', key: 'successCount', width: 80, render: (row) => h('span', { class: 'numeric' }, String(row.successCount ?? 0)) },
   { title: '失败', key: 'failCount', width: 80, render: (row) => h('span', { class: 'numeric' }, String(row.failCount ?? 0)) },
-  { title: '策略', key: 'strategy', width: 130, render: (row) => row.strategy || '-' },
-  { title: '状态', key: 'status', width: 120, render: (row) => h(StatusTag, { text: row.status }) },
+  { title: '策略', key: 'strategy', width: 130, render: (row) => strategyLabel(row.strategy) },
+  { title: '状态', key: 'status', width: 120, render: (row) => h(StatusTag, { value: row.status, text: batchStatusLabel(row.status) }) },
   {
     title: '操作',
     key: 'actions',
     fixed: 'right',
     width: 210,
     render: (row) =>
-      h(NSpace, { size: 4 }, () => [
+      renderTableActions([
         canPrevalidate.value ? h(NButton, { size: 'small', quaternary: true, onClick: () => downloadError(row.id) }, { default: () => '异常报告' }) : null,
         canImport.value && (row.status === 'IMPORTED' || row.status === 'FAILED')
           ? h(
@@ -197,6 +199,51 @@ async function rollback(batchId: string) {
   }
 }
 
+function resetImport() {
+  fileList.value = []
+  prevalidate.value = null
+  strategy.value = 'INSERT_ONLY'
+  activeStep.value = 1
+}
+
+function batchTypeLabel(type?: string | null) {
+  const map: Record<string, string> = {
+    import: '导入',
+    export: '导出',
+    IMPORT: '导入',
+    EXPORT: '导出'
+  }
+  return type ? map[type] || type : '-'
+}
+
+function strategyLabel(value?: string | null) {
+  const map: Record<string, string> = {
+    INSERT_ONLY: '新增',
+    OVERWRITE: '覆盖',
+    SKIP_DUPLICATE: '跳过重复',
+    UPDATE_EMPTY: '仅更新空字段',
+    STANDARD: '标准上报表',
+    FULL_REVIEW: '完整审核表',
+    CERT_SUMMARY: '证书获得者汇总表',
+    ERROR: '异常数据表',
+    ATTACHMENT_LIST: '附件与视频打包'
+  }
+  return value ? map[value] || value : '-'
+}
+
+function batchStatusLabel(value?: string | null) {
+  const map: Record<string, string> = {
+    PREVALIDATED: '预校验通过',
+    IMPORTED: '导入成功',
+    EXPORTED: '导出完成',
+    ROLLED_BACK: '已回滚',
+    FAILED: '失败',
+    COMPLETED: '已完成',
+    RUNNING: '运行中'
+  }
+  return value ? map[value] || value : '-'
+}
+
 function showError(error: unknown, fallback: string) {
   const detail = error instanceof Error ? error.message : fallback
   message.error(detail || fallback)
@@ -226,49 +273,69 @@ onMounted(() => {
       <n-gi><StatCard label="异常数" :value="prevalidate?.failCount ?? 0" tone="error" /></n-gi>
     </n-grid>
 
-    <n-card :bordered="false" size="small" class="page-section">
-      <n-space class="filters" :size="10">
+    <FilterBar :loading="uploading" submit-text="预校验" reset-text="清空" @submit="runPrevalidate" @reset="resetImport">
+      <label class="filter-field">
+        <span>模板</span>
         <n-button v-if="canDownloadTemplate" type="primary" @click="downloadTpl">模板下载</n-button>
+      </label>
+      <label class="filter-field">
+        <span>文件</span>
         <n-upload v-model:file-list="fileList" :max="1" accept=".xlsx" :default-upload="false">
           <n-button>选择 Excel</n-button>
         </n-upload>
-        <n-button v-if="canPrevalidate" type="primary" :loading="uploading" @click="runPrevalidate">预校验</n-button>
+      </label>
+      <label class="filter-field">
+        <span>策略</span>
         <n-select v-model:value="strategy" :options="strategyOptions" style="width: 170px" />
+      </label>
+      <label class="filter-field">
+        <span>导入</span>
         <n-button v-if="canImport" :disabled="!canConfirm" :loading="confirming" @click="confirmImport">确认导入</n-button>
+      </label>
+      <label class="filter-field">
+        <span>异常</span>
         <n-button v-if="canPrevalidate" :disabled="!hasErrors" @click="downloadCurrentError">异常报告</n-button>
-      </n-space>
-    </n-card>
+      </label>
+    </FilterBar>
 
     <n-tabs type="line" animated>
       <n-tab-pane name="preview" tab="成功预览">
-        <n-data-table
+        <DataPanel
+          title="成功预览"
           :columns="previewColumns"
           :data="prevalidate?.previewRows ?? []"
-          :row-key="(row: ImportPreviewRow) => row.rowNo"
+          :total="prevalidate?.previewRows.length ?? 0"
           :scroll-x="860"
-          :pagination="{ pageSize: 8 }"
-          striped
+          :page-size="8"
+          :show-refresh="false"
+          empty-title="暂无成功预览"
+          empty-description="上传文件并完成预校验后显示通过行。"
         />
       </n-tab-pane>
       <n-tab-pane name="errors" tab="异常明细">
-        <n-data-table
+        <DataPanel
+          title="异常明细"
           :columns="errorColumns"
           :data="prevalidate?.errors ?? []"
-          :row-key="(row: ImportError) => `${row.rowNo}-${row.fieldName}`"
+          :total="prevalidate?.errors.length ?? 0"
           :scroll-x="1120"
-          :pagination="{ pageSize: 8 }"
-          striped
+          :page-size="8"
+          :show-refresh="false"
+          empty-title="暂无异常"
+          empty-description="当前预校验结果没有异常明细。"
         />
       </n-tab-pane>
       <n-tab-pane v-if="canViewBatches" name="batches" tab="批次记录">
-        <n-data-table
+        <DataPanel
+          title="导入批次记录"
           :columns="batchColumns"
           :data="batches"
+          :total="batches.length"
           :loading="loading"
-          :row-key="(row: ExchangeBatch) => row.id"
           :scroll-x="1180"
-          :pagination="{ pageSize: 10 }"
-          striped
+          empty-title="暂无导入批次"
+          empty-description="完成预校验或导入后会生成批次记录。"
+          @refresh="loadBatches"
         />
       </n-tab-pane>
     </n-tabs>
@@ -276,7 +343,4 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.filters {
-  flex-wrap: wrap;
-}
 </style>

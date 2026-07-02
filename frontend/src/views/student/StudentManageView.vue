@@ -10,6 +10,7 @@ import {
   type SelectOption
 } from 'naive-ui'
 import { PersonAddOutline } from '@vicons/ionicons5'
+import { useRouter } from 'vue-router'
 import DataPanel from '@/components/DataPanel.vue'
 import DetailPanel from '@/components/DetailPanel.vue'
 import FilterBar from '@/components/FilterBar.vue'
@@ -37,6 +38,7 @@ import { useUserStore } from '@/stores/user'
 
 const message = useMessage()
 const userStore = useUserStore()
+const router = useRouter()
 
 const loading = ref(false)
 const saving = ref(false)
@@ -304,6 +306,10 @@ function resetFilters() {
   void loadStudents()
 }
 
+function goImport() {
+  void router.push({ name: 'exchangeImport' })
+}
+
 function handleRegionChange(payload: RegionSelection | null) {
   form.sourceProvince = payload?.codes[0] || null
   form.sourceCity = payload?.codes[1] || null
@@ -374,8 +380,8 @@ onMounted(async () => {
           新增学生
         </n-button>
       </template>
-      <template v-if="canEdit" #emptyAction>
-        <n-button type="primary" @click="openDrawer()">新增学生</n-button>
+      <template #emptyAction>
+        <n-button type="primary" @click="goImport">去导入</n-button>
       </template>
     </DataPanel>
 

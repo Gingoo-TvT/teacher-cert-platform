@@ -2,16 +2,23 @@
 import { computed, h, onMounted, reactive, ref, watch } from 'vue'
 import {
   NButton,
+  NIcon,
   NPopconfirm,
-  NSpace,
   useMessage,
   type DataTableColumns,
   type SelectOption,
   type UploadFileInfo
 } from 'naive-ui'
+import { EyeOutline } from '@vicons/ionicons5'
+import DataPanel from '@/components/DataPanel.vue'
+import FilterBar from '@/components/FilterBar.vue'
 import PageContainer from '@/components/PageContainer.vue'
+import ReviewDialog from '@/components/ReviewDialog.vue'
+import StatCard from '@/components/StatCard.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import { renderTableActions } from '@/utils/tableActions'
+import { statusLabel } from '@/constants/statusLabels'
+import { formatFileSize } from '@/utils/format'
 import { listDictItems, type DictItem } from '@/api/dict'
 import { listStudents, type Student } from '@/api/student'
 import { useUserStore } from '@/stores/user'
@@ -71,11 +78,6 @@ const uploadForm = reactive({
   category: ''
 })
 
-const reviewForm = reactive<ReviewPayload>({
-  action: 'PASS',
-  comment: ''
-})
-
 const canUpload = computed(() => userStore.hasPerm('material:upload'))
 const canFirstReview = computed(() => userStore.hasPerm('material:firstReview'))
 const canSecondReview = computed(() => userStore.hasPerm('material:secondReview'))
@@ -91,12 +93,6 @@ const statusOptions: SelectOption[] = [
   { label: '复审退回', value: 'SECOND_REJECTED' },
   { label: '复审通过', value: 'PASSED' },
   { label: '不合格', value: 'FAILED' }
-]
-
-const reviewActionOptions: SelectOption[] = [
-  { label: '通过', value: 'PASS' },
-  { label: '退回', value: 'REJECT' },
-  { label: '不通过', value: 'FAIL' }
 ]
 
 const studentOptions = computed<SelectOption[]>(() =>
@@ -124,10 +120,19 @@ const columns: DataTableColumns<ProcessMaterial> = [
   { title: '学号', key: 'studentNo', minWidth: 130, ellipsis: { tooltip: true }, render: (row) => h('span', { class: 'mono' }, row.studentNo || '-') },
   { title: '姓名', key: 'studentName', minWidth: 110, ellipsis: { tooltip: true } },
   { title: '年度', key: 'assessmentYear', width: 96, render: (row) => h('span', { class: 'mono' }, row.assessmentYear) },
-  { title: '材料类别', key: 'categoryLabel', minWidth: 180, ellipsis: { tooltip: true } },
-  { title: '文件名', key: 'fileName', minWidth: 220, ellipsis: { tooltip: true } },
-  { title: '大小', key: 'fileSize', width: 90, render: (row) => h('span', { class: 'numeric' }, formatSize(row.fileSize || 0)) },
-  { title: '状态', key: 'status', width: 108, render: (row) => h(StatusTag, { text: row.statusLabel || row.status }) },
+  { title: '材料类别', key: 'categoryLabel', minWidth: 180, ellipsis: { tooltip: true }, render: (row) => row.categoryLabel || dictLabel(categories.value, row.category) },
+  {
+    title: '文件',
+    key: 'fileName',
+    minWidth: 260,
+    ellipsis: { tooltip: true },
+    render: (row) =>
+      h('div', { class: 'file-cell' }, [
+        h('span', { class: 'file-name' }, row.fileName || '-'),
+        h('span', { class: 'file-size' }, formatFileSize(row.fileSize))
+      ])
+  },
+  { title: '状态', key: 'status', width: 108, render: (row) => h(StatusTag, { value: row.status, text: row.statusLabel || statusLabel(row.status) }) },
   { title: '锁定', key: 'locked', width: 78, render: (row) => h(StatusTag, { text: row.locked ? '已锁定' : '未锁定' }) },
   {
     title: '操作',
@@ -137,7 +142,11 @@ const columns: DataTableColumns<ProcessMaterial> = [
     render: (row) =>
       {
         const actions = [
-          h(NButton, { size: 'small', type: 'primary', onClick: () => openPreview(row) }, { default: () => '预览' })
+          h(
+            NButton,
+            { size: 'small', type: 'primary', onClick: () => openPreview(row) },
+            { icon: () => h(NIcon, { component: EyeOutline }), default: () => '预览' }
+          )
         ]
         if (canUpload.value) {
           actions.push(h(NButton, { size: 'small', quaternary: true, onClick: () => openReplace(row) }, { default: () => '替换' }))
@@ -271,21 +280,19 @@ async function remove(row: ProcessMaterial) {
 
 function openReview(row: ProcessMaterial, stage: 'first' | 'second') {
   reviewing.value = { material: row, stage }
-  reviewForm.action = 'PASS'
-  reviewForm.comment = ''
   reviewVisible.value = true
 }
 
-async function saveReview() {
+async function saveReview(payload: ReviewPayload) {
   if (!reviewing.value) return
-  if (reviewForm.action !== 'PASS' && !reviewForm.comment?.trim()) {
+  if (payload.action !== 'PASS' && !payload.comment?.trim()) {
     message.error('退回或不通过必须填写原因')
     return
   }
   reviewSaving.value = true
   try {
-    if (reviewing.value.stage === 'first') await firstReviewMaterial(reviewing.value.material.id, reviewForm)
-    else await secondReviewMaterial(reviewing.value.material.id, reviewForm)
+    if (reviewing.value.stage === 'first') await firstReviewMaterial(reviewing.value.material.id, payload)
+    else await secondReviewMaterial(reviewing.value.material.id, payload)
     message.success('审核完成')
     reviewVisible.value = false
     await loadRecords()
@@ -337,10 +344,16 @@ async function batchDownload() {
   }
 }
 
-function formatSize(size: number) {
-  if (size >= 1024 * 1024) return `${(size / 1024 / 1024).toFixed(1)} MB`
-  if (size >= 1024) return `${(size / 1024).toFixed(1)} KB`
-  return `${size} B`
+function resetFilters() {
+  keyword.value = ''
+  statusFilter.value = null
+  categoryFilter.value = null
+  assessmentYear.value = yearStore.assessmentYear
+  void loadRecords()
+}
+
+function dictLabel(items: DictItem[], code?: string | null) {
+  return items.find((item) => item.itemCode === code)?.itemValue || code || '-'
 }
 
 function showError(error: unknown, fallback: string) {
@@ -365,41 +378,52 @@ watch(
 
 <template>
   <PageContainer title="过程性材料" description="四类过程性材料上传、提交与审核；四类均通过即合格。">
-    <template #actions>
-      <n-space>
-        <n-button secondary @click="loadRecords">刷新</n-button>
-        <n-button @click="showProcessStatus">合格判定</n-button>
-        <n-button v-if="canBatchDownload" @click="batchDownload">批量下载</n-button>
-        <n-button v-if="canUpload" type="primary" @click="openUpload">上传材料</n-button>
-      </n-space>
-    </template>
-
     <n-grid :cols="4" :x-gap="12" responsive="screen" class="page-section">
-      <n-gi><n-card size="small" :bordered="false"><n-statistic label="材料总数" :value="statusSummary.total" /></n-card></n-gi>
-      <n-gi><n-card size="small" :bordered="false"><n-statistic label="复审通过" :value="statusSummary.passed" /></n-card></n-gi>
-      <n-gi><n-card size="small" :bordered="false"><n-statistic label="待审核" :value="statusSummary.pending" /></n-card></n-gi>
-      <n-gi><n-card size="small" :bordered="false"><n-statistic label="退回/不通过" :value="statusSummary.rejected" /></n-card></n-gi>
+      <n-gi><StatCard label="材料总数" :value="statusSummary.total" /></n-gi>
+      <n-gi><StatCard label="复审通过" :value="statusSummary.passed" tone="success" /></n-gi>
+      <n-gi><StatCard label="待审核" :value="statusSummary.pending" tone="warning" /></n-gi>
+      <n-gi><StatCard label="退回/不通过" :value="statusSummary.rejected" tone="error" /></n-gi>
     </n-grid>
 
-    <n-card :bordered="false" size="small" class="page-section">
-      <n-space class="filters" :size="10">
+    <FilterBar :loading="loading" @submit="loadRecords" @reset="resetFilters">
+      <label class="filter-field">
+        <span>关键词</span>
         <n-input v-model:value="keyword" clearable placeholder="文件名 / 类别 / 学生" style="width: 220px" @keyup.enter="loadRecords" />
+      </label>
+      <label class="filter-field">
+        <span>年度</span>
         <n-input v-model:value="assessmentYear" placeholder="考核年度" style="width: 120px" />
-        <n-select v-model:value="categoryFilter" clearable :options="categoryOptions" placeholder="类别" style="width: 190px" />
-        <n-select v-model:value="statusFilter" clearable :options="statusOptions" placeholder="状态" style="width: 150px" />
-        <n-button type="primary" @click="loadRecords">查询</n-button>
-      </n-space>
-    </n-card>
+      </label>
+      <label class="filter-field">
+        <span>类别</span>
+        <n-select v-model:value="categoryFilter" clearable :options="categoryOptions" placeholder="全部类别" style="width: 190px" />
+      </label>
+      <label class="filter-field">
+        <span>状态</span>
+        <n-select v-model:value="statusFilter" clearable :options="statusOptions" placeholder="全部状态" style="width: 150px" />
+      </label>
+    </FilterBar>
 
-    <n-data-table
+    <DataPanel
+      title="材料列表"
       :columns="columns"
       :data="records"
+      :total="records.length"
       :loading="loading"
-      :row-key="(row: ProcessMaterial) => row.id"
       :scroll-x="1440"
-      :pagination="{ pageSize: 10 }"
-      striped
-    />
+      empty-title="暂无材料"
+      empty-description="当前筛选条件下没有过程性材料。"
+      @refresh="loadRecords"
+    >
+      <template #actions>
+        <n-button size="small" @click="showProcessStatus">合格判定</n-button>
+        <n-button v-if="canBatchDownload" size="small" @click="batchDownload">批量下载</n-button>
+        <n-button v-if="canUpload" type="primary" size="small" @click="openUpload">上传材料</n-button>
+      </template>
+      <template v-if="canUpload" #emptyAction>
+        <n-button type="primary" @click="openUpload">上传材料</n-button>
+      </template>
+    </DataPanel>
 
     <n-drawer v-model:show="uploadVisible" :width="560">
       <n-drawer-content :title="replacing ? '替换材料' : '上传材料'" closable>
@@ -434,19 +458,19 @@ watch(
       </n-space>
     </n-modal>
 
-    <n-modal v-model:show="reviewVisible" preset="dialog" :title="reviewing?.stage === 'first' ? '材料初审' : '材料复审'">
-      <n-space vertical>
-        <n-alert v-if="reviewing" type="info" :bordered="false">
-          {{ reviewing.material.studentNo }} / {{ reviewing.material.studentName }} / {{ reviewing.material.categoryLabel }} / 当前：{{ reviewing.material.statusLabel }}
-        </n-alert>
-        <n-select v-model:value="reviewForm.action" :options="reviewActionOptions" />
-        <n-input v-model:value="reviewForm.comment" type="textarea" placeholder="退回或不通过必须填写原因" />
-        <n-space justify="end">
-          <n-button @click="reviewVisible = false">取消</n-button>
-          <n-button type="primary" :loading="reviewSaving" @click="saveReview">确认</n-button>
-        </n-space>
-      </n-space>
-    </n-modal>
+    <ReviewDialog
+      v-model:show="reviewVisible"
+      :title="reviewing?.stage === 'first' ? '材料初审' : '材料复审'"
+      :loading="reviewSaving"
+      allow-fail
+      :summary="reviewing ? [
+        { label: '学号', value: reviewing.material.studentNo },
+        { label: '姓名', value: reviewing.material.studentName },
+        { label: '材料类别', value: reviewing.material.categoryLabel || dictLabel(categories, reviewing.material.category) },
+        { label: '当前状态', status: reviewing.material.status }
+      ] : []"
+      @submit="saveReview"
+    />
 
     <n-modal v-model:show="statusVisible" preset="card" title="过程性考核合格判定" style="width: 680px">
       <n-space vertical>
@@ -460,10 +484,6 @@ watch(
 </template>
 
 <style scoped>
-.filters {
-  flex-wrap: wrap;
-}
-
 .preview-frame {
   width: 100%;
   height: min(70vh, 720px);
@@ -473,5 +493,24 @@ watch(
 
 .mono-input :deep(input) {
   font-family: var(--font-mono);
+}
+
+.file-cell {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.file-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-size {
+  color: var(--text-muted);
+  font-size: 12px;
 }
 </style>

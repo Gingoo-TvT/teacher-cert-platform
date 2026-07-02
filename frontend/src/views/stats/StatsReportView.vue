@@ -3,6 +3,8 @@ import { computed, h, onMounted, reactive, ref, watch } from 'vue'
 import type { EChartsOption } from 'echarts'
 import { useMessage, type DataTableColumns, type SelectOption } from 'naive-ui'
 import { BarChartOutline, GridOutline, ListOutline, PeopleOutline } from '@vicons/ionicons5'
+import DataPanel from '@/components/DataPanel.vue'
+import FilterBar from '@/components/FilterBar.vue'
 import PageContainer from '@/components/PageContainer.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import StatCard from '@/components/StatCard.vue'
@@ -82,7 +84,7 @@ const chartOption = computed<EChartsOption>(() => {
 
 const rowColumns: DataTableColumns<StatsRow> = [
   { title: '统计维度', key: 'dimensionLabel', minWidth: 180, render: (row) => row.dimensionLabel || row.dimension || '-' },
-  { title: '状态', key: 'statusLabel', minWidth: 140, render: (row) => h(StatusTag, { text: row.statusLabel || row.status || '-' }) },
+  { title: '状态', key: 'statusLabel', minWidth: 140, render: (row) => h(StatusTag, { value: row.status, text: row.statusLabel || row.status || '-' }) },
   { title: '数量', key: 'count', width: 100, render: (row) => h('span', { class: 'numeric' }, String(row.count || 0)) },
   { title: '扩展指标', key: 'values', minWidth: 300, render: (row) => renderValues(row.values) }
 ]
@@ -196,24 +198,34 @@ watch(
 
     <n-empty v-if="!canViewStats" description="当前账号没有统计查看权限" class="page-section" />
 
-    <n-card v-if="canViewStats" :bordered="false" size="small" class="page-section">
-      <n-grid :cols="4" :x-gap="12" :y-gap="12" responsive="screen">
-        <n-gi>
-          <n-select :value="selectedType" :options="typeOptions" placeholder="统计类型" @update:value="selectType" />
-        </n-gi>
-        <n-gi><n-input v-model:value="query.assessmentYear" placeholder="考核年度" /></n-gi>
-        <n-gi><n-input v-model:value="query.keyword" clearable placeholder="学号/姓名/批次/证书编号" @keyup.enter="loadReport" /></n-gi>
-        <n-gi><n-input v-model:value="query.className" clearable placeholder="班级" @keyup.enter="loadReport" /></n-gi>
-        <n-gi><n-input v-model:value="query.teachingSegment" clearable placeholder="任教学段" @keyup.enter="loadReport" /></n-gi>
-        <n-gi><n-input v-model:value="query.status" clearable placeholder="状态" @keyup.enter="loadReport" /></n-gi>
-        <n-gi>
-          <n-space>
-            <n-button type="primary" :loading="loading" @click="loadReport">查询</n-button>
-            <n-button @click="resetQuery">重置</n-button>
-          </n-space>
-        </n-gi>
-      </n-grid>
-    </n-card>
+    <FilterBar v-if="canViewStats" :loading="loading" @submit="loadReport" @reset="resetQuery">
+      <label class="filter-field">
+        <span>统计类型</span>
+        <n-select :value="selectedType" :options="typeOptions" placeholder="统计类型" style="width: 190px" @update:value="selectType" />
+      </label>
+      <label class="filter-field">
+        <span>年度</span>
+        <n-input v-model:value="query.assessmentYear" placeholder="考核年度" style="width: 120px" />
+      </label>
+      <label class="filter-field">
+        <span>关键词</span>
+        <n-input v-model:value="query.keyword" clearable placeholder="学号/姓名/批次/证书编号" style="width: 240px" @keyup.enter="loadReport" />
+      </label>
+      <label class="filter-field">
+        <span>班级</span>
+        <n-input v-model:value="query.className" clearable placeholder="班级" style="width: 150px" @keyup.enter="loadReport" />
+      </label>
+      <template #more>
+        <label class="filter-field">
+          <span>任教学段</span>
+          <n-input v-model:value="query.teachingSegment" clearable placeholder="任教学段" style="width: 150px" @keyup.enter="loadReport" />
+        </label>
+        <label class="filter-field">
+          <span>状态</span>
+          <n-input v-model:value="query.status" clearable placeholder="状态" style="width: 150px" @keyup.enter="loadReport" />
+        </label>
+      </template>
+    </FilterBar>
 
     <n-grid v-if="canViewStats" :cols="4" :x-gap="12" responsive="screen" class="page-section">
       <n-gi><StatCard label="统计行数" :value="summary.rowCount" :icon="ListOutline" /></n-gi>
@@ -242,29 +254,31 @@ watch(
       <ChartBox :option="chartOption" height="340px" />
     </n-card>
 
-    <n-data-table
+    <DataPanel
       v-if="canViewStats"
+      title="统计汇总"
       :columns="rowColumns"
       :data="rows"
+      :total="rows.length"
       :loading="loading"
-      :row-key="(row: StatsRow) => `${row.dimension || row.dimensionLabel}-${row.status || row.statusLabel}`"
       :scroll-x="940"
-      :pagination="{ pageSize: 10 }"
-      striped
+      empty-title="暂无统计数据"
+      empty-description="当前查询条件下没有统计汇总行。"
+      @refresh="loadReport"
     />
 
-    <n-card v-if="canViewStats && hasDetails" :bordered="false" class="page-section">
-      <template #header>钻取明细</template>
-      <n-data-table
-        :columns="detailColumns"
-        :data="details"
-        :row-key="(row: StatsDetail) => `${row.studentId || row.studentNo}-${row.fieldName}-${row.errorReason}`"
-        :scroll-x="1040"
-        :pagination="{ pageSize: 8 }"
-        size="small"
-        striped
-      />
-    </n-card>
+    <DataPanel
+      v-if="canViewStats && hasDetails"
+      title="钻取明细"
+      :columns="detailColumns"
+      :data="details"
+      :scroll-x="1040"
+      size="small"
+      :page-size="8"
+      :show-refresh="false"
+      empty-title="暂无钻取明细"
+      empty-description="当前统计结果没有可钻取明细。"
+    />
   </PageContainer>
 </template>
 
