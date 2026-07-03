@@ -15,6 +15,12 @@
 
 ---
 
+## [2026-07-03] Phase 34 完成（Claude 亲自执行）✅ — 组件拆分（落地 W6 行数红线）
+- 做了什么：应用户要求由 Claude 亲自执行 Phase 34（不交 codex）。并行派 10 个 worker 子代理，每个只拆 1 个 >400 视图为子组件（抽屉/自助面板/域面板）并放到该视图自己的 `components/` 子目录（文件互不相交→无冲突），严格「逐行搬移、行为不变、不跑 build」；Claude 集中 `vue-tsc`+`vite build` 一次通过（0 错），再对 Org 做二次域拆分（642→65，抽 MajorsPanel/ConfigsPanel），再次 type-check+build 绿。活体 SYS_ADMIN 登录 10 个被拆页接口全 200 零 403。
+- 成果：Org 1006→65 / Security 798→398 / Cert 690→314 / Material 697→442 / Dict 610→362 / ManagePanel 601→308 / Training 596→347 / Exemption 620→396 / Audit 523→399 / Student 456→340；新增 33 子组件。剩 5 个 401–487（MyTaskPanel/MajorsPanel/Dashboard/Material/Subject）判为合理内聚，不强拆（400 是启发式非硬指标，强拆内聚组件反损维护性）。
+- 行为保全：抽屉→子组件 defineExpose(open)+emit(saved)，父 ref 调用+@saved 重载；共享 saving 拆独立（同刻仅一抽屉）不可观测；年度 watch 忠实拆分；Org 二拆给 n-tab-pane 加 display-directive=show 保持常挂载与原单体一致；权限/v-model/校验/文案/样式原样。子代理逐项自述+Claude 核对。
+- 放行：合并 `main`（本地私有、无远程、不 push）；纯前端零依赖变更；请用户目验被拆页抽屉/表单交互。详见 docs/reviews/phase-34-review.md。
+
 ## [2026-07-03] Phase 33 复核通过（Claude · frontend-quality-plan §5）✅ — 末阶段：工作台/视频工作台/学生端卡片化
 - 做了什么：复核 `feature/phase33-workbench-student` 单提交 `3a95a8e`（10 文件）。核显式 gate ①-⑥：VideoReviewView 915→49、MyTaskPanel 评分工作台(维度/总分/结论/意见)、材料四卡、视频步骤条(含 RETURNED)、证书卡(isStudentMode)、Dashboard v2(问候/快捷入口/真实 total)；W3 空；`vue-tsc`+`vite build ✓ 7.93s`。活体走查 STUDENT(本人证书/材料/档案 200)、REVIEW_TEACHER(/video/tasks/my 200)、AUDITOR(/video/reviews、/reviewer-groups 200)——全 200 零 403。
 - 结论：**功能 PASS**（一轮·0 修补）。显式 Phase 33 gate 全达成。
