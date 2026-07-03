@@ -270,3 +270,19 @@
 
 > 三轮扫描 + 活体测试累计：~10 个专项审计代理（授权/业务/并发/性能/前端/部署/领域/模块/测试/数据模型）+ 4 项现场证实（文件 IDOR、并发竞态、登出空操作 = 可利用；数据范围/越权 = 已防护）。git 全程本地私有。
 
+---
+
+## 11. 修复进展（随修随勾，每项带活体验收证据）
+
+### Phase 37a-part1 ✅ 已完成并合并（`72beeaf`，mvn verify 83/83 绿 + 前端 build 绿）
+- ✅ **P0-1 文件预签名 IDOR** — 删除无属主校验的 `GET /file/{id}/url`（无任何调用方，合法访问走带范围校验的业务端点）。**活体：** 学院B学生带 token 请求 → `data=None` 拿不到下载 URL（原可下载出学院A学生材料字节）。
+- ✅ **P1 会话不可撤销** — 新增 `TokenRevocationService`（Redis 记撤销时点），登出/改密/管理员重置密码后使旧 token 立即失效；filter + refresh 均校验。**活体：** 登出后旧 token `/auth/me`→401（原 200），改密后旧 token→401，重新登录正常。
+- ✅ **P0-4 无 prod profile/Swagger 公开** — 新增 `application-prod.yml` 关闭 Swagger/Knife4j + Flyway 安全项（clean-disabled、baseline-on-migrate）。
+- ✅ **P1 前端批量下载永远失败** — `material.ts` 泛型笔误 `post<Blob>`→`post<unknown,Blob>` + 消费端 `res.data`→`res`。
+- 说明：删除端点后命中会经全局兜底返回 500「系统异常」而非 404（P1-15 的 200/500-on-error 另行修）；安全目标（不泄露）已达成。
+
+### Phase 37a-part2（进行中：剩余 batch A 安全项）
+- ⏳ P0-7 导入批次 IDOR（batches/confirm/rollback/errorReport 加 operator+学院范围校验；并修 `StatsServiceImpl.batchVisible` 子串匹配漏洞）。
+- ⏳ P0-14 RBAC 授权 upsert 静默损坏 + P0-15 角色弹窗清数据范围（后端 upsert 改按真实 FK 写 + 唯一键补 deleted；前端保留真实 scopeType）。
+- ⏳ P0-9 TLS（nginx 443 配置模板 + HSTS/安全头；证书由运维提供）。
+
