@@ -196,7 +196,25 @@
 - **VARCHAR 存日期/枚举清单**：birth_date、全表 assessment_year、cert issue_date/valid_until、ability_test.score 均 VARCHAR；status 类枚举全是无 CHECK 的自由 VARCHAR（脏值只在下次读时抛异常）。
 - **P2**：role/user 删除不级联 junction 表（经查**非提权洞**——权限解析都 re-join `r.deleted=0 AND status=1`，但留孤儿行扰乱审计）；归档视频任务把 `reviewer_id` 覆盖成自身 PK（毁"谁评审过"痕迹）；cert_sequence 若将来被软删可致重号（当前不可达）。**正面**：证书序列号 `SELECT FOR UPDATE` 并发安全；JWT 密钥 fail-fast 稳。
 
-### 9.2 系统域/参考数据模块（待 a1c9 收尾追加）
+### 9.2 系统域/参考数据模块
+**跨切 P0（新，数据/授权正确性）**：
+- **P0-14 RBAC 授权 upsert 静默损坏**：`SysUserRoleMapper/SysRolePermissionMapper/SysUserDataScopeMapper` 用"先全禁 → 逐项 `INSERT...ON DUPLICATE KEY UPDATE`，id=parentId*1000+序号"，**冲突时 SET 从不更新区分列(role_id/permission_id/college_id)**，且唯一键无 `deleted`(`V7:63,99,116`)。实迹：把角色 [A,B,C] 改存 [A,C] → 用户最终得 **{A,B} 而非 {A,C}**（B 被复活、C 被丢弃），无报错无回滚，且每请求重查即时生效。`SecurityAdminServiceImpl.replaceUserRoles/assignRolePermissions/assignUserDataScope` 全用此模式。**日常改权就触发**。
+- **P0-15 角色授权弹窗改一个权限，静默改写所有权限的数据范围**：`RolePermissionDrawer.vue:29-78` 丢弃后端真实 per-permission `scopeType`，保存时用硬编码 3 桶猜测 `defaultScopeFor` 重建全量 payload，后端 `assignRolePermissions` 只校验枚举照单全收 → 种子里 ASSIGNED 等真实范围被改一次全被冲掉。每次保存必触发。
+- **P0-16 重新指派视频评审从不撤销旧评审**：`VideoReviewServiceImpl.assign:296/resolveAssignReviewerIds:1123` 只**增**任务不禁旧的；被移除评审仍可读/评分，其残留分数可被 `settleIfReady` 计入结算；无单独取消指派 API；`AssignReviewerModal.vue:45` 还把旧评审一直显示为"已指派"。
+
+**模块 P1/P2**：
+- **P1 终审通过从不通知学生**：4 个非视频复审流程的二审分支**只在非 PASS 才发通知**（`Exemption:303`/`Material:218`/`Student:216`/`Training:193` 都是 `if(!PASS) notify...`）→ 学生材料**最终通过时静默无通知**，只在被退回时收到消息；视频结算路径同样无通过通知。
+- **P1 多个 `@DataScope` 是误导性空操作/恒拒**：`training_goal_config`/`sys_dict_type`/`sys_dict_item`/`sys_region` 别名**不在 TABLE_RULES** → 不加任何过滤（失败开放，好在这些是全局参考数据）；而 `major_training_goal` 对 COLLEGE/SELF 调用者**恒拒返回空**（`GET /major/{id}/training-goals` 学生/学院职员永远看不到，仅 SCHOOL 走 allSchool 才有数据）。
+- **P1 字典编码唯一性软删盲 → 复建报 500**：`DictServiceImpl.existsTypeCode/existsItem` 用 `selectCount`(过滤 deleted=0)，但唯一键不含 deleted → 删了再建同码 → 裸 DuplicateKey → 无 `DataIntegrityViolationException` 处理器 → "系统异常"。Organization 的同类检查用了 `*IncludingDeleted` 正确，Dict/RBAC 没跟上（**修复不一致**）。
+- **P1 禁用字典"类型"对其"项"零级联**：`queryItems/listItems` 只看 item.status 不查父 type.status → 禁用类型纯装饰，项仍可服务可缓存可新增。
+- **P1 组织删除守卫不全**：`deleteMajor` 零使用校验（且 training_profile 用 code/name 快照非 major_id，无法常规校验）；`deleteCollege` 只查 major 数不查人；编辑专业培养目标联动时 `getMajorTrainingGoals` 过滤掉"已禁用但仍生效"的联动 → 全量替换保存时**静默软删管理员没看见的联动**。
+- **P1 param 解析静默兜底**：`ParamServiceImpl.getInt/Boolean` 解析失败静默返回默认值**无日志** → 管理员把阈值(如视频过线分)打错成非数字，系统静默按默认跑，毫无提示。
+- **P1 审计查询硬编码 `LIMIT 500` 无分页无 offset 无截断提示**（`AuditQueryMapper:144`）→ 大量审计静默截尾（合规/取证缺口；SQL 本身参数化不可注入）。
+- **P1 work_no/student_id 复用烧号**：`sys_user` 唯一键无 deleted，username 有友好校验但 work_no/student_id 没 → 重发离职工号撞裸约束 → 500。
+- **P2**：`UserDrawer.vue:87` 改用户重复写两次角色（updateUser 内已 replaceUserRoles，又单独 assignUserRoles）；deleteUser/deleteRole 无级联清 junction、deleteRole 无在用守卫；permissionTree 无状态过滤；role code 更新可改无不可变守卫。
+- **验证正面**：Region 三级级联防环+链一致；Subject 类别节点排除+recent 自愈；`NotificationServiceImpl.markRead` 原子 `WHERE id AND user_id` 防越权；`DataScopeAspect` finally 清 ThreadLocal 无泄漏；reviewer_group DataScope 正确接线+指派时活体校验学院；证书/College/Major 编码用软删包含检查正确；审计删除被拒并留痕。
+
+
 
 ### 9.3 测试覆盖缺口（84 个 IT，全是 boot 层集成测试）
 - **安全网范围**：`platform-boot` 下 14 个 IT 共 84 个 @Test；**business/exchange/statistics 无任何单测；前端零测试（无 *.spec、package.json 无 test 脚本）**。全靠 DB 支撑的集成测试兜底。
@@ -214,4 +232,41 @@
 - **P0-12 无 DB 外键 + 删父静默孤儿 + 删学生不停登录**（§9.1）——数据完整性靠应用码且不一致，上线前需补关键级联/停用逻辑或 DB 约束。
 - **P0-13 关键 bug 零测试**（§9.3）——修 P0 时必须**同步补并发/复活/双确认测试**，否则改完无从证明、且 reissue 测试会假失败。
 > 迁移建议随手做的低风险项：sys_user/sys_role 唯一键补 `deleted`（V24 新迁移）、create 捕获 DuplicateKey、免考种子占位值清空、Flyway prod 配置。
+
+---
+
+## 10. 执行摘要与结论（给决策）
+
+### 10.1 整体判断
+**核心业务逻辑是可靠的**（好消息，别推倒重来）：领域规则 12 条 11 条后端强校验、业务 by-id/数据范围 IDOR 面经活体+单测双证干净、证书序列号并发安全、无 SQL 注入、字段/证书/级联规则正确。**问题集中在"从 demo 到生产"的产品化层**——安全加固、并发正确性、RBAC 管理端一致性、运维基建、测试网——这正是过渡期该补的，现已全部摸清并带 file:line + 修复验收口径。
+
+### 10.2 上线阻断 P0 全清单（16 项，按修复批次）
+**批次 A · 安全急修（Phase 37a，多为独立改动，建议 Claude 亲自 + 复现/阻断活体证据）**
+1. 文件预签名 IDOR（§8 已现场利用）— 加属主/范围校验。
+2. 导入批次 IDOR（§7.10）— batches/confirm/rollback/errorReport 加 operator+学院过滤。
+3. RBAC 授权 upsert 静默损坏（§9.2 P0-14）— 改权把用户改坏，日常触发。
+4. 角色授权弹窗改一权限清掉全部数据范围（§9.2 P0-15）。
+5. 会话不可撤销（§8 已现场证）— 登出/改密令牌黑名单或 token 版本。
+6. 无 TLS（§7.11）— 前置 443 终端 + HSTS。
+7. Swagger 生产公开 + 无 prod profile（§1 P0-4）。
+
+**批次 B · 依赖与并发（Phase 37b/38）**
+8. Spring Boot 3.2.11 EOL + 方法鉴权 CVE（§7.11）— 升 3.3+/3.4。
+9. 并发无乐观锁（§8 已现场证 6/6）— BaseEntity 加 `@Version` + 条件更新 + 补唯一约束(证书 student+year、id_card_no)。
+10. 重新指派评审不撤销旧评审（§9.2 P0-16）。
+11. MinIO I/O 在事务内（§7.2）— 移出事务防连接池耗尽。
+
+**批次 C · 数据/运维/容量（Phase 38/40）**
+12. 无 DB 外键 + 删父孤儿 + 删学生不停登录（§9.1）。
+13. 批量下载整包进堆 OOM（§1 P0-2）— 流式。
+14. app 用 mysql root（§1 P0-5）— 专用最小权限账号。
+15. 假备份 + 全库无 @Scheduled（§1 P0-6）— 真定时备份 + 清理任务。
+16. 关键 bug 零测试（§9.3）— 修 P0 时**同步补并发/复活/双确认测试**（否则改完无从证明，且 reissue 测试会假失败）。
+
+### 10.3 强烈建议
+- **修 P0 必须配测试**：当前 3 个已知 P0 bug（材料 FAILED 污染 / confirmImport 双确认 / 视频双结算）零覆盖，改完无回归网 → 每修一项补对应测试。
+- **顺手低风险快赢**（可先做，风险极低、收益明确）：前端批量下载泛型 bug（一行）、终审通过通知学生、param 解析失败记日志、审计查询去 500 硬顶、唯一键补 deleted、种子占位清空、`.dockerignore`、Redis 加密码/不暴露端口、nginx 安全头+代理超时。
+- **本清单是活文档**：随修随勾；每个 P0 修复以"复现→阻断"活体证据验收（§8 已示范）。
+
+> 三轮扫描 + 活体测试累计：~10 个专项审计代理（授权/业务/并发/性能/前端/部署/领域/模块/测试/数据模型）+ 4 项现场证实（文件 IDOR、并发竞态、登出空操作 = 可利用；数据范围/越权 = 已防护）。git 全程本地私有。
 
