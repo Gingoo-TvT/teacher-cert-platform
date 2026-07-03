@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, h, onMounted, reactive, ref, watch } from 'vue'
+import { computed, h, onMounted, reactive, ref, watch, type Component } from 'vue'
 import {
   NButton,
   NIcon,
@@ -9,7 +9,7 @@ import {
   type SelectOption,
   type UploadFileInfo
 } from 'naive-ui'
-import { EyeOutline } from '@vicons/ionicons5'
+import { AlertCircleOutline, CheckmarkCircleOutline, CloudUploadOutline, DocumentTextOutline, EyeOutline } from '@vicons/ionicons5'
 import DataPanel from '@/components/DataPanel.vue'
 import FilterBar from '@/components/FilterBar.vue'
 import PageContainer from '@/components/PageContainer.vue'
@@ -44,6 +44,13 @@ interface StatusRow {
   total: number
   passedCount: number
   failedCount: number
+}
+
+interface MaterialCard {
+  code: string
+  label: string
+  icon: Component
+  record: ProcessMaterial | null
 }
 
 const message = useMessage()
@@ -107,6 +114,18 @@ const statusSummary = computed(() => {
   const pending = records.value.filter((item) => ['FIRST_REVIEW', 'SECOND_REVIEW'].includes(item.status)).length
   const rejected = records.value.filter((item) => item.status.includes('REJECTED') || item.status === 'FAILED').length
   return { total, passed, pending, rejected }
+})
+const materialCards = computed<MaterialCard[]>(() => {
+  const icons = [DocumentTextOutline, CloudUploadOutline, CheckmarkCircleOutline, AlertCircleOutline]
+  const source = categories.value.length
+    ? categories.value
+    : records.value.map((item) => ({ itemCode: item.category, itemValue: item.categoryLabel }) as DictItem)
+  return source.slice(0, 4).map((item, index) => ({
+    code: item.itemCode,
+    label: item.itemValue,
+    icon: icons[index] || DocumentTextOutline,
+    record: latestMaterial(item.itemCode)
+  }))
 })
 const previewable = computed(() => {
   const row = previewRow.value
@@ -209,11 +228,11 @@ async function loadOptions() {
   categories.value = categoryRes.data
 }
 
-function openUpload() {
+function openUpload(category?: string) {
   replacing.value = null
   uploadForm.studentId = selfMode.value ? userStore.currentUser?.studentId || students.value[0]?.id || '' : ''
   uploadForm.assessmentYear = assessmentYear.value
-  uploadForm.category = ''
+  uploadForm.category = category || ''
   fileList.value = []
   uploadVisible.value = true
 }
@@ -356,6 +375,18 @@ function dictLabel(items: DictItem[], code?: string | null) {
   return items.find((item) => item.itemCode === code)?.itemValue || code || '-'
 }
 
+function latestMaterial(category: string) {
+  return records.value
+    .filter((item) => item.category === category)
+    .sort((a, b) => String(b.uploadTime || '').localeCompare(String(a.uploadTime || '')))[0] || null
+}
+
+function rejectComment(row?: ProcessMaterial | null) {
+  if (!row) return ''
+  if (!row.status.includes('REJECTED') && row.status !== 'FAILED') return ''
+  return row.secondReviewComment || row.firstReviewComment || ''
+}
+
 function showError(error: unknown, fallback: string) {
   const detail = error instanceof Error ? error.message : fallback
   message.error(detail || fallback)
@@ -385,45 +416,93 @@ watch(
       <n-gi><StatCard label="退回/不通过" :value="statusSummary.rejected" tone="error" /></n-gi>
     </n-grid>
 
-    <FilterBar :loading="loading" @submit="loadRecords" @reset="resetFilters">
-      <label class="filter-field">
-        <span>关键词</span>
-        <n-input v-model:value="keyword" clearable placeholder="文件名 / 类别 / 学生" style="width: 220px" @keyup.enter="loadRecords" />
-      </label>
-      <label class="filter-field">
-        <span>年度</span>
-        <n-input v-model:value="assessmentYear" placeholder="考核年度" style="width: 120px" />
-      </label>
-      <label class="filter-field">
-        <span>类别</span>
-        <n-select v-model:value="categoryFilter" clearable :options="categoryOptions" placeholder="全部类别" style="width: 190px" />
-      </label>
-      <label class="filter-field">
-        <span>状态</span>
-        <n-select v-model:value="statusFilter" clearable :options="statusOptions" placeholder="全部状态" style="width: 150px" />
-      </label>
-    </FilterBar>
+    <template v-if="selfMode">
+      <n-card :bordered="false" class="page-section material-self-toolbar">
+        <n-space justify="space-between" align="center">
+          <n-space align="center">
+            <span class="toolbar-label">考核年度</span>
+            <n-input v-model:value="assessmentYear" placeholder="考核年度" class="mono-input" style="width: 130px" />
+            <n-button secondary :loading="loading" @click="loadRecords">刷新</n-button>
+          </n-space>
+          <n-button @click="showProcessStatus">合格判定</n-button>
+        </n-space>
+      </n-card>
 
-    <DataPanel
-      title="材料列表"
-      :columns="columns"
-      :data="records"
-      :total="records.length"
-      :loading="loading"
-      :scroll-x="1440"
-      empty-title="暂无材料"
-      empty-description="当前筛选条件下没有过程性材料。"
-      @refresh="loadRecords"
-    >
-      <template #actions>
-        <n-button size="small" @click="showProcessStatus">合格判定</n-button>
-        <n-button v-if="canBatchDownload" size="small" @click="batchDownload">批量下载</n-button>
-        <n-button v-if="canUpload" type="primary" size="small" @click="openUpload">上传材料</n-button>
-      </template>
-      <template v-if="canUpload" #emptyAction>
-        <n-button type="primary" @click="openUpload">上传材料</n-button>
-      </template>
-    </DataPanel>
+      <n-grid :cols="4" :x-gap="12" :y-gap="12" responsive="screen" class="page-section material-card-grid">
+        <n-gi v-for="card in materialCards" :key="card.code">
+          <n-card :bordered="false" class="material-card">
+            <div class="material-card__head">
+              <div class="material-card__icon">
+                <n-icon :component="card.icon" />
+              </div>
+              <div class="material-card__title">
+                <strong>{{ card.label }}</strong>
+                <StatusTag
+                  :value="card.record?.status || 'WAIT_UPLOAD'"
+                  :text="card.record?.statusLabel || statusLabel(card.record?.status || 'WAIT_UPLOAD')"
+                />
+              </div>
+            </div>
+            <div class="material-card__file">
+              <span>{{ card.record?.fileName || '尚未上传材料' }}</span>
+              <small>{{ formatFileSize(card.record?.fileSize) }}</small>
+            </div>
+            <n-alert v-if="rejectComment(card.record)" type="warning" :bordered="false">
+              退回意见：{{ rejectComment(card.record) }}
+            </n-alert>
+            <n-space class="material-card__actions">
+              <n-button v-if="card.record" secondary size="small" @click="openPreview(card.record)">预览</n-button>
+              <n-button size="small" @click="card.record ? openReplace(card.record) : openUpload(card.code)">
+                {{ card.record ? '替换' : '上传' }}
+              </n-button>
+              <n-button v-if="card.record" type="primary" size="small" @click="submit(card.record)">提交</n-button>
+            </n-space>
+          </n-card>
+        </n-gi>
+      </n-grid>
+    </template>
+
+    <template v-else>
+      <FilterBar :loading="loading" @submit="loadRecords" @reset="resetFilters">
+        <label class="filter-field">
+          <span>关键词</span>
+          <n-input v-model:value="keyword" clearable placeholder="文件名 / 类别 / 学生" style="width: 220px" @keyup.enter="loadRecords" />
+        </label>
+        <label class="filter-field">
+          <span>年度</span>
+          <n-input v-model:value="assessmentYear" placeholder="考核年度" style="width: 120px" />
+        </label>
+        <label class="filter-field">
+          <span>类别</span>
+          <n-select v-model:value="categoryFilter" clearable :options="categoryOptions" placeholder="全部类别" style="width: 190px" />
+        </label>
+        <label class="filter-field">
+          <span>状态</span>
+          <n-select v-model:value="statusFilter" clearable :options="statusOptions" placeholder="全部状态" style="width: 150px" />
+        </label>
+      </FilterBar>
+
+      <DataPanel
+        title="材料列表"
+        :columns="columns"
+        :data="records"
+        :total="records.length"
+        :loading="loading"
+        :scroll-x="1440"
+        empty-title="暂无材料"
+        empty-description="当前筛选条件下没有过程性材料。"
+        @refresh="loadRecords"
+      >
+        <template #actions>
+          <n-button size="small" @click="showProcessStatus">合格判定</n-button>
+          <n-button v-if="canBatchDownload" size="small" @click="batchDownload">批量下载</n-button>
+          <n-button v-if="canUpload" type="primary" size="small" @click="openUpload()">上传材料</n-button>
+        </template>
+        <template v-if="canUpload" #emptyAction>
+          <n-button type="primary" @click="openUpload()">上传材料</n-button>
+        </template>
+      </DataPanel>
+    </template>
 
     <n-drawer v-model:show="uploadVisible" :width="560">
       <n-drawer-content :title="replacing ? '替换材料' : '上传材料'" closable>
@@ -533,5 +612,86 @@ watch(
 .file-size {
   color: var(--text-muted);
   font-size: 12px;
+}
+
+.material-self-toolbar :deep(.n-card__content) {
+  padding: var(--space-4);
+}
+
+.toolbar-label {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.material-card {
+  min-height: 236px;
+}
+
+.material-card :deep(.n-card__content) {
+  display: flex;
+  min-height: 236px;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.material-card__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.material-card__icon {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--brand-soft);
+  color: var(--brand);
+  font-size: 22px;
+}
+
+.material-card__title {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.material-card__title strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.material-card__file {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+  padding: var(--space-3);
+  border-radius: var(--radius-control);
+  background: var(--surface-muted);
+}
+
+.material-card__file span,
+.material-card__file small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.material-card__file small {
+  color: var(--text-muted);
+}
+
+.material-card__actions {
+  margin-top: auto;
 }
 </style>

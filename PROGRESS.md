@@ -5,10 +5,10 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**Phase 32 ✅ 已复核（Claude 07-03，PASS·一轮·0 修补）**——系统域两栏+抽屉P4+详情P5+审核P6+审计中文完成；下一步 Phase 33（工作台 v2 + 视频页拆分评分工作台 + 学生端卡片化，含 W6 拆巨石组件）。
+- 当前阶段：**Phase 33 待复核**——工作台 v2、视频页拆分与评分工作台、学生端材料/视频/证书卡片化已完成，等待 Claude 按 Phase33 gate ①-⑥复核。
 - 阻塞项：无
-- 最近更新：2026-07-03（Phase 32 复核通过：系统域 6 页两栏化、Org/Security 抽屉真 2 列、审计 old/new 中文 StatusTag、权限树改可读功能名(system:user:manage→系统用户管理)、查看/编辑分离、审核统一；W3 黑名单空；活体 SYS_ADMIN 走查 10 系统接口零 403；构建绿；Minor 1 非阻断。详见 docs/reviews/phase-32-review.md）
-- 下一步：Phase 33（工作台 v2 + 视频页拆分 + 学生端卡片化）；派发词见 frontend-quality-plan 附录 D。
+- 最近更新：2026-07-03（Phase 33：Dashboard 问候/快捷入口/通知列表；视频页拆为 UploadPanel/MyTaskPanel/ManagePanel/GroupPanel，主文件 49 行；学生材料四卡、视频步骤条、证书卡完成；type-check/build 通过。）
+- 下一步：Claude 按 `docs/frontend-quality-plan.md` §4 Phase33 gate 复核，含 6 角色矩阵走查。
 
 ## 阶段汇总
 | Phase | 名称 | 优先级 | 任务数 | 完成 | 状态 |
@@ -340,6 +340,13 @@
 - [x] P5/P6：学生与培养查看继续走 `DetailPanel` 只读面板，查看不复用编辑表单；学生/培养/材料/免考审核入口统一 `ReviewDialog`。
 - [x] 审计中文化：审计 old/new 状态继续 `statusLabel + StatusTag`；操作名走 `operationLabel`；审计学院筛选为学院下拉，学生筛选占位「学生ID（数字）」并带数字提示；参数/审计/备份时间列均 `formatDateTime`。
 - 验证：`npm --prefix frontend run type-check` 通过；`npm --prefix frontend run build` 通过（仅既有 Vite chunk-size warning）；附录 A 黑名单、纯前端范围、旧抽屉宽度、系统页裸表格扫描输出为空。等待 Claude 复核，未自行置复核通过。
+
+## 收官后 · Phase 33 / 工作台 v2 + 视频评审工作台 + 学生端友好化
+- Phase 33 `工作台 v2 + 视频评审工作台 + 学生端友好化`：**待复核**（分支：`feature/phase33-workbench-student`）。纯前端展示层改造；未改后端、契约、迁移或 stores 逻辑；未新增依赖；未 push。
+- [x] 工作台 v2：页头改问候语（姓名/角色/日期），指标卡继续使用统计/通知真实返回值并带 icon；新增 6 角色快捷入口卡；最近通知改列表组件；图表继续走 `ChartBox`。
+- [x] 视频页拆分：新增 `views/video/components/{UploadPanel,MyTaskPanel,ManagePanel,GroupPanel}.vue`；`VideoReviewView.vue` 缩至 49 行；`MyTaskPanel` 改为左任务列表 + 右评分区工作台，替代弹窗评分。
+- [x] 学生端友好化：材料 `selfMode` 改四类卡片网格；视频 `selfMode` 改步骤条 + 退回意见 + 重新上传；证书 `selfMode` 改青绿描边证书卡，展示证书号、有效期和状态。
+- 验证：`npm --prefix frontend run type-check` 通过；`npm --prefix frontend run build` 通过（仅既有 Vite chunk-size warning）；附录 A 黑名单、纯前端范围、视频主文件行数和组件命中证据已写入 `DEVLOG.md`。等待 Claude 复核，未自行置复核通过。
 
 ---
 

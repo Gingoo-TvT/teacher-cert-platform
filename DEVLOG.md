@@ -15,6 +15,131 @@
 
 ---
 
+## [2026-07-03] Phase 33 待复核小结（工作台 v2 + 视频评审工作台 + 学生端友好化）
+- 做了什么：从最新 `main` 切出 `feature/phase33-workbench-student`，执行 `docs/frontend-quality-plan.md` §4 Phase 33。纯前端展示层改造；未改后端、契约、迁移或 stores 逻辑；未新增依赖；未 push。
+- 关键决策与理由：视频页按 W6 拆为 4 个子组件，主文件只保留权限分区与 tab 组合；评分流程从弹窗改成左右工作台，减少评审教师反复开关弹层。学生端只在 `selfMode` 下替换为卡片/步骤样式，管理与审核角色保留原列表流程。
+- 问题与解决：`VideoTask` 本身不含学号/姓名，评分工作台用既有 `getVideoReview` 按任务记录补展示信息；若单条详情读取失败，仍显示任务编号并可评分/播放。工作台快捷入口按角色生成，并用现有权限过滤，避免无入口角色点到空壳。
+- 与规格的偏差/疑问：按 build-only 要求未启动常驻前端/后端服务；6 角色真实账号逐页走查留待 Claude 复核。
+
+### DashboardView — 工作台 v2
+- 结构件：页头改为“问候语 + 姓名 + 角色 + 日期”；指标卡继续使用统计/通知真实返回值并带 icon；新增角色快捷入口卡；最近通知由表格改为列表；图表继续走 `ChartBox`。
+- 肉眼变化：进入首页先看到面向当前角色的问候和 4-6 个直达卡，通知以未读圆点、标题、摘要、时间呈现。
+- 自检证据：`rg -n 'ChartBox|quick-entry|最近通知|greetingTitle' frontend/src/views/DashboardView.vue` 命中问候、快捷入口、通知列表和 `ChartBox`。
+
+### VideoReviewView + components — 视频拆分与评分工作台
+- 结构件：新增 `UploadPanel.vue`、`MyTaskPanel.vue`、`ManagePanel.vue`、`GroupPanel.vue`；主 `VideoReviewView.vue` 缩至 49 行。
+- 评分工作台：`MyTaskPanel` 左侧任务列表显示学号/状态/提交时间，右侧评分区包含维度评分表、总分大数字、结论 radio、意见和提交按钮，不再使用提交评分弹窗。
+- 学生视频：`UploadPanel` 在 `selfMode` 下显示上传→评审中→已确认/已退回步骤条，退回/校验失败展示意见并提供重新上传。
+- 肉眼变化：评审教师进入“我的评审”即看到左右分栏工作台；学生进入“我的视频”看到步骤条和当前视频卡。
+
+### MaterialManageView — 学生材料四卡
+- 结构件：学生 `selfMode` 改四类材料卡片网格；每类卡含 icon、状态标签、文件名/大小、上传/预览/提交按钮和退回意见展示。
+- 保留项：审核/管理角色仍使用原 `FilterBar + DataPanel + ReviewDialog` 流程，上传抽屉和预览弹窗复用既有逻辑。
+- 肉眼变化：学生不再看到整张材料表，而是四类材料按卡片并排显示，缺失项直接显示“尚未上传材料”。
+
+### CertificateManageView — 学生证书卡
+- 结构件：学生 `selfMode` 标题改“我的证书”，证书记录改青绿描边渐变卡；证书编号 mono 大字展示，有效期、任教学科、签发日期和状态徽标同卡呈现。
+- 保留项：非学生角色继续使用证书统计、筛选、DataPanel 和生命周期操作。
+- 肉眼变化：学生进入证书页看到证书卡而不是管理表格，证书号和有效期成为首屏重点信息。
+
+### Cross Role Matrix — Phase33 静态走查口径
+- STUDENT：工作台显示本人信息/材料/免考/教学视频/我的证书/通知入口；材料、视频、证书三页进入 selfMode 卡片或步骤视图。
+- COLLEGE_CLERK：工作台显示学生初审、培养信息、材料初审、免考初审、导出中心；视频页若无视频权限不出现空壳分区。
+- COLLEGE_AUDITOR：工作台显示材料复审、免考复审、视频指派、测试确认、学院统计；视频页显示评审管理与评审组。
+- REVIEW_TEACHER：工作台显示评分工作台、待评分视频、评审记录、通知中心；视频页显示“我的评审”左右评分工作台。
+- ACADEMIC_ADMIN：工作台显示证书生成、签发、导入预校验、导出中心、统计、通知；证书页保持管理表格和生命周期操作。
+- SYS_ADMIN：工作台显示账号管理、参数审计备份、组织与专业、数据字典、任教学科库；本阶段未新增系统域入口逻辑。
+
+### 自检证据（W2）
+附录 A 黑名单输出为空：
+```
+$pattern = '(权限点|权限码|[a-z]+:[a-z]+:?[a-zA-Z]*[''"]?\s*(显隐|控制)|后端|接口|API|迁移|Flyway|RBAC|SPI|V-0[0-9])'
+$out = rg -n --glob '*.vue' $pattern frontend/src/views frontend/src/layouts frontend/src/components | rg -v '//|/\*|import|hasPerm|perms:|@/api'
+if ($out) { $out } else { '<empty>' }
+<empty>
+```
+
+纯前端范围输出为空：
+```
+$ git diff --name-only | rg '^(platform-|pom\.xml|docker-compose|.*db/migration|.*Controller|.*Service|.*Mapper|.*\.java)'
+<empty>
+```
+
+视频主文件行数：
+```
+$ (Get-Content -Encoding UTF8 frontend/src/views/video/VideoReviewView.vue).Count
+49
+```
+
+视频组件命中：
+```
+$ rg -n 'UploadPanel|MyTaskPanel|ManagePanel|GroupPanel' frontend/src/views/video frontend/src/views/video/components
+frontend/src/views/video\VideoReviewView.vue:5:import GroupPanel from '@/views/video/components/GroupPanel.vue'
+frontend/src/views/video\VideoReviewView.vue:6:import ManagePanel from '@/views/video/components/ManagePanel.vue'
+frontend/src/views/video\VideoReviewView.vue:7:import MyTaskPanel from '@/views/video/components/MyTaskPanel.vue'
+frontend/src/views/video\VideoReviewView.vue:8:import UploadPanel from '@/views/video/components/UploadPanel.vue'
+frontend/src/views/video\VideoReviewView.vue:29:        <UploadPanel v-if="selfMode" :can-play="canPlay" />
+frontend/src/views/video\VideoReviewView.vue:30:        <ManagePanel
+frontend/src/views/video\VideoReviewView.vue:41:        <MyTaskPanel />
+frontend/src/views/video\VideoReviewView.vue:45:        <GroupPanel />
+```
+
+Phase33 结构命中：
+```
+$ rg -n 'review-workbench|任务列表|评分区|提交评分|video-step|n-steps|重新上传' frontend/src/views/video frontend/src/views/video/components
+frontend/src/views/video/components\UploadPanel.vue:180:    <n-card :bordered="false" class="page-section video-step-card">
+frontend/src/views/video/components\UploadPanel.vue:188:      <n-steps :current="stepCurrent" class="video-step">
+frontend/src/views/video/components\UploadPanel.vue:222:              {{ currentReview ? '重新上传' : '上传视频' }}
+frontend/src/views/video/components\UploadPanel.vue:233:            {{ reviewMessage || '视频已退回，请按意见重新上传。' }}
+frontend/src/views/video/components\MyTaskPanel.vue:186:  <section class="review-workbench page-section">
+frontend/src/views/video/components\MyTaskPanel.vue:190:          <span>任务列表</span>
+frontend/src/views/video/components\MyTaskPanel.vue:230:          <span>评分区</span>
+frontend/src/views/video/components\MyTaskPanel.vue:297:              <n-button v-else type="primary" :loading="saving" @click="submitScore">提交评分</n-button>
+```
+
+学生材料/证书卡片命中：
+```
+$ rg -n 'selfMode|material-card-grid|尚未上传材料' frontend/src/views/material/MaterialManageView.vue
+frontend/src/views/material\MaterialManageView.vue:93:const selfMode = computed(() => canUpload.value && !canFirstReview.value && !canSecondReview.value)
+frontend/src/views/material\MaterialManageView.vue:419:    <template v-if="selfMode">
+frontend/src/views/material\MaterialManageView.vue:431:      <n-grid :cols="4" :x-gap="12" :y-gap="12" responsive="screen" class="page-section material-card-grid">
+frontend/src/views/material\MaterialManageView.vue:447:              <span>{{ card.record?.fileName || '尚未上传材料' }}</span>
+
+$ rg -n 'isStudentMode|certificate-card|证书编号待生成|有效期至|我的证书' frontend/src/views/certificate/CertificateManageView.vue
+frontend/src/views/certificate\CertificateManageView.vue:69:const isStudentMode = computed(() => userStore.roles.includes('STUDENT') && canView.value)
+frontend/src/views/certificate\CertificateManageView.vue:70:const pageTitle = computed(() => isStudentMode.value ? '我的证书' : '证书管理')
+frontend/src/views/certificate\CertificateManageView.vue:409:    <template v-if="isStudentMode">
+frontend/src/views/certificate\CertificateManageView.vue:414:            <n-card :bordered="false" class="certificate-card">
+frontend/src/views/certificate\CertificateManageView.vue:421:              <div class="certificate-card__number mono tabular-nums">{{ item.certNo || '证书编号待生成' }}</div>
+frontend/src/views/certificate\CertificateManageView.vue:425:                  <span>有效期至</span>
+```
+
+W4 时间列检查：
+```
+$ rg -n "key: '(createdAt|updatedAt|operateTime|startedAt|finishedAt|.*ReviewTime|submitTime)'" frontend/src/views
+frontend/src/views\exchange\ExchangeExportView.vue:75:  { title: '时间', key: 'operateTime', width: 170, render: (row) => h('span', { class: 'mono tabular-nums' }, formatDateTime(row.operateTime)) },
+frontend/src/views\exchange\ExchangeImportView.vue:64:  { title: '时间', key: 'operateTime', width: 170, render: (row) => h('span', { class: 'mono tabular-nums' }, formatDateTime(row.operateTime)) },
+frontend/src/views\system\SystemAuditView.vue:104:  { title: '更新时间', key: 'updatedAt', minWidth: 170, render: (row) => h('span', { class: 'mono tabular-nums' }, formatDateTime(row.updatedAt)) },
+frontend/src/views\system\SystemAuditView.vue:119:  { title: '时间', key: 'operateTime', minWidth: 168, render: (row) => h('span', { class: 'mono tabular-nums' }, formatDateTime(row.operateTime)) },
+frontend/src/views\system\SystemAuditView.vue:149:  { title: '开始', key: 'startedAt', minWidth: 166, render: (row) => h('span', { class: 'mono tabular-nums' }, formatDateTime(row.startedAt)) },
+frontend/src/views\system\SystemAuditView.vue:150:  { title: '完成', key: 'finishedAt', minWidth: 166, render: (row) => h('span', { class: 'mono tabular-nums' }, formatDateTime(row.finishedAt)) },
+```
+
+Build-only 验证：
+```
+$ npm --prefix frontend run type-check
+> teacher-cert-platform-frontend@1.0.0 type-check
+> vue-tsc --noEmit
+
+$ npm --prefix frontend run build
+> teacher-cert-platform-frontend@1.0.0 build
+> vite build
+✓ 4874 modules transformed.
+✓ built in 7.79s
+(!) Some chunks are larger than 500 kB after minification.
+```
+- 下一步：单分支单提交后等待 Claude 按 Phase33 gate ①-⑥复核。
+
 ## [2026-07-03] Phase 32 复核通过（Claude · frontend-quality-plan §5）✅ — 系统域 + 表单/详情/审核体验
 - 做了什么：复核 `feature/phase32-form-detail-review` 单提交 `357b6be`（14 文件）。核系统域 6 页两栏化 + P4/P5/P6 接入矩阵；具体验 Org/Security 抽屉 `n-grid :cols="2"`、审计 old/new→statusLabel+StatusTag、学生ID help、权限树改可读名；W3 黑名单系统域重改后复跑仍空；`vue-tsc`+`vite build ✓ 7.74s`。活体 SYS_ADMIN 走查 10 个系统域接口（dict/region/subject/college/user/role/permission-tree/param/audit/backup）全 HTTP200 code=0、零 403，权限树含可读 `name:系统用户管理`。
 - 结论：**PASS**（一轮·0 修补）。系统域主从两栏、全站抽屉 P4 双列分组固定底、查看/编辑分离(P5)、审核统一(P6)、审计中文、权限树可读名(W3 正向改进)。DataPanel 仅增展示型 props(rowProps/maxHeight/defaultExpandAll)。

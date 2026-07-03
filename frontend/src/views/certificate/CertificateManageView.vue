@@ -7,6 +7,7 @@ import {
   type DataTableColumns,
   type SelectOption
 } from 'naive-ui'
+import { CalendarOutline, RibbonOutline, SchoolOutline } from '@vicons/ionicons5'
 import DataPanel from '@/components/DataPanel.vue'
 import FilterBar from '@/components/FilterBar.vue'
 import PageContainer from '@/components/PageContainer.vue'
@@ -65,6 +66,9 @@ const canIssue = computed(() => userStore.hasPerm('cert:issue'))
 const canView = computed(() => userStore.hasPerm('cert:view'))
 const canOpenGenerate = computed(() => canGenerate.value)
 const hasVisibleSection = computed(() => canView.value || canOpenGenerate.value)
+const isStudentMode = computed(() => userStore.roles.includes('STUDENT') && canView.value)
+const pageTitle = computed(() => isStudentMode.value ? '我的证书' : '证书管理')
+const pageDescription = computed(() => isStudentMode.value ? '查看本人证书编号、有效期与当前状态。' : '证书生成、签发、导出、归档、更正、作废与重开。')
 
 const generateForm = reactive({
   studentId: '',
@@ -369,6 +373,10 @@ function missingText(items: string[]) {
   return items.length ? items.join('、') : '无'
 }
 
+function certificateSubject(row: Certificate) {
+  return row.teachingSubjectName || row.teachingSubjectCode || '-'
+}
+
 function todayText() {
   const now = new Date()
   return `${now.getFullYear()}/${now.getMonth() + 1}/${now.getDate()}`
@@ -395,10 +403,45 @@ watch(
 </script>
 
 <template>
-  <PageContainer title="证书管理" description="证书生成、签发、导出、归档、更正、作废与重开。">
+  <PageContainer :title="pageTitle" :description="pageDescription">
     <n-empty v-if="!hasVisibleSection" description="当前账号没有可访问的证书分区" class="page-section" />
 
-    <n-grid v-if="canView" :cols="5" :x-gap="12" responsive="screen" class="page-section">
+    <template v-if="isStudentMode">
+      <n-spin :show="loading">
+        <n-empty v-if="!records.length" description="暂无证书记录" class="page-section" />
+        <n-grid v-else :cols="2" :x-gap="12" :y-gap="12" responsive="screen" class="page-section certificate-card-grid">
+          <n-gi v-for="item in records" :key="item.id">
+            <n-card :bordered="false" class="certificate-card">
+              <div class="certificate-card__top">
+                <div class="certificate-card__icon">
+                  <n-icon :component="RibbonOutline" />
+                </div>
+                <StatusTag :value="item.status" :text="item.statusLabel || statusLabel(item.status)" />
+              </div>
+              <div class="certificate-card__number mono tabular-nums">{{ item.certNo || '证书编号待生成' }}</div>
+              <div class="certificate-card__meta">
+                <div>
+                  <n-icon :component="CalendarOutline" />
+                  <span>有效期至</span>
+                  <strong class="mono tabular-nums">{{ formatDate(item.validUntil) }}</strong>
+                </div>
+                <div>
+                  <n-icon :component="SchoolOutline" />
+                  <span>任教学科</span>
+                  <strong>{{ certificateSubject(item) }}</strong>
+                </div>
+              </div>
+              <div class="certificate-card__footer">
+                <span>{{ item.studentNo || '-' }} / {{ item.studentName || '-' }}</span>
+                <span>签发日期：<span class="mono tabular-nums">{{ formatDate(item.issueDate) }}</span></span>
+              </div>
+            </n-card>
+          </n-gi>
+        </n-grid>
+      </n-spin>
+    </template>
+
+    <n-grid v-if="canView && !isStudentMode" :cols="5" :x-gap="12" responsive="screen" class="page-section">
       <n-gi><StatCard label="证书总数" :value="summary.total" /></n-gi>
       <n-gi><StatCard label="待签发" :value="summary.generated" tone="warning" /></n-gi>
       <n-gi><StatCard label="已签发" :value="summary.issued" tone="success" /></n-gi>
@@ -406,7 +449,7 @@ watch(
       <n-gi><StatCard label="已归档" :value="summary.archived" tone="neutral" /></n-gi>
     </n-grid>
 
-    <FilterBar v-if="canView" :loading="loading" @submit="loadRecords" @reset="resetFilters">
+    <FilterBar v-if="canView && !isStudentMode" :loading="loading" @submit="loadRecords" @reset="resetFilters">
       <label class="filter-field">
         <span>关键词</span>
         <n-input v-model:value="keyword" clearable placeholder="证书编号 / 学号 / 姓名" style="width: 240px" @keyup.enter="loadRecords" />
@@ -422,7 +465,7 @@ watch(
     </FilterBar>
 
     <DataPanel
-      v-if="canView"
+      v-if="canView && !isStudentMode"
       title="证书列表"
       :columns="columns"
       :data="records"
@@ -553,5 +596,95 @@ watch(
 
 .mono-input :deep(input) {
   font-family: var(--font-mono);
+}
+
+.certificate-card {
+  position: relative;
+  overflow: hidden;
+  min-height: 260px;
+  border: 1px solid var(--brand-border);
+  background:
+    linear-gradient(135deg, var(--brand-soft), var(--surface) 46%),
+    var(--surface);
+}
+
+.certificate-card :deep(.n-card__content) {
+  display: flex;
+  min-height: 260px;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.certificate-card__top,
+.certificate-card__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.certificate-card__icon {
+  display: grid;
+  width: 46px;
+  height: 46px;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--brand);
+  color: var(--text-inverse);
+  font-size: 24px;
+}
+
+.certificate-card__number {
+  color: var(--brand-pressed);
+  font-size: 26px;
+  font-weight: 650;
+  line-height: 34px;
+  word-break: break-all;
+}
+
+.certificate-card__meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.certificate-card__meta div {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 4px var(--space-2);
+  padding: var(--space-3);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+}
+
+.certificate-card__meta .n-icon {
+  grid-row: span 2;
+  color: var(--brand);
+  font-size: 18px;
+}
+
+.certificate-card__meta span,
+.certificate-card__footer {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.certificate-card__meta strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .certificate-card__meta {
+    grid-template-columns: 1fr;
+  }
+
+  .certificate-card__footer {
+    align-items: flex-start;
+    flex-direction: column;
+  }
 }
 </style>
