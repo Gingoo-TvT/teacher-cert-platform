@@ -78,7 +78,8 @@ public class ProcessMaterialServiceImpl implements ProcessMaterialService {
     }
 
     @Override
-    @Transactional(rollbackFor = Exception.class)
+    // P0-11 收尾：去 @Transactional，使 fileService.upload 的 MinIO putObject 在无环绕事务下执行、不占用 DB 连接。
+    // 本方法仅 1 次业务写（material insert），autocommit 即原子；插入失败仅遗留孤儿 file_object（罕见、无引用）。
     public Long upload(Long studentId, String assessmentYear, String category, InputStream input,
                        String originalFilename, String contentType, long size) {
         Student student = requireStudent(studentId);
@@ -100,7 +101,7 @@ public class ProcessMaterialServiceImpl implements ProcessMaterialService {
     }
 
     @Override
-    @Transactional(rollbackFor = Exception.class)
+    // P0-11 收尾：去 @Transactional，使 MinIO putObject 不占用 DB 连接（本方法仅 1 次业务写 updateById，autocommit 原子）。
     public void replace(Long id, InputStream input, String originalFilename, String contentType, long size) {
         ProcessMaterial entity = requireMaterial(id);
         ensureCanWriteMaterial(entity, "material:upload");

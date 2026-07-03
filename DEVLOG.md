@@ -15,6 +15,13 @@
 
 ---
 
+## [2026-07-04] Phase 37c-2 完成（Opus4.8+Sonnet5 执行，Claude 亲自把关关键处）✅ — P0-11 收尾：material/exemption 单文件上传移出事务
+- 做了什么：material `upload`/`replace`、exemption `uploadMaterial`/`replaceMaterial` 4 个方法去方法级 `@Transactional`，使其调用的 `fileService.upload`（MinIO putObject + file_object insert）不再处于环绕事务内、不占用 DB 连接。
+- 关键决策与理由：4 方法均"校验(读)→fileService.upload→1 次业务写(insert/updateById)"，单业务写 autocommit 即原子，无需事务；且仅被控制器调用（grep 确认无 service 自调用），去 `@Transactional` 无副作用。未拆 `fileService.upload`（保持共享服务契约），接受与视频一致的罕见孤儿（插入失败遗留无引用 file_object + MinIO 对象）。
+- 与规格的偏差/疑问：无阻塞。`FileServiceImpl.upload` InputStream 未关闭（§7.2 P1）为独立资源泄漏项，未纳入本次。
+- 测试：`mvn -B -ntp verify` BUILD SUCCESS，failsafe **83/83 绿**（Phase5MaterialIT 4/4、Phase6ExemptionIT 4/4 覆盖上传/替换，真实 MinIO）。新起后端 PID 36472 就绪。
+- 下一步：batch B/C 剩余 P0（无 FK/孤儿 P0-12、mysql-root P0-5、假备份 P0-6、Spring Boot 升级 P0-8）。
+
 ## [2026-07-04] Phase 38a 完成（Opus4.8+Sonnet5 执行，Claude 亲自把关关键处）✅ — P0-2 批量下载流式 zip（整包进堆 OOM）
 - 做了什么：`ProcessMaterialServiceImpl.batchDownload` 由"`ByteArrayOutputStream` 攒完整 zip → 返回 `byte[]`"改为流式：`BatchDownloadFile` 记录改带 `ContentWriter`（`writeTo(OutputStream) throws IOException` 函数接口），zip 直写响应输出流，逐文件从 MinIO 读→写；`ProcessMaterialController` 改 `file.content().writeTo(response.getOutputStream())`。新增单次 `MAX_BATCH_DOWNLOAD_FILES=2000` 上限。
 - 关键决策与理由：查询 + 上限校验放在返回 `BatchDownloadFile` 之前（当前请求线程执行，`@DataScope`/`UserContext` 生效，异常在写响应头前抛出 → 干净错误）；流式 writer 由控制器在请求线程上同步 `writeTo`，故 MinIO 读循环内的 `fileObjectMapper.selectById` 仍有 UserContext/连接可用，无异步 ThreadLocal 问题。去空判改动（保留空批 → manifest-only zip 旧行为，避免破坏 IT）。仅改材料批量下载（P0-2）；证书导出 `XSSFWorkbook`/无界（§7.3 P1）另行收尾。

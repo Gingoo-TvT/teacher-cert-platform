@@ -160,7 +160,7 @@ public class ExemptionServiceImpl implements ExemptionService {
     }
 
     @Override
-    @Transactional(rollbackFor = Exception.class)
+    // P0-11 收尾：去 @Transactional，使 fileService.upload 的 MinIO putObject 不占用 DB 连接（本方法仅 1 次业务写 insert，autocommit 原子）。
     public void uploadMaterial(Long id, InputStream input, String originalFilename, String contentType, long size) {
         ExemptionRequest entity = requireRequest(id);
         ensureCanWriteRequest(entity, "exemption:apply");
@@ -177,7 +177,7 @@ public class ExemptionServiceImpl implements ExemptionService {
     }
 
     @Override
-    @Transactional(rollbackFor = Exception.class)
+    // P0-11 收尾：去 @Transactional，使 MinIO putObject 不占用 DB 连接（本方法仅 1 次业务写 updateById，autocommit 原子）。
     public void replaceMaterial(Long materialId, InputStream input, String originalFilename, String contentType, long size) {
         ExemptionMaterial material = requireMaterial(materialId);
         ExemptionRequest request = requireRequest(material.getExemptionRequestId());
