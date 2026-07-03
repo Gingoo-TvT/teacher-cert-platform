@@ -129,6 +129,12 @@ public class CertificateServiceImpl implements CertificateService {
         try {
             certificateMapper.insert(entity);
         } catch (DuplicateKeyException e) {
+            // 生成列唯一键 uk_cert_active（Phase42.1）：两并发 generate 各自过 activeCertificate 快照预检、
+            // 都插入活跃证书 → 后到者撞该唯一键，转友好提示（否则裸 DuplicateKeyException 被全局兜底为 500）。
+            if (violatesIndex(e, "uk_cert_active")) {
+                throw new BizException("本年度已有有效证书");
+            }
+            // 既有：证书编号唯一键 uk_certificate_cert_no 撞号
             throw new BizException("证书编号已存在，请重试");
         }
         return toVO(entity);
@@ -621,5 +627,20 @@ public class CertificateServiceImpl implements CertificateService {
 
     private String trimToNull(String value) {
         return StringUtils.hasText(value) ? value.trim() : null;
+    }
+
+    /**
+     * 判断 DuplicateKeyException 是否由指定唯一索引触发（沿异常 cause 链匹配索引名）。
+     * generate() 现可能撞两种唯一键（uk_certificate_cert_no 撞号 / uk_cert_active 本年度已有有效证书），
+     * 需按索引名区分，避免统一措辞误导。
+     */
+    private static boolean violatesIndex(Throwable e, String indexName) {
+        for (Throwable t = e; t != null; t = t.getCause()) {
+            String msg = t.getMessage();
+            if (msg != null && msg.contains(indexName)) {
+                return true;
+            }
+        }
+        return false;
     }
 }

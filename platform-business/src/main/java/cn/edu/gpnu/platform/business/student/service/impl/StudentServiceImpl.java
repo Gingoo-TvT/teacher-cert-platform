@@ -31,6 +31,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -94,7 +95,17 @@ public class StudentServiceImpl implements StudentService {
         fill(entity, request, false, true);
         entity.setStatus(StudentStatus.DRAFT.name());
         entity.setLocked(0);
-        studentMapper.insert(entity);
+        try {
+            studentMapper.insert(entity);
+        } catch (DuplicateKeyException e) {
+            // 生成列唯一键 uk_student_idcard（Phase42.1）：两并发 create 各自过 existsIdCardNo 快照预检、
+            // 都插入未删学生 → 后到者撞该唯一键。与预检 fill() 的「证件号码已存在」同措辞，保证 UX 一致；
+            // 非该键（如 uk_student_no 学号并发撞键）保持既有行为，原样上抛交全局兜底。
+            if (violatesIndex(e, "uk_student_idcard")) {
+                throw new BizException("证件号码已存在");
+            }
+            throw e;
+        }
         ensureStudentAccount(entity);
         return entity.getId();
     }
@@ -467,5 +478,19 @@ public class StudentServiceImpl implements StudentService {
 
     private String trimToNull(String value) {
         return StringUtils.hasText(value) ? value.trim() : null;
+    }
+
+    /**
+     * 判断 DuplicateKeyException 是否由指定唯一索引触发（沿异常 cause 链匹配索引名），
+     * 用于把 uk_student_idcard 并发撞键映射为友好提示、区别于其它唯一键。
+     */
+    private static boolean violatesIndex(Throwable e, String indexName) {
+        for (Throwable t = e; t != null; t = t.getCause()) {
+            String msg = t.getMessage();
+            if (msg != null && msg.contains(indexName)) {
+                return true;
+            }
+        }
+        return false;
     }
 }
