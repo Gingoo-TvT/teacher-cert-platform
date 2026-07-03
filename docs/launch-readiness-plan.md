@@ -185,8 +185,8 @@
 
 ### 9.1 数据模型 / 迁移 / 种子完整性
 - **全库无任何 DB 外键约束**（23 迁移 grep `FOREIGN KEY/REFERENCES/ON DELETE` = 0）：父子关系全靠应用码维护，级联删除 100% 手动且各服务不一致。软删统一 `deleted TINYINT`(@TableLogic)，生产码无硬删（正面）。**根因性**：无 DB 安全网，下列孤儿问题无兜底。
-- **P0 删除父实体产生静默孤儿**：`OrganizationServiceImpl.deleteCollege` 只查 major 数、`deleteMajor` **零守卫**；而 `MajorCodeValidator` 让 `education_master` 学生**跳过 sys_major 存在校验** → 学院可有真实学生却无 major 行 → 通过 deleteCollege 唯一守卫，student/training/material/exemption/video/cert/sys_user 仍指向已删学院，无报错永久悬挂。
-- **P0 删除学生不停用其登录账号**：`StudentServiceImpl.delete` 只 `deleteById(student)`，不级联、**不停用关联 `sys_user`**（sys_user.student_id）→ 已删/退学学生仍有可用登录（访问撤销失败）。
+- **P0 删除父实体产生静默孤儿**：`OrganizationServiceImpl.deleteCollege` 只查 major 数、`deleteMajor` **零守卫**；而 `MajorCodeValidator` 让 `education_master` 学生**跳过 sys_major 存在校验** → 学院可有真实学生却无 major 行 → 通过 deleteCollege 唯一守卫，student/training/material/exemption/video/cert/sys_user 仍指向已删学院，无报错永久悬挂。**✅ 部分修复（Phase 39）：** `deleteCollege` 增 `sys_user.college_id` 在用校验（有账号=学生/教职工则拒删，补住"有学生无 major"缺口）。**待收尾：** `deleteMajor` 使用守卫（引用方 student/training 在 business 模块、且 training 用 code/name 快照非 major_id，跨模块+无 major_id 关联，需设计）与 DB 外键。
+- **P0 删除学生不停用其登录账号**：`StudentServiceImpl.delete` 只 `deleteById(student)`，不级联、**不停用关联 `sys_user`**（sys_user.student_id）→ 已删/退学学生仍有可用登录（访问撤销失败）。**✅ 已修复（Phase 39）：** `delete` 后置停用关联 `sys_user`(student_id) `status=DISABLED`；JWT filter 每请求校验 `status=ENABLED`（`:62`）→ 旧 token 下次请求即 401。**活体（复现→阻断）：** 删学生前其旧 token `/auth/me`=200，管理员删除后同一 token=**401「用户不存在或已停用」**、账号 DISABLED。
 - **P1 sys_user/sys_role 唯一键漏 `deleted`**（`V7:28-30,49`，与 V9-V22 惯例不一致）+ create 未捕获 DuplicateKey → **删了再建同名用户/工号/角色码 直接崩**（裸 DuplicateKeyException，对比 `CertificateServiceImpl:129` 有捕获）。
 - **P1 无 Flyway prod 配置**：`baseline-on-migrate` 只在 application-dev（prod 走默认 false）→ 首次部署若 schema 非全空 Flyway 硬失败无恢复文档。
 - **P1 种子污染生产参考数据**：`V12:74` 免考依据/科目 seed 了 7+2 占位值（违背 `待确认事项确认单` 决策#12"初始置空"）；`V8` 把 `PHASE2_COLLEGE_A/B`(id 201/202) + V10 假专业 seed 进 `sys_college/sys_major` → 真实下拉里出现假学院/专业。
@@ -229,7 +229,7 @@
 - **测试质量红旗**：Phase24:314 `auditLogMapper.selectCount(空条件)>0`（表里有任意行就过）；Phase3:119 拿 nanoTime 随机 id 比硬编码常量（恒不等，形同虚设）；多处仅断 HTTP200 不查字段/DB；14 文件共用硬编码种子 id + `@Order`/PER_CLASS 实例字段跨用例传递 → **不可并行/分片，一个早失败级联假失败**；Phase5/7 的 file_object 清理按 biz_type 全删（越界）。
 
 ### 9.4 三轮 P0 汇总（并入优先级）
-- **P0-12 无 DB 外键 + 删父静默孤儿 + 删学生不停登录**（§9.1）——数据完整性靠应用码且不一致，上线前需补关键级联/停用逻辑或 DB 约束。
+- **P0-12 无 DB 外键 + 删父静默孤儿 + 删学生不停登录**（§9.1）——数据完整性靠应用码且不一致，上线前需补关键级联/停用逻辑或 DB 约束。**✅ 关键两项已修（Phase 39）：** 删学生停用登录（活体 200→401）、deleteCollege 增用户在用校验；**待收尾：** deleteMajor 守卫、DB 外键、MinIO 孤儿清理（P1-9）。
 - **P0-13 关键 bug 零测试**（§9.3）——修 P0 时必须**同步补并发/复活/双确认测试**，否则改完无从证明、且 reissue 测试会假失败。
 > 迁移建议随手做的低风险项：sys_user/sys_role 唯一键补 `deleted`（V24 新迁移）、create 捕获 DuplicateKey、免考种子占位值清空、Flyway prod 配置。
 
@@ -299,4 +299,9 @@
 ### Phase 38a ✅ 已完成并合并（本提交，mvn verify 83/83 绿，含 `Phase5MaterialIT` 4/4 真实 MinIO；栈起活体下载）
 - ✅ **P0-2 批量下载整包进堆 OOM** — `ProcessMaterialServiceImpl.batchDownload` 不再用 `ByteArrayOutputStream` 攒完整 zip 再返回 `byte[]`；改为返回 `BatchDownloadFile(fileName, ContentWriter)`，`ContentWriter` 把 zip **直写 HTTP 响应输出流**（逐文件从 MinIO 读→写，全程不整包进堆），控制器改 `file.content().writeTo(response.getOutputStream())`。新增单次 **2000 条上限**（超限抛业务异常提示缩小筛选）。查询/上限校验在写响应头前完成（当前请求线程，数据范围/权限生效，错误干净）。**验证：** 83/83 绿，其中 `Phase5MaterialIT`（`:173` 上传材料入 MinIO → 批量下载 → `ZipInputStream` 解析断言 manifest）真实 MinIO 覆盖文件流式全链路；栈起活体：test_college_auditor `POST /material/batch-download` → HTTP200 `application/zip`、合法 zip（PK 头）+ `manifest.csv` + CRC 通过。
 - ⏳ **收尾（§7.3 P1，非本 P0）**：证书导出 `selectCertificates` 无界 + `XSSFWorkbook` 全 DOM 进堆 → 改 SXSSF 流式 + 分页。
+
+### Phase 39 ✅ 已完成并合并（本提交，mvn verify 83/83 绿；栈起活体删学生→401）
+- ✅ **P0-12 删学生不停登录（安全/访问撤销）** — `StudentServiceImpl.delete` 后置停用关联 `sys_user`（`.eq(studentId).set(status,'DISABLED')`）；JWT filter 每请求校验 `status=ENABLED`（`filter:62`）→ 旧 token 下次请求即 401。**活体（复现→阻断）：** test_student 旧 token `/auth/me` 删除前 200；管理员 `DELETE /student/9001` 后同一 token=**401「用户不存在或已停用」**、`sys_user.status=DISABLED`、`student.deleted=1`；测毕复原 ENABLED。
+- ✅ **P0-12 删学院静默孤儿** — `OrganizationServiceImpl.deleteCollege` 在原「有专业则拒删」外，增「有用户（`sys_user.college_id`，含学生/教职工）则拒删」，补住"有学生却无 major 行"缺口（注入 `SysUserMapper`，同模块）。**活体：** 删有专业/用户的学院被拒、学院仍在（本例经既有专业守卫拦下；用户守卫为 majors=0 场景兜底，demo 无此实例，由编译+IT+守卫简单性保证）。
+- ⏳ **P0-12 收尾**：`deleteMajor` 使用守卫（引用方在 business 模块 + training 用 code/name 快照非 major_id，跨模块无关联键，需设计）、DB 外键约束、MinIO 分片/孤儿清理与定时任务（P1-9）。
 

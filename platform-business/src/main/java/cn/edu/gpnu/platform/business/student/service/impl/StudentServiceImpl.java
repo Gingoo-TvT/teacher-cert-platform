@@ -123,6 +123,10 @@ public class StudentServiceImpl implements StudentService {
         Student entity = requireStudent(id);
         ensureEditable(entity, "删除");
         studentMapper.deleteById(id);
+        // P0-12：同步停用该学生的登录账号，防删除/退学后仍可登录（JWT filter 每请求校验 status=ENABLED，旧 token 下次请求即失效）
+        userMapper.update(null, new LambdaUpdateWrapper<SysUser>()
+                .eq(SysUser::getStudentId, id)
+                .set(SysUser::getStatus, "DISABLED"));
     }
 
     @Override

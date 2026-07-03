@@ -10,11 +10,13 @@ import cn.edu.gpnu.platform.system.entity.MajorTrainingGoal;
 import cn.edu.gpnu.platform.system.entity.SysCollege;
 import cn.edu.gpnu.platform.system.entity.SysDictItem;
 import cn.edu.gpnu.platform.system.entity.SysMajor;
+import cn.edu.gpnu.platform.system.entity.SysUser;
 import cn.edu.gpnu.platform.system.entity.TrainingGoalConfig;
 import cn.edu.gpnu.platform.system.mapper.MajorTrainingGoalMapper;
 import cn.edu.gpnu.platform.system.mapper.SysCollegeMapper;
 import cn.edu.gpnu.platform.system.mapper.SysDictItemMapper;
 import cn.edu.gpnu.platform.system.mapper.SysMajorMapper;
+import cn.edu.gpnu.platform.system.mapper.SysUserMapper;
 import cn.edu.gpnu.platform.system.mapper.TrainingGoalConfigMapper;
 import cn.edu.gpnu.platform.system.service.OrganizationService;
 import cn.edu.gpnu.platform.system.vo.CollegeVO;
@@ -51,6 +53,7 @@ public class OrganizationServiceImpl implements OrganizationService {
     private final MajorTrainingGoalMapper majorTrainingGoalMapper;
     private final TrainingGoalConfigMapper trainingGoalConfigMapper;
     private final SysDictItemMapper dictItemMapper;
+    private final SysUserMapper userMapper;
     private final ObjectMapper objectMapper;
 
     @Override
@@ -105,6 +108,12 @@ public class OrganizationServiceImpl implements OrganizationService {
                 .eq(SysMajor::getCollegeId, entity.getId()));
         if (majorCount > 0) {
             throw new BizException("学院下存在专业，不能删除");
+        }
+        // P0-12：学院下仍有账号（学生/教职工，sys_user.college_id）时禁止删除，避免用户/学生等静默悬挂已删学院
+        Long userCount = userMapper.selectCount(new LambdaQueryWrapper<SysUser>()
+                .eq(SysUser::getCollegeId, entity.getId()));
+        if (userCount > 0) {
+            throw new BizException("学院下存在用户（学生/教职工），不能删除");
         }
         collegeMapper.deleteById(id);
     }

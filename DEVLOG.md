@@ -15,6 +15,13 @@
 
 ---
 
+## [2026-07-04] Phase 39 完成（Opus4.8+Sonnet5 执行，Claude 亲自把关关键处）✅ — P0-12 删父孤儿 + 删学生不停登录
+- 做了什么：①`StudentServiceImpl.delete` 后置 `userMapper.update(null, eq(studentId).set(status,'DISABLED'))` 停用被删学生的登录账号。②`OrganizationServiceImpl.deleteCollege` 注入 `SysUserMapper`，在「有专业则拒删」外增「有用户（`sys_user.college_id`）则拒删」。
+- 关键决策与理由：删学生用「停用账号」而非删 sys_user——JWT filter 每请求校验 `status=ENABLED`（`filter:62`），停用即让旧 token 下次请求 401，且不必跨模块引 platform-security 的 TokenRevocationService（platform-business 不依赖 security）。deleteCollege 用 `sys_user.college_id` 在用校验（SysUserMapper 属 system 同模块），覆盖"有学生却无 major 行"缺口；学生几乎都有账号故此校验有效。`deleteMajor` 守卫未做——引用方 student/training 在 business 模块且 training 用 code/name 快照非 major_id，跨模块+无关联键，需单独设计。
+- 与规格的偏差/疑问：无阻塞。DB 外键、MinIO 孤儿清理（P1-9）、deleteMajor 守卫列为 P0-12 收尾。deleteCollege 用户守卫的「有用户无专业」精确场景 demo 无实例（两学院均有专业，被既有专业守卫先拦），由编译+IT+守卫简单性保证。
+- 测试：`mvn -B -ntp verify` BUILD SUCCESS，failsafe **83/83 绿**（Phase3StudentIT 7/7 覆盖删学生）。活体（后端 PID 37408）：test_student 旧 token `/auth/me` 删除前 200 → 管理员 `DELETE /student/9001` → 同一 token **401「用户不存在或已停用」**、`sys_user.status=DISABLED`、`student.deleted=1`，复原 ENABLED；`DELETE /college/201`（有专业+用户）被拒、学院仍在。
+- 下一步：batch B/C 剩余 P0（mysql-root P0-5、假备份 P0-6、Spring Boot 升级 P0-8）或 P0-12/P0-10 收尾（唯一约束、DB 外键、deleteMajor 守卫）。
+
 ## [2026-07-04] Phase 37c-2 完成（Opus4.8+Sonnet5 执行，Claude 亲自把关关键处）✅ — P0-11 收尾：material/exemption 单文件上传移出事务
 - 做了什么：material `upload`/`replace`、exemption `uploadMaterial`/`replaceMaterial` 4 个方法去方法级 `@Transactional`，使其调用的 `fileService.upload`（MinIO putObject + file_object insert）不再处于环绕事务内、不占用 DB 连接。
 - 关键决策与理由：4 方法均"校验(读)→fileService.upload→1 次业务写(insert/updateById)"，单业务写 autocommit 即原子，无需事务；且仅被控制器调用（grep 确认无 service 自调用），去 `@Transactional` 无副作用。未拆 `fileService.upload`（保持共享服务契约），接受与视频一致的罕见孤儿（插入失败遗留无引用 file_object + MinIO 对象）。
