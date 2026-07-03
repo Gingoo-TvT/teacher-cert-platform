@@ -234,6 +234,7 @@ function strategyLabel(value?: string | null) {
 function batchStatusLabel(value?: string | null) {
   const map: Record<string, string> = {
     PREVALIDATED: '预校验通过',
+    IMPORTING: '导入中',
     IMPORTED: '导入成功',
     EXPORTED: '导出完成',
     ROLLED_BACK: '已回滚',

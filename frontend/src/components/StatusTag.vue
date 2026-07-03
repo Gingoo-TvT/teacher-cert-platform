@@ -27,6 +27,7 @@ const MAP: Record<string, 'default' | 'success' | 'warning' | 'error' | 'info'> 
   COMPLETED: 'success',
   ROLLED_BACK: 'warning',
   IMPORTED: 'success',
+  IMPORTING: 'info',
   PREVALIDATED: 'info',
   LOCKED: 'warning',
   NORMAL: 'success',
@@ -87,6 +88,7 @@ const MAP: Record<string, 'default' | 'success' | 'warning' | 'error' | 'info'> 
   异常: 'error',
   需复评: 'warning',
   预校验通过: 'info',
+  导入中: 'info',
   导入成功: 'success',
   已回滚: 'warning',
   失败: 'error'

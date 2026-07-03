@@ -36,6 +36,7 @@ export const STATUS_LABELS: Record<string, string> = {
   UNREAD: '未读',
   READ: '已读',
   IMPORTED: '导入成功',
+  IMPORTING: '导入中',
   PREVALIDATED: '预校验通过',
   ROLLED_BACK: '已回滚',
   INSERT: '新增',

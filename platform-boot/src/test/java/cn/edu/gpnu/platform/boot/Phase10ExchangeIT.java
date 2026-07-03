@@ -51,6 +51,11 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -367,6 +372,66 @@ class Phase10ExchangeIT {
         assertThat(studentMapper.selectCount(new LambdaQueryWrapper<Student>().eq(Student::getStudentNo, "P10ISOOK"))).isEqualTo(1);
         assertThat(certificateMapper.selectCount(new LambdaQueryWrapper<Certificate>().eq(Certificate::getStudentNo, "P10ISOOK"))).isEqualTo(1);
         assertThat(studentMapper.selectCount(new LambdaQueryWrapper<Student>().eq(Student::getStudentNo, tooLongStudentNo))).isZero();
+    }
+
+    /**
+     * Phase 42.2：两个并发 confirmImport 打同一个 PREVALIDATED 批次 → confirmImport 开头对
+     * PREVALIDATED→IMPORTING 的原子认领只放行首个调用者，另一个被拒，全量导入只发生一次、无重复行。
+     * 本 IT 跑在真实内嵌 Tomcat + 真实 MySQL 上，两线程经 HTTP 真并发命中，认领由 InnoDB 行锁串行化，
+     * 因此这是对该竞态的真实复现（非 mock）。
+     */
+    @Test
+    void concurrentConfirmImportClaimsBatchAtomicallyAndImportsExactlyOnce() throws Exception {
+        LoginResult academic = readyLogin("test_academic_admin");
+        ExchangeStandardRow row = row("P10RACE", "2026", "202610588344300160");
+        row.setIdCardType("hm_travel_permit");
+        row.setIdCardNo("R12345678");
+        row.setBirthDate("2000/12/31");
+        JsonNode pre = prevalidate(academic.accessToken(), List.of(row)).at("/data");
+        assertThat(pre.at("/successCount").asInt()).isEqualTo(1);
+        long batchId = pre.at("/batchId").asLong();
+
+        int threads = 2;
+        ExecutorService pool = Executors.newFixedThreadPool(threads);
+        CountDownLatch startGate = new CountDownLatch(1);
+        List<Future<JsonNode>> futures = new ArrayList<>();
+        for (int i = 0; i < threads; i++) {
+            futures.add(pool.submit(() -> {
+                startGate.await();
+                ResponseEntity<String> resp = exchange("/api/exchange/import/" + batchId + "/confirm",
+                        HttpMethod.POST, academic.accessToken(), Map.of("strategy", "INSERT_ONLY"));
+                return objectMapper.readTree(resp.getBody());
+            }));
+        }
+        startGate.countDown();
+        pool.shutdown();
+        assertThat(pool.awaitTermination(30, TimeUnit.SECONDS)).isTrue();
+
+        int winners = 0;
+        int losers = 0;
+        for (Future<JsonNode> future : futures) {
+            JsonNode body = future.get();
+            if (body.at("/code").asInt() == 0) {
+                winners++;
+                assertThat(body.at("/data/status").asText()).isEqualTo("IMPORTED");
+                assertThat(body.at("/data/successCount").asInt()).isEqualTo(1);
+            } else {
+                losers++;
+                assertThat(body.at("/code").asInt()).isEqualTo(1000);
+                assertThat(body.at("/msg").asText()).contains("不可确认导入");
+            }
+        }
+        // 恰好一个认领成功、一个被原子认领拒绝（旧代码会两个都过 PREVALIDATED 检查、两个都进导入循环）
+        assertThat(winners).isEqualTo(1);
+        assertThat(losers).isEqualTo(1);
+
+        // 无重复导入：学生/证书各恰好一行
+        assertThat(studentMapper.selectCount(new LambdaQueryWrapper<Student>().eq(Student::getStudentNo, "P10RACE"))).isEqualTo(1);
+        assertThat(certificateMapper.selectCount(new LambdaQueryWrapper<Certificate>().eq(Certificate::getStudentNo, "P10RACE"))).isEqualTo(1);
+
+        // 批次落定为 IMPORTED，未卡在过渡态 IMPORTING
+        ImportExportBatch persisted = batchMapper.selectById(batchId);
+        assertThat(persisted.getStatus()).isEqualTo("IMPORTED");
     }
 
     private void assertWorkbookHeaderAndTextFormat(byte[] content) throws Exception {

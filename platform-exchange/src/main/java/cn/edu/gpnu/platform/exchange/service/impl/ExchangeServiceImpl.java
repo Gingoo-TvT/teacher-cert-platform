@@ -231,8 +231,15 @@ public class ExchangeServiceImpl implements ExchangeService {
     public ImportResultVO confirmImport(Long batchId, ImportConfirmRequest request) {
         ImportExportBatch batch = requireBatch(batchId);
         ensureBatchAccessible(batch, "exchange:import");
-        if (ExchangeBatchStatus.of(batch.getStatus()) != ExchangeBatchStatus.PREVALIDATED) {
-            throw new BizException("当前批次不可确认导入");
+        // Phase 42.2：原子认领 PREVALIDATED→IMPORTING，杜绝两次并发确认全量重复导入。
+        // confirmImport 无 @Transactional，该 update 立即自动提交、对并发调用者立即可见；
+        // 仅首个认领成功者（claimed=1）继续执行导入循环，其余 claimed=0 直接被拒、不再进入循环。
+        int claimed = batchMapper.update(null, new LambdaUpdateWrapper<ImportExportBatch>()
+                .eq(ImportExportBatch::getId, batchId)
+                .eq(ImportExportBatch::getStatus, ExchangeBatchStatus.PREVALIDATED.name())
+                .set(ImportExportBatch::getStatus, ExchangeBatchStatus.IMPORTING.name()));
+        if (claimed == 0) {
+            throw new BizException("当前批次不可确认导入（可能正在导入或状态已变更）");
         }
         ImportStrategy strategy = ImportStrategy.of(request.getStrategy());
         List<PreviewPayload> previews = readPreviews(batch.getPreviewJson());
@@ -265,7 +272,12 @@ public class ExchangeServiceImpl implements ExchangeService {
         batch.setSuccessCount(success);
         batch.setFailCount(batch.getFailCount() == null ? fail : batch.getFailCount() + fail);
         batch.setStatus(fail > 0 ? ExchangeBatchStatus.FAILED.name() : ExchangeBatchStatus.IMPORTED.name());
-        batchMapper.updateById(batch);
+        // 收尾写用「仍为 IMPORTING」守卫：认领后本方法是唯一导入者，正常情况下必命中；
+        // 仅在崩溃恢复边界（并发 rollback 已把 IMPORTING 批次翻成 ROLLED_BACK）时命中 0 行，
+        // 从而避免本次 IMPORTED/FAILED 覆盖 rollback 的终态。
+        batchMapper.update(batch, new LambdaUpdateWrapper<ImportExportBatch>()
+                .eq(ImportExportBatch::getId, batch.getId())
+                .eq(ImportExportBatch::getStatus, ExchangeBatchStatus.IMPORTING.name()));
         vo.setSuccessCount(success);
         vo.setFailCount(fail);
         vo.setStatus(batch.getStatus());
@@ -277,9 +289,12 @@ public class ExchangeServiceImpl implements ExchangeService {
     public RollbackResultVO rollback(Long batchId) {
         ImportExportBatch batch = requireBatch(batchId);
         ensureBatchAccessible(batch, "exchange:import");
+        // Phase 42.2：IMPORTING 纳入可回滚态——进程在 confirmImport 中途崩溃会残留 IMPORTING，
+        // 其已通过 REQUIRES_NEW 提交的部分导入行需可被回收；rollback 按 import_record_ref 追溯撤销即可。
         if (ExchangeBatchStatus.of(batch.getStatus()) != ExchangeBatchStatus.IMPORTED
                 && ExchangeBatchStatus.of(batch.getStatus()) != ExchangeBatchStatus.FAILED
-                && ExchangeBatchStatus.of(batch.getStatus()) != ExchangeBatchStatus.PARTIAL_ROLLBACK) {
+                && ExchangeBatchStatus.of(batch.getStatus()) != ExchangeBatchStatus.PARTIAL_ROLLBACK
+                && ExchangeBatchStatus.of(batch.getStatus()) != ExchangeBatchStatus.IMPORTING) {
             throw new BizException("当前批次不可回滚");
         }
         String oldStatus = batch.getStatus();
