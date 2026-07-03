@@ -15,6 +15,12 @@
 
 ---
 
+## [2026-07-03] Phase 32 复核通过（Claude · frontend-quality-plan §5）✅ — 系统域 + 表单/详情/审核体验
+- 做了什么：复核 `feature/phase32-form-detail-review` 单提交 `357b6be`（14 文件）。核系统域 6 页两栏化 + P4/P5/P6 接入矩阵；具体验 Org/Security 抽屉 `n-grid :cols="2"`、审计 old/new→statusLabel+StatusTag、学生ID help、权限树改可读名；W3 黑名单系统域重改后复跑仍空；`vue-tsc`+`vite build ✓ 7.74s`。活体 SYS_ADMIN 走查 10 个系统域接口（dict/region/subject/college/user/role/permission-tree/param/audit/backup）全 HTTP200 code=0、零 403，权限树含可读 `name:系统用户管理`。
+- 结论：**PASS**（一轮·0 修补）。系统域主从两栏、全站抽屉 P4 双列分组固定底、查看/编辑分离(P5)、审核统一(P6)、审计中文、权限树可读名(W3 正向改进)。DataPanel 仅增展示型 props(rowProps/maxHeight/defaultExpandAll)。
+- Minor（非阻断）：证书页无独立「查看」动作（生命周期动作页），P5 不适用；codex 将 P4 用于证书抽屉、P5 仅用于学生/培养——工程正确，DEVLOG 顶部「偏差:无」措辞略欠精确但 Cross-Page 分节准确。
+- 放行：PROGRESS Phase 32 置 ✅；合并 `main`（本地私有、无远程、不 push）；栈在跑供目验；下一步 Phase 33（含 W6 拆视频巨石组件，复核 wc -l 抽查）。
+
 ## [2026-07-03] Phase 32 待复核小结（系统域 + 表单/详情/审核体验）
 - 做了什么：从最新 `main` 切出 `feature/phase32-form-detail-review`，执行 `docs/frontend-quality-plan.md` §4 Phase 32。纯前端展示层改造；未改后端、契约、迁移或 stores 逻辑；未新增依赖；未 push。
 - 关键决策与理由：复用 Phase 30/31 的 `FilterBar/DataPanel/DetailPanel/ReviewDialog/StatusTag/formatDateTime/statusLabel`，系统域优先做可见结构件收敛；对 `DataPanel` 仅增加展示型 `rowProps/maxHeight/defaultExpandAll` 透传，支持主从选中行和权限树展开，不改变业务状态。

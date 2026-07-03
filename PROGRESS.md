@@ -5,10 +5,10 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**Phase 32 待复核**——系统域 6 页 + 抽屉表单 P4 + 详情 P5 + 审核 P6 + 审计状态中文化已完成，等待 Claude 复核。
+- 当前阶段：**Phase 32 ✅ 已复核（Claude 07-03，PASS·一轮·0 修补）**——系统域两栏+抽屉P4+详情P5+审核P6+审计中文完成；下一步 Phase 33（工作台 v2 + 视频页拆分评分工作台 + 学生端卡片化，含 W6 拆巨石组件）。
 - 阻塞项：无
-- 最近更新：2026-07-03（Phase 32 待复核：系统域 6 页接入 FilterBar/DataPanel/DetailPanel；账号权限三 tab 卡化；参数审计备份审计 old/new 状态中文 + 学院下拉 + 学生ID数字提示；学生/培养/材料/免考/证书相关抽屉按 P4 收敛；学生/培养详情 P5、审核 P6 保持统一。`type-check` + `build` 通过，仅既有 Vite chunk-size warning）
-- 下一步：Claude 按 Phase 32 gate 逐页复核与起栈走查；codex 不自行置复核通过。
+- 最近更新：2026-07-03（Phase 32 复核通过：系统域 6 页两栏化、Org/Security 抽屉真 2 列、审计 old/new 中文 StatusTag、权限树改可读功能名(system:user:manage→系统用户管理)、查看/编辑分离、审核统一；W3 黑名单空；活体 SYS_ADMIN 走查 10 系统接口零 403；构建绿；Minor 1 非阻断。详见 docs/reviews/phase-32-review.md）
+- 下一步：Phase 33（工作台 v2 + 视频页拆分 + 学生端卡片化）；派发词见 frontend-quality-plan 附录 D。
 
 ## 阶段汇总
 | Phase | 名称 | 优先级 | 任务数 | 完成 | 状态 |
@@ -334,7 +334,7 @@
 - 验证：`npm --prefix frontend run type-check` 通过；`npm --prefix frontend run build` 通过（仅 Vite chunk-size warning）；附录 A 黑名单与纯前端范围检查输出为空。等待 Claude 复核，未自行置阶段通过。
 
 ## 收官后 · Phase 32 / 系统域 + 表单/详情/审核体验
-- Phase 32 `系统域 + 表单/详情/审核体验`：**待复核**（分支：`feature/phase32-form-detail-review`）。纯前端展示层改造；未改后端、契约、迁移或 stores 逻辑；未新增依赖；本地私有无 remote、不 push。
+- Phase 32 `系统域 + 表单/详情/审核体验`：**✅ 已复核（Claude 2026-07-03，PASS·一轮·0 修补）**（分支：`feature/phase32-form-detail-review`）。系统域两栏 + 抽屉 P4 双列 + 详情 P5 + 审核 P6 + 审计中文 + 权限树可读名；W3 空；活体 SYS_ADMIN 10 系统接口零 403。Minor 1 非阻断。详见 `docs/reviews/phase-32-review.md`。纯前端；未新增依赖。
 - [x] 系统域 6 页：字典/学科/区划/组织改主从两栏，接 `FilterBar + DataPanel + DetailPanel`；账号权限用户/角色/权限三 tab 接规范表格卡；参数审计备份保留三 tab 并补审计筛选提示。
 - [x] P4 抽屉表单：系统域字典/组织/账号/参数/备份抽屉统一 560 宽、双列栅格、分组标题与底部取消/保存；学生/培养/材料/免考/证书相关表单抽屉同步收敛。
 - [x] P5/P6：学生与培养查看继续走 `DetailPanel` 只读面板，查看不复用编辑表单；学生/培养/材料/免考审核入口统一 `ReviewDialog`。
