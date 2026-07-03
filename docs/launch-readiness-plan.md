@@ -88,7 +88,7 @@
 - **`AuditLogAspect:32-46` 同步阻塞写**（非 @Async），每个 @AuditLog 变更端点多付一次阻塞写。
 
 ### 7.4 证书/导入领域正确性 P1
-- **REISSUED 从不落库（死枚举）**（`CertificateServiceImpl.reissue:215-218` 只 setLocked，never setStatus）→ 原证保持 VOIDED → **作废证书可被反复重开**（无界链）；审计记录了没发生的流转。
+- ✅ **REISSUED 从不落库（死枚举）**（原 `CertificateServiceImpl.reissue` 只 setLocked，never setStatus → 原证保持 VOIDED → **作废证书可被反复重开**无界链；审计记录了没发生的流转）——**已修复（Phase 42.4，待复核合并）**：reissue 改 DB 原子条件更新 `update(entity, eq(id).eq(status,'VOIDED'))` 把原证 VOIDED→REISSUED 落库、行数=0 抛「证书状态已变更或已重开」；活体 2 并发仅 1 成功、原证 REISSUED、再重开被拒（详见 §11）。
 - **导入静默改 voided/archived 证书**（`certificateByStudentYear:1202` 无状态过滤，`applyCertificate:717-740` 覆盖 cert_no/validUntil/issuer）——与 `correct()` 的守卫矛盾。
 - **往返列复用坏账**：导出把 `status` 写入"备注"列（`:865`），导入把该列当学院id `parseLong`（`:1058`）→ **重导入导出文件必坏**（学院识别失败）。
 - **导入 cert_no 不占 `cert_sequence`** → 与自动生成永久撞号，`generate` 撞号回滚又不推进序列 → "证书编号已存在请重试"**永远失败**，需手工改库。
@@ -314,4 +314,8 @@
 - **验证：** `mvn -B -ntp verify` **BUILD SUCCESS，83/83 绿（0 fail/error/skip）**，9 个 reactor 模块全 SUCCESS（含 `FileServiceImpl.upload` 改动路径覆盖的 `Phase5MaterialIT`/`Phase6ExemptionIT` 等真实 MinIO 上传集成测试）。配置类改动（yml/compose/`.dockerignore`）为语法与静态核对，未起 prod 栈活体（生产 compose 需要真实生产网络/密钥，本地不可行，符合 §3 前言"验收以配置正确+文档齐+可解释为准"）。
 - **与规格的偏差**：§7.11 原文把 MySQL/Redis/MinIO 端口发布合并为一条，本 phase 任务书显式只收窄到 MySQL(41.1)+Redis(41.3)，MinIO 端口发布/公网可达性留待后续独立 phase（需先设计反代或公网 endpoint，否则即便发布端口，浏览器仍无法解析 `minio` 这一内部服务名）。
 - ⏳ **未合并**：本 phase 严格按任务要求只做 41.1+41.3，**41.2（真实定时备份，P0-6）未动**；分支 `feature/phase41-ops` 停在单个 commit，待人工复核后再决定是否 merge 进 main。
+
+### Phase 42.4（Phase 42.4，待复核合并 —— 分支 `feature/phase42-reissue`，单 commit，未合并入 main，mvn verify 83/83 绿；栈起 2 并发活体阻断）
+- ✅ **P0-10 收尾 / §7.4 证书 reissue REISSUED 死枚举 + 并发双重开** — `CertificateServiceImpl.reissue` 原「`setLocked(1)`+`updateById`、从不 `setStatus(REISSUED)`」→ 原证永远停在 VOIDED、可被反复重开（无界链），且审计记录了 DB 从未发生的 VOIDED→REISSUED。改为沿用 Phase 37b 同款 **DB 原子条件更新**：`original.setStatus(REISSUED)` 后 `certificateMapper.update(original, wrapper.eq(id).eq(status,'VOIDED'))`，受影响行数=0 抛 `BizException(证书状态已变更或已重开，请刷新后重试)`——既把 REISSUED 真正落库（审计与 DB 一致），又保证两并发只有一个命中 `status='VOIDED'`、另一个被拒。`activeCertificate` 活跃态集本已 `notIn(VOIDED,REISSUED)`，REISSUED 天然非活跃、不计入活跃证书（无需改）。`Phase9CertificateIT.voidAndReissue...` 同步：断言由「原证仍 VOIDED」改「原证 REISSUED」+ 新增「再 reissue 被拒 code=1000『仅已作废证书可重开』」。未依赖 42.1 的 `uk_cert_active` 唯一约束，本守卫独立成立。**验证：** `mvn -B -ntp verify` **83/83 绿**（Phase9CertificateIT 7/7）。**活体（阻断）：** 后端 PID 13592（fresh jar），DEMO 学生 005 补齐前置 → generate(C0，certNo …00001)→ void(VOIDED)→ **2 并发 reissue：恰 1 成功**（新证 certNo …00002 GENERATED）、**1 失败 code=1000「证书状态已变更或已重开」**（命中原子守卫）、**原证 C0 落库 REISSUED**、审计 `reissue|VOIDED|REISSUED`、活跃证书恰 1 张；再对已 REISSUED 的 C0 reissue → code=1000「仅已作废证书可重开」。测毕全量复原（certificate/cert_sequence/materials/test/video/cert-audit 均归 0）。「复现」侧由改前 Phase9 断言（曾固化「原证保持 VOIDED」错误行为）佐证，未对旧码另起活体。
+- ⏳ **未合并**：分支 `feature/phase42-reissue` 单 commit，待人工复核；42.1（uk 唯一约束/迁移 V24）、42.2（confirmImport 双确认）、42.3（视频计票/幂等）另行分发。
 

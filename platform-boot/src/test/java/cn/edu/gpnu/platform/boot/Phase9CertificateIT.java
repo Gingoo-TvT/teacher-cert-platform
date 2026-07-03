@@ -265,7 +265,13 @@ class Phase9CertificateIT {
         assertThat(reissued.at("/id").asLong()).isNotEqualTo(certId);
         assertThat(reissued.at("/reissueOriginCertNo").asText()).isEqualTo(originalNo);
         assertThat(reissued.at("/status").asText()).isEqualTo("GENERATED");
-        assertThat(certificateMapper.selectById(certId).getStatus()).isEqualTo("VOIDED");
+        // 原证经原子条件更新由 VOIDED → REISSUED 落库（§7.4 死枚举闭环，与审计 VOIDED→REISSUED 记录对齐）
+        assertThat(certificateMapper.selectById(certId).getStatus()).isEqualTo("REISSUED");
+        // 原证已非 VOIDED，不可再次重开（阻断"作废证书被反复重开"无界链）
+        ResponseEntity<String> secondReissue = exchange("/api/cert/" + certId + "/reissue", HttpMethod.POST,
+                academic.accessToken(), Map.of());
+        assertThat(json(secondReissue).at("/code").asInt()).isEqualTo(1000);
+        assertThat(json(secondReissue).at("/msg").asText()).contains("仅已作废证书可重开");
     }
 
     @Test

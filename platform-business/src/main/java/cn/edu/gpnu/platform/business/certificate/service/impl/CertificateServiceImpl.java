@@ -232,9 +232,15 @@ public class CertificateServiceImpl implements CertificateService {
             throw new BizException("该学生本年度已有未作废证书");
         }
         String oldStatus = original.getStatus();
+        original.setStatus(CertificateStatus.REISSUED.name());
         original.setLocked(1);
-        certificateMapper.updateById(original);
-        recordAudit(original, "reissue", oldStatus, CertificateStatus.REISSUED.name(), "重开证书");
+        // 原子条件更新：仅当原证仍为已作废态时才置为已重开，既把 REISSUED 落库（§7.4 死枚举）
+        // 又防并发重复重开——两并发只有一个能命中 VOIDED、另一个受影响行数=0 被拒（P0-10）。
+        if (certificateMapper.update(original, new LambdaUpdateWrapper<Certificate>()
+                .eq(Certificate::getId, id).eq(Certificate::getStatus, oldStatus)) == 0) {
+            throw new BizException("证书状态已变更或已重开，请刷新后重试");
+        }
+        recordAudit(original, "reissue", oldStatus, original.getStatus(), "重开证书");
         CertificateGenerateRequest request = new CertificateGenerateRequest();
         request.setStudentId(original.getStudentId());
         request.setAssessmentYear(original.getAssessmentYear());
