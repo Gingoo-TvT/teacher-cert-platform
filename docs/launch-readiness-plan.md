@@ -153,3 +153,29 @@
 5. **P0-11 MinIO I/O 在事务内**（§7.2）——大上传耗尽连接池致全站瘫。
 > 执行序相应调整：**Phase 37 拆成 37a 安全急修（P0-1/7/9 授权+TLS+IDOR+会话）与 37b 依赖升级（P0-8 Spring Boot）**；并发无锁（P0-10）与 MinIO 出事务（P0-11）并入 Phase 38/39。前端"批量下载永远失败"（§7.6 P1）建议随手修（纯前端泛型笔误）。
 
+---
+
+## 8. 活体渗透/回归测试结果（2026-07-04，栈起，脚本实测，非静态推断）
+以 demo 数据实测，测完已还原。**两个 P0 现场证实可利用**，多条正面项现场证实有效，并纠正 1 处审计过报。
+
+### 8.1 🔴 P0-1 文件预签名 IDOR —— 现场证实可利用（最高优先修）
+- 手法：`test_student`(学院A) 本人上传一份材料 → 得 `file_id`；**`test_student_b`(学院B 的学生)** 携自己 token 调 `GET /api/file/{file_id}/url` → **HTTP200 拿到预签名 URL，并实际下载到文件字节** `%PDF FAKE private material of student 9001 (college A)`。
+- 结论：**任一登录用户可凭 file_id 下载任意他人（跨学院跨学生）材料/证件/视频**。根因 `FileController:50 presignedUrl` 仅 `@PreAuthorize("isAuthenticated()")`、无 @DataScope、无属主校验。
+- 修复验收：修后同一手法必须 **403**。
+- **纠正审计**：过长有效期 `expiry=10年` 实测**被拒**（后端有上限）——§7.10 里"expiry 无上限"一项**不成立**，删除该子项，只保留"无属主校验"。
+
+### 8.2 🔴 P0-10 并发无乐观锁 —— 现场证实竞态
+- 手法：6 线程用 barrier 同时对同一 `FIRST_REVIEW` 学生发 `POST /student/{id}/first-review` PASS → **6 次全部 HTTP200 成功**，`audit_log` 产生 **6 条**同一逻辑审核记录，`first_review_comment` 最终为 `race-2`（last-writer-wins，非确定）。
+- 结论：状态流转无 `@Version`/无条件更新，重复/并发提交都过守卫都提交 → 若一 PASS 一 REJECT 并发，最终态不确定；审计与实际状态可背离。修复验收：同样 6 并发应仅 1 次成功、审计 1 条。
+
+### 8.3 🟢 正面项现场证实（避免误修）
+- **数据范围 SELF/COLLEGE 生效**：学生 `GET /student` 列表只返回本人 1 条(id 9001)；学生读他人学生详情(990..005)→404；学院A教务员读学院B学生(990..009)→404。
+- **越权访问被拒**：学生 `GET /system/user` → 403。
+- 即 §7.10 的"核心业务 by-id/list 面干净"经活体复核成立；风险确实集中在 **文件预签名**（非 @DataScope 表）与 **导入批次**（§7.10 P0，未活体因缺 B 学院导出账号，代码已确认）两处非常规入口，以及会话/并发。
+
+### 8.4 🔴 P1 会话不可撤销 —— 现场证实
+- 手法：登录得 token → `POST /auth/logout`(HTTP200) → 用**同一 token** 调 `GET /auth/me` → **仍 HTTP200 code=0**。证实 `AuthController.logout` 是空操作、无黑名单，登出/改密后旧 access/refresh token 存活到自然过期（access 1h、refresh 7d）。修复验收：登出后旧 token 必须 401。
+
+### 8.5 待补活体项（Phase 37 修复时成对"复现→阻断"）
+- 导入批次 IDOR（需构造 xlsx + 跨学院导出账号，代码已确认）；前端批量下载泛型 bug（需浏览器）；refresh 令牌重放。
+
