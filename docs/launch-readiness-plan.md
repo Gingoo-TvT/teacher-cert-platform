@@ -179,3 +179,39 @@
 ### 8.5 待补活体项（Phase 37 修复时成对"复现→阻断"）
 - 导入批次 IDOR（需构造 xlsx + 跨学院导出账号，代码已确认）；前端批量下载泛型 bug（需浏览器）；refresh 令牌重放。
 
+---
+
+## 9. 三轮深扫（数据模型/迁移 · 系统域模块 · 测试覆盖）
+
+### 9.1 数据模型 / 迁移 / 种子完整性
+- **全库无任何 DB 外键约束**（23 迁移 grep `FOREIGN KEY/REFERENCES/ON DELETE` = 0）：父子关系全靠应用码维护，级联删除 100% 手动且各服务不一致。软删统一 `deleted TINYINT`(@TableLogic)，生产码无硬删（正面）。**根因性**：无 DB 安全网，下列孤儿问题无兜底。
+- **P0 删除父实体产生静默孤儿**：`OrganizationServiceImpl.deleteCollege` 只查 major 数、`deleteMajor` **零守卫**；而 `MajorCodeValidator` 让 `education_master` 学生**跳过 sys_major 存在校验** → 学院可有真实学生却无 major 行 → 通过 deleteCollege 唯一守卫，student/training/material/exemption/video/cert/sys_user 仍指向已删学院，无报错永久悬挂。
+- **P0 删除学生不停用其登录账号**：`StudentServiceImpl.delete` 只 `deleteById(student)`，不级联、**不停用关联 `sys_user`**（sys_user.student_id）→ 已删/退学学生仍有可用登录（访问撤销失败）。
+- **P1 sys_user/sys_role 唯一键漏 `deleted`**（`V7:28-30,49`，与 V9-V22 惯例不一致）+ create 未捕获 DuplicateKey → **删了再建同名用户/工号/角色码 直接崩**（裸 DuplicateKeyException，对比 `CertificateServiceImpl:129` 有捕获）。
+- **P1 无 Flyway prod 配置**：`baseline-on-migrate` 只在 application-dev（prod 走默认 false）→ 首次部署若 schema 非全空 Flyway 硬失败无恢复文档。
+- **P1 种子污染生产参考数据**：`V12:74` 免考依据/科目 seed 了 7+2 占位值（违背 `待确认事项确认单` 决策#12"初始置空"）；`V8` 把 `PHASE2_COLLEGE_A/B`(id 201/202) + V10 假专业 seed 进 `sys_college/sys_major` → 真实下拉里出现假学院/专业。
+- **P1 MinIO 分片/源文件从不真正删除**：`archiveUploadSessions:670` 只软删 DB 行，`merge:211` 合并后不删源分片 → **每个分片永久留存 + 合并视频双份**（无界存储增长）。
+- **P1 `student.college_id` 写时不校验存在**（`allowedCollegeId` 只解析范围权限）→ 可存到不存在/已删学院。
+- **P1 VARCHAR 日期无补零**：`CertificateServiceImpl.normalizeDate/validUntil` 产出 `2026/7/3` → 将来对 issue_date/valid_until 做 `ORDER BY`/范围比较字典序错（`2026/10/1` < `2026/2/1`）。当前无查询触发，是种子格式里的雷。
+- **VARCHAR 存日期/枚举清单**：birth_date、全表 assessment_year、cert issue_date/valid_until、ability_test.score 均 VARCHAR；status 类枚举全是无 CHECK 的自由 VARCHAR（脏值只在下次读时抛异常）。
+- **P2**：role/user 删除不级联 junction 表（经查**非提权洞**——权限解析都 re-join `r.deleted=0 AND status=1`，但留孤儿行扰乱审计）；归档视频任务把 `reviewer_id` 覆盖成自身 PK（毁"谁评审过"痕迹）；cert_sequence 若将来被软删可致重号（当前不可达）。**正面**：证书序列号 `SELECT FOR UPDATE` 并发安全；JWT 密钥 fail-fast 稳。
+
+### 9.2 系统域/参考数据模块（待 a1c9 收尾追加）
+
+### 9.3 测试覆盖缺口（84 个 IT，全是 boot 层集成测试）
+- **安全网范围**：`platform-boot` 下 14 个 IT 共 84 个 @Test；**business/exchange/statistics 无任何单测；前端零测试（无 *.spec、package.json 无 test 脚本）**。全靠 DB 支撑的集成测试兜底。
+- **P0 三个已知 bug 全部 UNTESTED，会静默上线**：①材料 FAILED 永久污染——Phase5 唯一涉 FAILED 的用例用"换学年"绕过恢复场景，**同年同类重传复活从未被测**；②`confirmImport` 双确认——**全套无任何二次 confirm 调用**（连顺序都没有，更别说并发）；③视频双结算——Phase7 11 个用例全顺序、无 ExecutorService 并发。
+- **P0 全库仅 1 个并发测试**（Phase9 证书序列号 50 线程，也是唯一乐观/悲观锁验证）；reissue/评审/结算等 check-then-act 全无并发覆盖。
+- **⚠️ reissue 死枚举被测试"固化"**：Phase9 `voidAndReissue...` **断言了当前错误行为**（原证保持 VOIDED）→ 修复该 bug 会让此测试假失败，改时需同步改测试（否则误判回归）。
+- **P1 RBAC 负向测试失衡**：14 文件里只有 COLLEGE_CLERK(3 端点)、REVIEW_TEACHER(1 端点)有活体 403；SYS_ADMIN/ACADEMIC_ADMIN/COLLEGE_AUDITOR/STUDENT **零活体拒绝测试**（只有静态权限串断言，不证服务端强制）→ 谁的 `@PreAuthorize` 丢了都不会被测出。
+- **P1 跨学院夹具单向**：所有 IDOR 测试只测"A 学院职员→B 数据"，无 B 学院职员账号 → 反向/职员对职员对称性无法测。
+- **P1 业务 IDOR 其实测得不错**（Phase3-11 各模块跨学院 DB 验证）——与本次活体"业务 by-id 安全"一致；漏的是**文件预签名**（非业务端点）与导入批次。
+- **P1 覆盖漏项**：证书下半年有效期(7-12 月)分支未测（用例名自己标了）；导入导出真往返(导出再导入)未测、`UPDATE_EMPTY` 策略零覆盖、V-01..13 只松散聚合断言非逐行；exchange 跨学院是 soft-fail(code=0/failCount=1) 而非 403（与全站惯例不一致）；未指派但同学院评审教师碰他人任务的 IDOR 轴未测。
+- **P2**：**全库零 404 测试、零分页/大数据测试**（所有数据集 1-5 条）；系统参数只测了 1 个的即时生效；审计只在部分流程断言、时间字段从不断言。
+- **测试质量红旗**：Phase24:314 `auditLogMapper.selectCount(空条件)>0`（表里有任意行就过）；Phase3:119 拿 nanoTime 随机 id 比硬编码常量（恒不等，形同虚设）；多处仅断 HTTP200 不查字段/DB；14 文件共用硬编码种子 id + `@Order`/PER_CLASS 实例字段跨用例传递 → **不可并行/分片，一个早失败级联假失败**；Phase5/7 的 file_object 清理按 biz_type 全删（越界）。
+
+### 9.4 三轮 P0 汇总（并入优先级）
+- **P0-12 无 DB 外键 + 删父静默孤儿 + 删学生不停登录**（§9.1）——数据完整性靠应用码且不一致，上线前需补关键级联/停用逻辑或 DB 约束。
+- **P0-13 关键 bug 零测试**（§9.3）——修 P0 时必须**同步补并发/复活/双确认测试**，否则改完无从证明、且 reissue 测试会假失败。
+> 迁移建议随手做的低风险项：sys_user/sys_role 唯一键补 `deleted`（V24 新迁移）、create 捕获 DuplicateKey、免考种子占位值清空、Flyway prod 配置。
+
