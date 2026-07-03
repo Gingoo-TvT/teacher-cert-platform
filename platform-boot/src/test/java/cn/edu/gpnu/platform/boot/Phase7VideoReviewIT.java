@@ -44,9 +44,15 @@ import org.springframework.util.MultiValueMap;
 
 import java.security.MessageDigest;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -521,6 +527,116 @@ class Phase7VideoReviewIT {
         JsonNode play = json(exchange("/api/video/reviews/" + own + "/play", HttpMethod.GET, reviewerA.accessToken(), null)).at("/data");
         assertThat(play.at("/url").asText()).contains("X-Amz-");
         assertThat(play.at("/watermarkText").asText()).contains("test_review_teacher");
+    }
+
+    @Test
+    void concurrentFinalScoreSubmissionsSettleExactlyOnceWithoutStuckReviewing() throws Exception {
+        // Phase 42.3 settle 丢失更新（§7.1）：两评审并发提交末分 → 恰一次结算、review 落定 REVIEW_COMPLETED、不卡 REVIEWING。
+        LoginResult student = readyLogin("test_student");
+        LoginResult auditor = readyLogin("test_college_auditor");
+        LoginResult reviewerA = readyLogin("test_review_teacher");
+        LoginResult reviewerB = readyLogin("test_review_teacher_b");
+
+        long reviewId = uploadValidatedVideo(student.accessToken(), 9001L, "P7-RACE-SETTLE");
+        assign(auditor.accessToken(), reviewId, 800000000000003005L, REVIEWER_B_USER_ID);
+        long taskA = taskIdByReview(reviewerA.accessToken(), reviewId);
+        long taskB = taskIdByReview(reviewerB.accessToken(), reviewId);
+
+        CyclicBarrier barrier = new CyclicBarrier(2);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Callable<Integer> submitA = () -> {
+                barrier.await();
+                return scoreRaw(reviewerA.accessToken(), taskA, 85, "PASS");
+            };
+            Callable<Integer> submitB = () -> {
+                barrier.await();
+                return scoreRaw(reviewerB.accessToken(), taskB, 80, "PASS");
+            };
+            List<Future<Integer>> futures = executor.invokeAll(List.of(submitA, submitB));
+            // 两评审各提交自己的任务，互不冲突，均应成功（结算只发生在观测到票数已满的那个事务里）
+            assertThat(futures.get(0).get()).isEqualTo(0);
+            assertThat(futures.get(1).get()).isEqualTo(0);
+        } finally {
+            executor.shutdownNow();
+        }
+
+        VideoReview settled = reviewMapper.selectById(reviewId);
+        assertThat(settled.getStatus()).isEqualTo("REVIEW_COMPLETED");
+        assertThat(settled.getFinalScore()).isEqualTo(83);
+        assertThat(settled.getFinalConclusion()).isEqualTo("PASS");
+        // 恰一次自动结算：未结算的那次提交 oldStatus==newStatus 不记审计
+        assertThat(auditLogMapper.selectCount(new LambdaQueryWrapper<SysAuditLog>()
+                .eq(SysAuditLog::getBizType, "video")
+                .eq(SysAuditLog::getBizId, reviewId)
+                .eq(SysAuditLog::getOperation, "settle"))).isEqualTo(1L);
+        assertThat(taskMapper.selectCount(new LambdaQueryWrapper<VideoReviewTask>()
+                .eq(VideoReviewTask::getVideoReviewId, reviewId)
+                .eq(VideoReviewTask::getSubmitted, 1))).isEqualTo(2L);
+    }
+
+    @Test
+    void concurrentMergeProducesExactlyOneFileObject() throws Exception {
+        // Phase 42.3 merge 幂等（§7.1）：并发/重试合并同一会话 → 恰一个 teaching-video file_object，不产生重复行 + 孤儿。
+        LoginResult student = readyLogin("test_student");
+        String year = "P7-RACE-MERGE";
+        byte[] content = mp4(year);
+        String hash = md5(content);
+        JsonNode init = initUpload(student.accessToken(), 9001L, year, "lesson-" + year + ".mp4",
+                "video/mp4", content.length, 4, hash, 900);
+        String uploadId = init.at("/uploadId").asText();
+        uploadAll(student.accessToken(), uploadId, content, 4);
+
+        CyclicBarrier barrier = new CyclicBarrier(2);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        List<Integer> codes = new ArrayList<>();
+        try {
+            Callable<Integer> merge1 = () -> {
+                barrier.await();
+                return mergeRaw(student.accessToken(), uploadId, 900);
+            };
+            Callable<Integer> merge2 = () -> {
+                barrier.await();
+                return mergeRaw(student.accessToken(), uploadId, 900);
+            };
+            List<Future<Integer>> futures = executor.invokeAll(List.of(merge1, merge2));
+            codes.add(futures.get(0).get());
+            codes.add(futures.get(1).get());
+        } finally {
+            executor.shutdownNow();
+        }
+
+        // 至少一个成功；失败者（若命中合并中）为幂等拒绝 code=1000，绝不产生第二个文件对象
+        assertThat(codes).contains(0);
+        assertThat(codes).allMatch(code -> code == 0 || code == 1000);
+        // 核心不变式：恰一个 teaching-video file_object（改前重复合并会产生 2 个 + MinIO 孤儿）
+        Integer fileObjectCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM file_object WHERE biz_type = 'teaching-video'", Integer.class);
+        assertThat(fileObjectCount).isEqualTo(1);
+        VideoReview review = reviewMapper.selectOne(new LambdaQueryWrapper<VideoReview>()
+                .eq(VideoReview::getStudentId, 9001L)
+                .eq(VideoReview::getAssessmentYear, year)
+                .last("LIMIT 1"));
+        assertThat(review).isNotNull();
+        assertThat(review.getStatus()).isEqualTo("WAIT_REVIEW");
+        assertThat(review.getVideoFileId()).isNotNull();
+        // 会话落定 MERGED（未卡 MERGING）
+        VideoUploadSession session = sessionMapper.selectOne(new LambdaQueryWrapper<VideoUploadSession>()
+                .eq(VideoUploadSession::getUploadId, uploadId)
+                .last("LIMIT 1"));
+        assertThat(session.getStatus()).isEqualTo("MERGED");
+    }
+
+    private int scoreRaw(String token, long taskId, int score, String conclusion) throws Exception {
+        ResponseEntity<String> response = exchange("/api/video/tasks/" + taskId + "/score", HttpMethod.POST,
+                token, scoreBody(score, conclusion));
+        return json(response).at("/code").asInt();
+    }
+
+    private int mergeRaw(String token, String uploadId, int duration) throws Exception {
+        ResponseEntity<String> response = exchange("/api/video/upload/merge", HttpMethod.POST, token,
+                Map.of("uploadId", uploadId, "durationSeconds", duration));
+        return json(response).at("/code").asInt();
     }
 
     private long uploadValidatedVideo(String token, long studentId, String year) throws Exception {

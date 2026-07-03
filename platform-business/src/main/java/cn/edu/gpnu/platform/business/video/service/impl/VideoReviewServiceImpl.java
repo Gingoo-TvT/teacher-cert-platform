@@ -222,43 +222,77 @@ public class VideoReviewServiceImpl implements VideoReviewService {
         if (chunks.size() != session.getTotalChunks()) {
             throw new BizException("分片尚未全部上传");
         }
-        Integer duration = request.getDurationSeconds() == null ? session.getDurationSeconds() : request.getDurationSeconds();
-        if (duration != null) {
-            session.setDurationSeconds(duration);
+        // 幂等认领（§7.1 merge 无幂等守卫）：会话 UPLOADING→MERGING 原子翻转。merge 无环绕事务、该 update
+        // 立即自动提交、对并发调用者立即可见（InnoDB 行锁串行化），仅首个 claimed=1 者继续 compose+register，
+        // 杜绝重试/并发合并产生重复 file_object 行 + MinIO 孤儿对象 + 重指 videoFileId。
+        int claimed = sessionMapper.update(null, new LambdaUpdateWrapper<VideoUploadSession>()
+                .eq(VideoUploadSession::getUploadId, session.getUploadId())
+                .eq(VideoUploadSession::getStatus, VideoUploadStatus.UPLOADING.name())
+                .set(VideoUploadSession::getStatus, VideoUploadStatus.MERGING.name()));
+        if (claimed == 0) {
+            return handleNonClaimableMerge(session);
         }
-        String objectKey = VIDEO_BIZ_TYPE + "/" + UUID.randomUUID().toString().replace("-", "") + ".mp4";
-        List<VideoUploadChunk> sortedChunks = chunks.stream()
-                .sorted(Comparator.comparing(VideoUploadChunk::getChunkIndex))
-                .toList();
         try {
-            List<ComposeSource> sources = sortedChunks.stream()
-                    .map(chunk -> ComposeSource.builder()
-                            .bucket(minioProperties.getBucket())
-                            .object(chunk.getObjectKey())
-                            .build())
+            Integer duration = request.getDurationSeconds() == null ? session.getDurationSeconds() : request.getDurationSeconds();
+            if (duration != null) {
+                session.setDurationSeconds(duration);
+            }
+            String objectKey = VIDEO_BIZ_TYPE + "/" + UUID.randomUUID().toString().replace("-", "") + ".mp4";
+            List<VideoUploadChunk> sortedChunks = chunks.stream()
+                    .sorted(Comparator.comparing(VideoUploadChunk::getChunkIndex))
                     .toList();
-            minioClient.composeObject(ComposeObjectArgs.builder()
-                    .bucket(minioProperties.getBucket())
-                    .object(objectKey)
-                    .sources(sources)
-                    .build());
-        } catch (Exception e) {
-            streamComposeForSmallChunks(sortedChunks, objectKey, session.getFileSize());
+            try {
+                List<ComposeSource> sources = sortedChunks.stream()
+                        .map(chunk -> ComposeSource.builder()
+                                .bucket(minioProperties.getBucket())
+                                .object(chunk.getObjectKey())
+                                .build())
+                        .toList();
+                minioClient.composeObject(ComposeObjectArgs.builder()
+                        .bucket(minioProperties.getBucket())
+                        .object(objectKey)
+                        .sources(sources)
+                        .build());
+            } catch (Exception e) {
+                streamComposeForSmallChunks(sortedChunks, objectKey, session.getFileSize());
+            }
+            // MinIO 合并已在事务外完成；元数据落库（文件对象 + 评审 + 会话状态）单独短事务（P0-11）
+            Long reviewId = transactionTemplate.execute(txStatus -> {
+                FileObject file = registerComposedFile(session, objectKey);
+                session.setFileId(file.getId());
+                VideoReview review = upsertReviewAfterValidation(student, session.getAssessmentYear(), file,
+                        session.getFileMd5(), duration, false, session.getUploadId());
+                session.setStatus(VideoReviewStatus.of(review.getStatus()) == VideoReviewStatus.VALIDATION_FAILED
+                        ? VideoUploadStatus.VALIDATION_FAILED.name()
+                        : VideoUploadStatus.MERGED.name());
+                session.setValidationMessage(review.getValidationMessage());
+                sessionMapper.updateById(session);
+                return review.getId();
+            });
+            return detail(reviewId);
+        } catch (RuntimeException e) {
+            // 合并失败：把会话从 MERGING 复位回 UPLOADING（仅当仍为 MERGING），允许后续重试，避免永久卡死。
+            sessionMapper.update(null, new LambdaUpdateWrapper<VideoUploadSession>()
+                    .eq(VideoUploadSession::getUploadId, session.getUploadId())
+                    .eq(VideoUploadSession::getStatus, VideoUploadStatus.MERGING.name())
+                    .set(VideoUploadSession::getStatus, VideoUploadStatus.UPLOADING.name()));
+            throw e;
         }
-        // MinIO 合并已在事务外完成；元数据落库（文件对象 + 评审 + 会话状态）单独短事务（P0-11）
-        Long reviewId = transactionTemplate.execute(txStatus -> {
-            FileObject file = registerComposedFile(session, objectKey);
-            session.setFileId(file.getId());
-            VideoReview review = upsertReviewAfterValidation(student, session.getAssessmentYear(), file,
-                    session.getFileMd5(), duration, false, session.getUploadId());
-            session.setStatus(VideoReviewStatus.of(review.getStatus()) == VideoReviewStatus.VALIDATION_FAILED
-                    ? VideoUploadStatus.VALIDATION_FAILED.name()
-                    : VideoUploadStatus.MERGED.name());
-            session.setValidationMessage(review.getValidationMessage());
-            sessionMapper.updateById(session);
-            return review.getId();
-        });
-        return detail(reviewId);
+    }
+
+    private VideoReviewVO handleNonClaimableMerge(VideoUploadSession session) {
+        // 认领失败：会话已不在 UPLOADING。重读最新状态做幂等处理。
+        VideoUploadSession latest = requireSession(session.getUploadId());
+        VideoUploadStatus status = VideoUploadStatus.of(latest.getStatus());
+        if (status == VideoUploadStatus.MERGED || status == VideoUploadStatus.VALIDATION_FAILED) {
+            // 已合并 / 已出校验结论：回放既有评审结果（幂等成功），不重复 compose+register。
+            VideoReview review = existingReview(latest.getStudentId(), latest.getAssessmentYear());
+            if (review != null) {
+                return detail(review.getId());
+            }
+        }
+        // MERGING（另一次合并进行中）或其它异常态：拒绝重复提交。
+        throw new BizException("视频正在合并或已完成，请勿重复提交");
     }
 
     @Override
@@ -367,7 +401,10 @@ public class VideoReviewServiceImpl implements VideoReviewService {
         if (task.getSubmitted() != null && task.getSubmitted() == 1) {
             throw new BizException("已提交的评审任务不可修改");
         }
-        VideoReview review = requireReview(task.getVideoReviewId());
+        // 对 review 行加 SELECT ... FOR UPDATE 行锁：串行化并发提交末分的评审事务（P0-10/§7.1 结算丢失更新）。
+        // 只有先拿到锁的事务先提交自己的任务，后到的事务在锁释放后才计票，从而能读到已提交的对方任务，杜绝
+        // 「两评审并发提交、各自 REPEATABLE_READ 快照只见自己 → 都不结算、review 卡 REVIEWING」的死局。
+        VideoReview review = lockReview(task.getVideoReviewId());
         if (VideoReviewStatus.of(review.getStatus()) != VideoReviewStatus.REVIEWING) {
             throw new BizException("当前视频状态不可评分");
         }
@@ -471,7 +508,10 @@ public class VideoReviewServiceImpl implements VideoReviewService {
         review.setStatus(VideoReviewStatus.RETURNED.name());
         clearReviewOutcome(review);
         review.setLocked(0);
-        updateReviewReturned(review);
+        // 原子条件更新守卫（37b 同款）：仅当状态未被并发改动（return/confirm/arbitrate）时才退回，防竞态覆盖。
+        if (updateReviewReturned(review, oldStatus) == 0) {
+            throw new BizException("操作冲突：该记录已被其他操作更新，请刷新后重试");
+        }
         auditLogService.record("video", review.getId(), videoTarget(review), "return",
                 oldStatus, review.getStatus(), comment);
         notificationHelper.notifyReturnedToStudent(review.getStudentId(), "教学能力视频", "RETURN",
@@ -643,9 +683,10 @@ public class VideoReviewServiceImpl implements VideoReviewService {
         review.setConfirmedAt(null);
     }
 
-    private void updateReviewReturned(VideoReview review) {
-        reviewMapper.update(null, new LambdaUpdateWrapper<VideoReview>()
+    private int updateReviewReturned(VideoReview review, String oldStatus) {
+        return reviewMapper.update(null, new LambdaUpdateWrapper<VideoReview>()
                 .eq(VideoReview::getId, review.getId())
+                .eq(VideoReview::getStatus, oldStatus)
                 .set(VideoReview::getStatus, review.getStatus())
                 .set(VideoReview::getLocked, review.getLocked())
                 .set(VideoReview::getFinalScore, null)
@@ -839,15 +880,22 @@ public class VideoReviewServiceImpl implements VideoReviewService {
 
     private void settleIfReady(VideoReview review) {
         int expected = paramService.getInt("video.reviewerCount", DEFAULT_REVIEWER_COUNT);
+        // 锁定读（FOR UPDATE）计票：绕过本事务 REPEATABLE_READ 快照、读最新已提交行——配合 submitScore 对 review 行的
+        // 行锁串行化，保证后提交的事务能看到先提交事务已落库的评审任务，实现「末分提交恰一次结算、不卡 REVIEWING」。
+        // FOR UPDATE 必须是 SQL 的最后一段（MP 的 .last 会紧跟 WHERE、排在 ORDER BY 之前），故不在 wrapper 里加
+        // ORDER BY，改在 Java 侧按 submit_time 升序（等价于原 ORDER BY，submitted=1 的任务 submit_time 恒非空）。
         List<VideoReviewTask> submitted = taskMapper.selectList(new LambdaQueryWrapper<VideoReviewTask>()
                 .eq(VideoReviewTask::getVideoReviewId, review.getId())
                 .eq(VideoReviewTask::getReviewerRole, "REVIEWER")
                 .eq(VideoReviewTask::getSubmitted, 1)
-                .orderByAsc(VideoReviewTask::getSubmitTime));
+                .last("FOR UPDATE"));
         if (submitted.size() < expected) {
             return;
         }
-        List<VideoReviewTask> initialReviews = submitted.stream().limit(expected).toList();
+        List<VideoReviewTask> initialReviews = submitted.stream()
+                .sorted(Comparator.comparing(VideoReviewTask::getSubmitTime))
+                .limit(expected)
+                .toList();
         int threshold = paramService.getInt("video.diffThreshold", DEFAULT_DIFF_THRESHOLD);
         if (allPairDiffWithin(initialReviews, threshold) && sameConclusion(initialReviews)) {
             int sum = initialReviews.stream().map(VideoReviewTask::getScore).mapToInt(Integer::intValue).sum();
@@ -860,7 +908,12 @@ public class VideoReviewServiceImpl implements VideoReviewService {
             review.setStatus(VideoReviewStatus.NEED_REVIEW.name());
             review.setLocked(0);
         }
-        reviewMapper.updateById(review);
+        // 原子条件更新：仅当仍为 REVIEWING 时写入结算态，防重复结算（与 37b 同款守卫，行锁+条件更新双保险）。
+        if (reviewMapper.update(review, new LambdaUpdateWrapper<VideoReview>()
+                .eq(VideoReview::getId, review.getId())
+                .eq(VideoReview::getStatus, VideoReviewStatus.REVIEWING.name())) == 0) {
+            throw new BizException("操作冲突：该记录已被其他操作更新，请刷新后重试");
+        }
     }
 
     private void settleThirdExpert(VideoReview review) {
@@ -878,7 +931,14 @@ public class VideoReviewServiceImpl implements VideoReviewService {
         review.setFinalConclusion(conclusionByScore(finalScore));
         review.setStatus(VideoReviewStatus.REVIEW_COMPLETED.name());
         review.setLocked(1);
-        reviewMapper.updateById(review);
+        // 原子条件更新：仅当仍为 NEED_REVIEW 时写入，防并发/重复复评（37b 同款守卫）。两并发 thirdReview
+        // 各插一条 THIRD_EXPERT 任务后争这条更新，仅一个命中 status='NEED_REVIEW'，另一个 0 行 → 抛异常
+        // → @Transactional 回滚其任务插入，最终恰一次复评结算、恰一条第三专家任务。
+        if (reviewMapper.update(review, new LambdaUpdateWrapper<VideoReview>()
+                .eq(VideoReview::getId, review.getId())
+                .eq(VideoReview::getStatus, VideoReviewStatus.NEED_REVIEW.name())) == 0) {
+            throw new BizException("操作冲突：该记录已被其他操作更新，请刷新后重试");
+        }
     }
 
     private Pair bestPair(List<VideoReviewTask> tasks) {
@@ -1305,6 +1365,20 @@ public class VideoReviewServiceImpl implements VideoReviewService {
             throw new BizException("视频评审ID不能为空");
         }
         VideoReview review = reviewMapper.selectById(id);
+        if (review == null) {
+            throw new BizException(ResultCode.NOT_FOUND.getCode(), "视频评审不存在");
+        }
+        return review;
+    }
+
+    /** 悲观锁读取 review 行（SELECT ... FOR UPDATE），用于串行化并发提交末分的结算事务（须在事务内调用）。 */
+    private VideoReview lockReview(Long id) {
+        if (id == null) {
+            throw new BizException("视频评审ID不能为空");
+        }
+        VideoReview review = reviewMapper.selectOne(new LambdaQueryWrapper<VideoReview>()
+                .eq(VideoReview::getId, id)
+                .last("FOR UPDATE"));
         if (review == null) {
             throw new BizException(ResultCode.NOT_FOUND.getCode(), "视频评审不存在");
         }

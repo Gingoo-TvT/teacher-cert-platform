@@ -4,6 +4,7 @@ import java.util.Arrays;
 
 public enum VideoUploadStatus {
     UPLOADING,
+    MERGING,
     MERGED,
     VALIDATION_FAILED,
     FAST_HIT;
