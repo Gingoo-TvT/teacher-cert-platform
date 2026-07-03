@@ -15,6 +15,12 @@
 
 ---
 
+## [2026-07-03] Phase 31 复核通过（Claude · frontend-quality-plan §5）✅ — 业务域列表页铺开
+- 做了什么：复核 `feature/phase31-list-rollout` 单提交 `652c0f1`（14 文件）。逐页核结构件接入矩阵；W4 grep（日期列全走 formatter、无裸状态码）；W3 附录 A 黑名单复跑空；导出学院下拉/通知 n-list/材料免考文件列逐项验；`vue-tsc`+`vite build` 读输出全绿。**首次活体走查**：captcha 解码登录 3 角色（SYS_ADMIN/ACADEMIC_ADMIN/COLLEGE_CLERK），6 个列表接口全 HTTP200 code=0、零 403、数据范围正确（教务员 student=9<12、college=1<2）。
+- 结论：**PASS**（一轮·0 修补）。12 页结构件全接入、格式化/状态中文全覆盖、各页特有项落实；DEVLOG 逐页（W9）+ 证据（W2）+ 诚实披露 2 处规格差异。
+- Minor（非阻断记录备查）：① 批次状态用页面本地 map 非全局 statusLabel（用户可见仍中文，决策合理）；② 视频「分差列红高亮」现无契约字段未实现（非回归，已披露）。
+- 放行：PROGRESS Phase 31 置 ✅；合并 `main`（本地私有、无远程、不 push）；栈在跑供用户目验；下一步 Phase 32。为活体走查把 3 个测试账号密码归一化为 ChangeMe123!。
+
 ## [2026-07-03] Phase 31 待复核小结（业务域列表页铺开）
 - 做了什么：从最新 `main` 切出 `feature/phase31-list-rollout`，执行 `docs/frontend-quality-plan.md` §4 Phase 31。12 个业务列表页逐页套用 P1/P2/P3/P7/P8 与附录 B 格式化；纯前端展示层改造，未改后端、契约、迁移或 stores 逻辑；未新增依赖。
 - 关键决策与理由：复用 Phase 30 的 `FilterBar/DataPanel/EmptyState/DetailPanel/ReviewDialog/StatCard/StatusTag` 与 `format/statusLabels`，优先收敛列表页结构和状态/时间/文件格式化；通知页按阶段要求从表格改为列表交互，导出页只读取学院列表并继续提交既有 `collegeId`。

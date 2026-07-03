@@ -5,10 +5,10 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**Phase 31 待复核**——12 个业务列表页铺开（frontend-quality-plan §4-Phase31），分支 `feature/phase31-list-rollout`。
+- 当前阶段：**Phase 31 ✅ 已复核（Claude 07-03，PASS·一轮·0 修补）**——12 业务列表页铺开完成；下一步 Phase 32（系统域 + 表单/详情/审核体验，§4-Phase32）。
 - 阻塞项：无
-- 最近更新：2026-07-03（Phase 31 待复核：学生/培养/材料/免考/视频列表/测试/证书/签发/导入/导出/统计/通知 12 页套用 P1/P2/P3/P7/P8 与附录 B 格式化；导出学院下拉、通知列表化等特有项已落地；`type-check` + `build` 通过，仅 Vite chunk-size warning；详见 DEVLOG）
-- 下一步：等待 Claude 按 Phase 31 gate 逐页复核与 6 角色走查；通过后进入 Phase 32。
+- 最近更新：2026-07-03（Phase 31 复核通过：12 页结构件全接入、W4 格式化/状态中文全过、W3 黑名单空、导出学院下拉、通知列表化；**活体 3 角色 API 走查零 403、数据范围正确**（教务员 9<12 学生、学院下拉 1<2）；构建绿；Minor 2 非阻断记录备查。详见 docs/reviews/phase-31-review.md）
+- 下一步：Phase 32（系统域 6 页 + 抽屉 P4 + 详情 P5 + 审核 P6 统一）；派发词见 frontend-quality-plan 附录 D。
 
 ## 阶段汇总
 | Phase | 名称 | 优先级 | 任务数 | 完成 | 状态 |
@@ -325,7 +325,7 @@
 - 验证：`npm --prefix frontend run type-check` 通过；`npm --prefix frontend run build` 通过（仅既有 Vite chunk-size warning）。等待 Claude 复核，未自行置阶段通过。
 
 ## 收官后 · Phase 31 / 业务域列表页铺开
-- Phase 31 `业务域列表页铺开`：**待复核**（分支：`feature/phase31-list-rollout`）。纯前端展示层改造；未改后端、契约、迁移或 stores 逻辑；未新增依赖。
+- Phase 31 `业务域列表页铺开`：**✅ 已复核（Claude 2026-07-03，PASS·一轮·0 修补）**（分支：`feature/phase31-list-rollout`）。12 页结构件全接入 + W4 格式化/状态中文 + W3 黑名单空 + 活体 3 角色 API 走查零 403/数据范围正确。Minor 2 非阻断。详见 `docs/reviews/phase-31-review.md`。纯前端；未新增依赖。
 - [x] 学生/培养：接入统一筛选、DataPanel、状态映射与操作收敛；学生空态引导“去导入”；培养详情与审核弹窗统一并保持联动字段中文展示。
 - [x] 材料/免考：接入统一筛选、DataPanel、StatCard、ReviewDialog；材料类别/文件大小格式化与预览 icon；免考科目/依据中文与佐证文件徽标。
 - [x] 视频/测试：视频评审列表、我的评审、评审组卡化；`RETURNED` 显示“已退回”；任务提交时间格式化。测试成绩 mono 右对齐，结论/确认状态 StatusTag。
