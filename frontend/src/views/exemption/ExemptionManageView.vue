@@ -1,13 +1,12 @@
 <script setup lang="ts">
-import { computed, h, onMounted, reactive, ref, watch } from 'vue'
+import { computed, h, onMounted, ref, watch } from 'vue'
 import {
   NButton,
   NIcon,
   NPopconfirm,
   useMessage,
   type DataTableColumns,
-  type SelectOption,
-  type UploadFileInfo
+  type SelectOption
 } from 'naive-ui'
 import { EyeOutline } from '@vicons/ionicons5'
 import DataPanel from '@/components/DataPanel.vue'
@@ -16,6 +15,10 @@ import PageContainer from '@/components/PageContainer.vue'
 import ReviewDialog from '@/components/ReviewDialog.vue'
 import StatCard from '@/components/StatCard.vue'
 import StatusTag from '@/components/StatusTag.vue'
+import ExemptionDrawer from './components/ExemptionDrawer.vue'
+import ExemptionExamModal from './components/ExemptionExamModal.vue'
+import ExemptionPreviewModal from './components/ExemptionPreviewModal.vue'
+import ExemptionReplaceModal from './components/ExemptionReplaceModal.vue'
 import { renderTableActions } from '@/utils/tableActions'
 import { statusLabel } from '@/constants/statusLabels'
 import { formatFileSize } from '@/utils/format'
@@ -25,42 +28,23 @@ import type { ReviewPayload } from '@/api/student'
 import { useUserStore } from '@/stores/user'
 import { useYearStore } from '@/stores/year'
 import {
-  applyExemption,
   deleteExemptionMaterial,
   firstReviewExemption,
-  getExamSubjects,
   getExemptionSubjects,
   listExemptions,
-  previewExemptionMaterial,
-  replaceExemptionMaterial,
   secondReviewExemption,
   submitExemption,
-  uploadExemptionMaterial,
-  type ExamSubject,
-  type ExemptionApplyItem,
   type ExemptionMaterial,
   type ExemptionRequest
 } from '@/api/exemption'
-
-interface SubjectRow {
-  subject: string
-  basis: string
-  remark: string
-  fileList: UploadFileInfo[]
-}
 
 const message = useMessage()
 const userStore = useUserStore()
 const yearStore = useYearStore()
 
 const loading = ref(false)
-const saving = ref(false)
 const reviewSaving = ref(false)
-const drawerVisible = ref(false)
 const reviewVisible = ref(false)
-const examVisible = ref(false)
-const replaceVisible = ref(false)
-const previewVisible = ref(false)
 const keyword = ref('')
 const assessmentYear = ref(yearStore.assessmentYear)
 const statusFilter = ref<string | null>(null)
@@ -70,25 +54,18 @@ const students = ref<Student[]>([])
 const segments = ref<DictItem[]>([])
 const subjects = ref<DictItem[]>([])
 const bases = ref<DictItem[]>([])
-const examSubjects = ref<ExamSubject[]>([])
-const replacingMaterial = ref<{ record: ExemptionRequest; material: ExemptionMaterial } | null>(null)
-const replacementFiles = ref<UploadFileInfo[]>([])
 const reviewing = ref<{ record: ExemptionRequest; stage: 'first' | 'second' } | null>(null)
-const previewMaterialRow = ref<ExemptionMaterial | null>(null)
-const previewUrl = ref('')
+
+const drawerRef = ref<InstanceType<typeof ExemptionDrawer>>()
+const previewModalRef = ref<InstanceType<typeof ExemptionPreviewModal>>()
+const replaceModalRef = ref<InstanceType<typeof ExemptionReplaceModal>>()
+const examModalRef = ref<InstanceType<typeof ExemptionExamModal>>()
 
 const canApply = computed(() => userStore.hasPerm('exemption:apply'))
 const canFirstReview = computed(() => userStore.hasPerm('exemption:firstReview'))
 const canSecondReview = computed(() => userStore.hasPerm('exemption:secondReview'))
 const canViewStudents = computed(() => userStore.hasPerm('student:view'))
 const selfMode = computed(() => canApply.value && !canFirstReview.value && !canSecondReview.value)
-
-const form = reactive({
-  studentId: '',
-  assessmentYear: yearStore.assessmentYear,
-  teachingSegment: '',
-  rows: [] as SubjectRow[]
-})
 
 const statusOptions: SelectOption[] = [
   { label: '草稿', value: 'DRAFT' },
@@ -100,30 +77,14 @@ const statusOptions: SelectOption[] = [
   { label: '不合格', value: 'FAILED' }
 ]
 
-const studentOptions = computed<SelectOption[]>(() =>
-  students.value.map((item) => ({ label: `${item.studentNo} ${item.name}`, value: item.id }))
-)
 const segmentOptions = computed<SelectOption[]>(() =>
   segments.value.map((item) => ({ label: item.itemValue, value: item.itemCode }))
-)
-const subjectOptions = computed<SelectOption[]>(() =>
-  subjects.value.map((item) => ({ label: item.itemValue, value: item.itemCode }))
-)
-const basisOptions = computed<SelectOption[]>(() =>
-  bases.value.map((item) => ({ label: item.itemValue, value: item.itemCode }))
 )
 const statusSummary = computed(() => {
   const passed = records.value.filter((item) => item.finalStatus === 'PASSED').length
   const removed = records.value.filter((item) => item.includedInExam === 0).length
   const pending = records.value.filter((item) => ['FIRST_REVIEW', 'SECOND_REVIEW'].includes(item.finalStatus)).length
   return { total: records.value.length, passed, removed, pending }
-})
-const previewable = computed(() => {
-  const material = previewMaterialRow.value
-  if (!material) return false
-  const name = material.fileName.toLowerCase()
-  const type = material.contentType || ''
-  return type.includes('pdf') || type.includes('image') || /\.(pdf|jpg|jpeg|png)$/.test(name)
 })
 
 const columns: DataTableColumns<ExemptionRequest> = [
@@ -148,14 +109,14 @@ const columns: DataTableColumns<ExemptionRequest> = [
           actions.push(
             h(
               NButton,
-              { size: 'small', type: 'primary', onClick: () => openPreview(row.materials[0]) },
+              { size: 'small', type: 'primary', onClick: () => previewModalRef.value?.open(row.materials[0]) },
               { icon: () => h(NIcon, { component: EyeOutline }), default: () => '预览' }
             )
           )
         }
         if (canApply.value) {
           actions.push(h(NButton, { size: 'small', quaternary: true, onClick: () => submit(row) }, { default: () => '提交' }))
-          actions.push(h(NButton, { size: 'small', quaternary: true, onClick: () => openReplace(row) }, { default: () => '换佐证' }))
+          actions.push(h(NButton, { size: 'small', quaternary: true, onClick: () => replaceModalRef.value?.open(row) }, { default: () => '换佐证' }))
         }
         if (canFirstReview.value) {
           actions.push(h(NButton, { size: 'small', quaternary: true, onClick: () => openReview(row, 'first') }, { default: () => '初审' }))
@@ -178,12 +139,6 @@ const columns: DataTableColumns<ExemptionRequest> = [
         return renderTableActions(actions)
       }
   }
-]
-
-const examColumns: DataTableColumns<ExamSubject> = [
-  { title: '科目', key: 'subjectLabel', minWidth: 180 },
-  { title: '免考通过', key: 'exempted', width: 110, render: (row) => h(StatusTag, { text: row.exempted ? '通过' : '未通过' }) },
-  { title: '应考口径', key: 'includedInExam', width: 110, render: (row) => h(StatusTag, { text: row.includedInExam ? '应考' : '已移出' }) }
 ]
 
 async function loadRecords() {
@@ -223,91 +178,6 @@ async function loadSubjects(segment: string | null) {
   }
 }
 
-async function handleSegmentChange(value: string | number | null) {
-  const segment = typeof value === 'string' ? value : null
-  form.teachingSegment = segment || ''
-  form.rows = []
-  await loadSubjects(segment)
-}
-
-function openApply() {
-  form.studentId = selfMode.value ? userStore.currentUser?.studentId || students.value[0]?.id || '' : ''
-  form.assessmentYear = assessmentYear.value
-  form.teachingSegment = segmentFilter.value || ''
-  form.rows = []
-  if (form.teachingSegment) void loadSubjects(form.teachingSegment)
-  drawerVisible.value = true
-}
-
-function addSubjectRow() {
-  form.rows.push({ subject: '', basis: bases.value[0]?.itemCode || '', remark: '', fileList: [] })
-}
-
-function removeSubjectRow(index: number) {
-  form.rows.splice(index, 1)
-}
-
-async function saveApply() {
-  if (!form.studentId || !form.assessmentYear || !form.teachingSegment || form.rows.length === 0) {
-    message.error('请选择学生、年度、学段和免考科目')
-    return
-  }
-  const items: ExemptionApplyItem[] = []
-  for (const row of form.rows) {
-    if (!row.subject || !row.basis || !row.fileList[0]?.file) {
-      message.error('每科必须填写依据并上传佐证')
-      return
-    }
-    items.push({ subject: row.subject, basis: row.basis, remark: row.remark })
-  }
-  saving.value = true
-  try {
-    const res = await applyExemption({
-      studentId: form.studentId,
-      assessmentYear: form.assessmentYear,
-      teachingSegment: form.teachingSegment,
-      items
-    })
-    await Promise.all(
-      res.data.map((id, index) => uploadExemptionMaterial(id, form.rows[index].fileList[0].file as File))
-    )
-    message.success('已保存免考申请')
-    drawerVisible.value = false
-    await loadRecords()
-  } catch (error) {
-    showError(error, '免考申请保存失败')
-  } finally {
-    saving.value = false
-  }
-}
-
-function openReplace(row: ExemptionRequest) {
-  if (!row.materials[0]) {
-    message.error('该科还没有佐证')
-    return
-  }
-  replacingMaterial.value = { record: row, material: row.materials[0] }
-  replacementFiles.value = []
-  replaceVisible.value = true
-}
-
-async function saveReplace() {
-  const file = replacementFiles.value[0]?.file
-  if (!replacingMaterial.value || !file) {
-    message.error('请选择附件')
-    return
-  }
-  try {
-    await replaceExemptionMaterial(replacingMaterial.value.material.id, file)
-    message.success('已替换佐证')
-    replacingMaterial.value = null
-    replaceVisible.value = false
-    await loadRecords()
-  } catch (error) {
-    showError(error, '佐证替换失败')
-  }
-}
-
 async function removeMaterial(material: ExemptionMaterial) {
   try {
     await deleteExemptionMaterial(material.id)
@@ -315,17 +185,6 @@ async function removeMaterial(material: ExemptionMaterial) {
     await loadRecords()
   } catch (error) {
     showError(error, '佐证删除失败')
-  }
-}
-
-async function openPreview(material: ExemptionMaterial) {
-  previewMaterialRow.value = material
-  try {
-    const res = await previewExemptionMaterial(material.id)
-    previewUrl.value = res.data
-    previewVisible.value = true
-  } catch (error) {
-    showError(error, '预览地址获取失败')
   }
 }
 
@@ -365,19 +224,14 @@ async function saveReview(payload: ReviewPayload) {
 }
 
 async function showExamSubjects() {
-  const studentId = form.studentId || records.value[0]?.studentId || userStore.currentUser?.studentId || ''
-  const segment = segmentFilter.value || records.value[0]?.teachingSegment || form.teachingSegment
+  const form = drawerRef.value?.form
+  const studentId = form?.studentId || records.value[0]?.studentId || userStore.currentUser?.studentId || ''
+  const segment = segmentFilter.value || records.value[0]?.teachingSegment || form?.teachingSegment
   if (!studentId || !segment) {
     message.error('请选择学段并查询到学生记录')
     return
   }
-  try {
-    const res = await getExamSubjects(studentId, assessmentYear.value, segment)
-    examSubjects.value = res.data
-    examVisible.value = true
-  } catch (error) {
-    showError(error, '应考科目加载失败')
-  }
+  await examModalRef.value?.open(studentId, assessmentYear.value, segment)
 }
 
 function resetFilters() {
@@ -421,7 +275,6 @@ watch(
   () => yearStore.assessmentYear,
   async (year) => {
     assessmentYear.value = year
-    if (!drawerVisible.value) form.assessmentYear = year
     await loadRecords()
   }
 )
@@ -468,80 +321,29 @@ watch(
     >
       <template #actions>
         <n-button size="small" @click="showExamSubjects">应考口径</n-button>
-        <n-button v-if="canApply" type="primary" size="small" @click="openApply">免考申请</n-button>
+        <n-button v-if="canApply" type="primary" size="small" @click="drawerRef?.open()">免考申请</n-button>
       </template>
       <template v-if="canApply" #emptyAction>
-        <n-button type="primary" @click="openApply">免考申请</n-button>
+        <n-button type="primary" @click="drawerRef?.open()">免考申请</n-button>
       </template>
     </DataPanel>
 
-    <n-drawer v-model:show="drawerVisible" :width="560">
-      <n-drawer-content title="免考申请" closable>
-        <n-alert type="info" :bordered="false" class="page-section">
-          每个免考科目独立审核，须分别上传佐证；仅复审通过科目会从应考清单中剔除。
-        </n-alert>
-        <n-form label-placement="top">
-          <div class="form-section-title">申请信息</div>
-          <n-grid :cols="2" :x-gap="12">
-            <n-form-item-gi label="学生" :span="2">
-              <n-select v-model:value="form.studentId" :options="studentOptions" :disabled="selfMode" filterable placeholder="学生" />
-            </n-form-item-gi>
-            <n-form-item-gi label="考核年度">
-              <n-input v-model:value="form.assessmentYear" placeholder="考核年度" class="mono-input" />
-            </n-form-item-gi>
-            <n-form-item-gi label="任教学段">
-              <n-select v-model:value="form.teachingSegment" :options="segmentOptions" placeholder="任教学段" @update:value="handleSegmentChange" />
-            </n-form-item-gi>
-          </n-grid>
-          <div class="form-section-title">免考科目</div>
-          <n-space justify="space-between" align="center">
-            <span>免考科目</span>
-            <n-button size="small" @click="addSubjectRow">添加科目</n-button>
-          </n-space>
-          <section v-for="(row, index) in form.rows" :key="index" class="subject-row">
-            <n-space vertical>
-              <n-space align="center">
-                <n-select v-model:value="row.subject" :options="subjectOptions" placeholder="科目" style="width: 210px" />
-                <n-select v-model:value="row.basis" :options="basisOptions" placeholder="依据" style="width: 190px" />
-                <n-button quaternary type="error" @click="removeSubjectRow(index)">删除</n-button>
-              </n-space>
-              <n-input v-model:value="row.remark" type="textarea" placeholder="说明" />
-              <n-upload v-model:file-list="row.fileList" :max="1" accept=".pdf,.jpg,.jpeg,.png" :default-upload="false" />
-            </n-space>
-          </section>
-        </n-form>
-        <template #footer>
-          <n-space justify="end">
-            <n-button @click="drawerVisible = false">取消</n-button>
-            <n-button type="primary" :loading="saving" @click="saveApply">保存</n-button>
-          </n-space>
-        </template>
-      </n-drawer-content>
-    </n-drawer>
+    <ExemptionDrawer
+      ref="drawerRef"
+      :students="students"
+      :subjects="subjects"
+      :bases="bases"
+      :segment-options="segmentOptions"
+      :self-mode="selfMode"
+      :assessment-year="assessmentYear"
+      :segment-filter="segmentFilter"
+      @saved="loadRecords"
+      @load-subjects="loadSubjects"
+    />
 
-    <n-modal v-model:show="previewVisible" preset="card" :title="previewMaterialRow?.fileName || '免考佐证预览'" style="width: min(960px, 94vw)">
-      <object v-if="previewable" :data="previewUrl" class="preview-frame">
-        <iframe :src="previewUrl" class="preview-frame" />
-      </object>
-      <n-result v-else status="info" title="该文件不支持内联预览" description="非 PDF/JPG/PNG 文件请通过下载链接查看。">
-        <template #footer>
-          <n-button tag="a" :href="previewUrl" target="_blank" type="primary">打开文件</n-button>
-        </template>
-      </n-result>
-    </n-modal>
+    <ExemptionPreviewModal ref="previewModalRef" />
 
-    <n-modal v-model:show="replaceVisible" preset="dialog" title="替换免考佐证" @close="replacingMaterial = null">
-      <n-space vertical>
-        <n-alert v-if="replacingMaterial" type="info" :bordered="false">
-          {{ replacingMaterial.record.studentNo }} / {{ replacingMaterial.record.subjectLabel }}
-        </n-alert>
-        <n-upload v-model:file-list="replacementFiles" :max="1" accept=".pdf,.jpg,.jpeg,.png" :default-upload="false" />
-        <n-space justify="end">
-          <n-button @click="replaceVisible = false; replacingMaterial = null">取消</n-button>
-          <n-button type="primary" @click="saveReplace">保存</n-button>
-        </n-space>
-      </n-space>
-    </n-modal>
+    <ExemptionReplaceModal ref="replaceModalRef" @saved="loadRecords" />
 
     <ReviewDialog
       v-model:show="reviewVisible"
@@ -557,37 +359,11 @@ watch(
       @submit="saveReview"
     />
 
-    <n-modal v-model:show="examVisible" preset="card" title="应考科目口径" style="width: 680px">
-      <n-data-table :columns="examColumns" :data="examSubjects" :pagination="false" />
-    </n-modal>
+    <ExemptionExamModal ref="examModalRef" />
   </PageContainer>
 </template>
 
 <style scoped>
-.form-section-title {
-  margin: var(--space-2) 0 var(--space-3);
-  color: var(--text);
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.subject-row {
-  padding: var(--space-4);
-  border: 1px solid var(--shell-border);
-  border-radius: var(--radius-card);
-}
-
-.preview-frame {
-  width: 100%;
-  height: min(70vh, 720px);
-  border: 1px solid var(--shell-border);
-  border-radius: var(--radius-card);
-}
-
-.mono-input :deep(input) {
-  font-family: var(--font-mono);
-}
-
 .evidence-cell {
   display: flex;
   min-width: 0;

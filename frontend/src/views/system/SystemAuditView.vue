@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, h, onMounted, reactive, ref } from 'vue'
-import { NButton, NPopconfirm, useMessage, type DataTableColumns, type FormInst, type FormRules, type SelectOption } from 'naive-ui'
+import { NButton, NPopconfirm, useMessage, type DataTableColumns, type SelectOption } from 'naive-ui'
 import DataPanel from '@/components/DataPanel.vue'
 import FilterBar from '@/components/FilterBar.vue'
 import {
@@ -8,8 +8,6 @@ import {
   listAuditLogs,
   listBackups,
   listSystemParams,
-  triggerBackup,
-  updateSystemParam,
   type AuditLog,
   type BackupRecord,
   type SysParam
@@ -17,6 +15,8 @@ import {
 import PageContainer from '@/components/PageContainer.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import StatCard from '@/components/StatCard.vue'
+import ParamDrawer from './components/audit/ParamDrawer.vue'
+import BackupDrawer from './components/audit/BackupDrawer.vue'
 import { listColleges, type College } from '@/api/organization'
 import { formatDateTime } from '@/utils/format'
 import { operationLabel, statusLabel } from '@/constants/statusLabels'
@@ -28,12 +28,8 @@ const userStore = useUserStore()
 const paramLoading = ref(false)
 const auditLoading = ref(false)
 const backupLoading = ref(false)
-const saving = ref(false)
-const paramDrawerVisible = ref(false)
-const backupDrawerVisible = ref(false)
-const paramFormRef = ref<FormInst | null>(null)
-const backupFormRef = ref<FormInst | null>(null)
-const editingParam = ref<SysParam | null>(null)
+const paramDrawerRef = ref<InstanceType<typeof ParamDrawer> | null>(null)
+const backupDrawerRef = ref<InstanceType<typeof BackupDrawer> | null>(null)
 const params = ref<SysParam[]>([])
 const audits = ref<AuditLog[]>([])
 const backups = ref<BackupRecord[]>([])
@@ -53,17 +49,6 @@ const auditQuery = reactive({
 })
 const backupStatus = ref<string | null>(null)
 
-const paramForm = reactive({
-  paramValue: '',
-  description: ''
-})
-
-const backupForm = reactive({
-  backupType: 'mysql',
-  scope: 'full',
-  remark: ''
-})
-
 const canManageParam = computed(() => userStore.hasPerm('system:param:manage'))
 const canViewAudit = computed(() => userStore.hasPerm('audit:view'))
 const canBackup = computed(() => userStore.hasPerm('system:backup'))
@@ -75,14 +60,6 @@ const summary = computed(() => ({
   completedBackups: backups.value.filter((item) => item.status === 'COMPLETED').length
 }))
 const collegeOptions = computed<SelectOption[]>(() => colleges.value.map((item) => ({ label: item.name, value: item.id })))
-
-const paramRules: FormRules = {
-  paramValue: [{ required: true, message: '请输入参数值', trigger: ['blur', 'input'] }]
-}
-
-const backupRules: FormRules = {
-  backupType: [{ required: true, message: '请选择备份类型', trigger: ['change'] }]
-}
 
 const paramGroupOptions = [
   { label: '证书', value: 'cert' },
@@ -203,55 +180,11 @@ async function loadBackups() {
 }
 
 function openParamDrawer(row: SysParam) {
-  editingParam.value = row
-  paramForm.paramValue = row.paramValue || ''
-  paramForm.description = row.description || ''
-  paramDrawerVisible.value = true
-}
-
-async function saveParam() {
-  if (!editingParam.value) return
-  await paramFormRef.value?.validate()
-  saving.value = true
-  try {
-    await updateSystemParam(editingParam.value.id, {
-      paramValue: paramForm.paramValue.trim(),
-      description: paramForm.description.trim() || null
-    })
-    message.success('参数已更新')
-    paramDrawerVisible.value = false
-    await loadParams()
-  } catch (error) {
-    showError(error, '参数保存失败')
-  } finally {
-    saving.value = false
-  }
+  paramDrawerRef.value?.open(row)
 }
 
 function openBackupDrawer() {
-  backupForm.backupType = 'mysql'
-  backupForm.scope = 'full'
-  backupForm.remark = ''
-  backupDrawerVisible.value = true
-}
-
-async function saveBackup() {
-  await backupFormRef.value?.validate()
-  saving.value = true
-  try {
-    await triggerBackup({
-      backupType: backupForm.backupType,
-      scope: backupForm.scope.trim() || null,
-      remark: backupForm.remark.trim() || null
-    })
-    message.success('备份演练记录已写入')
-    backupDrawerVisible.value = false
-    await loadBackups()
-  } catch (error) {
-    showError(error, '备份记录写入失败')
-  } finally {
-    saving.value = false
-  }
+  backupDrawerRef.value?.open()
 }
 
 async function tryDeleteAudit(row: AuditLog) {
@@ -442,59 +375,9 @@ onMounted(loadVisibleSections)
       </n-tab-pane>
     </n-tabs>
 
-    <n-drawer v-model:show="paramDrawerVisible" :width="560" placement="right">
-      <n-drawer-content :title="editingParam ? editingParam.paramKey : '编辑参数'">
-        <n-form ref="paramFormRef" :model="paramForm" :rules="paramRules" label-placement="top">
-          <div class="form-section-title">参数内容</div>
-          <n-grid :cols="2" :x-gap="12">
-            <n-form-item-gi label="参数值" path="paramValue" :span="2">
-              <n-input v-model:value="paramForm.paramValue" maxlength="512" show-count />
-            </n-form-item-gi>
-            <n-form-item-gi label="说明" :span="2">
-              <n-input v-model:value="paramForm.description" type="textarea" maxlength="255" show-count />
-            </n-form-item-gi>
-          </n-grid>
-        </n-form>
-        <template #footer>
-          <n-space justify="end">
-            <n-button @click="paramDrawerVisible = false">取消</n-button>
-            <n-button type="primary" :loading="saving" @click="saveParam">保存</n-button>
-          </n-space>
-        </template>
-      </n-drawer-content>
-    </n-drawer>
+    <ParamDrawer ref="paramDrawerRef" @saved="loadParams" />
 
-    <n-drawer v-model:show="backupDrawerVisible" :width="560" placement="right">
-      <n-drawer-content title="记录备份演练">
-        <n-form ref="backupFormRef" :model="backupForm" :rules="backupRules" label-placement="top">
-          <div class="form-section-title">备份内容</div>
-          <n-grid :cols="2" :x-gap="12">
-            <n-form-item-gi label="备份类型" path="backupType">
-              <n-select
-                v-model:value="backupForm.backupType"
-                :options="[
-                  { label: 'MySQL', value: 'mysql' },
-                  { label: 'MinIO', value: 'minio' },
-                  { label: '全量', value: 'full' }
-                ]"
-              />
-            </n-form-item-gi>
-            <n-form-item-gi label="范围">
-              <n-input v-model:value="backupForm.scope" maxlength="128" />
-            </n-form-item-gi>
-            <n-form-item-gi label="备注" :span="2">
-              <n-input v-model:value="backupForm.remark" type="textarea" maxlength="500" show-count />
-            </n-form-item-gi>
-          </n-grid>
-        </n-form>
-        <template #footer>
-          <n-space justify="end">
-            <n-button @click="backupDrawerVisible = false">取消</n-button>
-            <n-button type="primary" :loading="saving" @click="saveBackup">保存</n-button>
-          </n-space>
-        </template>
-      </n-drawer-content>
-    </n-drawer>
+    <BackupDrawer ref="backupDrawerRef" @saved="loadBackups" />
   </PageContainer>
 </template>
 
@@ -512,12 +395,5 @@ onMounted(loadVisibleSections)
   color: var(--text-tertiary);
   font-size: 12px;
   line-height: 16px;
-}
-
-.form-section-title {
-  margin: var(--space-2) 0 var(--space-3);
-  color: var(--text);
-  font-size: 14px;
-  font-weight: 600;
 }
 </style>

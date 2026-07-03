@@ -1,35 +1,29 @@
 <script setup lang="ts">
-import { computed, h, onMounted, reactive, ref, watch } from 'vue'
+import { computed, h, onMounted, ref, watch } from 'vue'
 import {
   NButton,
   useMessage,
   type DataTableColumns,
-  type FormInst,
-  type FormRules,
   type SelectOption
 } from 'naive-ui'
 import DataPanel from '@/components/DataPanel.vue'
-import DetailPanel from '@/components/DetailPanel.vue'
 import FilterBar from '@/components/FilterBar.vue'
 import PageContainer from '@/components/PageContainer.vue'
 import ReviewDialog from '@/components/ReviewDialog.vue'
 import StatusTag from '@/components/StatusTag.vue'
-import SubjectSelect from '@/components/SubjectSelect.vue'
+import TrainingDrawer from './components/TrainingDrawer.vue'
+import TrainingDetail from './components/TrainingDetail.vue'
 import { renderTableActions } from '@/utils/tableActions'
 import { statusLabel } from '@/constants/statusLabels'
 import { listDictItems, type DictItem } from '@/api/dict'
 import { listColleges, listMajors, type College, type Major } from '@/api/organization'
 import { listStudents, type Student } from '@/api/student'
 import {
-  confirmTrainingProfile,
   firstReviewTrainingProfile,
-  getTrainingOptions,
   listTrainingProfiles,
-  saveTrainingProfile,
   secondReviewTrainingProfile,
   submitTrainingProfile,
   type ReviewPayload,
-  type TrainingPayload,
   type TrainingProfile
 } from '@/api/training'
 import { useUserStore } from '@/stores/user'
@@ -40,16 +34,10 @@ const userStore = useUserStore()
 const yearStore = useYearStore()
 
 const loading = ref(false)
-const saving = ref(false)
 const reviewSaving = ref(false)
 const submitting = ref(false)
-const drawerVisible = ref(false)
 const reviewVisible = ref(false)
-const detailVisible = ref(false)
-const formRef = ref<FormInst | null>(null)
-const editingId = ref<string | null>(null)
 const reviewing = ref<{ profile: TrainingProfile; stage: 'first' | 'second' } | null>(null)
-const selectedProfile = ref<TrainingProfile | null>(null)
 const keyword = ref('')
 const assessmentYear = ref(yearStore.assessmentYear)
 const statusFilter = ref<string | null>(null)
@@ -66,40 +54,8 @@ const internshipLocations = ref<DictItem[]>([])
 const segments = ref<DictItem[]>([])
 const interviewModes = ref<DictItem[]>([])
 const conclusions = ref<DictItem[]>([])
-const allowedSegments = ref<string[]>([])
-const allowedLocations = ref<string[]>([])
-
-const form = reactive<TrainingPayload>({
-  studentId: '',
-  collegeId: '',
-  assessmentYear: yearStore.assessmentYear,
-  secondDisciplineCode: '',
-  secondDisciplineName: '',
-  internalMajorCode: '',
-  internalMajorName: '',
-  educationLevel: '',
-  trainingGoal: '',
-  internshipOrgMode: '',
-  internshipLocation: '',
-  teachingSegment: '',
-  teachingSubjectCode: '',
-  interviewOrgMode: '',
-  abilityTestConclusion: ''
-})
-
-const rules: FormRules = {
-  studentId: [{ required: true, message: '请选择学生', trigger: ['change'] }],
-  assessmentYear: [{ required: true, message: '请输入考核年度', trigger: ['blur', 'input'] }],
-  secondDisciplineCode: [{ required: true, message: '请输入二级学科代码', trigger: ['blur', 'input'] }],
-  secondDisciplineName: [{ required: true, message: '请输入二级学科名称', trigger: ['blur', 'input'] }],
-  educationLevel: [{ required: true, message: '请选择学历层次', trigger: ['change'] }],
-  trainingGoal: [{ required: true, message: '请选择培养目标', trigger: ['change'] }],
-  internshipOrgMode: [{ required: true, message: '请选择实习组织方式', trigger: ['change'] }],
-  internshipLocation: [{ required: true, message: '请选择实习地点', trigger: ['change'] }],
-  teachingSegment: [{ required: true, message: '请选择任教学段', trigger: ['change'] }],
-  teachingSubjectCode: [{ required: true, message: '请选择任教学科', trigger: ['change'] }],
-  interviewOrgMode: [{ required: true, message: '请选择面试组织方式', trigger: ['change'] }]
-}
+const drawerRef = ref<InstanceType<typeof TrainingDrawer> | null>(null)
+const detailRef = ref<InstanceType<typeof TrainingDetail> | null>(null)
 
 const statusOptions: SelectOption[] = [
   { label: '草稿', value: 'DRAFT' },
@@ -120,55 +76,12 @@ const selfMode = computed(() => canSelfConfirm.value && !canEdit.value && !userS
 const canCreate = computed(() => canEdit.value || canSelfConfirm.value)
 
 const collegeOptions = computed<SelectOption[]>(() => colleges.value.map((item) => ({ label: item.name, value: item.id })))
-const studentOptions = computed<SelectOption[]>(() =>
-  students.value.map((item) => ({ label: `${item.studentNo} ${item.name}`, value: item.id }))
-)
-const majorOptions = computed<SelectOption[]>(() =>
-  majors.value.map((item) => ({ label: `${item.internalMajorName} ${item.internalMajorCode}`, value: item.internalMajorCode }))
-)
-const educationLevelOptions = computed<SelectOption[]>(() => dictOptions(educationLevels.value))
-const trainingGoalOptions = computed<SelectOption[]>(() => dictOptions(trainingGoals.value))
-const internshipModeOptions = computed<SelectOption[]>(() => dictOptions(internshipModes.value))
-const segmentOptions = computed<SelectOption[]>(() =>
-  segments.value
-    .filter((item) => !allowedSegments.value.length || allowedSegments.value.includes(item.itemCode))
-    .map((item) => ({ label: item.itemValue, value: item.itemCode }))
-)
 const segmentFilterOptions = computed<SelectOption[]>(() => dictOptions(segments.value))
-const internshipLocationOptions = computed<SelectOption[]>(() =>
-  internshipLocations.value
-    .filter((item) => !allowedLocations.value.length || allowedLocations.value.includes(item.itemCode))
-    .map((item) => ({ label: item.itemValue, value: item.itemCode }))
-)
-const interviewModeOptions = computed<SelectOption[]>(() => dictOptions(interviewModes.value))
-const conclusionOptions = computed<SelectOption[]>(() => dictOptions(conclusions.value))
 
 const filteredRecords = computed(() => {
   const segment = segmentFilter.value
   if (!segment) return records.value
   return records.value.filter((row) => row.teachingSegment === segment)
-})
-const detailItems = computed(() => {
-  const row = selectedProfile.value
-  if (!row) return []
-  return [
-    { label: '学生', value: [row.studentNo, row.studentName].filter(Boolean).join(' / ') || '-' },
-    { label: '学院', value: collegeName(row.collegeId) },
-    { label: '考核年度', value: row.assessmentYear, mono: true },
-    { label: '校内专业', value: row.internalMajorName || '-' },
-    { label: '二级学科', value: [row.secondDisciplineCode, row.secondDisciplineName].filter(Boolean).join(' / ') || '-' },
-    { label: '学历层次', value: dictLabel(educationLevels.value, row.educationLevel) },
-    { label: '培养目标', value: dictLabel(trainingGoals.value, row.trainingGoal) },
-    { label: '实习组织方式', value: dictLabel(internshipModes.value, row.internshipOrgMode) },
-    { label: '实习地点', value: dictLabel(internshipLocations.value, row.internshipLocation) },
-    { label: '任教学段', value: dictLabel(segments.value, row.teachingSegment) },
-    { label: '任教学科', value: [row.teachingSubjectName, row.teachingSubjectCode].filter(Boolean).join(' / ') || '-' },
-    { label: '面试组织方式', value: dictLabel(interviewModes.value, row.interviewOrgMode) },
-    { label: '测试结论', value: dictLabel(conclusions.value, row.abilityTestConclusion) },
-    { label: '状态', status: row.status },
-    { label: '初审意见', value: row.firstReviewComment || '-', span: 2 },
-    { label: '复审意见', value: row.secondReviewComment || '-', span: 2 }
-  ]
 })
 
 const columns: DataTableColumns<TrainingProfile> = [
@@ -206,26 +119,6 @@ const columns: DataTableColumns<TrainingProfile> = [
       }
   }
 ]
-
-watch(
-  () => form.trainingGoal,
-  async (goal) => {
-    if (!goal) {
-      allowedSegments.value = []
-      allowedLocations.value = []
-      return
-    }
-    await reloadTrainingOptions(goal, form.teachingSegment)
-  }
-)
-
-watch(
-  () => form.teachingSegment,
-  async (segment, oldSegment) => {
-    if (segment !== oldSegment) form.teachingSubjectCode = ''
-    if (form.trainingGoal) await reloadTrainingOptions(form.trainingGoal, segment)
-  }
-)
 
 async function loadRecords() {
   loading.value = true
@@ -280,74 +173,12 @@ async function loadOptions() {
   conclusions.value = conclusionRes.data
 }
 
-async function reloadTrainingOptions(goal: string, segment?: string | null) {
-  try {
-    const res = await getTrainingOptions(goal, segment)
-    allowedSegments.value = res.data.allowedSegments || []
-    allowedLocations.value = res.data.allowedInternshipLocations || []
-    if (!form.teachingSegment && res.data.defaultSegment) form.teachingSegment = res.data.defaultSegment
-    if (!form.internshipLocation && res.data.defaultInternshipLocation) form.internshipLocation = res.data.defaultInternshipLocation
-    if (form.teachingSegment && allowedSegments.value.length && !allowedSegments.value.includes(form.teachingSegment)) {
-      form.teachingSegment = res.data.defaultSegment || ''
-      form.teachingSubjectCode = ''
-    }
-    if (form.internshipLocation && allowedLocations.value.length && !allowedLocations.value.includes(form.internshipLocation)) {
-      form.internshipLocation = res.data.defaultInternshipLocation || ''
-    }
-  } catch (error) {
-    showError(error, '培养目标联动选项加载失败')
-  }
-}
-
 function openDetail(row: TrainingProfile) {
-  selectedProfile.value = row
-  detailVisible.value = true
+  detailRef.value?.open(row)
 }
 
-async function openDrawer(row?: TrainingProfile) {
-  editingId.value = row?.id || null
-  resetForm(row)
-  drawerVisible.value = true
-  if (form.trainingGoal) await reloadTrainingOptions(form.trainingGoal, form.teachingSegment)
-}
-
-function resetForm(row?: TrainingProfile) {
-  const selfStudent = selfMode.value ? students.value[0] : null
-  Object.assign(form, {
-    studentId: row?.studentId || selfStudent?.id || userStore.currentUser?.studentId || '',
-    collegeId: row?.collegeId || selfStudent?.collegeId || '',
-    assessmentYear: row?.assessmentYear || assessmentYear.value || yearStore.assessmentYear,
-    secondDisciplineCode: row?.secondDisciplineCode || '',
-    secondDisciplineName: row?.secondDisciplineName || '',
-    internalMajorCode: row?.internalMajorCode || '',
-    internalMajorName: row?.internalMajorName || '',
-    educationLevel: row?.educationLevel || '',
-    trainingGoal: row?.trainingGoal || '',
-    internshipOrgMode: row?.internshipOrgMode || '',
-    internshipLocation: row?.internshipLocation || '',
-    teachingSegment: row?.teachingSegment || '',
-    teachingSubjectCode: row?.teachingSubjectCode || '',
-    interviewOrgMode: row?.interviewOrgMode || '',
-    abilityTestConclusion: row?.abilityTestConclusion || ''
-  })
-  allowedSegments.value = []
-  allowedLocations.value = []
-}
-
-async function save() {
-  await formRef.value?.validate()
-  saving.value = true
-  try {
-    if (selfMode.value) await confirmTrainingProfile(form)
-    else await saveTrainingProfile(form)
-    message.success('已保存')
-    drawerVisible.value = false
-    await loadRecords()
-  } catch (error) {
-    showError(error, '保存失败')
-  } finally {
-    saving.value = false
-  }
+function openDrawer(row?: TrainingProfile) {
+  drawerRef.value?.open(row)
 }
 
 async function submit(row: TrainingProfile) {
@@ -397,21 +228,6 @@ function resetFilters() {
   void loadRecords()
 }
 
-function handleStudentChange(studentId: string | number | null) {
-  const id = typeof studentId === 'string' ? studentId : ''
-  const student = students.value.find((item) => item.id === id)
-  form.collegeId = student?.collegeId || ''
-}
-
-function handleMajorChange(code: string | number | null) {
-  const major = majors.value.find((item) => item.internalMajorCode === code)
-  if (!major) return
-  form.internalMajorCode = major.internalMajorCode
-  form.internalMajorName = major.internalMajorName
-  form.secondDisciplineCode = major.secondDisciplineCode || ''
-  form.secondDisciplineName = major.secondDisciplineName || ''
-}
-
 function dictOptions(items: DictItem[]): SelectOption[] {
   return items.map((item) => ({ label: item.itemValue, value: item.itemCode }))
 }
@@ -438,7 +254,6 @@ watch(
   () => yearStore.assessmentYear,
   async (year) => {
     assessmentYear.value = year
-    if (!drawerVisible.value) form.assessmentYear = year
     await loadRecords()
   }
 )
@@ -488,84 +303,33 @@ watch(
       </template>
     </DataPanel>
 
-    <n-drawer v-model:show="drawerVisible" :width="560">
-      <n-drawer-content :title="editingId ? '编辑专业培养信息' : '新增专业培养信息'" closable>
-        <n-alert type="info" :bordered="false" class="page-section">
-          任教学科必须先选择学段，再从学科库中选择；培养目标会限制可选学段和实习地点。
-        </n-alert>
-        <n-form ref="formRef" :model="form" :rules="rules" label-placement="top">
-          <div class="form-section-title">基本信息</div>
-          <n-grid :cols="2" :x-gap="12">
-            <n-form-item-gi label="学生" path="studentId">
-              <n-select
-                v-model:value="form.studentId"
-                :options="studentOptions"
-                :disabled="selfMode"
-                filterable
-                @update:value="handleStudentChange"
-              />
-            </n-form-item-gi>
-            <n-form-item-gi label="考核年度" path="assessmentYear">
-              <n-input v-model:value="form.assessmentYear" class="mono-input" />
-            </n-form-item-gi>
-            <n-form-item-gi label="学历层次" path="educationLevel">
-              <n-select v-model:value="form.educationLevel" :options="educationLevelOptions" />
-            </n-form-item-gi>
-            <n-form-item-gi label="校内专业">
-              <n-select v-model:value="form.internalMajorCode" clearable filterable :options="majorOptions" @update:value="handleMajorChange" />
-            </n-form-item-gi>
-          </n-grid>
-          <div class="form-section-title">学业信息</div>
-          <n-grid :cols="2" :x-gap="12">
-            <n-form-item-gi label="二级学科代码" path="secondDisciplineCode">
-              <n-input v-model:value="form.secondDisciplineCode" class="mono-input" />
-            </n-form-item-gi>
-            <n-form-item-gi label="二级学科名称" path="secondDisciplineName">
-              <n-input v-model:value="form.secondDisciplineName" />
-            </n-form-item-gi>
-          </n-grid>
-          <div class="form-section-title">培养与考核</div>
-          <n-grid :cols="2" :x-gap="12">
-            <n-form-item-gi label="培养目标" path="trainingGoal">
-              <n-select v-model:value="form.trainingGoal" :options="trainingGoalOptions" />
-            </n-form-item-gi>
-            <n-form-item-gi label="实习组织方式" path="internshipOrgMode">
-              <n-select v-model:value="form.internshipOrgMode" :options="internshipModeOptions" />
-            </n-form-item-gi>
-            <n-form-item-gi label="实习地点" path="internshipLocation">
-              <n-select v-model:value="form.internshipLocation" :options="internshipLocationOptions" />
-            </n-form-item-gi>
-            <n-form-item-gi label="任教学段" path="teachingSegment">
-              <n-select v-model:value="form.teachingSegment" :options="segmentOptions" />
-            </n-form-item-gi>
-            <n-form-item-gi label="面试组织方式" path="interviewOrgMode">
-              <n-select v-model:value="form.interviewOrgMode" :options="interviewModeOptions" />
-            </n-form-item-gi>
-            <n-form-item-gi label="测试结论">
-              <n-select v-model:value="form.abilityTestConclusion" clearable :options="conclusionOptions" />
-            </n-form-item-gi>
-          </n-grid>
-          <div class="form-section-title">任教学科</div>
-          <n-grid :cols="2" :x-gap="12">
-            <n-form-item-gi label="任教学科" path="teachingSubjectCode" :span="2">
-              <SubjectSelect v-model:value="form.teachingSubjectCode" :segment-code="form.teachingSegment" />
-            </n-form-item-gi>
-          </n-grid>
-        </n-form>
-        <template #footer>
-          <n-space justify="end">
-            <n-button @click="drawerVisible = false">取消</n-button>
-            <n-button type="primary" :loading="saving" @click="save">保存</n-button>
-          </n-space>
-        </template>
-      </n-drawer-content>
-    </n-drawer>
+    <TrainingDrawer
+      ref="drawerRef"
+      :students="students"
+      :majors="majors"
+      :education-levels="educationLevels"
+      :training-goals="trainingGoals"
+      :internship-modes="internshipModes"
+      :internship-locations="internshipLocations"
+      :segments="segments"
+      :interview-modes="interviewModes"
+      :conclusions="conclusions"
+      :self-mode="selfMode"
+      :assessment-year="assessmentYear"
+      @saved="loadRecords"
+    />
 
-    <n-drawer v-model:show="detailVisible" :width="560">
-      <n-drawer-content title="培养信息详情" closable>
-        <DetailPanel v-if="selectedProfile" :items="detailItems" :columns="2" />
-      </n-drawer-content>
-    </n-drawer>
+    <TrainingDetail
+      ref="detailRef"
+      :colleges="colleges"
+      :education-levels="educationLevels"
+      :training-goals="trainingGoals"
+      :internship-modes="internshipModes"
+      :internship-locations="internshipLocations"
+      :segments="segments"
+      :interview-modes="interviewModes"
+      :conclusions="conclusions"
+    />
 
     <ReviewDialog
       v-model:show="reviewVisible"
@@ -581,16 +345,3 @@ watch(
     />
   </PageContainer>
 </template>
-
-<style scoped>
-.form-section-title {
-  margin: var(--space-2) 0 var(--space-3);
-  color: var(--text);
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.mono-input :deep(input) {
-  font-family: var(--font-mono);
-}
-</style>

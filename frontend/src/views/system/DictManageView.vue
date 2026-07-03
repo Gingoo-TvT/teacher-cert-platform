@@ -1,15 +1,11 @@
 <script setup lang="ts">
-import { computed, h, onMounted, reactive, ref } from 'vue'
+import { computed, h, onMounted, ref } from 'vue'
 import {
   NButton,
   NInput,
-  NInputNumber,
   NPopconfirm,
-  NSwitch,
   useMessage,
-  type DataTableColumns,
-  type FormInst,
-  type FormRules
+  type DataTableColumns
 } from 'naive-ui'
 import DataPanel from '@/components/DataPanel.vue'
 import DetailPanel from '@/components/DetailPanel.vue'
@@ -18,104 +14,29 @@ import PageContainer from '@/components/PageContainer.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import { renderTableActions } from '@/utils/tableActions'
 import {
-  createDictItem,
-  createDictType,
   deleteDictItem,
   deleteDictType,
   listDictItems,
   listDictTypes,
-  updateDictItem,
-  updateDictType,
   type DictItem,
-  type DictItemPayload,
-  type DictType,
-  type DictTypePayload
+  type DictType
 } from '@/api/dict'
 import { useUserStore } from '@/stores/user'
+import DictTypeDrawer from './components/dict/DictTypeDrawer.vue'
+import DictItemDrawer from './components/dict/DictItemDrawer.vue'
 
 const message = useMessage()
 const userStore = useUserStore()
 
 const typeLoading = ref(false)
 const itemLoading = ref(false)
-const saving = ref(false)
-const typeFormRef = ref<FormInst | null>(null)
-const itemFormRef = ref<FormInst | null>(null)
 const typeKeyword = ref('')
 const itemKeyword = ref('')
-const typeDrawerVisible = ref(false)
-const itemDrawerVisible = ref(false)
-const editingTypeId = ref<string | null>(null)
-const editingItemId = ref<string | null>(null)
 const selectedTypeCode = ref('')
 const dictTypes = ref<DictType[]>([])
 const dictItems = ref<DictItem[]>([])
-
-interface DictTypeFormState {
-  typeCode: string
-  typeName: string
-  description: string
-  sort: number
-  status: number
-}
-
-interface DictItemFormState {
-  typeCode: string
-  itemCode: string
-  itemValue: string
-  parentCode: string
-  sort: number
-  status: number
-  yearVersion: string
-  extJson: string
-}
-
-const typeForm = reactive<DictTypeFormState>({
-  typeCode: '',
-  typeName: '',
-  description: '',
-  sort: 0,
-  status: 1
-})
-
-const itemForm = reactive<DictItemFormState>({
-  typeCode: '',
-  itemCode: '',
-  itemValue: '',
-  parentCode: '',
-  sort: 0,
-  status: 1,
-  yearVersion: 'GLOBAL',
-  extJson: ''
-})
-
-const typeRules: FormRules = {
-  typeCode: [
-    { required: true, message: '请输入字典类型编码', trigger: ['blur', 'input'] },
-    { pattern: /^[A-Za-z0-9_]+$/, message: '仅支持英文、数字、下划线', trigger: ['blur', 'input'] }
-  ],
-  typeName: [{ required: true, message: '请输入字典类型名称', trigger: ['blur', 'input'] }]
-}
-
-const itemRules: FormRules = {
-  itemCode: [{ required: true, message: '请输入字典项编码', trigger: ['blur', 'input'] }],
-  itemValue: [{ required: true, message: '请输入字典项值', trigger: ['blur', 'input'] }],
-  yearVersion: [{ required: true, message: '请输入年度版本', trigger: ['blur', 'input'] }],
-  extJson: [
-    {
-      validator: (_rule, value: string | null | undefined) => {
-        if (!value?.trim()) return true
-        try {
-          JSON.parse(value)
-          return true
-        } catch {
-          return new Error('扩展 JSON 格式不正确')
-        }
-      },
-      trigger: ['blur']
-    }
-  ]
-}
+const typeDrawerRef = ref<InstanceType<typeof DictTypeDrawer> | null>(null)
+const itemDrawerRef = ref<InstanceType<typeof DictItemDrawer> | null>(null)
 
 const canManage = computed(() => userStore.hasPerm('dict:manage'))
 
@@ -266,104 +187,21 @@ function resetItemFilters() {
   itemKeyword.value = ''
 }
 
-function resetTypeForm() {
-  editingTypeId.value = null
-  typeForm.typeCode = ''
-  typeForm.typeName = ''
-  typeForm.description = ''
-  typeForm.sort = 0
-  typeForm.status = 1
-}
-
-function resetItemForm() {
-  editingItemId.value = null
-  itemForm.typeCode = selectedTypeCode.value
-  itemForm.itemCode = ''
-  itemForm.itemValue = ''
-  itemForm.parentCode = ''
-  itemForm.sort = 0
-  itemForm.status = 1
-  itemForm.yearVersion = 'GLOBAL'
-  itemForm.extJson = ''
-}
-
 function openTypeDrawer(row?: DictType) {
-  resetTypeForm()
-  if (row) {
-    editingTypeId.value = row.id
-    typeForm.typeCode = row.typeCode
-    typeForm.typeName = row.typeName
-    typeForm.description = row.description || ''
-    typeForm.sort = row.sort || 0
-    typeForm.status = row.status
-  }
-  typeDrawerVisible.value = true
+  typeDrawerRef.value?.open(row)
 }
 
 function openItemDrawer(row?: DictItem) {
-  resetItemForm()
-  if (row) {
-    editingItemId.value = row.id
-    itemForm.typeCode = row.typeCode
-    itemForm.itemCode = row.itemCode
-    itemForm.itemValue = row.itemValue
-    itemForm.parentCode = row.parentCode || ''
-    itemForm.sort = row.sort || 0
-    itemForm.status = row.status
-    itemForm.yearVersion = row.yearVersion || 'GLOBAL'
-    itemForm.extJson = row.extJson || ''
-  }
-  itemDrawerVisible.value = true
+  itemDrawerRef.value?.open(row)
 }
 
-async function saveType() {
-  await typeFormRef.value?.validate()
-  saving.value = true
-  try {
-    const payload: DictTypePayload = {
-      typeCode: typeForm.typeCode.trim(),
-      typeName: typeForm.typeName.trim(),
-      description: cleanOptional(typeForm.description),
-      sort: typeForm.sort ?? 0,
-      status: typeForm.status ?? 1
-    }
-    if (editingTypeId.value) await updateDictType(editingTypeId.value, payload)
-    else await createDictType(payload)
-    message.success('字典类型已保存')
-    typeDrawerVisible.value = false
-    selectedTypeCode.value = payload.typeCode
-    await loadTypes()
-  } catch (error) {
-    showError(error, '字典类型保存失败')
-  } finally {
-    saving.value = false
-  }
+function onTypeSaved(typeCode: string) {
+  selectedTypeCode.value = typeCode
+  loadTypes()
 }
 
-async function saveItem() {
-  await itemFormRef.value?.validate()
-  saving.value = true
-  try {
-    const payload: DictItemPayload = {
-      typeCode: itemForm.typeCode.trim(),
-      itemCode: itemForm.itemCode.trim(),
-      itemValue: itemForm.itemValue.trim(),
-      parentCode: cleanOptional(itemForm.parentCode),
-      sort: itemForm.sort ?? 0,
-      status: itemForm.status ?? 1,
-      yearVersion: cleanOptional(itemForm.yearVersion) || 'GLOBAL',
-      extJson: cleanOptional(itemForm.extJson)
-    }
-    if (editingItemId.value) await updateDictItem(editingItemId.value, payload)
-    else await createDictItem(payload)
-    message.success('字典项已保存')
-    itemDrawerVisible.value = false
-    await loadItems(payload.typeCode)
-  } catch (error) {
-    showError(error, '字典项保存失败')
-  } finally {
-    saving.value = false
-  }
+function onItemSaved(typeCode: string) {
+  loadItems(typeCode)
 }
 
 async function removeType(row: DictType) {
@@ -385,11 +223,6 @@ async function removeItem(row: DictItem) {
   } catch (error) {
     showError(error, '字典项删除失败')
   }
-}
-
-function cleanOptional(value: string | null | undefined) {
-  const text = value?.trim()
-  return text ? text : null
 }
 
 function showError(error: unknown, fallback: string) {
@@ -474,82 +307,8 @@ onMounted(loadTypes)
       </div>
     </div>
 
-    <n-drawer v-model:show="typeDrawerVisible" :width="560" placement="right">
-      <n-drawer-content :title="editingTypeId ? '编辑字典类型' : '新增字典类型'">
-        <n-form ref="typeFormRef" :model="typeForm" :rules="typeRules" label-placement="top">
-          <div class="form-section-title">基本信息</div>
-          <n-grid :cols="2" :x-gap="12">
-            <n-form-item-gi label="类型编码" path="typeCode">
-              <n-input v-model:value="typeForm.typeCode" :disabled="!!editingTypeId" maxlength="64" show-count />
-            </n-form-item-gi>
-            <n-form-item-gi label="类型名称" path="typeName">
-              <n-input v-model:value="typeForm.typeName" maxlength="128" show-count />
-            </n-form-item-gi>
-            <n-form-item-gi label="排序" path="sort">
-              <n-input-number v-model:value="typeForm.sort" :min="0" />
-            </n-form-item-gi>
-            <n-form-item-gi label="状态" path="status">
-              <n-switch v-model:value="typeForm.status" :checked-value="1" :unchecked-value="0" />
-            </n-form-item-gi>
-          </n-grid>
-          <div class="form-section-title">补充说明</div>
-          <n-grid :cols="2" :x-gap="12">
-            <n-form-item-gi label="描述" path="description" :span="2">
-              <n-input v-model:value="typeForm.description" type="textarea" maxlength="255" show-count />
-            </n-form-item-gi>
-          </n-grid>
-        </n-form>
-        <template #footer>
-          <n-space justify="end">
-            <n-button @click="typeDrawerVisible = false">取消</n-button>
-            <n-button type="primary" :loading="saving" @click="saveType">保存</n-button>
-          </n-space>
-        </template>
-      </n-drawer-content>
-    </n-drawer>
-
-    <n-drawer v-model:show="itemDrawerVisible" :width="560" placement="right">
-      <n-drawer-content :title="editingItemId ? '编辑字典项' : '新增字典项'">
-        <n-form ref="itemFormRef" :model="itemForm" :rules="itemRules" label-placement="top">
-          <div class="form-section-title">基本信息</div>
-          <n-grid :cols="2" :x-gap="12">
-            <n-form-item-gi label="类型编码" path="typeCode">
-              <n-input v-model:value="itemForm.typeCode" disabled />
-            </n-form-item-gi>
-            <n-form-item-gi label="项编码" path="itemCode">
-              <n-input v-model:value="itemForm.itemCode" :disabled="!!editingItemId" maxlength="128" show-count />
-            </n-form-item-gi>
-            <n-form-item-gi label="项值" path="itemValue" :span="2">
-              <n-input v-model:value="itemForm.itemValue" maxlength="255" show-count />
-            </n-form-item-gi>
-            <n-form-item-gi label="父级编码" path="parentCode">
-              <n-input v-model:value="itemForm.parentCode" maxlength="128" clearable />
-            </n-form-item-gi>
-            <n-form-item-gi label="年度版本" path="yearVersion">
-              <n-input v-model:value="itemForm.yearVersion" maxlength="16" show-count />
-            </n-form-item-gi>
-            <n-form-item-gi label="排序" path="sort">
-              <n-input-number v-model:value="itemForm.sort" :min="0" />
-            </n-form-item-gi>
-            <n-form-item-gi label="状态" path="status">
-              <n-switch v-model:value="itemForm.status" :checked-value="1" :unchecked-value="0" />
-            </n-form-item-gi>
-          </n-grid>
-          <div class="form-section-title">扩展信息</div>
-          <n-grid :cols="2" :x-gap="12">
-            <n-form-item-gi label="扩展 JSON" path="extJson" :span="2">
-              <n-input v-model:value="itemForm.extJson" type="textarea" :autosize="{ minRows: 5, maxRows: 10 }" />
-            </n-form-item-gi>
-          </n-grid>
-        </n-form>
-        <template #footer>
-          <n-space justify="end">
-            <n-button @click="itemDrawerVisible = false">取消</n-button>
-            <n-button type="primary" :loading="saving" @click="saveItem">保存</n-button>
-          </n-space>
-        </template>
-      </n-drawer-content>
-    </n-drawer>
+    <DictTypeDrawer ref="typeDrawerRef" @saved="onTypeSaved" />
+    <DictItemDrawer ref="itemDrawerRef" :type-code="selectedTypeCode" @saved="onItemSaved" />
   </PageContainer>
 </template>
 
@@ -584,13 +343,6 @@ onMounted(loadTypes)
 
 .detail-card :deep(.n-card__content) {
   padding: var(--space-5);
-}
-
-.form-section-title {
-  margin: var(--space-2) 0 var(--space-3);
-  color: var(--text);
-  font-size: 14px;
-  font-weight: 600;
 }
 
 :deep(.is-selected-row td) {

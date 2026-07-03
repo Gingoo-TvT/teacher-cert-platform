@@ -1,21 +1,23 @@
 <script setup lang="ts">
-import { computed, h, onMounted, reactive, ref, watch, type Component } from 'vue'
+import { computed, h, onMounted, ref, watch } from 'vue'
 import {
   NButton,
   NIcon,
   NPopconfirm,
   useMessage,
   type DataTableColumns,
-  type SelectOption,
-  type UploadFileInfo
+  type SelectOption
 } from 'naive-ui'
-import { AlertCircleOutline, CheckmarkCircleOutline, CloudUploadOutline, DocumentTextOutline, EyeOutline } from '@vicons/ionicons5'
+import { EyeOutline } from '@vicons/ionicons5'
 import DataPanel from '@/components/DataPanel.vue'
 import FilterBar from '@/components/FilterBar.vue'
 import PageContainer from '@/components/PageContainer.vue'
 import ReviewDialog from '@/components/ReviewDialog.vue'
 import StatCard from '@/components/StatCard.vue'
 import StatusTag from '@/components/StatusTag.vue'
+import MaterialSelfPanel from './components/MaterialSelfPanel.vue'
+import MaterialUploadDrawer from './components/MaterialUploadDrawer.vue'
+import MaterialPreviewModal from './components/MaterialPreviewModal.vue'
 import { renderTableActions } from '@/utils/tableActions'
 import { statusLabel } from '@/constants/statusLabels'
 import { formatFileSize } from '@/utils/format'
@@ -29,11 +31,8 @@ import {
   firstReviewMaterial,
   getProcessStatus,
   listMaterials,
-  previewMaterial,
-  replaceMaterial,
   secondReviewMaterial,
   submitMaterial,
-  uploadMaterial,
   type ProcessMaterial
 } from '@/api/material'
 import type { ReviewPayload } from '@/api/student'
@@ -46,24 +45,14 @@ interface StatusRow {
   failedCount: number
 }
 
-interface MaterialCard {
-  code: string
-  label: string
-  icon: Component
-  record: ProcessMaterial | null
-}
-
 const message = useMessage()
 const userStore = useUserStore()
 const yearStore = useYearStore()
 
 const loading = ref(false)
-const saving = ref(false)
 const reviewSaving = ref(false)
-const uploadVisible = ref(false)
 const reviewVisible = ref(false)
 const statusVisible = ref(false)
-const previewVisible = ref(false)
 const keyword = ref('')
 const statusFilter = ref<string | null>(null)
 const categoryFilter = ref<string | null>(null)
@@ -71,19 +60,11 @@ const assessmentYear = ref(yearStore.assessmentYear)
 const records = ref<ProcessMaterial[]>([])
 const students = ref<Student[]>([])
 const categories = ref<DictItem[]>([])
-const fileList = ref<UploadFileInfo[]>([])
-const replacing = ref<ProcessMaterial | null>(null)
 const reviewing = ref<{ material: ProcessMaterial; stage: 'first' | 'second' } | null>(null)
 const processQualified = ref(false)
 const statusRows = ref<StatusRow[]>([])
-const previewRow = ref<ProcessMaterial | null>(null)
-const previewUrl = ref('')
-
-const uploadForm = reactive({
-  studentId: '',
-  assessmentYear: yearStore.assessmentYear,
-  category: ''
-})
+const uploadDrawerRef = ref<InstanceType<typeof MaterialUploadDrawer> | null>(null)
+const previewModalRef = ref<InstanceType<typeof MaterialPreviewModal> | null>(null)
 
 const canUpload = computed(() => userStore.hasPerm('material:upload'))
 const canFirstReview = computed(() => userStore.hasPerm('material:firstReview'))
@@ -114,25 +95,6 @@ const statusSummary = computed(() => {
   const pending = records.value.filter((item) => ['FIRST_REVIEW', 'SECOND_REVIEW'].includes(item.status)).length
   const rejected = records.value.filter((item) => item.status.includes('REJECTED') || item.status === 'FAILED').length
   return { total, passed, pending, rejected }
-})
-const materialCards = computed<MaterialCard[]>(() => {
-  const icons = [DocumentTextOutline, CloudUploadOutline, CheckmarkCircleOutline, AlertCircleOutline]
-  const source = categories.value.length
-    ? categories.value
-    : records.value.map((item) => ({ itemCode: item.category, itemValue: item.categoryLabel }) as DictItem)
-  return source.slice(0, 4).map((item, index) => ({
-    code: item.itemCode,
-    label: item.itemValue,
-    icon: icons[index] || DocumentTextOutline,
-    record: latestMaterial(item.itemCode)
-  }))
-})
-const previewable = computed(() => {
-  const row = previewRow.value
-  if (!row) return false
-  const name = row.fileName.toLowerCase()
-  const type = row.contentType || ''
-  return type.includes('pdf') || type.includes('image') || /\.(pdf|jpg|jpeg|png)$/.test(name)
 })
 
 const columns: DataTableColumns<ProcessMaterial> = [
@@ -229,52 +191,15 @@ async function loadOptions() {
 }
 
 function openUpload(category?: string) {
-  replacing.value = null
-  uploadForm.studentId = selfMode.value ? userStore.currentUser?.studentId || students.value[0]?.id || '' : ''
-  uploadForm.assessmentYear = assessmentYear.value
-  uploadForm.category = category || ''
-  fileList.value = []
-  uploadVisible.value = true
+  uploadDrawerRef.value?.open(undefined, category)
 }
 
 function openReplace(row: ProcessMaterial) {
-  replacing.value = row
-  uploadForm.studentId = row.studentId
-  uploadForm.assessmentYear = row.assessmentYear
-  uploadForm.category = row.category
-  fileList.value = []
-  uploadVisible.value = true
+  uploadDrawerRef.value?.open(row)
 }
 
-async function saveUpload() {
-  const file = fileList.value[0]?.file
-  if (!uploadForm.studentId || !uploadForm.assessmentYear || !uploadForm.category || !file) {
-    message.error('请选择学生、年度、类别和附件')
-    return
-  }
-  saving.value = true
-  try {
-    if (replacing.value) await replaceMaterial(replacing.value.id, file)
-    else await uploadMaterial({ ...uploadForm, file })
-    message.success('已保存')
-    uploadVisible.value = false
-    await loadRecords()
-  } catch (error) {
-    showError(error, '保存失败')
-  } finally {
-    saving.value = false
-  }
-}
-
-async function openPreview(row: ProcessMaterial) {
-  previewRow.value = row
-  try {
-    const res = await previewMaterial(row.id)
-    previewUrl.value = res.data
-    previewVisible.value = true
-  } catch (error) {
-    showError(error, '预览地址获取失败')
-  }
+function openPreview(row: ProcessMaterial) {
+  previewModalRef.value?.open(row)
 }
 
 async function submit(row: ProcessMaterial) {
@@ -323,7 +248,7 @@ async function saveReview(payload: ReviewPayload) {
 }
 
 async function showProcessStatus() {
-  const studentId = uploadForm.studentId || records.value[0]?.studentId || userStore.currentUser?.studentId || ''
+  const studentId = uploadDrawerRef.value?.getStudentId() || records.value[0]?.studentId || userStore.currentUser?.studentId || ''
   if (!studentId) {
     message.error('请选择或查询到一个学生')
     return
@@ -375,18 +300,6 @@ function dictLabel(items: DictItem[], code?: string | null) {
   return items.find((item) => item.itemCode === code)?.itemValue || code || '-'
 }
 
-function latestMaterial(category: string) {
-  return records.value
-    .filter((item) => item.category === category)
-    .sort((a, b) => String(b.uploadTime || '').localeCompare(String(a.uploadTime || '')))[0] || null
-}
-
-function rejectComment(row?: ProcessMaterial | null) {
-  if (!row) return ''
-  if (!row.status.includes('REJECTED') && row.status !== 'FAILED') return ''
-  return row.secondReviewComment || row.firstReviewComment || ''
-}
-
 function showError(error: unknown, fallback: string) {
   const detail = error instanceof Error ? error.message : fallback
   message.error(detail || fallback)
@@ -401,7 +314,6 @@ watch(
   () => yearStore.assessmentYear,
   async (year) => {
     assessmentYear.value = year
-    if (!uploadVisible.value) uploadForm.assessmentYear = year
     await loadRecords()
   }
 )
@@ -416,51 +328,19 @@ watch(
       <n-gi><StatCard label="退回/不通过" :value="statusSummary.rejected" tone="error" /></n-gi>
     </n-grid>
 
-    <template v-if="selfMode">
-      <n-card :bordered="false" class="page-section material-self-toolbar">
-        <n-space justify="space-between" align="center">
-          <n-space align="center">
-            <span class="toolbar-label">考核年度</span>
-            <n-input v-model:value="assessmentYear" placeholder="考核年度" class="mono-input" style="width: 130px" />
-            <n-button secondary :loading="loading" @click="loadRecords">刷新</n-button>
-          </n-space>
-          <n-button @click="showProcessStatus">合格判定</n-button>
-        </n-space>
-      </n-card>
-
-      <n-grid :cols="4" :x-gap="12" :y-gap="12" responsive="screen" class="page-section material-card-grid">
-        <n-gi v-for="card in materialCards" :key="card.code">
-          <n-card :bordered="false" class="material-card">
-            <div class="material-card__head">
-              <div class="material-card__icon">
-                <n-icon :component="card.icon" />
-              </div>
-              <div class="material-card__title">
-                <strong>{{ card.label }}</strong>
-                <StatusTag
-                  :value="card.record?.status || 'WAIT_UPLOAD'"
-                  :text="card.record?.statusLabel || statusLabel(card.record?.status || 'WAIT_UPLOAD')"
-                />
-              </div>
-            </div>
-            <div class="material-card__file">
-              <span>{{ card.record?.fileName || '尚未上传材料' }}</span>
-              <small>{{ formatFileSize(card.record?.fileSize) }}</small>
-            </div>
-            <n-alert v-if="rejectComment(card.record)" type="warning" :bordered="false">
-              退回意见：{{ rejectComment(card.record) }}
-            </n-alert>
-            <n-space class="material-card__actions">
-              <n-button v-if="card.record" secondary size="small" @click="openPreview(card.record)">预览</n-button>
-              <n-button size="small" @click="card.record ? openReplace(card.record) : openUpload(card.code)">
-                {{ card.record ? '替换' : '上传' }}
-              </n-button>
-              <n-button v-if="card.record" type="primary" size="small" @click="submit(card.record)">提交</n-button>
-            </n-space>
-          </n-card>
-        </n-gi>
-      </n-grid>
-    </template>
+    <MaterialSelfPanel
+      v-if="selfMode"
+      v-model:assessment-year="assessmentYear"
+      :records="records"
+      :categories="categories"
+      :loading="loading"
+      @refresh="loadRecords"
+      @status="showProcessStatus"
+      @preview="openPreview"
+      @upload="openUpload"
+      @replace="openReplace"
+      @submit="submit"
+    />
 
     <template v-else>
       <FilterBar :loading="loading" @submit="loadRecords" @reset="resetFilters">
@@ -504,52 +384,16 @@ watch(
       </DataPanel>
     </template>
 
-    <n-drawer v-model:show="uploadVisible" :width="560">
-      <n-drawer-content :title="replacing ? '替换材料' : '上传材料'" closable>
-        <n-alert v-if="replacing" type="info" :bordered="false" class="page-section">
-          替换材料沿用原学生、年度与材料类别。
-        </n-alert>
-        <n-form label-placement="top">
-          <div class="form-section-title">材料信息</div>
-          <n-grid :cols="2" :x-gap="12">
-            <n-form-item-gi label="学生" :span="2">
-              <n-select v-model:value="uploadForm.studentId" :options="studentOptions" :disabled="Boolean(replacing) || selfMode" filterable placeholder="学生" />
-            </n-form-item-gi>
-            <n-form-item-gi label="考核年度">
-              <n-input v-model:value="uploadForm.assessmentYear" :disabled="Boolean(replacing)" placeholder="考核年度" class="mono-input" />
-            </n-form-item-gi>
-            <n-form-item-gi label="材料类别">
-              <n-select v-model:value="uploadForm.category" :options="categoryOptions" :disabled="Boolean(replacing)" placeholder="材料类别" />
-            </n-form-item-gi>
-          </n-grid>
-          <div class="form-section-title">上传文件</div>
-          <n-grid :cols="2" :x-gap="12">
-            <n-form-item-gi label="文件" :span="2">
-              <n-upload v-model:file-list="fileList" :max="1" accept=".pdf,.jpg,.jpeg,.png" :default-upload="false" />
-            </n-form-item-gi>
-          </n-grid>
-        </n-form>
-        <template #footer>
-          <n-space justify="end">
-            <n-button @click="uploadVisible = false">取消</n-button>
-            <n-button type="primary" :loading="saving" @click="saveUpload">保存</n-button>
-          </n-space>
-        </template>
-      </n-drawer-content>
-    </n-drawer>
+    <MaterialUploadDrawer
+      ref="uploadDrawerRef"
+      :student-options="studentOptions"
+      :category-options="categoryOptions"
+      :self-mode="selfMode"
+      :assessment-year="assessmentYear"
+      @saved="loadRecords"
+    />
 
-    <n-modal v-model:show="previewVisible" preset="card" :title="previewRow?.fileName || '材料预览'" style="width: min(960px, 94vw)">
-      <n-space vertical>
-        <object v-if="previewable" :data="previewUrl" class="preview-frame">
-          <iframe :src="previewUrl" class="preview-frame" />
-        </object>
-        <n-result v-else status="info" title="该文件不支持内联预览" description="非 PDF/JPG/PNG 文件请通过下载链接查看。">
-          <template #footer>
-            <n-button tag="a" :href="previewUrl" target="_blank" type="primary">打开文件</n-button>
-          </template>
-        </n-result>
-      </n-space>
-    </n-modal>
+    <MaterialPreviewModal ref="previewModalRef" />
 
     <ReviewDialog
       v-model:show="reviewVisible"
@@ -577,24 +421,6 @@ watch(
 </template>
 
 <style scoped>
-.form-section-title {
-  margin: var(--space-2) 0 var(--space-3);
-  color: var(--text);
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.preview-frame {
-  width: 100%;
-  height: min(70vh, 720px);
-  border: 1px solid var(--shell-border);
-  border-radius: var(--radius-card);
-}
-
-.mono-input :deep(input) {
-  font-family: var(--font-mono);
-}
-
 .file-cell {
   display: flex;
   min-width: 0;
@@ -612,86 +438,5 @@ watch(
 .file-size {
   color: var(--text-muted);
   font-size: 12px;
-}
-
-.material-self-toolbar :deep(.n-card__content) {
-  padding: var(--space-4);
-}
-
-.toolbar-label {
-  color: var(--text-secondary);
-  font-size: 13px;
-}
-
-.material-card {
-  min-height: 236px;
-}
-
-.material-card :deep(.n-card__content) {
-  display: flex;
-  min-height: 236px;
-  flex-direction: column;
-  gap: var(--space-3);
-}
-
-.material-card__head {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-}
-
-.material-card__icon {
-  display: grid;
-  width: 42px;
-  height: 42px;
-  place-items: center;
-  border-radius: 999px;
-  background: var(--brand-soft);
-  color: var(--brand);
-  font-size: 22px;
-}
-
-.material-card__title {
-  display: flex;
-  min-width: 0;
-  flex: 1;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
-}
-
-.material-card__title strong {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--text);
-  font-size: 15px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.material-card__file {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 4px;
-  padding: var(--space-3);
-  border-radius: var(--radius-control);
-  background: var(--surface-muted);
-}
-
-.material-card__file span,
-.material-card__file small {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.material-card__file small {
-  color: var(--text-muted);
-}
-
-.material-card__actions {
-  margin-top: auto;
 }
 </style>

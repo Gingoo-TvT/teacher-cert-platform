@@ -1,10 +1,14 @@
 <script setup lang="ts">
-import { computed, h, onMounted, reactive, ref, watch, type VNodeChild } from 'vue'
-import { NButton, useMessage, type DataTableColumns, type SelectOption, type UploadFileInfo } from 'naive-ui'
+import { computed, h, onMounted, ref, watch, type VNodeChild } from 'vue'
+import { NButton, useMessage, type DataTableColumns, type SelectOption } from 'naive-ui'
 import DataPanel from '@/components/DataPanel.vue'
 import FilterBar from '@/components/FilterBar.vue'
 import StatCard from '@/components/StatCard.vue'
 import StatusTag from '@/components/StatusTag.vue'
+import UploadVideoDrawer from './UploadVideoDrawer.vue'
+import AssignReviewerModal from './AssignReviewerModal.vue'
+import ArbitrateModal from './ArbitrateModal.vue'
+import ReturnModal from './ReturnModal.vue'
 import { statusLabel } from '@/constants/statusLabels'
 import { listDictItems, type DictItem } from '@/api/dict'
 import { listStudents, type Student } from '@/api/student'
@@ -12,31 +16,15 @@ import { useUserStore } from '@/stores/user'
 import { useYearStore } from '@/stores/year'
 import { renderTableActions } from '@/utils/tableActions'
 import {
-  arbitrateVideoReview,
-  assignVideoReview,
-  assignVideoReviewGroup,
   confirmVideoReview,
-  initVideoUpload,
   listReviewerCandidates,
   listReviewerGroups,
   listVideoReviews,
-  mergeVideoUpload,
   playVideoReview,
-  returnVideoReview,
-  thirdVideoReview,
-  uploadVideoChunk,
   type ReviewerCandidate,
   type ReviewerGroup,
-  type VideoReview,
-  type VideoScorePayload
+  type VideoReview
 } from '@/api/video'
-
-interface DimensionRow {
-  code: string
-  score: number
-}
-
-type AssignMode = 'person' | 'group'
 
 const props = defineProps<{
   canUpload: boolean
@@ -51,10 +39,6 @@ const userStore = useUserStore()
 const yearStore = useYearStore()
 
 const loading = ref(false)
-const uploadVisible = ref(false)
-const assignVisible = ref(false)
-const arbitrateVisible = ref(false)
-const returnVisible = ref(false)
 const playerVisible = ref(false)
 const keyword = ref('')
 const assessmentYear = ref(yearStore.assessmentYear)
@@ -64,44 +48,17 @@ const students = ref<Student[]>([])
 const reviewers = ref<ReviewerCandidate[]>([])
 const groups = ref<ReviewerGroup[]>([])
 const dimensions = ref<DictItem[]>([])
-const fileList = ref<UploadFileInfo[]>([])
-const uploading = ref(false)
-const uploadProgress = ref(0)
-const assigning = ref<VideoReview | null>(null)
-const arbitrating = ref<VideoReview | null>(null)
-const returning = ref<VideoReview | null>(null)
 const playbackUrl = ref('')
 const watermarkText = ref('')
 const watermarkStyle = ref({ left: '12%', top: '18%' })
 
+const uploadRef = ref<InstanceType<typeof UploadVideoDrawer> | null>(null)
+const assignRef = ref<InstanceType<typeof AssignReviewerModal> | null>(null)
+const arbitrateRef = ref<InstanceType<typeof ArbitrateModal> | null>(null)
+const returnRef = ref<InstanceType<typeof ReturnModal> | null>(null)
+
 const canViewStudents = computed(() => userStore.hasPerm('student:view'))
 const canLoadReviews = computed(() => props.canUpload || props.canAssign || props.canArbitrate || props.canConfirm || props.canPlay)
-
-const uploadForm = reactive({
-  studentId: '',
-  assessmentYear: yearStore.assessmentYear,
-  durationSeconds: 900,
-  chunkSize: 512 * 1024
-})
-
-const assignForm = reactive({
-  mode: 'person' as AssignMode,
-  reviewerIds: [] as string[],
-  groupId: ''
-})
-
-const arbitrateForm = reactive({
-  mode: 'thirdExpert' as 'thirdExpert' | 'collegeArbitrate',
-  reviewerId: '',
-  score: 60,
-  conclusion: 'PASS' as 'PASS' | 'FAIL',
-  comment: '',
-  dimensions: [] as DimensionRow[]
-})
-
-const returnForm = reactive({
-  comment: ''
-})
 
 const statusOptions: SelectOption[] = [
   { label: '校验失败', value: 'VALIDATION_FAILED' },
@@ -113,20 +70,6 @@ const statusOptions: SelectOption[] = [
   { label: '已确认', value: 'CONFIRMED' }
 ]
 
-const conclusionOptions: SelectOption[] = [
-  { label: '合格', value: 'PASS' },
-  { label: '不合格', value: 'FAIL' }
-]
-
-const studentOptions = computed<SelectOption[]>(() =>
-  students.value.map((item) => ({ label: `${item.studentNo} ${item.name}`, value: item.id }))
-)
-const reviewerOptions = computed<SelectOption[]>(() =>
-  reviewers.value.map((item) => ({ label: `${item.realName} ${item.workNo || item.id}`, value: item.id }))
-)
-const groupOptions = computed<SelectOption[]>(() =>
-  groups.value.filter((item) => item.status === 'ENABLED').map((item) => ({ label: `${item.name} (${item.memberCount}人)`, value: item.id }))
-)
 const statusSummary = computed(() => {
   const wait = reviews.value.filter((item) => item.status === 'WAIT_REVIEW').length
   const reviewingCount = reviews.value.filter((item) => item.status === 'REVIEWING').length
@@ -198,134 +141,15 @@ async function loadOptions() {
 }
 
 function openUpload(row?: VideoReview) {
-  uploadForm.studentId = row?.studentId || ''
-  uploadForm.assessmentYear = row?.assessmentYear || assessmentYear.value
-  uploadForm.durationSeconds = row?.durationSeconds || 900
-  uploadProgress.value = 0
-  fileList.value = []
-  uploadVisible.value = true
-}
-
-async function uploadVideo() {
-  const file = fileList.value[0]?.file
-  if (!file || !uploadForm.studentId || !uploadForm.assessmentYear) {
-    message.error('请选择学生、年度和视频文件')
-    return
-  }
-  uploading.value = true
-  uploadProgress.value = 0
-  try {
-    const fileMd5 = await quickHash(file)
-    const init = await initVideoUpload({
-      studentId: uploadForm.studentId,
-      assessmentYear: uploadForm.assessmentYear,
-      fileMd5,
-      fileName: file.name,
-      contentType: file.type || 'video/mp4',
-      size: file.size,
-      chunkSize: uploadForm.chunkSize,
-      durationSeconds: uploadForm.durationSeconds
-    })
-    if (init.data.instantHit) {
-      uploadProgress.value = 100
-      message.success(init.data.validationMessage || '秒传命中')
-      uploadVisible.value = false
-      await loadReviews()
-      return
-    }
-    const uploadId = init.data.uploadId
-    if (!uploadId) throw new Error('上传会话为空')
-    const uploaded = new Set(init.data.uploadedChunks)
-    const total = Math.ceil(file.size / uploadForm.chunkSize)
-    for (let index = 0; index < total; index += 1) {
-      if (uploaded.has(index)) {
-        uploadProgress.value = Math.round(((index + 1) / total) * 100)
-        continue
-      }
-      const start = index * uploadForm.chunkSize
-      const blob = file.slice(start, Math.min(start + uploadForm.chunkSize, file.size))
-      await uploadVideoChunk({ uploadId, index, md5: await quickHash(blob), blob })
-      uploadProgress.value = Math.round(((index + 1) / total) * 100)
-    }
-    const merged = await mergeVideoUpload(uploadId, uploadForm.durationSeconds)
-    message[merged.data.status === 'VALIDATION_FAILED' ? 'warning' : 'success'](merged.data.validationMessage || '上传完成')
-    uploadVisible.value = false
-    await loadReviews()
-  } catch (error) {
-    showError(error, '上传失败')
-  } finally {
-    uploading.value = false
-  }
+  uploadRef.value?.open(row)
 }
 
 function openAssign(row: VideoReview) {
-  assigning.value = row
-  assignForm.mode = 'person'
-  assignForm.reviewerIds = row.tasks.filter((task) => task.reviewerRole === 'REVIEWER').map((task) => task.reviewerId)
-  assignForm.groupId = ''
-  assignVisible.value = true
-}
-
-async function saveAssign() {
-  if (!assigning.value) return
-  try {
-    if (assignForm.mode === 'group') {
-      if (!assignForm.groupId) {
-        message.error('请选择评审组')
-        return
-      }
-      await assignVideoReviewGroup(assigning.value.id, assignForm.groupId)
-    } else {
-      if (!assignForm.reviewerIds.length) {
-        message.error('请选择评审教师')
-        return
-      }
-      await assignVideoReview(assigning.value.id, assignForm.reviewerIds)
-    }
-    message.success('已指派评审')
-    assignVisible.value = false
-    await loadReviews()
-  } catch (error) {
-    showError(error, '指派失败')
-  }
+  assignRef.value?.open(row)
 }
 
 function openArbitrate(row: VideoReview) {
-  arbitrating.value = row
-  arbitrateForm.mode = 'thirdExpert'
-  arbitrateForm.reviewerId = reviewers.value[0]?.id || ''
-  arbitrateForm.score = 60
-  arbitrateForm.conclusion = 'PASS'
-  arbitrateForm.comment = ''
-  arbitrateForm.dimensions = dimensions.value.map((item) => ({ code: item.itemCode, score: 0 }))
-  arbitrateVisible.value = true
-}
-
-async function saveArbitrate() {
-  if (!arbitrating.value) return
-  try {
-    if (arbitrateForm.mode === 'thirdExpert') {
-      if (!arbitrateForm.reviewerId) {
-        message.error('请选择第三专家')
-        return
-      }
-      await thirdVideoReview(arbitrating.value.id, {
-        ...scorePayload(),
-        reviewerId: arbitrateForm.reviewerId
-      })
-    } else {
-      await arbitrateVideoReview(arbitrating.value.id, {
-        finalScore: arbitrateForm.score,
-        conclusion: arbitrateForm.conclusion,
-        comment: arbitrateForm.comment
-      })
-    }
-    message.success('复评/仲裁已完成')
-    arbitrateVisible.value = false
-    await loadReviews()
-  } catch (error) {
-    showError(error, '复评/仲裁失败')
-  }
+  arbitrateRef.value?.open(row)
 }
 
 async function confirm(row: VideoReview) {
@@ -339,26 +163,7 @@ async function confirm(row: VideoReview) {
 }
 
 function openReturn(row: VideoReview) {
-  returning.value = row
-  returnForm.comment = row.status === 'RETURNED' ? row.validationMessage || '' : ''
-  returnVisible.value = true
-}
-
-async function saveReturn() {
-  if (!returning.value) return
-  const comment = returnForm.comment.trim()
-  if (!comment) {
-    message.error('请填写退回意见')
-    return
-  }
-  try {
-    await returnVideoReview(returning.value.id, comment)
-    message.success('已退回，学生可重新上传')
-    returnVisible.value = false
-    await loadReviews()
-  } catch (error) {
-    showError(error, '退回失败')
-  }
+  returnRef.value?.open(row)
 }
 
 async function openPlayer(row: VideoReview) {
@@ -380,20 +185,6 @@ function resetFilters() {
   void loadReviews()
 }
 
-function scorePayload(): VideoScorePayload {
-  const dimensionScores: Record<string, number> = {}
-  for (const item of arbitrateForm.dimensions) dimensionScores[item.code] = item.score
-  if (Object.keys(dimensionScores).length === 0) {
-    for (const item of dimensions.value) dimensionScores[item.itemCode] = 0
-  }
-  return {
-    score: arbitrateForm.score,
-    conclusion: arbitrateForm.conclusion,
-    comment: arbitrateForm.comment,
-    dimensionScores
-  }
-}
-
 function canReupload(row: VideoReview) {
   return ['WAIT_UPLOAD', 'VALIDATION_FAILED', 'RETURNED'].includes(row.status)
 }
@@ -402,14 +193,6 @@ function conclusionText(value?: string | null) {
   if (value === 'PASS') return '合格'
   if (value === 'FAIL') return '不合格'
   return '-'
-}
-
-async function quickHash(blob: Blob) {
-  const buffer = await blob.arrayBuffer()
-  const bytes = new Uint8Array(buffer)
-  let hash = 0
-  for (const byte of bytes) hash = (hash * 31 + byte) >>> 0
-  return hash.toString(16).padStart(8, '0')
 }
 
 function moveWatermark() {
@@ -432,7 +215,6 @@ watch(
   () => yearStore.assessmentYear,
   async (year) => {
     assessmentYear.value = year
-    if (!uploadVisible.value) uploadForm.assessmentYear = year
     await loadReviews()
   }
 )
@@ -486,81 +268,10 @@ watch(
       </template>
     </DataPanel>
 
-    <n-drawer v-model:show="uploadVisible" :width="560">
-      <n-drawer-content title="上传教学能力视频" closable>
-        <n-space vertical>
-          <n-alert type="info" :bordered="false">
-            仅退回、待上传或校验失败状态显示重传入口；其他状态由校验规则禁止重传。
-          </n-alert>
-          <n-select v-model:value="uploadForm.studentId" :options="studentOptions" filterable placeholder="学生" />
-          <n-input v-model:value="uploadForm.assessmentYear" placeholder="考核年度" class="mono-input" />
-          <n-input-number v-model:value="uploadForm.durationSeconds" :min="1" style="width: 100%" placeholder="时长（秒）" />
-          <n-upload v-model:file-list="fileList" :max="1" accept="video/mp4,.mp4" :default-upload="false" />
-          <n-progress type="line" :percentage="uploadProgress" indicator-placement="inside" />
-        </n-space>
-        <template #footer>
-          <n-space justify="end">
-            <n-button @click="uploadVisible = false">取消</n-button>
-            <n-button type="primary" :loading="uploading" @click="uploadVideo">开始上传</n-button>
-          </n-space>
-        </template>
-      </n-drawer-content>
-    </n-drawer>
-
-    <n-modal v-model:show="assignVisible" preset="card" title="指派评审" style="width: 620px">
-      <n-space vertical>
-        <n-alert v-if="assigning" type="info" :bordered="false">
-          {{ assigning.studentNo }} / {{ assigning.studentName }} / 当前状态：{{ assigning.statusLabel || statusLabel(assigning.status) }}
-        </n-alert>
-        <n-radio-group v-model:value="assignForm.mode">
-          <n-radio-button value="person">按人指派</n-radio-button>
-          <n-radio-button value="group">按组指派</n-radio-button>
-        </n-radio-group>
-        <n-select
-          v-if="assignForm.mode === 'person'"
-          v-model:value="assignForm.reviewerIds"
-          multiple
-          filterable
-          :options="reviewerOptions"
-          placeholder="选择评审教师"
-        />
-        <n-select v-else v-model:value="assignForm.groupId" filterable :options="groupOptions" placeholder="选择评审组" />
-        <n-space justify="end">
-          <n-button @click="assignVisible = false">取消</n-button>
-          <n-button type="primary" @click="saveAssign">保存</n-button>
-        </n-space>
-      </n-space>
-    </n-modal>
-
-    <n-modal v-model:show="arbitrateVisible" preset="card" title="复评/仲裁" style="width: 580px">
-      <n-space vertical>
-        <n-radio-group v-model:value="arbitrateForm.mode">
-          <n-radio-button value="thirdExpert">第三专家</n-radio-button>
-          <n-radio-button value="collegeArbitrate">学院仲裁</n-radio-button>
-        </n-radio-group>
-        <n-select v-if="arbitrateForm.mode === 'thirdExpert'" v-model:value="arbitrateForm.reviewerId" :options="reviewerOptions" filterable placeholder="第三专家" />
-        <n-input-number v-model:value="arbitrateForm.score" :min="0" :max="100" style="width: 100%" placeholder="分数/终分" />
-        <n-select v-model:value="arbitrateForm.conclusion" :options="conclusionOptions" />
-        <n-input v-model:value="arbitrateForm.comment" type="textarea" placeholder="意见" />
-        <n-space justify="end">
-          <n-button @click="arbitrateVisible = false">取消</n-button>
-          <n-button type="primary" @click="saveArbitrate">保存</n-button>
-        </n-space>
-      </n-space>
-    </n-modal>
-
-    <n-modal v-model:show="returnVisible" preset="dialog" title="退回视频">
-      <n-space vertical>
-        <n-alert v-if="returning" type="warning" :bordered="false">
-          {{ returning.studentNo }} / {{ returning.studentName }}。已确认视频不可退回；其他状态由校验规则处理。
-        </n-alert>
-        <n-input v-model:value="returnForm.comment" type="textarea" placeholder="请输入退回意见，学生重传时可据此修改" />
-        <n-space justify="end">
-          <n-button @click="returnVisible = false">取消</n-button>
-          <n-button type="warning" @click="saveReturn">退回</n-button>
-        </n-space>
-      </n-space>
-    </n-modal>
+    <UploadVideoDrawer v-if="canUpload" ref="uploadRef" :students="students" :assessment-year="assessmentYear" @saved="loadReviews" />
+    <AssignReviewerModal v-if="canAssign" ref="assignRef" :reviewers="reviewers" :groups="groups" @saved="loadReviews" />
+    <ArbitrateModal v-if="canArbitrate" ref="arbitrateRef" :reviewers="reviewers" :dimensions="dimensions" @saved="loadReviews" />
+    <ReturnModal v-if="canConfirm || canArbitrate" ref="returnRef" @saved="loadReviews" />
 
     <n-modal v-model:show="playerVisible" preset="card" title="视频播放" style="width: min(960px, 94vw)">
       <div class="player-shell">
@@ -593,9 +304,5 @@ watch(
   pointer-events: none;
   text-shadow: 0 1px 2px var(--video-watermark-shadow);
   transition: left 0.4s ease, top 0.4s ease;
-}
-
-.mono-input :deep(input) {
-  font-family: var(--font-mono);
 }
 </style>
