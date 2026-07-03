@@ -15,6 +15,14 @@
 
 ---
 
+## [2026-07-04] Phase 38a 完成（Opus4.8+Sonnet5 执行，Claude 亲自把关关键处）✅ — P0-2 批量下载流式 zip（整包进堆 OOM）
+- 做了什么：`ProcessMaterialServiceImpl.batchDownload` 由"`ByteArrayOutputStream` 攒完整 zip → 返回 `byte[]`"改为流式：`BatchDownloadFile` 记录改带 `ContentWriter`（`writeTo(OutputStream) throws IOException` 函数接口），zip 直写响应输出流，逐文件从 MinIO 读→写；`ProcessMaterialController` 改 `file.content().writeTo(response.getOutputStream())`。新增单次 `MAX_BATCH_DOWNLOAD_FILES=2000` 上限。
+- 关键决策与理由：查询 + 上限校验放在返回 `BatchDownloadFile` 之前（当前请求线程执行，`@DataScope`/`UserContext` 生效，异常在写响应头前抛出 → 干净错误）；流式 writer 由控制器在请求线程上同步 `writeTo`，故 MinIO 读循环内的 `fileObjectMapper.selectById` 仍有 UserContext/连接可用，无异步 ThreadLocal 问题。去空判改动（保留空批 → manifest-only zip 旧行为，避免破坏 IT）。仅改材料批量下载（P0-2）；证书导出 `XSSFWorkbook`/无界（§7.3 P1）另行收尾。
+- 问题与解决：`minioClient.getObject` 抛受检 `Exception`，在 writer 内 try-with-resources 的 catch(Exception) 转 `BizException`；zip 结构性 `IOException` 经 `ContentWriter throws IOException` 上抛。先按 PID 精杀 :8080 释放 jar 锁再 `verify`。
+- 与规格的偏差/疑问：无阻塞。流式下中途 MinIO 读失败会截断已提交响应（罕见），换取消除 OOM，可接受；常见非法请求（超限）在流前干净报错。
+- 测试：`mvn -B -ntp verify` BUILD SUCCESS，failsafe **83/83 绿**，其中 `Phase5MaterialIT`（`:173` 上传材料入 MinIO → 批量下载 → `ZipInputStream` 解析断言 manifest）真实 MinIO 覆盖文件流式全链路；栈起活体（后端 PID 26732）：test_college_auditor `POST /material/batch-download` → HTTP200 `application/zip`、219B 合法 zip（PK 头）含 `manifest.csv`、CRC 通过。
+- 下一步：batch B/C 剩余 P0（无 FK/孤儿 P0-12、mysql-root P0-5、假备份 P0-6、Spring Boot 升级 P0-8）或各 P0 收尾项。
+
 ## [2026-07-04] Phase 37c 完成（Opus4.8+Sonnet5 执行，Claude 亲自把关关键处）✅ — P0-11 MinIO I/O 移出事务（连接池耗尽=总瘫）
 - 做了什么：`VideoReviewServiceImpl.uploadChunk/merge` 去方法级 `@Transactional`；MinIO `putObject`（分片）/`composeObject`+小分片流式回退（合并）在事务外执行；元数据落库改用注入的 `TransactionTemplate` 短事务（分片：chunk 增改 + `refreshSessionProgress`；合并：`registerComposedFile` + `upsertReviewAfterValidation` + 会话状态；`detail()` 移到提交后）。
 - 关键决策与理由：根因是 MinIO 网络往返期间事务未提交 → 持有 Hikari 连接（默认 10）→ 截止日并发大上传耗尽连接池致全站 DB 阻塞。选"上传移出事务 + 元数据短事务"（plan §7.2 修法），而非把整段设 REQUIRES_NEW。`TransactionTemplate` 用 Spring Boot 自动装配 bean 注入，规避同类自调用 `@Transactional` 失效问题。已确认 `registerComposedFile/upsertReviewAfterValidation/validateMergedVideo` 均纯 DB/CPU 无 MinIO，故 merge 可整段抽取。

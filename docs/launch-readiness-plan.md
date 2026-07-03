@@ -15,7 +15,7 @@
 | # | 问题 | 位置 | 危害 | 修复 | 归属 |
 |---|---|---|---|---|---|
 | P0-1 | **文件预签名 IDOR**：`presignedGet` 只查文件存在，**无属主/数据范围校验**，expiry 客户端任填无上限 | `FileController.java:50-54`、`FileServiceImpl.java:62-77` | 任何登录学生可凭任意 fileId 下载他人证件照/视频/材料，还能签发超长期链接 | 按文件所属业务记录做权限校验（复用 @DataScope 口径）；服务端强制 expiry 上限（如 ≤15min） | **Opus（安全关键）** |
-| P0-2 | **批量下载整包进堆**：`batchDownload` 无行数上限，全部文件读进 `ByteArrayOutputStream` 再返回 byte[] | `ProcessMaterialServiceImpl.java:246-277` | 一次"下载全院材料"即可 OOM（-Xmx1024m） | zip 流式写响应 + 批量上限/分批 | Opus |
+| P0-2 | ~~**批量下载整包进堆**：`batchDownload` 无行数上限，全部文件读进 `ByteArrayOutputStream` 再返回 byte[]~~ | ~~`ProcessMaterialServiceImpl`~~ | — | **已修（Phase 38a，见 §11）：zip 直写响应输出流 + 2000 条上限** | 完成 |
 | P0-3 | ~~multipart 上限缺失~~ | ~~application.yml~~ | — | **已修（见 §0）** | 完成 |
 | P0-4 | **无 prod profile，Swagger/Knife4j 对公网全开**：`SecurityConfig` permitAll `/doc.html`/`/v3/api-docs`，且无 `application-prod.yml`（compose 却默认 `SPRING_PROFILES_ACTIVE=prod`） | `application.yml:17-20`、`SecurityConfig.java:61`、`docker-compose.yml:56` | 生产接口文档+试调界面公开 | 新增 `application-prod.yml`：关 knife4j/springdoc；prod 下移除文档路径放行 | Opus |
 | P0-5 | **应用用 root 连 MySQL** | `docker-compose.yml:68-69` | 任一注入/依赖沦陷=整库沦陷 | 建 `teacher_cert` 专用最小权限账号 | Sonnet（模板化） |
@@ -295,4 +295,8 @@
 ### Phase 37c ✅ 已完成并合并（本提交，mvn verify 83/83 绿，含 `Phase7VideoReviewIT` 11/11 真实 MinIO HTTP 集成）
 - ✅ **P0-11 MinIO I/O 在事务内（连接池耗尽=全站总瘫，§7.2 运维最危项）** — `VideoReviewServiceImpl.uploadChunk/merge` 去方法级 `@Transactional`：MinIO `putObject`（分片）/`composeObject`+小分片流式回退（合并）在**事务外**执行，网络往返期间不再占用 DB 连接；元数据落库改 `TransactionTemplate` 短事务（分片：chunk 增改 + 进度刷新；合并：文件对象 + 评审 upsert + 会话状态；`detail()` 移到提交后）。`TransactionTemplate` 由 Spring Boot 自动装配注入。**验证：** 83/83 绿，其中 `Phase7VideoReviewIT` 11/11 经 RANDOM_PORT TestRestTemplate 走**真实 HTTP + 真实 MinIO/MySQL** 跑通 init→chunk→merge→评审全链路（栈级活体）；"连接不再跨 MinIO 往返被持有"属架构级保证（MinIO 调用已移出事务边界，新起后端 PID 亦确认 `TransactionTemplate` 运行期装配成功）。孤儿风险与改前一致（MinIO 非事务性，分片 key 确定可覆盖、合并随机 key 失败重试留孤儿，均同旧行为，未劣化）。
 - ⏳ **P0-11 收尾**：`FileServiceImpl.upload` 处于 material/exemption 各自 `@Transactional` 内的单文件上传（同反模式、量小），可同法（上传移出事务 + 元数据短事务）收尾。
+
+### Phase 38a ✅ 已完成并合并（本提交，mvn verify 83/83 绿，含 `Phase5MaterialIT` 4/4 真实 MinIO；栈起活体下载）
+- ✅ **P0-2 批量下载整包进堆 OOM** — `ProcessMaterialServiceImpl.batchDownload` 不再用 `ByteArrayOutputStream` 攒完整 zip 再返回 `byte[]`；改为返回 `BatchDownloadFile(fileName, ContentWriter)`，`ContentWriter` 把 zip **直写 HTTP 响应输出流**（逐文件从 MinIO 读→写，全程不整包进堆），控制器改 `file.content().writeTo(response.getOutputStream())`。新增单次 **2000 条上限**（超限抛业务异常提示缩小筛选）。查询/上限校验在写响应头前完成（当前请求线程，数据范围/权限生效，错误干净）。**验证：** 83/83 绿，其中 `Phase5MaterialIT`（`:173` 上传材料入 MinIO → 批量下载 → `ZipInputStream` 解析断言 manifest）真实 MinIO 覆盖文件流式全链路；栈起活体：test_college_auditor `POST /material/batch-download` → HTTP200 `application/zip`、合法 zip（PK 头）+ `manifest.csv` + CRC 通过。
+- ⏳ **收尾（§7.3 P1，非本 P0）**：证书导出 `selectCertificates` 无界 + `XSSFWorkbook` 全 DOM 进堆 → 改 SXSSF 流式 + 分页。
 

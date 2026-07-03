@@ -35,7 +35,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
-import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
@@ -256,13 +255,20 @@ public class ProcessMaterialServiceImpl implements ProcessMaterialService {
         return vo;
     }
 
+    private static final int MAX_BATCH_DOWNLOAD_FILES = 2000;
+
     @Override
     public BatchDownloadFile batchDownload(MaterialBatchDownloadRequest request) {
+        // 查询 + 校验在返回前（当前请求线程，数据范围/权限生效）完成，异常在写响应头之前抛出，保证干净错误。
         List<ProcessMaterial> records = selectMaterials(toQuery(request), request.getIds());
+        if (records.size() > MAX_BATCH_DOWNLOAD_FILES) {
+            throw new BizException("单次批量下载不能超过 " + MAX_BATCH_DOWNLOAD_FILES + " 条，请按年度/学生缩小筛选范围后重试");
+        }
         Map<Long, Student> students = students(records);
         Map<String, String> categories = categoryLabels();
-        try {
-            ByteArrayOutputStream out = new ByteArrayOutputStream();
+        String name = "process-material-" + DateTimeFormatter.ofPattern("yyyyMMddHHmmss").format(LocalDateTime.now()) + ".zip";
+        // 流式打包：zip 直接写入响应输出流，逐个文件从 MinIO 读→写，全程不整包进堆（P0-2）
+        return new BatchDownloadFile(name, out -> {
             try (ZipOutputStream zip = new ZipOutputStream(out, StandardCharsets.UTF_8)) {
                 zip.putNextEntry(new ZipEntry("manifest.csv"));
                 zip.write(manifest(records, students, categories).getBytes(StandardCharsets.UTF_8));
@@ -279,15 +285,13 @@ public class ProcessMaterialServiceImpl implements ProcessMaterialService {
                             .object(file.getObjectKey())
                             .build())) {
                         input.transferTo(zip);
+                    } catch (Exception e) {
+                        throw new BizException("材料读取失败: " + e.getMessage());
                     }
                     zip.closeEntry();
                 }
             }
-            String name = "process-material-" + DateTimeFormatter.ofPattern("yyyyMMddHHmmss").format(LocalDateTime.now()) + ".zip";
-            return new BatchDownloadFile(name, out.toByteArray());
-        } catch (Exception e) {
-            throw new BizException("材料打包失败: " + e.getMessage());
-        }
+        });
     }
 
     private void fillFile(ProcessMaterial entity, FileObject file) {

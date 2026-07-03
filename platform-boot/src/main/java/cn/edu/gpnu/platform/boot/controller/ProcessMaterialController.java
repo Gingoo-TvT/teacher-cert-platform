@@ -140,6 +140,6 @@ public class ProcessMaterialController {
         response.setContentType("application/zip");
         response.setHeader("Content-Disposition", "attachment; filename*=UTF-8''"
                 + URLEncoder.encode(file.fileName(), StandardCharsets.UTF_8));
-        response.getOutputStream().write(file.content());
+        file.content().writeTo(response.getOutputStream());
     }
 }
