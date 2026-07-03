@@ -15,6 +15,17 @@
 
 ---
 
+## [2026-07-03] Phase 35b 完成（Claude 亲自）✅ — 统计报表重做 + 卡顿治理 + 闪烁修复（用户二次反馈）
+- 背景：用户反馈 ①统计报表仍丑(x 轴名截断只是"能显示"非好方案) ②几乎所有页 sys_admin 点击卡顿(不止材料/免考) ③材料/免考进入仍有"刷新的页面"闪烁。
+- 诊断：①统计图为纵向柱+旋转长标签(治标)；②dev 模式 vite 按需转换模块(Phase 34 拆分后模块数增多→首次导航卡顿)+`hasPerm` O(n) 数组扫描(sys_admin 权限集大)+主包含 naive-ui 未拆；③材料/免考 onMounted `await loadOptions()`→`await loadRecords()` 串行→骨架屏二次闪烁。
+- 做了什么（均 Claude 亲自，关键/架构级）：
+  1. 统计报表 `StatsReportView` 图表**改横向条形**：维度名放 Y 轴完整可读(不再旋转/截断)，`chartHeight` 随条数(≤20)增长；`ChartBox` 增 `isCategoryAxis` 检测→横条圆角 `[0,4,4,0]`。
+  2. `vite.config.ts`：`server.warmup.clientFiles` 预热 布局+全部 components+全部 views(治 dev 首次导航卡顿)；`build.rollupOptions.manualChunks` 拆 echarts/naive/vue(prod 主包瘦身+缓存)。构建实测 naive(1.3MB)/echarts(1MB) 已独立成 chunk。
+  3. `stores/user.ts`：`hasPerm` 由 `perms.value.includes`(O(n)) 改 `permSet=computed(new Set)` 的 `.has`(O(1))——sys_admin 每页大量 perm 判定的渲染开销降低。
+  4. 材料/免考 `onMounted` 改 `Promise.all([...])` 并行，消除骨架屏二次闪烁。
+- 验证：type-check 无错；build ✓ 8.70s(naive/echarts 独立 chunk)；vite 重启加载 warmup 配置、:5173 200、后端 UP。视觉/流畅度交用户目验。
+- 备注：echarts 为 `import * as`(全量~1MB)，全站仅用 bar，可选做 tree-shake 进一步瘦身(prod)，本轮未做(风险/收益权衡,dev 无关)。合并 e688f9a(branch feature/phase35b-perf-stats)。
+
 ## [2026-07-03] Phase 35 复核通过（Claude · 亲自返工关键件）✅ — 前端验收缺陷 F1–F5
 - 做了什么：复核 `feature/phase35-acceptance-fix`（343c491，35 文件）。逐项核 F1–F5 与关键共享件：DataPanel 自动 scroll-x(删 27 硬编码,残留 0)、StudentSelect 远程搜索(去全量 listStudents 预载)、videoDuration 探测+两上传面板+拖拽区、ChartBox 长类目、StatCard 单位内联+greeting 去尾+去重复标签。type-check+build 两轮绿；活体 `/student?keyword=` 张1/DEMO10/李1、端点零 403。
 - 结论：**PASS**。codex 本轮质量高（关键件均自行完成且设计正确）。

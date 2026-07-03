@@ -5,10 +5,10 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**Phase 35 ✅ 已复核（Claude 07-03，PASS + Claude 亲自返工 F4 1 处）**——前端验收缺陷 F1–F5 修复完成。
+- 当前阶段：**Phase 35b ✅ 完成（Claude 亲自，07-03）**——统计报表重做 + 卡顿治理 + 材料/免考闪烁修复（承接用户二次反馈）。
 - 阻塞项：无
-- 最近更新：2026-07-03（Phase 35 复核通过：F1 DataPanel 自动 scroll-x+删 27 硬编码/F2 StudentSelect 远程搜索去全量预载/F3 视频时长自动探测+拖拽上传区/F4 ChartBox 长类目/F5 首页问候去尾+StatCard 单位内联+去重复标签。codex 质量高；**Claude 亲自返工 F4**：ChartBox 容器高度随标签 bottom 同步增高，绘图区不再被压扁。type-check+build 绿；活体关键词搜索通、零 403。详见 docs/reviews/phase-35-review.md）
-- 下一步：用户对 5 类缺陷做最终目验（1280/1440/1920 三宽度列表、上传、统计图、首页）。
+- 最近更新：2026-07-03（Phase 35b：①统计报表**改横向条形**——维度名放 Y 轴完整可读、图高随条数，彻底解决"丑+x 轴名截断"；②**卡顿治理**——vite `server.warmup` 预热全部视图(修 dev 首次导航卡顿,Phase 34 模块增多所致)+ `manualChunks` 拆 naive/echarts/vue(prod 缓存)+ `hasPerm` 改 Set O(1)(sys_admin 大权限集渲染)；③材料/免考 `onMounted` 并行加载消除骨架二次闪烁。type-check+build 绿。合并 e688f9a。）
+- 下一步：用户目验统计图（横向条形）、导航流畅度（sys_admin 各页）、材料/免考进入无闪烁。echarts 全量 import 可选 prod 瘦身(仅用 bar)留作后续。
 
 ## 阶段汇总
 | Phase | 名称 | 优先级 | 任务数 | 完成 | 状态 |
