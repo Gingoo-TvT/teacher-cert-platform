@@ -64,7 +64,7 @@ const typeColumns = computed<DataTableColumns<DictType>>(() => {
   const columns: DataTableColumns<DictType> = [
     { title: '类型编码', key: 'typeCode', minWidth: 170, ellipsis: { tooltip: true }, render: (row) => h('span', { class: 'mono' }, row.typeCode) },
     { title: '类型名称', key: 'typeName', minWidth: 150, ellipsis: { tooltip: true } },
-    { title: '排序', key: 'sort', width: 72, render: (row) => h('span', { class: 'numeric' }, String(row.sort ?? 0)) },
+    { title: '排序', key: 'sort', width: 72, align: 'right', render: (row) => h('span', { class: 'numeric' }, String(row.sort ?? 0)) },
     { title: '状态', key: 'status', width: 82, render: (row) => h(StatusTag, { text: row.status === 1 ? '启用' : '停用' }) }
   ]
   if (canManage.value) {
@@ -95,7 +95,7 @@ const itemColumns = computed<DataTableColumns<DictItem>>(() => {
     { title: '项值', key: 'itemValue', minWidth: 190, ellipsis: { tooltip: true } },
     { title: '父级编码', key: 'parentCode', minWidth: 130, ellipsis: { tooltip: true }, render: (row) => row.parentCode ? h('span', { class: 'mono' }, row.parentCode) : '-' },
     { title: '年度', key: 'yearVersion', width: 104, render: (row) => h('span', { class: 'mono' }, row.yearVersion) },
-    { title: '排序', key: 'sort', width: 72, render: (row) => h('span', { class: 'numeric' }, String(row.sort ?? 0)) },
+    { title: '排序', key: 'sort', width: 72, align: 'right', render: (row) => h('span', { class: 'numeric' }, String(row.sort ?? 0)) },
     { title: '状态', key: 'status', width: 82, render: (row) => h(StatusTag, { text: row.status === 1 ? '启用' : '停用' }) }
   ]
   if (canManage.value) {

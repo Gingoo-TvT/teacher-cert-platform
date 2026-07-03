@@ -1,6 +1,5 @@
 package cn.edu.gpnu.platform.boot.controller;
 
-import cn.edu.gpnu.platform.common.annotation.AuditLog;
 import cn.edu.gpnu.platform.common.api.PageResult;
 import cn.edu.gpnu.platform.common.api.Result;
 import cn.edu.gpnu.platform.system.service.NotificationService;
@@ -40,7 +39,6 @@ public class NoticeController {
 
     @Operation(summary = "标记通知已读")
     @PreAuthorize("@pms.has('notice:view')")
-    @AuditLog(bizType = "notice", operation = "read")
     @PostMapping("/{id}/read")
     public Result<Void> markRead(@PathVariable Long id) {
         notificationService.markRead(id);
@@ -49,7 +47,6 @@ public class NoticeController {
 
     @Operation(summary = "全部标记已读")
     @PreAuthorize("@pms.has('notice:view')")
-    @AuditLog(bizType = "notice", operation = "readAll")
     @PostMapping("/read-all")
     public Result<Void> markAllRead() {
         notificationService.markAllRead();

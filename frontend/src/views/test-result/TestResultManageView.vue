@@ -74,7 +74,7 @@ const columns: DataTableColumns<AbilityTestResult> = [
   { title: '年度', key: 'assessmentYear', width: 96, render: (row) => h('span', { class: 'mono' }, row.assessmentYear) },
   { title: '组织方式', key: 'examOrgModeLabel', minWidth: 190, ellipsis: { tooltip: true } },
   { title: '应考科目', key: 'examSubjects', minWidth: 220, render: (row) => subjectText(row.examSubjects) },
-  { title: '成绩', key: 'score', minWidth: 150, ellipsis: { tooltip: true }, render: (row) => h('span', { class: 'mono numeric tabular-nums' }, row.score || '-') },
+  { title: '成绩', key: 'score', minWidth: 150, align: 'right', ellipsis: { tooltip: true }, render: (row) => h('span', { class: 'mono numeric tabular-nums' }, row.score || '-') },
   { title: '结论', key: 'conclusion', width: 106, render: (row) => h(StatusTag, { value: row.conclusion, text: row.conclusionLabel || statusLabel(row.conclusion) }) },
   { title: '证书有效', key: 'validForCertificate', width: 108, render: (row) => h(StatusTag, { text: row.validForCertificate ? '有效' : '无效' }) },
   { title: '确认', key: 'confirmStatusLabel', width: 106, render: (row) => h(StatusTag, { value: row.confirmStatus, text: row.confirmStatusLabel || statusLabel(row.confirmStatus) }) },

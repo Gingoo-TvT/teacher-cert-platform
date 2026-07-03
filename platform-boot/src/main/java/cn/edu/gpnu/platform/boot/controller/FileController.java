@@ -47,7 +47,6 @@ public class FileController {
 
     @Operation(summary = "获取下载/预览预签名链接")
     @PreAuthorize("isAuthenticated()")
-    @AuditLog(bizType = "file", operation = "presignedUrl")
     @GetMapping("/{id}/url")
     public Result<String> presignedUrl(@PathVariable Long id,
                                        @RequestParam(value = "expiry", defaultValue = "600") int expiry) {

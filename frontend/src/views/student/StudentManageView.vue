@@ -104,7 +104,7 @@ const columns: DataTableColumns<Student> = [
   { title: '性别', key: 'gender', width: 80, render: (row) => dictLabel(genders.value, row.gender) },
   { title: '身份类型', key: 'identityType', minWidth: 140, ellipsis: { tooltip: true }, render: (row) => dictLabel(identityTypes.value, row.identityType) },
   { title: '证件号', key: 'idCardNo', minWidth: 190, ellipsis: { tooltip: true }, render: (row) => h('span', { class: 'mono' }, row.idCardNo) },
-  { title: '生源地', key: 'sourceFull', minWidth: 170, ellipsis: { tooltip: true } },
+  { title: '生源地', key: 'sourceFull', minWidth: 220, ellipsis: { tooltip: true } },
   { title: '年级/班级', key: 'grade', minWidth: 130, ellipsis: { tooltip: true }, render: (row) => [row.grade, row.className].filter(Boolean).join(' / ') || '-' },
   { title: '状态', key: 'status', width: 108, render: (row) => h(StatusTag, { value: row.status, text: row.statusLabel || statusLabel(row.status) }) },
   { title: '锁定', key: 'locked', width: 76, render: (row) => h(StatusTag, { text: row.locked ? '已锁定' : '未锁定' }) },

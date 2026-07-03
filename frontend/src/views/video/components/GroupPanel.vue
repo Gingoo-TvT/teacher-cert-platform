@@ -41,7 +41,7 @@ const reviewerOptions = ref<SelectOption[]>([])
 
 const columns: DataTableColumns<ReviewerGroup> = [
   { title: '组名', key: 'name', minWidth: 180, ellipsis: { tooltip: true } },
-  { title: '成员数', key: 'memberCount', width: 90, render: (row) => h('span', { class: 'numeric' }, String(row.memberCount)) },
+  { title: '成员数', key: 'memberCount', width: 90, align: 'right', render: (row) => h('span', { class: 'numeric' }, String(row.memberCount)) },
   { title: '状态', key: 'status', width: 90, render: (row) => h(StatusTag, { value: row.status, text: statusLabel(row.status) }) },
   {
     title: '成员',

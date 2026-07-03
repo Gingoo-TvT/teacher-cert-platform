@@ -13,7 +13,7 @@ import {
   SettingsOutline,
   VideocamOutline
 } from '@vicons/ionicons5'
-import { unreadNoticeCount } from '@/api/notice'
+import { useNoticeStore } from '@/stores/notice'
 import { useUserStore } from '@/stores/user'
 import { useYearStore } from '@/stores/year'
 
@@ -21,8 +21,9 @@ const router = useRouter()
 const route = useRoute()
 const userStore = useUserStore()
 const yearStore = useYearStore()
+const noticeStore = useNoticeStore()
 const collapsed = ref(false)
-const unreadCount = ref(0)
+const unreadCount = computed(() => noticeStore.unreadCount)
 let noticeTimer: number | undefined
 
 interface AppMenuLeaf {
@@ -193,15 +194,10 @@ function renderMenuIcon(icon: typeof HomeOutline) {
 
 async function refreshUnread() {
   if (!canViewNotice.value) {
-    unreadCount.value = 0
+    noticeStore.reset()
     return
   }
-  try {
-    const res = await unreadNoticeCount()
-    unreadCount.value = Number(res.data || 0)
-  } catch {
-    unreadCount.value = 0
-  }
+  await noticeStore.refresh()
 }
 
 function openNoticeCenter() {

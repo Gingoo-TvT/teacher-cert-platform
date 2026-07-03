@@ -33,11 +33,37 @@ const chartLayout = computed(() => {
 // 旋转/换行的长类目会撑高 grid.bottom；容器高度需同步增高，否则绘图区被压扁。
 const resolvedHeight = computed(() => {
   const base = Number.parseInt(props.height || '320', 10) || 320
+  if (isPieOption(props.option)) return `${base}px`
   const needed = chartLayout.value.top + 184 + chartLayout.value.bottom
   return `${Math.max(base, needed)}px`
 })
 
-const normalizedOption = computed(() => normalizeOption(props.option))
+const normalizedOption = computed(() =>
+  isPieOption(props.option) ? normalizePieOption(props.option) : normalizeOption(props.option)
+)
+
+function isPieOption(option: echarts.EChartsOption): boolean {
+  const series = Array.isArray(option.series) ? option.series[0] : option.series
+  return isObject(series) && series.type === 'pie'
+}
+
+// 饼/环形图：无坐标轴与 grid，只注入色板 + item 触发的 tooltip + 标签默认。
+function normalizePieOption(option: echarts.EChartsOption): echarts.EChartsOption {
+  const tooltip = isObject(option.tooltip) ? option.tooltip : {}
+  return {
+    color: [...chartPalette],
+    ...option,
+    tooltip: {
+      trigger: 'item',
+      borderColor: chartTooltipBorderColor,
+      borderRadius: 12,
+      padding: [10, 12],
+      confine: true,
+      textStyle: { color: chartAxisColor, fontSize: 13 },
+      ...tooltip
+    }
+  }
+}
 
 function resize() {
   chart?.resize()

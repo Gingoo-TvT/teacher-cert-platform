@@ -250,7 +250,7 @@ select {
   vertical-align: middle;
 }
 
-.n-data-table .mono,
+/* 仅"数量/指标/ID"右对齐；编号/年度类 .mono 保持与表头一致的左对齐（否则表头左、内容右显得错位） */
 .n-data-table .numeric,
 .n-data-table .metric,
 .n-data-table .table-id {

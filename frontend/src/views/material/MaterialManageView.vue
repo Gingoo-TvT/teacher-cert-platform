@@ -152,7 +152,7 @@ const columns: DataTableColumns<ProcessMaterial> = [
 
 const statusColumns: DataTableColumns<StatusRow> = [
   { title: '材料类别', key: 'label', minWidth: 180 },
-  { title: '总数', key: 'total', width: 80, render: (row) => h('span', { class: 'numeric' }, String(row.total)) },
+  { title: '总数', key: 'total', width: 80, align: 'right', render: (row) => h('span', { class: 'numeric' }, String(row.total)) },
   { title: '复审通过', key: 'passedCount', width: 100 },
   { title: '不通过', key: 'failedCount', width: 90 },
   { title: '类别结果', key: 'passed', width: 110, render: (row) => h(StatusTag, { text: row.passed ? '通过' : '未通过' }) }

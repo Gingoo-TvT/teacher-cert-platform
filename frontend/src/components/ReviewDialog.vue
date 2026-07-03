@@ -73,7 +73,8 @@ function text(value?: string | number | null) {
 </script>
 
 <template>
-  <n-modal :show="show" preset="card" :title="title" class="review-dialog" :bordered="false" @update:show="emit('update:show', $event)">
+  <!-- n-modal 内容 teleport 到 body，scoped class 选择器不生效；宽度必须用内联 style -->
+  <n-modal :show="show" preset="card" :title="title" class="review-dialog" :bordered="false" style="width: min(560px, calc(100vw - 32px))" @update:show="emit('update:show', $event)">
     <div class="review-summary">
       <div v-for="item in summary" :key="item.label" class="review-summary__item">
         <span>{{ item.label }}</span>

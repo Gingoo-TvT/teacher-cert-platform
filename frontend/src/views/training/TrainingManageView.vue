@@ -86,7 +86,7 @@ const columns: DataTableColumns<TrainingProfile> = [
   { title: '学号', key: 'studentNo', minWidth: 130, ellipsis: { tooltip: true }, render: (row) => h('span', { class: 'mono' }, row.studentNo || '-') },
   { title: '姓名', key: 'studentName', minWidth: 110, ellipsis: { tooltip: true } },
   { title: '年度', key: 'assessmentYear', width: 96, render: (row) => h('span', { class: 'mono' }, row.assessmentYear) },
-  { title: '学院', key: 'collegeId', minWidth: 150, ellipsis: { tooltip: true }, render: (row) => collegeName(row.collegeId) },
+  { title: '学院', key: 'collegeId', minWidth: 160, ellipsis: { tooltip: true }, render: (row) => collegeName(row.collegeId) },
   { title: '专业', key: 'internalMajorName', minWidth: 180, ellipsis: { tooltip: true } },
   { title: '培养目标', key: 'trainingGoal', minWidth: 130, render: (row) => dictLabel(trainingGoals.value, row.trainingGoal) },
   { title: '实习地点', key: 'internshipLocation', minWidth: 120, render: (row) => dictLabel(internshipLocations.value, row.internshipLocation) },

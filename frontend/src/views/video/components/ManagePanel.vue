@@ -77,10 +77,10 @@ const columns: DataTableColumns<VideoReview> = [
   { title: '学号', key: 'studentNo', minWidth: 130, ellipsis: { tooltip: true }, render: (row) => h('span', { class: 'mono' }, row.studentNo || '-') },
   { title: '姓名', key: 'studentName', minWidth: 110, ellipsis: { tooltip: true } },
   { title: '年度', key: 'assessmentYear', width: 96, render: (row) => h('span', { class: 'mono' }, row.assessmentYear) },
-  { title: '视频文件', key: 'videoFileName', minWidth: 190, ellipsis: { tooltip: true } },
-  { title: '时长', key: 'durationSeconds', width: 86, render: (row) => h('span', { class: 'numeric' }, `${row.durationSeconds || 0}s`) },
+  { title: '视频文件', key: 'videoFileName', minWidth: 220, ellipsis: { tooltip: true } },
+  { title: '时长', key: 'durationSeconds', width: 86, align: 'right', render: (row) => h('span', { class: 'numeric' }, `${row.durationSeconds || 0}s`) },
   { title: '状态', key: 'status', width: 108, render: (row) => h(StatusTag, { value: row.status, text: row.statusLabel || statusLabel(row.status) }) },
-  { title: '终分', key: 'finalScore', width: 78, render: (row) => h('span', { class: 'numeric' }, String(row.finalScore ?? '-')) },
+  { title: '终分', key: 'finalScore', width: 78, align: 'right', render: (row) => h('span', { class: 'numeric' }, String(row.finalScore ?? '-')) },
   { title: '结论', key: 'finalConclusion', width: 88, render: (row) => h(StatusTag, { text: conclusionText(row.finalConclusion) }) },
   {
     title: '操作',

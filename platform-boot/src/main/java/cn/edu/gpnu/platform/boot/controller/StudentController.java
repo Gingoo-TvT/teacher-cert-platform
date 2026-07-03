@@ -111,7 +111,6 @@ public class StudentController {
     @Operation(summary = "学生信息初审")
     @PreAuthorize("@pms.has('info:firstReview')")
     @DataScope(alias = "student", permission = "info:firstReview")
-    @AuditLog(bizType = "student", operation = "firstReview")
     @PostMapping("/{id}/first-review")
     public Result<Void> firstReview(@PathVariable Long id, @Valid @RequestBody StudentReviewRequest request) {
         studentService.firstReview(id, request);
@@ -121,7 +120,6 @@ public class StudentController {
     @Operation(summary = "学生信息复审")
     @PreAuthorize("@pms.has('info:secondReview')")
     @DataScope(alias = "student", permission = "info:secondReview")
-    @AuditLog(bizType = "student", operation = "secondReview")
     @PostMapping("/{id}/second-review")
     public Result<Void> secondReview(@PathVariable Long id, @Valid @RequestBody StudentReviewRequest request) {
         studentService.secondReview(id, request);

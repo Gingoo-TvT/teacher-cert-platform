@@ -85,7 +85,6 @@ public class ProcessMaterialController {
     @Operation(summary = "材料预览链接")
     @PreAuthorize("@pms.has('student:view') or @pms.has('material:upload') or @pms.has('material:firstReview') or @pms.has('material:secondReview')")
     @DataScope(alias = "process_material", permission = "student:view")
-    @AuditLog(bizType = "material", operation = "preview")
     @GetMapping("/preview/{id}")
     public Result<String> preview(@PathVariable Long id) {
         return Result.ok(processMaterialService.previewUrl(id));
@@ -104,7 +103,6 @@ public class ProcessMaterialController {
     @Operation(summary = "材料初审")
     @PreAuthorize("@pms.has('material:firstReview')")
     @DataScope(alias = "process_material", permission = "material:firstReview")
-    @AuditLog(bizType = "material", operation = "firstReview")
     @PostMapping("/{id}/first-review")
     public Result<Void> firstReview(@PathVariable Long id,
                                     @Valid @RequestBody MaterialReviewRequest request) {
@@ -115,7 +113,6 @@ public class ProcessMaterialController {
     @Operation(summary = "材料复审")
     @PreAuthorize("@pms.has('material:secondReview')")
     @DataScope(alias = "process_material", permission = "material:secondReview")
-    @AuditLog(bizType = "material", operation = "secondReview")
     @PostMapping("/{id}/second-review")
     public Result<Void> secondReview(@PathVariable Long id,
                                      @Valid @RequestBody MaterialReviewRequest request) {

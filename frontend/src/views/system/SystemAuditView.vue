@@ -99,7 +99,7 @@ const auditColumns: DataTableColumns<AuditLog> = [
   { title: '对象', key: 'target', minWidth: 180, ellipsis: { tooltip: true } },
   { title: '旧状态', key: 'oldStatus', width: 126, ellipsis: { tooltip: true }, render: (row) => row.oldStatus ? h(StatusTag, { value: row.oldStatus, text: statusLabel(row.oldStatus) }) : '-' },
   { title: '新状态', key: 'newStatus', width: 126, ellipsis: { tooltip: true }, render: (row) => row.newStatus ? h(StatusTag, { value: row.newStatus, text: statusLabel(row.newStatus) }) : '-' },
-  { title: '意见', key: 'comment', minWidth: 190, ellipsis: { tooltip: true } },
+  { title: '意见', key: 'comment', minWidth: 200, ellipsis: { tooltip: true } },
   { title: '操作人', key: 'operatorName', width: 140, ellipsis: { tooltip: true } },
   { title: 'IP', key: 'ip', width: 128, ellipsis: { tooltip: true } },
   {

@@ -63,7 +63,6 @@ public class TeachingSubjectController {
 
     @Operation(summary = "记录最近使用任教学科")
     @PreAuthorize("@pms.has('dict:view')")
-    @AuditLog(bizType = "subject", operation = "recent")
     @PostMapping("/recent")
     public Result<Void> recordRecent(@Valid @RequestBody SubjectSelectRequest request) {
         teachingSubjectService.recordRecent(request.getSegmentCode(), request.getSubjectCode(), request.getYearVersion());

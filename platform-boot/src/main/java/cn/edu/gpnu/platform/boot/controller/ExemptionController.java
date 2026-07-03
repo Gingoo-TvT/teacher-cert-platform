@@ -127,7 +127,6 @@ public class ExemptionController {
     @Operation(summary = "免考佐证预览")
     @PreAuthorize("@pms.has('student:view') or @pms.has('exemption:apply') or @pms.has('exemption:firstReview') or @pms.has('exemption:secondReview')")
     @DataScope(alias = "exemption_material", permission = "student:view")
-    @AuditLog(bizType = "exemption", operation = "previewMaterial")
     @GetMapping("/materials/{materialId}/preview")
     public Result<String> previewMaterial(@PathVariable Long materialId) {
         return Result.ok(exemptionService.previewMaterial(materialId));
@@ -146,7 +145,6 @@ public class ExemptionController {
     @Operation(summary = "免考初审")
     @PreAuthorize("@pms.has('exemption:firstReview')")
     @DataScope(alias = "exemption_request", permission = "exemption:firstReview")
-    @AuditLog(bizType = "exemption", operation = "firstReview")
     @PostMapping("/{id}/first-review")
     public Result<Void> firstReview(@PathVariable Long id,
                                     @Valid @RequestBody ExemptionReviewRequest request) {
@@ -157,7 +155,6 @@ public class ExemptionController {
     @Operation(summary = "免考复审")
     @PreAuthorize("@pms.has('exemption:secondReview')")
     @DataScope(alias = "exemption_request", permission = "exemption:secondReview")
-    @AuditLog(bizType = "exemption", operation = "secondReview")
     @PostMapping("/{id}/second-review")
     public Result<Void> secondReview(@PathVariable Long id,
                                      @Valid @RequestBody ExemptionReviewRequest request) {

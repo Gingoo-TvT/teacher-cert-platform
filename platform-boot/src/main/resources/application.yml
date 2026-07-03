@@ -6,6 +6,12 @@ spring:
     name: teacher-cert-platform
   profiles:
     active: dev
+  servlet:
+    multipart:
+      # 与 file.maxSize.* 业务参数对齐：材料/佐证 50MB 级、名册 Excel 数十 MB；
+      # 不设则 Spring 默认 1MB/10MB，业务上限形同虚设（上传直接被框架拒绝）。
+      max-file-size: 100MB
+      max-request-size: 120MB
 
 # 接口文档：访问 http://localhost:8080/doc.html
 springdoc:

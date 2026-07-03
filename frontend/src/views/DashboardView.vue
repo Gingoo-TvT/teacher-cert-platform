@@ -104,17 +104,25 @@ const statCards = computed(() => {
 
 const quickEntries = computed(() => roleEntries().filter((item) => !item.perms?.length || item.perms.some((perm) => userStore.hasPerm(perm))).slice(0, 6))
 
-const chartOption = computed<EChartsOption>(() => {
-  const chartRows = rows.value.slice(0, 12)
-  return {
-    xAxis: {
-      type: 'category',
-      data: chartRows.map((row) => chartLabel(row))
-    },
-    yAxis: { type: 'value' },
-    series: [{ type: 'bar', data: chartRows.map((row) => row.count || 0), barMaxWidth: 32 }]
-  }
-})
+// 类目 ≤8 且有数值 → 环形图看占比；否则用普通列表展示（不再画柱状图）。
+const chartRows = computed(() => rows.value.filter((row) => Number(row.count || 0) > 0))
+const showChart = computed(() => chartRows.value.length > 0 && chartRows.value.length <= 8)
+const listRows = computed(() => rows.value.slice(0, 8))
+const chartOption = computed<EChartsOption>(() => ({
+  legend: { show: false },
+  series: [
+    {
+      type: 'pie',
+      radius: ['42%', '68%'],
+      center: ['50%', '50%'],
+      avoidLabelOverlap: true,
+      itemStyle: { borderColor: '#fff', borderWidth: 2, borderRadius: 6 },
+      label: { formatter: '{b}\n{c} ({d}%)', color: 'inherit', fontSize: 13, lineHeight: 18 },
+      labelLine: { length: 14, length2: 10 },
+      data: chartRows.value.map((row) => ({ name: chartLabel(row), value: Number(row.count || 0) }))
+    }
+  ]
+}))
 
 onMounted(loadDashboard)
 
@@ -294,7 +302,14 @@ function showError(error: unknown, fallback: string) {
       <n-gi v-if="canViewStats">
         <n-card :bordered="false" class="chart-card">
           <template #header>{{ report?.title || '业务统计' }}</template>
-          <ChartBox :option="chartOption" height="320px" />
+          <ChartBox v-if="showChart" :option="chartOption" height="320px" />
+          <div v-else-if="listRows.length" class="stat-list">
+            <div v-for="row in listRows" :key="chartLabel(row)" class="stat-list__row">
+              <span class="stat-list__name">{{ chartLabel(row) }}</span>
+              <span class="stat-list__count numeric tabular-nums">{{ row.count || 0 }}</span>
+            </div>
+          </div>
+          <n-empty v-else description="暂无统计数据" />
         </n-card>
       </n-gi>
 
@@ -330,6 +345,39 @@ function showError(error: unknown, fallback: string) {
 .chart-card :deep(.n-card-header),
 .notice-card :deep(.n-card-header) {
   padding-bottom: var(--space-3);
+}
+
+.stat-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.stat-list__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 10px 2px;
+  border-bottom: 1px solid var(--shell-border);
+}
+
+.stat-list__row:last-child {
+  border-bottom: none;
+}
+
+.stat-list__name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stat-list__count {
+  flex: none;
+  width: auto;
+  color: var(--brand);
+  font-weight: 600;
 }
 
 .quick-entry {

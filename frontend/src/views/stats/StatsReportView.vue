@@ -63,24 +63,23 @@ const summary = computed(() => {
   }
 })
 
-const chartRows = computed(() => rows.value.slice(0, 20))
-// 横向条形：维度名放 Y 轴左侧完整可读（不再旋转/截断 x 轴长名）；高度随条数增长。
-const chartHeight = computed(() => `${Math.max(320, chartRows.value.length * 34 + 96)}px`)
+// 图表策略：类目 ≤8 且有数值时画环形图（占比一目了然）；类目过多时不画图，直接看下方列表。
+const chartRows = computed(() => rows.value.filter((row) => Number(row.count || 0) > 0))
+const showChart = computed(() => chartRows.value.length > 0 && chartRows.value.length <= 8)
 const chartOption = computed<EChartsOption>(() => {
   return {
-    grid: { left: 12, right: 28, top: 12, bottom: 8, containLabel: true },
-    xAxis: { type: 'value', minInterval: 1 },
-    yAxis: {
-      type: 'category',
-      inverse: true,
-      data: chartRows.value.map((row) => chartLabel(row))
-    },
+    legend: { show: false },
     series: [
       {
         name: currentType.value.label,
-        type: 'bar',
-        barMaxWidth: 20,
-        data: chartRows.value.map((row) => row.count || 0)
+        type: 'pie',
+        radius: ['42%', '68%'],
+        center: ['50%', '50%'],
+        avoidLabelOverlap: true,
+        itemStyle: { borderColor: '#fff', borderWidth: 2, borderRadius: 6 },
+        label: { formatter: '{b}\n{c} ({d}%)', color: 'inherit', fontSize: 13, lineHeight: 18 },
+        labelLine: { length: 14, length2 : 10 },
+        data: chartRows.value.map((row) => ({ name: chartLabel(row), value: Number(row.count || 0) }))
       }
     ]
   }
@@ -89,7 +88,7 @@ const chartOption = computed<EChartsOption>(() => {
 const rowColumns: DataTableColumns<StatsRow> = [
   { title: '统计维度', key: 'dimensionLabel', minWidth: 220, ellipsis: { tooltip: true }, render: (row) => row.dimensionLabel || row.dimension || '-' },
   { title: '状态', key: 'statusLabel', minWidth: 150, ellipsis: { tooltip: true }, render: (row) => h(StatusTag, { value: row.status, text: row.statusLabel || row.status || '-' }) },
-  { title: '数量', key: 'count', width: 104, render: (row) => h('span', { class: 'numeric tabular-nums' }, String(row.count || 0)) },
+  { title: '数量', key: 'count', width: 104, align: 'right', render: (row) => h('span', { class: 'numeric tabular-nums' }, String(row.count || 0)) },
   { title: '扩展指标', key: 'values', minWidth: 360, render: (row) => renderValues(row.values) }
 ]
 
@@ -98,7 +97,7 @@ const detailColumns: DataTableColumns<StatsDetail> = [
   { title: '姓名', key: 'studentName', minWidth: 110, ellipsis: { tooltip: true }, render: (row) => row.studentName || '-' },
   { title: '学院', key: 'collegeName', minWidth: 160, ellipsis: { tooltip: true }, render: (row) => row.collegeName || '-' },
   { title: '字段/项目', key: 'fieldName', minWidth: 160, ellipsis: { tooltip: true }, render: (row) => row.fieldName || '-' },
-  { title: '原因/状态', key: 'errorReason', minWidth: 180, ellipsis: { tooltip: true }, render: (row) => row.errorReason || '-' },
+  { title: '原因/状态', key: 'errorReason', minWidth: 200, ellipsis: { tooltip: true }, render: (row) => row.errorReason || '-' },
   { title: '明细值', key: 'values', minWidth: 360, render: (row) => renderValues(row.values) }
 ]
 
@@ -248,14 +247,14 @@ watch(
       {{ report.denominatorRule }}
     </n-alert>
 
-    <n-card v-if="canViewStats" :bordered="false" class="page-section chart-card">
+    <n-card v-if="canViewStats && showChart" :bordered="false" class="page-section chart-card">
       <template #header>
         <n-space vertical :size="2">
           <span>{{ report?.title || currentType.label }}</span>
           <span class="muted">{{ currentType.description }}</span>
         </n-space>
       </template>
-      <ChartBox :option="chartOption" :height="chartHeight" />
+      <ChartBox :option="chartOption" height="320px" />
     </n-card>
 
     <DataPanel

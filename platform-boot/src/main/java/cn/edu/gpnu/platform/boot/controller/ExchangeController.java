@@ -41,7 +41,6 @@ public class ExchangeController {
 
     @Operation(summary = "下载标准导入模板")
     @PreAuthorize("@pms.has('exchange:template')")
-    @AuditLog(bizType = "exchange", operation = "template")
     @GetMapping("/template")
     public void template(ExchangeQuery query, HttpServletResponse response) throws IOException {
         writeFile(exchangeService.template(query), response);

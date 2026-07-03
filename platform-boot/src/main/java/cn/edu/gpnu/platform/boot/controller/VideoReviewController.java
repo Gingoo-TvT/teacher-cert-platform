@@ -46,7 +46,6 @@ public class VideoReviewController {
 
     @Operation(summary = "视频分片上传初始化")
     @PreAuthorize("@pms.has('video:upload')")
-    @AuditLog(bizType = "video", operation = "uploadInit")
     @PostMapping("/upload/init")
     public Result<VideoUploadInitVO> initUpload(@Valid @RequestBody VideoUploadInitRequest request) {
         return Result.ok(videoReviewService.initUpload(request));
@@ -54,7 +53,6 @@ public class VideoReviewController {
 
     @Operation(summary = "上传视频分片")
     @PreAuthorize("@pms.has('video:upload')")
-    @AuditLog(bizType = "video", operation = "uploadChunk")
     @PostMapping("/upload/chunk")
     public Result<Void> uploadChunk(@RequestParam("uploadId") String uploadId,
                                     @RequestParam("index") Integer index,
@@ -148,7 +146,6 @@ public class VideoReviewController {
     @Operation(summary = "第三专家复评")
     @PreAuthorize("@pms.has('video:arbitrate')")
     @DataScope(alias = "video_review", permission = "video:arbitrate")
-    @AuditLog(bizType = "video", operation = "thirdReview")
     @PostMapping("/reviews/{id}/third-review")
     public Result<Void> thirdReview(@PathVariable Long id,
                                     @Valid @RequestBody VideoThirdReviewRequest request) {
@@ -159,7 +156,6 @@ public class VideoReviewController {
     @Operation(summary = "学院仲裁")
     @PreAuthorize("@pms.has('video:arbitrate')")
     @DataScope(alias = "video_review", permission = "video:arbitrate")
-    @AuditLog(bizType = "video", operation = "arbitrate")
     @PostMapping("/reviews/{id}/arbitrate")
     public Result<Void> arbitrate(@PathVariable Long id,
                                   @Valid @RequestBody VideoArbitrateRequest request) {
@@ -170,7 +166,6 @@ public class VideoReviewController {
     @Operation(summary = "学院负责人确认视频结果")
     @PreAuthorize("@pms.has('video:confirm')")
     @DataScope(alias = "video_review", permission = "video:confirm")
-    @AuditLog(bizType = "video", operation = "confirm")
     @PostMapping("/reviews/{id}/confirm")
     public Result<Void> confirm(@PathVariable Long id) {
         videoReviewService.confirm(id);

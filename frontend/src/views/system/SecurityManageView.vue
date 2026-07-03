@@ -68,7 +68,7 @@ const userColumns: DataTableColumns<User> = [
   { title: '用户名', key: 'username', minWidth: 150, ellipsis: { tooltip: true } },
   { title: '姓名', key: 'realName', minWidth: 140, ellipsis: { tooltip: true } },
   { title: '类型', key: 'userType', width: 92, render: (row) => userTypeTag(row.userType) },
-  { title: '学院', key: 'collegeName', minWidth: 150, ellipsis: { tooltip: true } },
+  { title: '学院', key: 'collegeName', minWidth: 160, ellipsis: { tooltip: true } },
   {
     title: '角色',
     key: 'roles',
@@ -105,7 +105,7 @@ const roleColumns: DataTableColumns<Role> = [
   { title: '角色编码', key: 'code', minWidth: 150, ellipsis: { tooltip: true } },
   { title: '角色名称', key: 'name', minWidth: 150, ellipsis: { tooltip: true } },
   { title: '说明', key: 'description', minWidth: 220, ellipsis: { tooltip: true } },
-  { title: '排序', key: 'sort', width: 72, render: (row) => h('span', { class: 'numeric' }, String(row.sort ?? 0)) },
+  { title: '排序', key: 'sort', width: 72, align: 'right', render: (row) => h('span', { class: 'numeric' }, String(row.sort ?? 0)) },
   { title: '状态', key: 'status', width: 82, render: (row) => enabledTag(row.status) },
   {
     title: '操作',
@@ -129,7 +129,7 @@ const permissionColumns: DataTableColumns<Permission> = [
   { title: '功能名称', key: 'name', minWidth: 220, ellipsis: { tooltip: true } },
   { title: '类型', key: 'type', width: 90, render: (row) => permissionTypeName(row.type) },
   { title: '路径', key: 'path', minWidth: 220, ellipsis: { tooltip: true }, render: (row) => row.path || '-' },
-  { title: '排序', key: 'sort', width: 72, render: (row) => h('span', { class: 'numeric' }, String(row.sort ?? 0)) },
+  { title: '排序', key: 'sort', width: 72, align: 'right', render: (row) => h('span', { class: 'numeric' }, String(row.sort ?? 0)) },
   { title: '状态', key: 'status', width: 82, render: (row) => enabledTag(row.status) }
 ]
 

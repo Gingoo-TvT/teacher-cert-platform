@@ -43,7 +43,7 @@ const columns: DataTableColumns<RegionTableRow> = [
   { title: '代码', key: 'code', width: 120, render: (row) => h('span', { class: 'mono' }, row.code) },
   { title: '层级', key: 'levelName', width: 100 },
   { title: '父级代码', key: 'parentCode', width: 120, render: (row) => row.parentCode ? h('span', { class: 'mono' }, row.parentCode) : '-' },
-  { title: '排序', key: 'sort', width: 72, render: (row) => h('span', { class: 'numeric' }, String(row.sort ?? 0)) },
+  { title: '排序', key: 'sort', width: 72, align: 'right', render: (row) => h('span', { class: 'numeric' }, String(row.sort ?? 0)) },
   {
     title: '节点',
     key: 'leaf',

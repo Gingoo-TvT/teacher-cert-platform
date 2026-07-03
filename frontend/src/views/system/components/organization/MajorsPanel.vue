@@ -65,7 +65,7 @@ const collegeColumns = computed<DataTableColumns<College>>(() => {
   const columns: DataTableColumns<College> = [
     { title: '学院编码', key: 'code', minWidth: 130, ellipsis: { tooltip: true }, render: (row) => h('span', { class: 'mono' }, row.code) },
     { title: '学院名称', key: 'name', minWidth: 160, ellipsis: { tooltip: true } },
-    { title: '排序', key: 'sort', width: 72, render: (row) => h('span', { class: 'numeric' }, String(row.sort ?? 0)) },
+    { title: '排序', key: 'sort', width: 72, align: 'right', render: (row) => h('span', { class: 'numeric' }, String(row.sort ?? 0)) },
     { title: '状态', key: 'status', width: 82, render: (row) => h(StatusTag, { text: row.status === 1 ? '启用' : '停用' }) }
   ]
   if (canManageCollege.value) {
@@ -93,8 +93,8 @@ const collegeColumns = computed<DataTableColumns<College>>(() => {
 const majorColumns = computed<DataTableColumns<Major>>(() => {
   const columns: DataTableColumns<Major> = [
     { title: '专业代码', key: 'internalMajorCode', minWidth: 140, ellipsis: { tooltip: true }, render: (row) => h('span', { class: 'mono' }, row.internalMajorCode) },
-    { title: '专业名称', key: 'internalMajorName', minWidth: 170, ellipsis: { tooltip: true } },
-    { title: '学院', key: 'collegeName', minWidth: 150, ellipsis: { tooltip: true } },
+    { title: '专业名称', key: 'internalMajorName', minWidth: 180, ellipsis: { tooltip: true } },
+    { title: '学院', key: 'collegeName', minWidth: 160, ellipsis: { tooltip: true } },
     { title: '年度', key: 'yearVersion', width: 96, render: (row) => h('span', { class: 'mono' }, row.yearVersion) },
     { title: '试点', key: 'pilotScopeFlag', width: 80, render: (row) => h(StatusTag, { text: row.pilotScopeFlag === 1 ? '是' : '否' }) },
     {

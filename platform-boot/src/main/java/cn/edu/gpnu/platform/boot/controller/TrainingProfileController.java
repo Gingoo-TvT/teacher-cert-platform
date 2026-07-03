@@ -88,7 +88,6 @@ public class TrainingProfileController {
     @Operation(summary = "培养信息初审")
     @PreAuthorize("@pms.has('info:firstReview')")
     @DataScope(alias = "training_profile", permission = "info:firstReview")
-    @AuditLog(bizType = "training", operation = "firstReview")
     @PostMapping("/{id}/first-review")
     public Result<Void> firstReview(@PathVariable Long id,
                                     @Valid @RequestBody TrainingReviewRequest request) {
@@ -99,7 +98,6 @@ public class TrainingProfileController {
     @Operation(summary = "培养信息复审")
     @PreAuthorize("@pms.has('info:secondReview')")
     @DataScope(alias = "training_profile", permission = "info:secondReview")
-    @AuditLog(bizType = "training", operation = "secondReview")
     @PostMapping("/{id}/second-review")
     public Result<Void> secondReview(@PathVariable Long id,
                                      @Valid @RequestBody TrainingReviewRequest request) {

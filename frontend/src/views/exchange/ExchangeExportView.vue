@@ -73,9 +73,9 @@ const batchColumns: DataTableColumns<ExchangeBatch> = [
   { title: '类型', key: 'type', width: 90, render: (row) => batchTypeLabel(row.type) },
   { title: '导出项', key: 'strategy', width: 150, render: (row) => exportTypeLabel(row.strategy) },
   { title: '时间', key: 'operateTime', width: 170, render: (row) => h('span', { class: 'mono tabular-nums' }, formatDateTime(row.operateTime)) },
-  { title: '数量', key: 'successCount', width: 90, render: (row) => h('span', { class: 'numeric' }, String(row.successCount ?? 0)) },
+  { title: '数量', key: 'successCount', width: 90, align: 'right', render: (row) => h('span', { class: 'numeric' }, String(row.successCount ?? 0)) },
   { title: '状态', key: 'status', width: 120, render: (row) => h(StatusTag, { value: row.status, text: batchStatusLabel(row.status) }) },
-  { title: '文件', key: 'fileName', minWidth: 180, ellipsis: { tooltip: true }, render: (row) => row.fileName || '-' }
+  { title: '文件', key: 'fileName', minWidth: 220, ellipsis: { tooltip: true }, render: (row) => row.fileName || '-' }
 ]
 
 async function loadOptions() {

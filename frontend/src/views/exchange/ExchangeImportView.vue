@@ -62,9 +62,9 @@ const batchColumns: DataTableColumns<ExchangeBatch> = [
   { title: '批次号', key: 'batchNo', minWidth: 180, ellipsis: { tooltip: true }, render: (row) => h('span', { class: 'mono' }, row.batchNo) },
   { title: '类型', key: 'type', width: 90, render: (row) => batchTypeLabel(row.type) },
   { title: '时间', key: 'operateTime', width: 170, render: (row) => h('span', { class: 'mono tabular-nums' }, formatDateTime(row.operateTime)) },
-  { title: '总数', key: 'total', width: 80, render: (row) => h('span', { class: 'numeric' }, String(row.total ?? 0)) },
-  { title: '成功', key: 'successCount', width: 80, render: (row) => h('span', { class: 'numeric' }, String(row.successCount ?? 0)) },
-  { title: '失败', key: 'failCount', width: 80, render: (row) => h('span', { class: 'numeric' }, String(row.failCount ?? 0)) },
+  { title: '总数', key: 'total', width: 80, align: 'right', render: (row) => h('span', { class: 'numeric' }, String(row.total ?? 0)) },
+  { title: '成功', key: 'successCount', width: 80, align: 'right', render: (row) => h('span', { class: 'numeric' }, String(row.successCount ?? 0)) },
+  { title: '失败', key: 'failCount', width: 80, align: 'right', render: (row) => h('span', { class: 'numeric' }, String(row.failCount ?? 0)) },
   { title: '策略', key: 'strategy', width: 130, render: (row) => strategyLabel(row.strategy) },
   { title: '状态', key: 'status', width: 120, render: (row) => h(StatusTag, { value: row.status, text: batchStatusLabel(row.status) }) },
   {
@@ -90,7 +90,7 @@ const batchColumns: DataTableColumns<ExchangeBatch> = [
 ]
 
 const previewColumns: DataTableColumns<ImportPreviewRow> = [
-  { title: '行号', key: 'rowNo', width: 80, render: (row) => h('span', { class: 'numeric' }, String(row.rowNo)) },
+  { title: '行号', key: 'rowNo', width: 80, align: 'right', render: (row) => h('span', { class: 'numeric' }, String(row.rowNo)) },
   { title: '学号', key: 'studentNo', minWidth: 130, render: (row) => h('span', { class: 'mono' }, row.row.studentNo || '-') },
   { title: '姓名', key: 'name', width: 120, render: (row) => row.row.name || '-' },
   { title: '证件号', key: 'idCardNo', minWidth: 190, ellipsis: { tooltip: true }, render: (row) => h('span', { class: 'mono' }, row.row.idCardNo || '-') },
@@ -98,7 +98,7 @@ const previewColumns: DataTableColumns<ImportPreviewRow> = [
 ]
 
 const errorColumns: DataTableColumns<ImportError> = [
-  { title: '行号', key: 'rowNo', width: 80, render: (row) => h('span', { class: 'numeric' }, String(row.rowNo)) },
+  { title: '行号', key: 'rowNo', width: 80, align: 'right', render: (row) => h('span', { class: 'numeric' }, String(row.rowNo)) },
   { title: '学号', key: 'studentNo', minWidth: 120, render: (row) => h('span', { class: 'mono' }, row.studentNo || '-') },
   { title: '姓名', key: 'studentName', width: 120, render: (row) => row.studentName || '-' },
   { title: '字段', key: 'fieldName', minWidth: 140 },

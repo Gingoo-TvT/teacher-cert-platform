@@ -8,10 +8,12 @@ import StatusTag from '@/components/StatusTag.vue'
 import StatCard from '@/components/StatCard.vue'
 import { listNotices, markAllNoticesRead, markNoticeRead, type NotificationItem } from '@/api/notice'
 import { formatDateTime } from '@/utils/format'
+import { useNoticeStore } from '@/stores/notice'
 
 type ReadFilter = 'all' | 'unread' | 'read'
 
 const message = useMessage()
+const noticeStore = useNoticeStore()
 const loading = ref(false)
 const notices = ref<NotificationItem[]>([])
 const readFilter = ref<ReadFilter>('all')
@@ -66,6 +68,7 @@ async function openNotice(row: NotificationItem) {
   try {
     await markNoticeRead(row.id)
     row.readFlag = 1
+    void noticeStore.refresh() // 同步外壳角标/菜单圆点
   } catch (error) {
     showError(error, '操作失败')
   }
@@ -75,6 +78,7 @@ async function handleReadAll() {
   try {
     await markAllNoticesRead()
     notices.value = notices.value.map((item) => ({ ...item, readFlag: 1 }))
+    noticeStore.reset() // 立即清零外壳角标/菜单圆点
     message.success('已全部标记为已读')
   } catch (error) {
     showError(error, '操作失败')

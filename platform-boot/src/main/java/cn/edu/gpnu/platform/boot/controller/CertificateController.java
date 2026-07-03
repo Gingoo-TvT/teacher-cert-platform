@@ -92,7 +92,6 @@ public class CertificateController {
 
     @Operation(summary = "作废证书")
     @PreAuthorize("@pms.has('cert:void')")
-    @AuditLog(bizType = "cert", operation = "void")
     @PostMapping("/{id}/void")
     public Result<CertificateVO> voidCertificate(@PathVariable Long id,
                                                  @Valid @RequestBody CertificateVoidRequest request) {
@@ -101,7 +100,6 @@ public class CertificateController {
 
     @Operation(summary = "重开证书")
     @PreAuthorize("@pms.has('cert:reissue')")
-    @AuditLog(bizType = "cert", operation = "reissue")
     @PostMapping("/{id}/reissue")
     public Result<CertificateVO> reissue(@PathVariable Long id) {
         return Result.ok(certificateService.reissue(id));
@@ -109,7 +107,6 @@ public class CertificateController {
 
     @Operation(summary = "更正证书")
     @PreAuthorize("@pms.has('cert:correct')")
-    @AuditLog(bizType = "cert", operation = "correct")
     @PutMapping("/{id}/correct")
     public Result<CertificateVO> correct(@PathVariable Long id,
                                          @Valid @RequestBody CertificateCorrectRequest request) {
