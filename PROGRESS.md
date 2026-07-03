@@ -5,10 +5,10 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**Phase 33 待复核**——工作台 v2、视频页拆分与评分工作台、学生端材料/视频/证书卡片化已完成，等待 Claude 按 Phase33 gate ①-⑥复核。
+- 当前阶段：**Phase 33 ✅ 已复核（Claude 07-03，功能 PASS·一轮·0 修补）**——前端整改四阶段（Phase 30–33）全部完成。W6 行数红线转可选 Phase 34。
 - 阻塞项：无
-- 最近更新：2026-07-03（Phase 33：Dashboard 问候/快捷入口/通知列表；视频页拆为 UploadPanel/MyTaskPanel/ManagePanel/GroupPanel，主文件 49 行；学生材料四卡、视频步骤条、证书卡完成；type-check/build 通过。）
-- 下一步：Claude 按 `docs/frontend-quality-plan.md` §4 Phase33 gate 复核，含 6 角色矩阵走查。
+- 最近更新：2026-07-03（Phase 33 复核通过：视频页 915→49 行拆 4 面板、评分工作台、学生材料四卡/视频步骤条/证书卡、工作台 v2 问候+快捷入口+真实计数；W3 空、构建绿、活体 5 角色走查零 403。系统性遗留：W6「>400 行拆分」全项目 13 文件未达标（含 P32 已放行的 Org 1006/Security 798），非本阶段独有，转可选 Phase 34。详见 docs/reviews/phase-33-review.md）
+- 下一步：用户对全新前端最终目验；如需落地 W6 行数红线，可起可选 Phase 34「组件拆分」（纯内部重构）。
 
 ## 阶段汇总
 | Phase | 名称 | 优先级 | 任务数 | 完成 | 状态 |
@@ -342,7 +342,7 @@
 - 验证：`npm --prefix frontend run type-check` 通过；`npm --prefix frontend run build` 通过（仅既有 Vite chunk-size warning）；附录 A 黑名单、纯前端范围、旧抽屉宽度、系统页裸表格扫描输出为空。等待 Claude 复核，未自行置复核通过。
 
 ## 收官后 · Phase 33 / 工作台 v2 + 视频评审工作台 + 学生端友好化
-- Phase 33 `工作台 v2 + 视频评审工作台 + 学生端友好化`：**待复核**（分支：`feature/phase33-workbench-student`）。纯前端展示层改造；未改后端、契约、迁移或 stores 逻辑；未新增依赖；未 push。
+- Phase 33 `工作台 v2 + 视频评审工作台 + 学生端友好化`：**✅ 已复核（Claude 2026-07-03，功能 PASS·一轮·0 修补）**（分支：`feature/phase33-workbench-student`）。视频 915→49 拆 4 面板 + 评分工作台 + 学生三页卡片化 + 工作台 v2；W3 空、活体 5 角色零 403。W6 行数系统性遗留(13 文件)转可选 Phase 34。详见 `docs/reviews/phase-33-review.md`。纯前端；未新增依赖。
 - [x] 工作台 v2：页头改问候语（姓名/角色/日期），指标卡继续使用统计/通知真实返回值并带 icon；新增 6 角色快捷入口卡；最近通知改列表组件；图表继续走 `ChartBox`。
 - [x] 视频页拆分：新增 `views/video/components/{UploadPanel,MyTaskPanel,ManagePanel,GroupPanel}.vue`；`VideoReviewView.vue` 缩至 49 行；`MyTaskPanel` 改为左任务列表 + 右评分区工作台，替代弹窗评分。
 - [x] 学生端友好化：材料 `selfMode` 改四类卡片网格；视频 `selfMode` 改步骤条 + 退回意见 + 重新上传；证书 `selfMode` 改青绿描边证书卡，展示证书号、有效期和状态。

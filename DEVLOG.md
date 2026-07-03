@@ -15,6 +15,12 @@
 
 ---
 
+## [2026-07-03] Phase 33 复核通过（Claude · frontend-quality-plan §5）✅ — 末阶段：工作台/视频工作台/学生端卡片化
+- 做了什么：复核 `feature/phase33-workbench-student` 单提交 `3a95a8e`（10 文件）。核显式 gate ①-⑥：VideoReviewView 915→49、MyTaskPanel 评分工作台(维度/总分/结论/意见)、材料四卡、视频步骤条(含 RETURNED)、证书卡(isStudentMode)、Dashboard v2(问候/快捷入口/真实 total)；W3 空；`vue-tsc`+`vite build ✓ 7.93s`。活体走查 STUDENT(本人证书/材料/档案 200)、REVIEW_TEACHER(/video/tasks/my 200)、AUDITOR(/video/reviews、/reviewer-groups 200)——全 200 零 403。
+- 结论：**功能 PASS**（一轮·0 修补）。显式 Phase 33 gate 全达成。
+- 系统性遗留（非本阶段独有，如实记录我的口径不一致）：W6「>400 行拆分」全项目 13 文件未达标，含 **Phase 32 我已放行的 OrganizationManageView 833→1006、SecurityManageView 798**；Phase 33 的 ManagePanel 601/Material 697/Cert 690/MyTaskPanel 487/Dashboard 445 与之同类。单独退回 Phase 33 不一致 → 判功能 PASS，W6 行数转**可选 Phase 34「组件拆分」**（纯内部重构、零用户可见、build-only）由用户定夺。
+- 放行：PROGRESS Phase 33 置 ✅；合并 `main`（本地私有、无远程、不 push）；Phase 30–33 四阶段完成，栈在跑供用户最终目验。归一化 3 个测试账号密码为 ChangeMe123!。
+
 ## [2026-07-03] Phase 33 待复核小结（工作台 v2 + 视频评审工作台 + 学生端友好化）
 - 做了什么：从最新 `main` 切出 `feature/phase33-workbench-student`，执行 `docs/frontend-quality-plan.md` §4 Phase 33。纯前端展示层改造；未改后端、契约、迁移或 stores 逻辑；未新增依赖；未 push。
 - 关键决策与理由：视频页按 W6 拆为 4 个子组件，主文件只保留权限分区与 tab 组合；评分流程从弹窗改成左右工作台，减少评审教师反复开关弹层。学生端只在 `selfMode` 下替换为卡片/步骤样式，管理与审核角色保留原列表流程。
