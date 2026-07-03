@@ -281,7 +281,10 @@ onMounted(() => {
       <label class="filter-field">
         <span>文件</span>
         <n-upload v-model:file-list="fileList" :max="1" accept=".xlsx" :default-upload="false">
-          <n-button>选择 Excel</n-button>
+          <n-upload-dragger class="compact-upload">
+            <n-text>点击或拖拽 Excel 到此处上传</n-text>
+            <n-p depth="3">支持 XLSX 文件，最多 1 个文件。</n-p>
+          </n-upload-dragger>
         </n-upload>
       </label>
       <label class="filter-field">
@@ -305,7 +308,6 @@ onMounted(() => {
           :columns="previewColumns"
           :data="prevalidate?.previewRows ?? []"
           :total="prevalidate?.previewRows.length ?? 0"
-          :scroll-x="860"
           :page-size="8"
           :show-refresh="false"
           empty-title="暂无成功预览"
@@ -318,7 +320,6 @@ onMounted(() => {
           :columns="errorColumns"
           :data="prevalidate?.errors ?? []"
           :total="prevalidate?.errors.length ?? 0"
-          :scroll-x="1120"
           :page-size="8"
           :show-refresh="false"
           empty-title="暂无异常"
@@ -332,7 +333,6 @@ onMounted(() => {
           :data="batches"
           :total="batches.length"
           :loading="loading"
-          :scroll-x="1180"
           empty-title="暂无导入批次"
           empty-description="完成预校验或导入后会生成批次记录。"
           @refresh="loadBatches"
@@ -343,4 +343,7 @@ onMounted(() => {
 </template>
 
 <style scoped>
+.compact-upload {
+  width: min(360px, 100%);
+}
 </style>

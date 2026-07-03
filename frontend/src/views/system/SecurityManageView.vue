@@ -321,7 +321,6 @@ onMounted(refreshAll)
             :columns="userColumns"
             :data="users"
             :total="users.length"
-            :scroll-x="1040"
             :loading="userLoading"
             :max-height="620"
             empty-title="暂无用户"
@@ -350,7 +349,6 @@ onMounted(refreshAll)
             :total="roles.length"
             :loading="roleLoading"
             :max-height="620"
-            :scroll-x="840"
             empty-title="暂无角色"
             empty-description="当前筛选条件下没有角色记录。"
             @refresh="loadRoles"
@@ -372,7 +370,6 @@ onMounted(refreshAll)
             :columns="permissionColumns"
             :data="permissions"
             :total="summary.permissions"
-            :scroll-x="760"
             :loading="permissionLoading"
             :max-height="620"
             default-expand-all

@@ -23,7 +23,6 @@ import { renderTableActions } from '@/utils/tableActions'
 import { statusLabel } from '@/constants/statusLabels'
 import { formatFileSize } from '@/utils/format'
 import { listDictItems, type DictItem } from '@/api/dict'
-import { listStudents, type Student } from '@/api/student'
 import type { ReviewPayload } from '@/api/student'
 import { useUserStore } from '@/stores/user'
 import { useYearStore } from '@/stores/year'
@@ -50,7 +49,6 @@ const assessmentYear = ref(yearStore.assessmentYear)
 const statusFilter = ref<string | null>(null)
 const segmentFilter = ref<string | null>(null)
 const records = ref<ExemptionRequest[]>([])
-const students = ref<Student[]>([])
 const segments = ref<DictItem[]>([])
 const subjects = ref<DictItem[]>([])
 const bases = ref<DictItem[]>([])
@@ -64,7 +62,6 @@ const examModalRef = ref<InstanceType<typeof ExemptionExamModal>>()
 const canApply = computed(() => userStore.hasPerm('exemption:apply'))
 const canFirstReview = computed(() => userStore.hasPerm('exemption:firstReview'))
 const canSecondReview = computed(() => userStore.hasPerm('exemption:secondReview'))
-const canViewStudents = computed(() => userStore.hasPerm('student:view'))
 const selfMode = computed(() => canApply.value && !canFirstReview.value && !canSecondReview.value)
 
 const statusOptions: SelectOption[] = [
@@ -159,12 +156,10 @@ async function loadRecords() {
 }
 
 async function loadOptions() {
-  const [studentRes, segmentRes, basisRes] = await Promise.all([
-    canViewStudents.value ? listStudents() : Promise.resolve(null),
+  const [segmentRes, basisRes] = await Promise.all([
     listDictItems('teaching_segment', true),
     listDictItems('exemption_basis', true)
   ])
-  students.value = studentRes ? (selfMode.value ? studentRes.data.records.slice(0, 1) : studentRes.data.records) : []
   segments.value = segmentRes.data
   bases.value = basisRes.data
 }
@@ -314,7 +309,6 @@ watch(
       :data="records"
       :total="records.length"
       :loading="loading"
-      :scroll-x="1520"
       empty-title="暂无免考申请"
       empty-description="当前筛选条件下没有免考申请记录。"
       @refresh="loadRecords"
@@ -330,7 +324,6 @@ watch(
 
     <ExemptionDrawer
       ref="drawerRef"
-      :students="students"
       :subjects="subjects"
       :bases="bases"
       :segment-options="segmentOptions"

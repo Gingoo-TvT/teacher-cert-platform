@@ -49,9 +49,11 @@ onBeforeUnmount(() => {
 function normalizeOption(option: echarts.EChartsOption): echarts.EChartsOption {
   const categoryLabels = firstCategoryLabels(option.xAxis)
   const maxLabelLength = categoryLabels.reduce((max, label) => Math.max(max, visibleLength(label)), 0)
-  const rotate = maxLabelLength > 14 || categoryLabels.length > 10 ? 30 : 0
-  const labelWidth = rotate ? 86 : 104
-  const bottom = rotate ? 82 : Math.max(48, Math.min(72, maxLabelLength * 4 + 32))
+  const hasLongLabels = maxLabelLength > 12
+  const hasCrowdedLabels = categoryLabels.length > 10
+  const rotate = hasLongLabels || hasCrowdedLabels ? 45 : 0
+  const labelWidth = rotate ? Math.min(180, Math.max(112, maxLabelLength * 8)) : 120
+  const bottom = rotate ? Math.min(156, Math.max(92, maxLabelLength * 6 + 54)) : Math.max(48, Math.min(76, maxLabelLength * 4 + 32))
   const tooltip = isObject(option.tooltip) ? option.tooltip : {}
   const tooltipTextStyle = isObject(tooltip.textStyle) ? tooltip.textStyle : {}
   const seriesCount = Array.isArray(option.series) ? option.series.length : option.series ? 1 : 0
@@ -114,7 +116,7 @@ function normalizeOption(option: echarts.EChartsOption): echarts.EChartsOption {
         ...(isObject(axis.axisLabel) ? axis.axisLabel : {}),
         interval: 0,
         width: labelWidth,
-        overflow: 'truncate',
+        overflow: rotate ? 'break' : 'truncate',
         hideOverlap: true,
         rotate,
         color: chartAxisColor

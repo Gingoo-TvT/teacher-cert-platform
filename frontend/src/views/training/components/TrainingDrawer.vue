@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
 import { useMessage, type FormInst, type FormRules, type SelectOption } from 'naive-ui'
+import StudentSelect from '@/components/StudentSelect.vue'
 import SubjectSelect from '@/components/SubjectSelect.vue'
 import type { DictItem } from '@/api/dict'
 import type { Major } from '@/api/organization'
@@ -16,7 +17,6 @@ import { useUserStore } from '@/stores/user'
 import { useYearStore } from '@/stores/year'
 
 const props = defineProps<{
-  students: Student[]
   majors: Major[]
   educationLevels: DictItem[]
   trainingGoals: DictItem[]
@@ -43,6 +43,7 @@ const formRef = ref<FormInst | null>(null)
 const editingId = ref<string | null>(null)
 const allowedSegments = ref<string[]>([])
 const allowedLocations = ref<string[]>([])
+const selectedStudentLabel = ref<string | null>(null)
 
 const form = reactive<TrainingPayload>({
   studentId: '',
@@ -76,9 +77,6 @@ const rules: FormRules = {
   interviewOrgMode: [{ required: true, message: '请选择面试组织方式', trigger: ['change'] }]
 }
 
-const studentOptions = computed<SelectOption[]>(() =>
-  props.students.map((item) => ({ label: `${item.studentNo} ${item.name}`, value: item.id }))
-)
 const majorOptions = computed<SelectOption[]>(() =>
   props.majors.map((item) => ({ label: `${item.internalMajorName} ${item.internalMajorCode}`, value: item.internalMajorCode }))
 )
@@ -152,10 +150,10 @@ async function reloadTrainingOptions(goal: string, segment?: string | null) {
 }
 
 function resetForm(row?: TrainingProfile) {
-  const selfStudent = props.selfMode ? props.students[0] : null
+  selectedStudentLabel.value = row ? `${row.studentNo || ''} ${row.studentName || ''}`.trim() || null : props.selfMode ? '本人' : null
   Object.assign(form, {
-    studentId: row?.studentId || selfStudent?.id || userStore.currentUser?.studentId || '',
-    collegeId: row?.collegeId || selfStudent?.collegeId || '',
+    studentId: row?.studentId || userStore.currentUser?.studentId || '',
+    collegeId: row?.collegeId || userStore.currentUser?.collegeId || '',
     assessmentYear: row?.assessmentYear || props.assessmentYear || yearStore.assessmentYear,
     secondDisciplineCode: row?.secondDisciplineCode || '',
     secondDisciplineName: row?.secondDisciplineName || '',
@@ -190,9 +188,7 @@ async function save() {
   }
 }
 
-function handleStudentChange(studentId: string | number | null) {
-  const id = typeof studentId === 'string' ? studentId : ''
-  const student = props.students.find((item) => item.id === id)
+function handleStudentSelect(student: Student | null) {
   form.collegeId = student?.collegeId || ''
 }
 
@@ -227,12 +223,12 @@ defineExpose({ open })
         <div class="form-section-title">基本信息</div>
         <n-grid :cols="2" :x-gap="12">
           <n-form-item-gi label="学生" path="studentId">
-            <n-select
+            <StudentSelect
               v-model:value="form.studentId"
-              :options="studentOptions"
               :disabled="selfMode"
-              filterable
-              @update:value="handleStudentChange"
+              :selected-label="selectedStudentLabel"
+              placeholder="输入学号或姓名搜索"
+              @select="handleStudentSelect"
             />
           </n-form-item-gi>
           <n-form-item-gi label="考核年度" path="assessmentYear">

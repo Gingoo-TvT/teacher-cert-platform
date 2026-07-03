@@ -4,6 +4,7 @@ import type { Component } from 'vue'
 defineProps<{
   label: string
   value: string | number
+  unit?: string | null
   sub?: string | null
   icon?: Component
   tone?: 'default' | 'brand' | 'success' | 'warning' | 'error' | 'info' | 'neutral'
@@ -20,7 +21,10 @@ defineProps<{
       </div>
       <div class="stat-label">{{ label }}</div>
     </div>
-    <div class="stat-value tabular-nums">{{ value }}</div>
+    <div class="stat-value tabular-nums">
+      <span>{{ value }}</span>
+      <span v-if="unit" class="stat-unit">{{ unit }}</span>
+    </div>
     <div v-if="sub" class="stat-sub">{{ sub }}</div>
   </n-card>
 </template>
@@ -125,12 +129,23 @@ defineProps<{
 }
 
 .stat-value {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
   margin-top: var(--space-3);
   font-size: 30px;
   line-height: 38px;
   font-weight: 650;
   letter-spacing: 0;
   color: var(--brand);
+}
+
+.stat-unit {
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 20px;
 }
 
 .stat-sub {

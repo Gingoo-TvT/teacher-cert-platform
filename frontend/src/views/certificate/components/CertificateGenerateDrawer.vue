@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { reactive, ref } from 'vue'
-import { useMessage, type SelectOption } from 'naive-ui'
+import { useMessage } from 'naive-ui'
+import StudentSelect from '@/components/StudentSelect.vue'
 import {
   generateCertificate,
   precheckCertificate,
@@ -9,7 +10,6 @@ import {
 } from '@/api/certificate'
 
 const props = defineProps<{
-  studentOptions: SelectOption[]
   assessmentYear: string
 }>()
 
@@ -100,7 +100,7 @@ defineExpose({ open, openPrecheck })
         <div class="form-section-title">生成信息</div>
         <n-grid :cols="2" :x-gap="12">
           <n-form-item-gi label="学生" :span="2">
-            <n-select v-model:value="generateForm.studentId" filterable :options="studentOptions" placeholder="学生" />
+            <StudentSelect v-model:value="generateForm.studentId" placeholder="输入学号或姓名搜索" />
           </n-form-item-gi>
           <n-form-item-gi label="考核年度">
             <n-input v-model:value="generateForm.assessmentYear" placeholder="考核年度" class="mono-input" />

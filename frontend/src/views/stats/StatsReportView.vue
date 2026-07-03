@@ -83,10 +83,10 @@ const chartOption = computed<EChartsOption>(() => {
 })
 
 const rowColumns: DataTableColumns<StatsRow> = [
-  { title: '统计维度', key: 'dimensionLabel', minWidth: 180, render: (row) => row.dimensionLabel || row.dimension || '-' },
-  { title: '状态', key: 'statusLabel', minWidth: 140, render: (row) => h(StatusTag, { value: row.status, text: row.statusLabel || row.status || '-' }) },
-  { title: '数量', key: 'count', width: 100, render: (row) => h('span', { class: 'numeric' }, String(row.count || 0)) },
-  { title: '扩展指标', key: 'values', minWidth: 300, render: (row) => renderValues(row.values) }
+  { title: '统计维度', key: 'dimensionLabel', minWidth: 220, ellipsis: { tooltip: true }, render: (row) => row.dimensionLabel || row.dimension || '-' },
+  { title: '状态', key: 'statusLabel', minWidth: 150, ellipsis: { tooltip: true }, render: (row) => h(StatusTag, { value: row.status, text: row.statusLabel || row.status || '-' }) },
+  { title: '数量', key: 'count', width: 104, render: (row) => h('span', { class: 'numeric tabular-nums' }, String(row.count || 0)) },
+  { title: '扩展指标', key: 'values', minWidth: 360, render: (row) => renderValues(row.values) }
 ]
 
 const detailColumns: DataTableColumns<StatsDetail> = [
@@ -95,7 +95,7 @@ const detailColumns: DataTableColumns<StatsDetail> = [
   { title: '学院', key: 'collegeName', minWidth: 160, ellipsis: { tooltip: true }, render: (row) => row.collegeName || '-' },
   { title: '字段/项目', key: 'fieldName', minWidth: 160, ellipsis: { tooltip: true }, render: (row) => row.fieldName || '-' },
   { title: '原因/状态', key: 'errorReason', minWidth: 180, ellipsis: { tooltip: true }, render: (row) => row.errorReason || '-' },
-  { title: '明细值', key: 'values', minWidth: 300, render: (row) => renderValues(row.values) }
+  { title: '明细值', key: 'values', minWidth: 360, render: (row) => renderValues(row.values) }
 ]
 
 async function loadReport() {
@@ -236,7 +236,7 @@ watch(
 
     <n-grid v-if="canViewStats && metrics.length" :cols="4" :x-gap="12" responsive="screen" class="page-section">
       <n-gi v-for="metric in metrics" :key="metric.label">
-        <StatCard :label="metric.label" :value="metric.value" :sub="metric.unit" />
+        <StatCard :label="metric.label" :value="metric.value" :unit="metric.unit" />
       </n-gi>
     </n-grid>
 
@@ -261,7 +261,6 @@ watch(
       :data="rows"
       :total="rows.length"
       :loading="loading"
-      :scroll-x="940"
       empty-title="暂无统计数据"
       empty-description="当前查询条件下没有统计汇总行。"
       @refresh="loadReport"
@@ -272,7 +271,6 @@ watch(
       title="钻取明细"
       :columns="detailColumns"
       :data="details"
-      :scroll-x="1040"
       size="small"
       :page-size="8"
       :show-refresh="false"
@@ -295,14 +293,17 @@ watch(
 .value-list {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px 12px;
+  gap: 6px 14px;
+  line-height: 20px;
 }
 
 .value-item {
-  white-space: nowrap;
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 
 .value-key {
   color: var(--text-muted);
+  white-space: nowrap;
 }
 </style>

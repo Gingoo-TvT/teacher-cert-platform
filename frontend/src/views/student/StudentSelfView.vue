@@ -5,9 +5,11 @@ import PageContainer from '@/components/PageContainer.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import RegionCascader, { type RegionSelection } from '@/components/RegionCascader.vue'
 import { listDictItems, type DictItem } from '@/api/dict'
-import { confirmStudent, listStudents, submitStudent, type Student, type StudentPayload } from '@/api/student'
+import { confirmStudent, getStudent, submitStudent, type Student, type StudentPayload } from '@/api/student'
+import { useUserStore } from '@/stores/user'
 
 const message = useMessage()
+const userStore = useUserStore()
 const loading = ref(false)
 const saving = ref(false)
 const submitting = ref(false)
@@ -55,8 +57,13 @@ const identityTypeOptions = computed<SelectOption[]>(() => dictOptions(identityT
 async function load() {
   loading.value = true
   try {
-    const res = await listStudents()
-    student.value = res.data.records[0] || null
+    const studentId = userStore.currentUser?.studentId
+    if (!studentId) {
+      student.value = null
+      return
+    }
+    const res = await getStudent(studentId)
+    student.value = res.data
     if (student.value) fillForm(student.value)
   } catch (error) {
     showError(error, '本人信息加载失败')

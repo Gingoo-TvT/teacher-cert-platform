@@ -22,7 +22,6 @@ import { renderTableActions } from '@/utils/tableActions'
 import { statusLabel } from '@/constants/statusLabels'
 import { formatFileSize } from '@/utils/format'
 import { listDictItems, type DictItem } from '@/api/dict'
-import { listStudents, type Student } from '@/api/student'
 import { useUserStore } from '@/stores/user'
 import { useYearStore } from '@/stores/year'
 import {
@@ -58,7 +57,6 @@ const statusFilter = ref<string | null>(null)
 const categoryFilter = ref<string | null>(null)
 const assessmentYear = ref(yearStore.assessmentYear)
 const records = ref<ProcessMaterial[]>([])
-const students = ref<Student[]>([])
 const categories = ref<DictItem[]>([])
 const reviewing = ref<{ material: ProcessMaterial; stage: 'first' | 'second' } | null>(null)
 const processQualified = ref(false)
@@ -70,7 +68,6 @@ const canUpload = computed(() => userStore.hasPerm('material:upload'))
 const canFirstReview = computed(() => userStore.hasPerm('material:firstReview'))
 const canSecondReview = computed(() => userStore.hasPerm('material:secondReview'))
 const canBatchDownload = computed(() => userStore.hasPerm('material:batchDownload'))
-const canViewStudents = computed(() => userStore.hasPerm('student:view'))
 const selfMode = computed(() => canUpload.value && !canFirstReview.value && !canSecondReview.value)
 
 const statusOptions: SelectOption[] = [
@@ -83,9 +80,6 @@ const statusOptions: SelectOption[] = [
   { label: '不合格', value: 'FAILED' }
 ]
 
-const studentOptions = computed<SelectOption[]>(() =>
-  students.value.map((item) => ({ label: `${item.studentNo} ${item.name}`, value: item.id }))
-)
 const categoryOptions = computed<SelectOption[]>(() =>
   categories.value.map((item) => ({ label: item.itemValue, value: item.itemCode }))
 )
@@ -182,11 +176,7 @@ async function loadRecords() {
 }
 
 async function loadOptions() {
-  const [studentRes, categoryRes] = await Promise.all([
-    canViewStudents.value ? listStudents() : Promise.resolve(null),
-    listDictItems('material_category', true)
-  ])
-  students.value = studentRes ? (selfMode.value ? studentRes.data.records.slice(0, 1) : studentRes.data.records) : []
+  const categoryRes = await listDictItems('material_category', true)
   categories.value = categoryRes.data
 }
 
@@ -368,7 +358,6 @@ watch(
         :data="records"
         :total="records.length"
         :loading="loading"
-        :scroll-x="1440"
         empty-title="暂无材料"
         empty-description="当前筛选条件下没有过程性材料。"
         @refresh="loadRecords"
@@ -386,7 +375,6 @@ watch(
 
     <MaterialUploadDrawer
       ref="uploadDrawerRef"
-      :student-options="studentOptions"
       :category-options="categoryOptions"
       :self-mode="selfMode"
       :assessment-year="assessmentYear"

@@ -15,6 +15,108 @@
 
 ---
 
+## [2026-07-03] Phase 35 待复核小结（前端验收缺陷修复 F1-F5）
+- 做了什么：从 `main` 切出 `feature/phase35-acceptance-fix`，执行 `docs/frontend-fix-plan.md` F1-F5。纯前端展示/交互修复；未改后端、契约、迁移或 stores 逻辑；未新增依赖；未 push。
+- 关键决策与理由：共享件按本轮分工先做初版，供 Claude 后续把关/返工：`DataPanel` 自动表宽、`StudentSelect` 远程搜索、视频时长 metadata 探测、`ChartBox` 长类目轴策略、`StatCard` 单位内联。重复铺开项用页面小补丁完成，避免再做批量编码改写。
+- 问题与解决：曾有一次机械删除 `scroll-x` 的 PowerShell 写回污染视图编码；已只恢复本轮污染的视图文件并用 `apply_patch` 重新落改动，后续未再使用批量写回。
+- 与规格的偏差/疑问：按 build-only 要求未启动常驻服务；三宽度目验、活体角色走查与 Claude 共享件定稿留待复核。
+
+### F1 列表页 / DataPanel
+- 页面：证书签发/证书管理/导入导出/材料/免考/统计/学生/系统域/测试/培养/视频组与视频管理等 27 处移除视图硬编码 `:scroll-x`；`DataPanel` 内按列 `width || minWidth || 120` 自动求和作为唯一 `scroll-x`。
+- 证据：
+```
+$ rg -n "scroll-x" frontend/src/views frontend/src/components -g '*.vue'
+frontend/src/components\DataPanel.vue:127:      :scroll-x="effectiveScrollX"
+```
+
+### F2 学生远程搜索 / 材料·免考·视频·证书·培养·测试·学生本人
+- 页面：`MaterialManageView`、`ExemptionManageView`、`video/components/ManagePanel` 移除首屏学生全量预载；`MaterialUploadDrawer`、`ExemptionDrawer`、`UploadVideoDrawer` 改用 `StudentSelect`。同步把证书生成、培养抽屉、测试结果粘贴导入、学生本人页的无参学生加载改为远程/按 ID 查询。
+- 证据：
+```
+$ rg -n "listStudents\(\)|listStudents\(" frontend/src/views frontend/src/components -g '*.vue' -g '*.ts'
+frontend/src/components\StudentSelect.vue:61:    const res = await listStudents({ keyword })
+frontend/src/views\student\StudentManageView.vue:151:    const res = await listStudents({
+frontend/src/views\test-result\TestResultManageView.vue:207:      const res = await listStudents({ keyword: studentNo })
+```
+
+### F3 上传入口 / 视频·材料·免考·导入
+- 页面：`UploadPanel`、`UploadVideoDrawer` 使用 `detectVideoDurationSeconds` 自动识别时长，失败才显示 `n-input-number`；材料上传、免考申请/替换、导入中心、测试结果导入、学科库导入均换为拖拽上传区。
+- 证据：
+```
+$ rg -n "n-upload-dragger|detectVideoDurationSeconds|durationDetected|durationDetectFailed" frontend/src/views frontend/src/utils -g '*.vue' -g '*.ts'
+frontend/src/utils\videoDuration.ts:1:export function detectVideoDurationSeconds(file: File): Promise<number> {
+frontend/src/views\video\components\UploadVideoDrawer.vue:6:import { detectVideoDurationSeconds, formatVideoDuration } from '@/utils/videoDuration'
+frontend/src/views\video\components\UploadVideoDrawer.vue:29:const durationDetected = ref(false)
+frontend/src/views\video\components\UploadVideoDrawer.vue:30:const durationDetectFailed = ref(false)
+frontend/src/views\video\components\UploadVideoDrawer.vue:61:    uploadForm.durationSeconds = await detectVideoDurationSeconds(file)
+frontend/src/views\video\components\UploadVideoDrawer.vue:157:          <n-upload-dragger>
+frontend/src/views\test-result\TestResultManageView.vue:310:          <n-upload-dragger>
+frontend/src/views\system\SubjectManageView.vue:322:                <n-upload-dragger>
+frontend/src/views\exchange\ExchangeImportView.vue:284:          <n-upload-dragger class="compact-upload">
+frontend/src/views\video\components\UploadPanel.vue:9:import { detectVideoDurationSeconds, formatVideoDuration } from '@/utils/videoDuration'
+frontend/src/views\video\components\UploadPanel.vue:34:const durationDetected = ref(false)
+frontend/src/views\video\components\UploadPanel.vue:35:const durationDetectFailed = ref(false)
+frontend/src/views\video\components\UploadPanel.vue:98:    uploadForm.durationSeconds = await detectVideoDurationSeconds(file)
+frontend/src/views\video\components\UploadPanel.vue:261:            <n-upload-dragger>
+frontend/src/views\exemption\components\ExemptionReplaceModal.vue:58:        <n-upload-dragger>
+frontend/src/views\exemption\components\ExemptionDrawer.vue:169:              <n-upload-dragger>
+frontend/src/views\material\components\MaterialUploadDrawer.vue:120:              <n-upload-dragger>
+```
+
+### F4 统计报表 / ChartBox
+- 页面：`ChartBox` 长类目时改 45 度旋转、增大 `labelWidth/grid.bottom` 并用 `overflow:'break'`；`StatsReportView` 统计维度/状态补 tooltip，扩展值列放宽，数量列 `tabular-nums`。
+- 证据：
+```
+$ rg -n "overflow: rotate|rotate =|labelWidth|bottom =|value-list|tabular-nums" frontend/src/components/ChartBox.vue frontend/src/views/stats/StatsReportView.vue
+frontend/src/components/ChartBox.vue:54:  const rotate = hasLongLabels || hasCrowdedLabels ? 45 : 0
+frontend/src/components/ChartBox.vue:55:  const labelWidth = rotate ? Math.min(180, Math.max(112, maxLabelLength * 8)) : 120
+frontend/src/components/ChartBox.vue:56:  const bottom = rotate ? Math.min(156, Math.max(92, maxLabelLength * 6 + 54)) : Math.max(48, Math.min(76, maxLabelLength * 4 + 32))
+frontend/src/components/ChartBox.vue:119:        overflow: rotate ? 'break' : 'truncate',
+frontend/src/views/stats/StatsReportView.vue:88:  { title: '数量', key: 'count', width: 104, render: (row) => h('span', { class: 'numeric tabular-nums' }, String(row.count || 0)) },
+frontend/src/views/stats/StatsReportView.vue:162:    { class: 'value-list' },
+```
+
+### F5 Dashboard / StatCard
+- 页面：`DashboardView` 问候描述只保留角色与日期；首页指标按 label 去重；`StatCard` 新增内联 `unit`，Dashboard 与统计页不再把单位放进 `sub` 独立行。
+- 证据：
+```
+$ rg -n "greetingDescription" frontend/src/views/DashboardView.vue
+78:const greetingDescription = computed(() => `${roleText.value} · ${dateText()}`)
+267:  <PageContainer :title="greetingTitle" :description="greetingDescription">
+
+$ rg -n "unit: item\.unit|stat-unit|unit\?:|:unit" frontend/src/views/DashboardView.vue frontend/src/views/stats/StatsReportView.vue frontend/src/components/StatCard.vue
+frontend/src/components/StatCard.vue:7:  unit?: string | null
+frontend/src/components/StatCard.vue:26:      <span v-if="unit" class="stat-unit">{{ unit }}</span>
+frontend/src/components/StatCard.vue:144:.stat-unit {
+frontend/src/views/stats/StatsReportView.vue:239:        <StatCard :label="metric.label" :value="metric.value" :unit="metric.unit" />
+frontend/src/views/DashboardView.vue:90:    unit: item.unit || null,
+frontend/src/views/DashboardView.vue:274:        <StatCard :label="item.label" :value="item.value" :unit="item.unit" :sub="item.sub" :tone="item.tone" :icon="item.icon" />
+
+$ rg -n "profile\.value\.description|sub: item\.unit|:sub=\"metric\.unit\"" frontend/src/views/DashboardView.vue frontend/src/views/stats/StatsReportView.vue frontend/src/components/StatCard.vue
+<empty>
+```
+
+### 纯前端范围与 Build-Only
+- 纯前端范围：
+```
+$ git diff --name-only | rg "^(platform-|pom\.xml|docker-compose|.*db/migration|.*Controller|.*Service|.*Mapper|.*\.java)"
+<empty>
+```
+- build-only：
+```
+$ npm --prefix frontend run type-check
+> teacher-cert-platform-frontend@1.0.0 type-check
+> vue-tsc --noEmit
+
+$ npm --prefix frontend run build
+> teacher-cert-platform-frontend@1.0.0 build
+> vite build
+✓ 4967 modules transformed.
+✓ built in 7.79s
+(!) Some chunks are larger than 500 kB after minification.
+```
+- 下一步：单分支单提交后等待 Claude 按 Phase35 gate ①-⑥复核，未自行置复核通过。
+
 ## [2026-07-03] Phase 34 完成（Claude 亲自执行）✅ — 组件拆分（落地 W6 行数红线）
 - 做了什么：应用户要求由 Claude 亲自执行 Phase 34（不交 codex）。并行派 10 个 worker 子代理，每个只拆 1 个 >400 视图为子组件（抽屉/自助面板/域面板）并放到该视图自己的 `components/` 子目录（文件互不相交→无冲突），严格「逐行搬移、行为不变、不跑 build」；Claude 集中 `vue-tsc`+`vite build` 一次通过（0 错），再对 Org 做二次域拆分（642→65，抽 MajorsPanel/ConfigsPanel），再次 type-check+build 绿。活体 SYS_ADMIN 登录 10 个被拆页接口全 200 零 403。
 - 成果：Org 1006→65 / Security 798→398 / Cert 690→314 / Material 697→442 / Dict 610→362 / ManagePanel 601→308 / Training 596→347 / Exemption 620→396 / Audit 523→399 / Student 456→340；新增 33 子组件。剩 5 个 401–487（MyTaskPanel/MajorsPanel/Dashboard/Material/Subject）判为合理内聚，不强拆（400 是启发式非硬指标，强拆内聚组件反损维护性）。

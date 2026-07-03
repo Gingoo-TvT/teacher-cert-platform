@@ -75,7 +75,7 @@ const profile = computed<DashboardProfile>(() => {
 const displayName = computed(() => userStore.realName || userStore.username || '你好')
 const roleText = computed(() => userStore.roles.map((role) => roleNameMap[role] || role).join(' / ') || '当前账号')
 const greetingTitle = computed(() => `${greetingText()}，${displayName.value}`)
-const greetingDescription = computed(() => `${roleText.value} · ${dateText()} · ${profile.value.description}`)
+const greetingDescription = computed(() => `${roleText.value} · ${dateText()}`)
 const metrics = computed(() => report.value?.metrics || [])
 const rows = computed(() => report.value?.rows || [])
 const canViewStats = computed(() => userStore.hasPerm('stats:view'))
@@ -83,20 +83,22 @@ const canViewNotice = computed(() => userStore.hasPerm('notice:view'))
 
 const statCards = computed(() => {
   const icons = [StatsChartOutline, BarChartOutline, SchoolOutline, NotificationsOutline]
-  const cards = metrics.value.slice(0, 4).map((item, index) => ({
+  const dedupedMetrics = uniqueMetricsByLabel(metrics.value).slice(0, 4)
+  const cards = dedupedMetrics.map((item, index) => ({
     label: item.label,
     value: item.value,
-    sub: item.unit || null,
+    unit: item.unit || null,
+    sub: null,
     icon: icons[index] || StatsChartOutline,
     tone: 'brand' as const
   }))
   if (cards.length) return cards
   const statsTotal = rows.value.reduce((sum, row) => sum + Number(row.count || 0), 0)
   return [
-    { label: '统计汇总', value: statsTotal, sub: null, icon: BarChartOutline, tone: 'brand' as const },
-    { label: '未读通知', value: unreadTotal.value, sub: null, icon: NotificationsOutline, tone: 'error' as const },
-    { label: '通知总数', value: noticeTotal.value, sub: null, icon: NotificationsOutline, tone: 'info' as const },
-    { label: '当前学年', value: yearStore.assessmentYear, sub: null, icon: SchoolOutline, tone: 'neutral' as const }
+    { label: '统计汇总', value: statsTotal, unit: null, sub: null, icon: BarChartOutline, tone: 'brand' as const },
+    { label: '未读通知', value: unreadTotal.value, unit: null, sub: null, icon: NotificationsOutline, tone: 'error' as const },
+    { label: '通知总数', value: noticeTotal.value, unit: null, sub: null, icon: NotificationsOutline, tone: 'info' as const },
+    { label: '当前学年', value: yearStore.assessmentYear, unit: null, sub: null, icon: SchoolOutline, tone: 'neutral' as const }
   ]
 })
 
@@ -160,6 +162,16 @@ function chartLabel(row: StatsRow) {
   const dimension = row.dimensionLabel || row.dimension || '-'
   const status = row.statusLabel || row.status
   return status ? `${dimension} / ${status}` : dimension
+}
+
+function uniqueMetricsByLabel(items: NonNullable<StatsReport['metrics']>) {
+  const seen = new Set<string>()
+  return items.filter((item) => {
+    const label = item.label || ''
+    if (seen.has(label)) return false
+    seen.add(label)
+    return true
+  })
 }
 
 function roleEntries(): QuickEntry[] {
@@ -259,7 +271,7 @@ function showError(error: unknown, fallback: string) {
 
     <n-grid :cols="4" :x-gap="12" responsive="screen" class="page-section">
       <n-gi v-for="item in statCards" :key="item.label">
-        <StatCard :label="item.label" :value="item.value" :sub="item.sub" :tone="item.tone" :icon="item.icon" />
+        <StatCard :label="item.label" :value="item.value" :unit="item.unit" :sub="item.sub" :tone="item.tone" :icon="item.icon" />
       </n-gi>
     </n-grid>
 

@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
 import { useMessage, type SelectOption, type UploadFileInfo } from 'naive-ui'
+import StudentSelect from '@/components/StudentSelect.vue'
 import type { DictItem } from '@/api/dict'
-import type { Student } from '@/api/student'
 import {
   applyExemption,
   uploadExemptionMaterial,
@@ -19,7 +19,6 @@ interface SubjectRow {
 }
 
 const props = defineProps<{
-  students: Student[]
   subjects: DictItem[]
   bases: DictItem[]
   segmentOptions: SelectOption[]
@@ -39,6 +38,7 @@ const yearStore = useYearStore()
 
 const saving = ref(false)
 const drawerVisible = ref(false)
+const selectedStudentLabel = ref<string | null>(null)
 
 const form = reactive({
   studentId: '',
@@ -47,9 +47,6 @@ const form = reactive({
   rows: [] as SubjectRow[]
 })
 
-const studentOptions = computed<SelectOption[]>(() =>
-  props.students.map((item) => ({ label: `${item.studentNo} ${item.name}`, value: item.id }))
-)
 const subjectOptions = computed<SelectOption[]>(() =>
   props.subjects.map((item) => ({ label: item.itemValue, value: item.itemCode }))
 )
@@ -65,7 +62,8 @@ watch(
 )
 
 function open() {
-  form.studentId = props.selfMode ? userStore.currentUser?.studentId || props.students[0]?.id || '' : ''
+  form.studentId = props.selfMode ? userStore.currentUser?.studentId || '' : ''
+  selectedStudentLabel.value = props.selfMode ? '本人' : null
   form.assessmentYear = props.assessmentYear
   form.teachingSegment = props.segmentFilter || ''
   form.rows = []
@@ -140,7 +138,12 @@ defineExpose({ open, form })
         <div class="form-section-title">申请信息</div>
         <n-grid :cols="2" :x-gap="12">
           <n-form-item-gi label="学生" :span="2">
-            <n-select v-model:value="form.studentId" :options="studentOptions" :disabled="selfMode" filterable placeholder="学生" />
+            <StudentSelect
+              v-model:value="form.studentId"
+              :disabled="selfMode"
+              :selected-label="selectedStudentLabel"
+              placeholder="输入学号或姓名搜索"
+            />
           </n-form-item-gi>
           <n-form-item-gi label="考核年度">
             <n-input v-model:value="form.assessmentYear" placeholder="考核年度" class="mono-input" />
@@ -162,7 +165,12 @@ defineExpose({ open, form })
               <n-button quaternary type="error" @click="removeSubjectRow(index)">删除</n-button>
             </n-space>
             <n-input v-model:value="row.remark" type="textarea" placeholder="说明" />
-            <n-upload v-model:file-list="row.fileList" :max="1" accept=".pdf,.jpg,.jpeg,.png" :default-upload="false" />
+            <n-upload v-model:file-list="row.fileList" :max="1" accept=".pdf,.jpg,.jpeg,.png" :default-upload="false">
+              <n-upload-dragger>
+                <n-text>点击或拖拽佐证文件到此处上传</n-text>
+                <n-p depth="3">支持 PDF、JPG、JPEG、PNG，最多 1 个文件。</n-p>
+              </n-upload-dragger>
+            </n-upload>
           </n-space>
         </section>
       </n-form>

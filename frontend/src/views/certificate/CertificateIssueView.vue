@@ -223,7 +223,6 @@ watch(
       :data="records"
       :total="records.length"
       :loading="loading"
-      :scroll-x="1320"
       empty-title="暂无待签发证书"
       empty-description="当前筛选条件下没有证书签发记录。"
       @refresh="loadRecords"

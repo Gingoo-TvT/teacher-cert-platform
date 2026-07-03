@@ -41,6 +41,7 @@ const emit = defineEmits<{
 const tableColumns = computed(() => props.columns as DataTableColumns<DataTableRowData>)
 const tableData = computed(() => props.data as DataTableRowData[])
 const recordCount = computed(() => props.total ?? props.data.length)
+const effectiveScrollX = computed(() => props.scrollX ?? inferScrollX(props.columns))
 const resolvedPagination = computed(() => {
   if (props.pagination === false) return false
   return {
@@ -69,6 +70,30 @@ function rowProps(row: DataTableRowData) {
       height: `${props.rowHeight}px`
     }
   }
+}
+
+function inferScrollX(columns: unknown[]): number {
+  return columns.reduce<number>((sum, column) => sum + columnWidth(column), 0)
+}
+
+function columnWidth(column: unknown): number {
+  if (!column || typeof column !== 'object') return 120
+  const item = column as Record<string, unknown>
+  if (Array.isArray(item.children)) return inferScrollX(item.children)
+  const width = numericWidth(item.width)
+  if (width) return width
+  const minWidth = numericWidth(item.minWidth)
+  if (minWidth) return minWidth
+  return 120
+}
+
+function numericWidth(value: unknown) {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string') {
+    const parsed = Number.parseInt(value, 10)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return 0
 }
 </script>
 
@@ -99,7 +124,7 @@ function rowProps(row: DataTableRowData) {
       :row-key="rowKey"
       :row-props="rowProps"
       :pagination="resolvedPagination"
-      :scroll-x="scrollX"
+      :scroll-x="effectiveScrollX"
       :max-height="maxHeight"
       :default-expand-all="defaultExpandAll"
       :size="size"

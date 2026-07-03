@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { reactive, ref, watch } from 'vue'
 import { useMessage, type SelectOption, type UploadFileInfo } from 'naive-ui'
+import StudentSelect from '@/components/StudentSelect.vue'
 import { useUserStore } from '@/stores/user'
 import { useYearStore } from '@/stores/year'
 import { replaceMaterial, uploadMaterial, type ProcessMaterial } from '@/api/material'
 
 const props = defineProps<{
-  studentOptions: SelectOption[]
   categoryOptions: SelectOption[]
   selfMode: boolean
   assessmentYear: string
@@ -24,6 +24,7 @@ const saving = ref(false)
 const uploadVisible = ref(false)
 const fileList = ref<UploadFileInfo[]>([])
 const replacing = ref<ProcessMaterial | null>(null)
+const selectedStudentLabel = ref<string | null>(null)
 
 const uploadForm = reactive({
   studentId: '',
@@ -37,13 +38,13 @@ function open(row?: ProcessMaterial, category?: string) {
     uploadForm.studentId = row.studentId
     uploadForm.assessmentYear = row.assessmentYear
     uploadForm.category = row.category
+    selectedStudentLabel.value = `${row.studentNo || ''} ${row.studentName || ''}`.trim() || null
   } else {
     replacing.value = null
-    uploadForm.studentId = props.selfMode
-      ? userStore.currentUser?.studentId || (props.studentOptions[0]?.value as string) || ''
-      : ''
+    uploadForm.studentId = props.selfMode ? userStore.currentUser?.studentId || '' : ''
     uploadForm.assessmentYear = props.assessmentYear
     uploadForm.category = category || ''
+    selectedStudentLabel.value = props.selfMode ? '本人' : null
   }
   fileList.value = []
   uploadVisible.value = true
@@ -98,7 +99,12 @@ defineExpose({ open, getStudentId })
         <div class="form-section-title">材料信息</div>
         <n-grid :cols="2" :x-gap="12">
           <n-form-item-gi label="学生" :span="2">
-            <n-select v-model:value="uploadForm.studentId" :options="studentOptions" :disabled="Boolean(replacing) || selfMode" filterable placeholder="学生" />
+            <StudentSelect
+              v-model:value="uploadForm.studentId"
+              :disabled="Boolean(replacing) || selfMode"
+              :selected-label="selectedStudentLabel"
+              placeholder="输入学号或姓名搜索"
+            />
           </n-form-item-gi>
           <n-form-item-gi label="考核年度">
             <n-input v-model:value="uploadForm.assessmentYear" :disabled="Boolean(replacing)" placeholder="考核年度" class="mono-input" />
@@ -110,7 +116,12 @@ defineExpose({ open, getStudentId })
         <div class="form-section-title">上传文件</div>
         <n-grid :cols="2" :x-gap="12">
           <n-form-item-gi label="文件" :span="2">
-            <n-upload v-model:file-list="fileList" :max="1" accept=".pdf,.jpg,.jpeg,.png" :default-upload="false" />
+            <n-upload v-model:file-list="fileList" :max="1" accept=".pdf,.jpg,.jpeg,.png" :default-upload="false">
+              <n-upload-dragger>
+                <n-text>点击或拖拽文件到此处上传</n-text>
+                <n-p depth="3">支持 PDF、JPG、JPEG、PNG，最多 1 个文件。</n-p>
+              </n-upload-dragger>
+            </n-upload>
           </n-form-item-gi>
         </n-grid>
       </n-form>

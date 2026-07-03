@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
-import { useMessage, type SelectOption, type UploadFileInfo } from 'naive-ui'
-import type { Student } from '@/api/student'
+import { useMessage, type UploadFileInfo } from 'naive-ui'
+import StudentSelect from '@/components/StudentSelect.vue'
 import { useYearStore } from '@/stores/year'
+import { detectVideoDurationSeconds, formatVideoDuration } from '@/utils/videoDuration'
 import {
   initVideoUpload,
   mergeVideoUpload,
@@ -11,7 +12,6 @@ import {
 } from '@/api/video'
 
 const props = defineProps<{
-  students: Student[]
   assessmentYear: string
 }>()
 
@@ -26,6 +26,9 @@ const uploadVisible = ref(false)
 const fileList = ref<UploadFileInfo[]>([])
 const uploading = ref(false)
 const uploadProgress = ref(0)
+const durationDetected = ref(false)
+const durationDetectFailed = ref(false)
+const selectedStudentLabel = ref<string | null>(null)
 
 const uploadForm = reactive({
   studentId: '',
@@ -34,17 +37,32 @@ const uploadForm = reactive({
   chunkSize: 512 * 1024
 })
 
-const studentOptions = computed<SelectOption[]>(() =>
-  props.students.map((item) => ({ label: `${item.studentNo} ${item.name}`, value: item.id }))
-)
+const durationText = computed(() => `${formatVideoDuration(uploadForm.durationSeconds)} (${uploadForm.durationSeconds}s)`)
 
 function open(row?: VideoReview) {
   uploadForm.studentId = row?.studentId || ''
   uploadForm.assessmentYear = row?.assessmentYear || props.assessmentYear
   uploadForm.durationSeconds = row?.durationSeconds || 900
+  selectedStudentLabel.value = row ? `${row.studentNo || ''} ${row.studentName || ''}`.trim() || null : null
+  durationDetected.value = Boolean(row?.durationSeconds)
+  durationDetectFailed.value = false
   uploadProgress.value = 0
   fileList.value = []
   uploadVisible.value = true
+}
+
+async function handleFileListUpdate(next: UploadFileInfo[]) {
+  fileList.value = next
+  const file = next[0]?.file
+  durationDetected.value = false
+  durationDetectFailed.value = false
+  if (!file) return
+  try {
+    uploadForm.durationSeconds = await detectVideoDurationSeconds(file)
+    durationDetected.value = true
+  } catch {
+    durationDetectFailed.value = true
+  }
 }
 
 async function uploadVideo() {
@@ -129,10 +147,18 @@ defineExpose({ open })
         <n-alert type="info" :bordered="false">
           仅退回、待上传或校验失败状态显示重传入口；其他状态由校验规则禁止重传。
         </n-alert>
-        <n-select v-model:value="uploadForm.studentId" :options="studentOptions" filterable placeholder="学生" />
+        <StudentSelect v-model:value="uploadForm.studentId" :selected-label="selectedStudentLabel" placeholder="输入学号或姓名搜索" />
         <n-input v-model:value="uploadForm.assessmentYear" placeholder="考核年度" class="mono-input" />
-        <n-input-number v-model:value="uploadForm.durationSeconds" :min="1" style="width: 100%" placeholder="时长（秒）" />
-        <n-upload v-model:file-list="fileList" :max="1" accept="video/mp4,.mp4" :default-upload="false" />
+        <n-alert v-if="!durationDetectFailed" type="info" :bordered="false">
+          {{ fileList.length ? (durationDetected ? `时长：${durationText} · 自动识别` : '正在识别视频时长') : '选择视频后自动识别时长' }}
+        </n-alert>
+        <n-input-number v-else v-model:value="uploadForm.durationSeconds" :min="1" style="width: 100%" placeholder="时长（秒）" />
+        <n-upload :file-list="fileList" :max="1" accept="video/mp4,.mp4" :default-upload="false" @update:file-list="handleFileListUpdate">
+          <n-upload-dragger>
+            <n-text>点击或拖拽视频到此处上传</n-text>
+            <n-p depth="3">支持 MP4 文件，选择后自动识别时长。</n-p>
+          </n-upload-dragger>
+        </n-upload>
         <n-progress type="line" :percentage="uploadProgress" indicator-placement="inside" />
       </n-space>
       <template #footer>

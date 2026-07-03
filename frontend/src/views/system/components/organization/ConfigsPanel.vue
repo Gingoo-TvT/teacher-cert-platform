@@ -154,7 +154,6 @@ defineExpose({ refresh: loadConfigs })
         :loading="configLoading"
         :row-props="configRowProps"
         :max-height="620"
-        :scroll-x="1120"
         empty-title="暂无联动配置"
         empty-description="当前筛选条件下没有培养目标联动配置。"
         @refresh="loadConfigs"

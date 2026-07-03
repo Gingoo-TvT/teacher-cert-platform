@@ -291,7 +291,6 @@ onMounted(async () => {
       :data="filteredRecords"
       :total="gradeFilter ? filteredRecords.length : studentTotal"
       :loading="loading"
-      :scroll-x="1440"
       empty-title="暂无学生数据"
       empty-description="当前筛选条件下没有学生记录。"
       @refresh="loadStudents"

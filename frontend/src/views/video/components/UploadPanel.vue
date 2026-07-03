@@ -6,6 +6,7 @@ import StatusTag from '@/components/StatusTag.vue'
 import { statusLabel } from '@/constants/statusLabels'
 import { useUserStore } from '@/stores/user'
 import { useYearStore } from '@/stores/year'
+import { detectVideoDurationSeconds, formatVideoDuration } from '@/utils/videoDuration'
 import {
   initVideoUpload,
   listVideoReviews,
@@ -30,6 +31,8 @@ const playerVisible = ref(false)
 const reviews = ref<VideoReview[]>([])
 const fileList = ref<UploadFileInfo[]>([])
 const uploadProgress = ref(0)
+const durationDetected = ref(false)
+const durationDetectFailed = ref(false)
 const playbackUrl = ref('')
 const watermarkText = ref('')
 const watermarkStyle = ref({ left: '12%', top: '18%' })
@@ -58,6 +61,7 @@ const statusIcon = computed<Component>(() => {
   return TimeOutline
 })
 const reviewMessage = computed(() => currentReview.value?.validationMessage || '')
+const durationText = computed(() => `${formatVideoDuration(uploadForm.durationSeconds)} (${uploadForm.durationSeconds}s)`)
 
 onMounted(loadReviews)
 
@@ -77,9 +81,25 @@ function openUpload() {
   uploadForm.studentId = currentReview.value?.studentId || userStore.currentUser?.studentId || ''
   uploadForm.assessmentYear = currentReview.value?.assessmentYear || yearStore.assessmentYear
   uploadForm.durationSeconds = currentReview.value?.durationSeconds || 900
+  durationDetected.value = Boolean(currentReview.value?.durationSeconds)
+  durationDetectFailed.value = false
   uploadProgress.value = 0
   fileList.value = []
   uploadVisible.value = true
+}
+
+async function handleFileListUpdate(next: UploadFileInfo[]) {
+  fileList.value = next
+  const file = next[0]?.file
+  durationDetected.value = false
+  durationDetectFailed.value = false
+  if (!file) return
+  try {
+    uploadForm.durationSeconds = await detectVideoDurationSeconds(file)
+    durationDetected.value = true
+  } catch {
+    durationDetectFailed.value = true
+  }
 }
 
 async function uploadVideo() {
@@ -233,8 +253,16 @@ watch(
             {{ reviewMessage || '视频已退回，请按意见重新上传。' }}
           </n-alert>
           <n-input v-model:value="uploadForm.assessmentYear" placeholder="考核年度" class="mono-input" />
-          <n-input-number v-model:value="uploadForm.durationSeconds" :min="1" style="width: 100%" placeholder="时长（秒）" />
-          <n-upload v-model:file-list="fileList" :max="1" accept="video/mp4,.mp4" :default-upload="false" />
+          <n-alert v-if="!durationDetectFailed" type="info" :bordered="false">
+            {{ fileList.length ? (durationDetected ? `时长：${durationText} · 自动识别` : '正在识别视频时长') : '选择视频后自动识别时长' }}
+          </n-alert>
+          <n-input-number v-else v-model:value="uploadForm.durationSeconds" :min="1" style="width: 100%" placeholder="时长（秒）" />
+          <n-upload :file-list="fileList" :max="1" accept="video/mp4,.mp4" :default-upload="false" @update:file-list="handleFileListUpdate">
+            <n-upload-dragger>
+              <n-text>点击或拖拽视频到此处上传</n-text>
+              <n-p depth="3">支持 MP4 文件，选择后自动识别时长。</n-p>
+            </n-upload-dragger>
+          </n-upload>
           <n-progress type="line" :percentage="uploadProgress" indicator-placement="inside" />
         </n-space>
         <template #footer>

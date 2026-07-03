@@ -54,7 +54,12 @@ defineExpose({ open })
       <n-alert v-if="replacingMaterial" type="info" :bordered="false">
         {{ replacingMaterial.record.studentNo }} / {{ replacingMaterial.record.subjectLabel }}
       </n-alert>
-      <n-upload v-model:file-list="replacementFiles" :max="1" accept=".pdf,.jpg,.jpeg,.png" :default-upload="false" />
+      <n-upload v-model:file-list="replacementFiles" :max="1" accept=".pdf,.jpg,.jpeg,.png" :default-upload="false">
+        <n-upload-dragger>
+          <n-text>点击或拖拽佐证文件到此处上传</n-text>
+          <n-p depth="3">支持 PDF、JPG、JPEG、PNG，最多 1 个文件。</n-p>
+        </n-upload-dragger>
+      </n-upload>
       <n-space justify="end">
         <n-button @click="replaceVisible = false; replacingMaterial = null">取消</n-button>
         <n-button type="primary" @click="saveReplace">保存</n-button>

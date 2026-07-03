@@ -5,10 +5,10 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**Phase 34 ✅ 完成（Claude 亲自执行 07-03）**——组件拆分落地 W6；前端整改 Phase 30–34 全部完成。
+- 当前阶段：**Phase 35 待复核**——前端验收缺陷修复 F1–F5 已提交，等待 Claude 按 `docs/frontend-fix-plan.md` 复核。
 - 阻塞项：无
-- 最近更新：2026-07-03（Phase 34 组件拆分：10 个 >400 大视图并行拆为子组件——Org 1006→65/Security 798→398/Cert 690→314/Material 697→442/Dict 610→362/ManagePanel 601→308/Training 596→347/Exemption 620→396/Audit 523→399/Student 456→340；新增 33 子组件；纯结构重构行为不变；type-check+build 两轮绿；活体 SYS_ADMIN 10 页零 403。剩 5 文件 401–487 为合理内聚不强拆。详见 docs/reviews/phase-34-review.md）
-- 下一步：用户对被拆分页面的抽屉/表单交互目验（结构重构唯一需人眼确认处）；前端整改收官。
+- 最近更新：2026-07-03（Phase 35：删除视图硬编码 `scroll-x`，DataPanel 自动推导表宽；学生下拉远程搜索并移除无参全量预载；上传区改拖拽并补视频时长自动识别；统计图长类目旋转/扩底；首页问候与 StatCard 单位内联修正；纯前端，type-check+build 通过。）
+- 下一步：Claude 按 Phase35 gate ①-⑥ 做 1280/1440/1920 目验、材料/免考流畅度、上传与统计图/首页复核。
 
 ## 阶段汇总
 | Phase | 名称 | 优先级 | 任务数 | 完成 | 状态 |
@@ -347,6 +347,15 @@
 - [x] 视频页拆分：新增 `views/video/components/{UploadPanel,MyTaskPanel,ManagePanel,GroupPanel}.vue`；`VideoReviewView.vue` 缩至 49 行；`MyTaskPanel` 改为左任务列表 + 右评分区工作台，替代弹窗评分。
 - [x] 学生端友好化：材料 `selfMode` 改四类卡片网格；视频 `selfMode` 改步骤条 + 退回意见 + 重新上传；证书 `selfMode` 改青绿描边证书卡，展示证书号、有效期和状态。
 - 验证：`npm --prefix frontend run type-check` 通过；`npm --prefix frontend run build` 通过（仅既有 Vite chunk-size warning）；附录 A 黑名单、纯前端范围、视频主文件行数和组件命中证据已写入 `DEVLOG.md`。等待 Claude 复核，未自行置复核通过。
+
+## 收官后 · Phase 35 / 前端验收缺陷修复
+- Phase 35 `前端验收缺陷修复`：**待复核**（分支：`feature/phase35-acceptance-fix`）。纯前端，不改后端/契约/迁移/stores 逻辑；未新增依赖；本地私有无 remote，不 push。
+- [x] F1 列表横滚：删除 27 处视图硬编码 `:scroll-x`，`DataPanel` 未显式传值时按列 `width/minWidth` 自动推导表宽。
+- [x] F2 学生下拉：新增 `StudentSelect` 远程搜索；材料、免考、视频、证书、培养、测试导入、学生本人页去掉无参全量学生预载。
+- [x] F3 上传入口：视频、材料、免考、导入中心、测试结果、学科库导入使用 `n-upload-dragger`；视频上传两处用浏览器 metadata 自动识别时长，失败才显示手填。
+- [x] F4 统计报表：`ChartBox` 长类目 45 度旋转并加大底部空间；统计表扩展值列放宽、数值 tabular 对齐。
+- [x] F5 首页指标：首页问候去掉说明尾巴；`StatCard` 新增内联 `unit`，Dashboard/StatsReport 单位不再占副行，并按 label 去重首页指标。
+- 验证：`npm --prefix frontend run type-check` 通过；`npm --prefix frontend run build` 通过（仅既有 Vite chunk-size warning）。等待 Claude 按 Phase35 gate 复核，未自行置复核通过。
 
 ---
 

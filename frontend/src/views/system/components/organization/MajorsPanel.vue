@@ -379,7 +379,6 @@ defineExpose({ refresh, openCollegeDrawer })
         :loading="majorLoading"
         :row-props="majorRowProps"
         :max-height="620"
-        :scroll-x="1280"
         empty-title="暂无专业"
         empty-description="当前筛选条件下没有专业记录。"
         @refresh="loadMajors"

@@ -251,9 +251,6 @@ onMounted(async () => {
     <template #actions>
       <n-space>
         <n-button secondary @click="refreshAll">刷新</n-button>
-        <n-upload v-if="canImport" :custom-request="handleUpload" :show-file-list="false" accept=".xlsx,.xls" :disabled="importLoading">
-          <n-button type="primary" :loading="importLoading">导入学科库</n-button>
-        </n-upload>
       </n-space>
     </template>
 
@@ -292,7 +289,6 @@ onMounted(async () => {
           :loading="loading"
           :row-props="rowProps"
           :max-height="620"
-          :scroll-x="1080"
           empty-title="暂无任教学科"
           empty-description="当前筛选条件下没有任教学科记录。"
           @refresh="refreshAll"
@@ -321,6 +317,14 @@ onMounted(async () => {
             <n-form-item label="导入年度">
               <n-input v-model:value="importYearVersion" clearable maxlength="16" />
             </n-form-item>
+            <n-form-item label="导入文件">
+              <n-upload :custom-request="handleUpload" :show-file-list="false" accept=".xlsx,.xls" :disabled="importLoading">
+                <n-upload-dragger>
+                  <n-text>{{ importLoading ? '正在导入学科库' : '点击或拖拽学科库文件到此处导入' }}</n-text>
+                  <n-p depth="3">支持 XLSX、XLS；按上方导入年度写入。</n-p>
+                </n-upload-dragger>
+              </n-upload>
+            </n-form-item>
           </n-form>
           <n-space v-if="importResult" :size="8" class="import-tags">
             <n-tag type="info" :bordered="false">总数 {{ importResult.total }}</n-tag>
@@ -333,7 +337,6 @@ onMounted(async () => {
               :columns="errorColumns"
               :data="importResult.errors"
             :total="importResult.errors.length"
-            :scroll-x="640"
               :max-height="260"
             empty-title="暂无错误"
             empty-description="当前导入结果没有错误明细。"

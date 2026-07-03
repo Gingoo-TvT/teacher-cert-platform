@@ -268,7 +268,6 @@ watch(
       :data="batches"
       :total="batches.length"
       :loading="loading"
-      :scroll-x="1040"
       empty-title="暂无导出批次"
       empty-description="执行导出后会生成批次记录。"
       @refresh="loadBatches"

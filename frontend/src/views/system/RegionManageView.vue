@@ -178,7 +178,6 @@ onMounted(() => loadChildren())
           :loading="loading"
           :row-props="rowProps"
           :max-height="640"
-          :scroll-x="760"
           :pagination="false"
           empty-title="暂无下级区划"
           empty-description="当前层级下没有可展示的行政区划。"

@@ -44,7 +44,6 @@ const assessmentYear = ref(yearStore.assessmentYear)
 const conclusionFilter = ref<string | null>(null)
 const confirmFilter = ref<string | null>(null)
 const records = ref<AbilityTestResult[]>([])
-const students = ref<Student[]>([])
 const conclusions = ref<DictItem[]>([])
 const examRows = ref<ExamSubject[]>([])
 const importText = ref('')
@@ -54,7 +53,6 @@ const selectedValidity = ref<AbilityTestResult | null>(null)
 
 const canImport = computed(() => userStore.hasPerm('test:import'))
 const canConfirm = computed(() => userStore.hasPerm('test:confirm'))
-const canViewStudents = computed(() => userStore.hasPerm('student:view'))
 
 const conclusionOptions = computed<SelectOption[]>(() =>
   conclusions.value.map((item) => ({ label: item.itemValue, value: item.itemCode }))
@@ -127,11 +125,7 @@ async function loadRecords() {
 }
 
 async function loadOptions() {
-  const [studentRes, conclusionRes] = await Promise.all([
-    canViewStudents.value ? listStudents() : Promise.resolve(null),
-    listDictItems('ability_test_conclusion', true)
-  ])
-  students.value = studentRes?.data.records || []
+  const conclusionRes = await listDictItems('ability_test_conclusion', true)
   conclusions.value = conclusionRes.data
 }
 
@@ -184,7 +178,7 @@ async function saveImport() {
     if (file) {
       await importAbilityTestFile(file)
     } else {
-      const rows = parseImportRows(importText.value)
+      const rows = await parseImportRows(importText.value)
       await importAbilityTests(rows)
     }
     message.success('导入完成')
@@ -197,23 +191,34 @@ async function saveImport() {
   }
 }
 
-function parseImportRows(text: string): AbilityTestPayload[] {
+async function parseImportRows(text: string): Promise<AbilityTestPayload[]> {
   const rows = text
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean)
   if (rows.length === 0) throw new Error('导入内容不能为空')
-  return rows.map((line) => {
+  const studentCache = new Map<string, Student>()
+  const parsedRows = rows.map((line) => {
     const [studentNo, year, segment, orgMode, score, conclusion] = line.split(',').map((item) => item.trim())
-    const student = students.value.find((item) => item.studentNo === studentNo)
-    if (!student) throw new Error(`学生不存在：${studentNo}`)
+    return { studentNo, year, segment, orgMode, score, conclusion }
+  })
+  await Promise.all(
+    [...new Set(parsedRows.map((row) => row.studentNo))].map(async (studentNo) => {
+      const res = await listStudents({ keyword: studentNo })
+      const student = res.data.records.find((item) => item.studentNo === studentNo)
+      if (student) studentCache.set(studentNo, student)
+    })
+  )
+  return parsedRows.map((row) => {
+    const student = studentCache.get(row.studentNo)
+    if (!student) throw new Error(`学生不存在：${row.studentNo}`)
     return {
       studentId: student.id,
-      assessmentYear: year,
-      teachingSegment: segment,
-      examOrgMode: orgMode,
-      score,
-      conclusion
+      assessmentYear: row.year,
+      teachingSegment: row.segment,
+      examOrgMode: row.orgMode,
+      score: row.score,
+      conclusion: row.conclusion
     }
   })
 }
@@ -284,7 +289,6 @@ watch(
       :data="records"
       :total="records.length"
       :loading="loading"
-      :scroll-x="1460"
       empty-title="暂无测试结果"
       empty-description="当前筛选条件下没有测试结果记录。"
       @refresh="loadRecords"
@@ -302,7 +306,12 @@ watch(
         <n-alert type="info" :bordered="false">
           本阶段不提供手工新建或编辑入口。可上传 Excel/CSV，或粘贴轻量文本：学号,年度,学段,组织方式,成绩,结论。
         </n-alert>
-        <n-upload v-model:file-list="importFiles" :max="1" accept=".xlsx,.xls,.csv" :default-upload="false" />
+        <n-upload v-model:file-list="importFiles" :max="1" accept=".xlsx,.xls,.csv" :default-upload="false">
+          <n-upload-dragger>
+            <n-text>点击或拖拽测试结果文件到此处上传</n-text>
+            <n-p depth="3">支持 XLSX、XLS、CSV；无文件时可直接粘贴文本。</n-p>
+          </n-upload-dragger>
+        </n-upload>
         <n-input
           v-model:value="importText"
           type="textarea"

@@ -179,7 +179,6 @@ function showError(error: unknown, fallback: string) {
       :data="groups"
       :total="groups.length"
       :loading="loading"
-      :scroll-x="980"
       empty-title="暂无评审组"
       empty-description="当前学院还没有可用的评审组。"
       @refresh="loadAll"

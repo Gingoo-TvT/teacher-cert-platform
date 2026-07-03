@@ -17,7 +17,6 @@ import { renderTableActions } from '@/utils/tableActions'
 import { statusLabel } from '@/constants/statusLabels'
 import { listDictItems, type DictItem } from '@/api/dict'
 import { listColleges, listMajors, type College, type Major } from '@/api/organization'
-import { listStudents, type Student } from '@/api/student'
 import {
   firstReviewTrainingProfile,
   listTrainingProfiles,
@@ -44,7 +43,6 @@ const statusFilter = ref<string | null>(null)
 const collegeFilter = ref<string | null>(null)
 const segmentFilter = ref<string | null>(null)
 const records = ref<TrainingProfile[]>([])
-const students = ref<Student[]>([])
 const colleges = ref<College[]>([])
 const majors = ref<Major[]>([])
 const educationLevels = ref<DictItem[]>([])
@@ -139,7 +137,6 @@ async function loadRecords() {
 
 async function loadOptions() {
   const [
-    studentRes,
     collegeRes,
     majorRes,
     educationRes,
@@ -150,7 +147,6 @@ async function loadOptions() {
     interviewRes,
     conclusionRes
   ] = await Promise.all([
-    canViewStudents.value ? listStudents() : Promise.resolve(null),
     canViewStudents.value ? listColleges() : Promise.resolve(null),
     canViewStudents.value ? listMajors({ pilotScopeFlag: 1, status: 1 }) : Promise.resolve(null),
     listDictItems('education_level', true),
@@ -161,7 +157,6 @@ async function loadOptions() {
     listDictItems('interview_org_mode', true),
     listDictItems('ability_test_conclusion', true)
   ])
-  students.value = studentRes ? (selfMode.value ? studentRes.data.records.slice(0, 1) : studentRes.data.records) : []
   colleges.value = collegeRes?.data || []
   majors.value = majorRes?.data || []
   educationLevels.value = educationRes.data
@@ -290,7 +285,6 @@ watch(
       :data="filteredRecords"
       :total="filteredRecords.length"
       :loading="loading"
-      :scroll-x="1550"
       empty-title="暂无培养信息"
       empty-description="当前筛选条件下没有专业培养信息。"
       @refresh="loadRecords"
@@ -305,7 +299,6 @@ watch(
 
     <TrainingDrawer
       ref="drawerRef"
-      :students="students"
       :majors="majors"
       :education-levels="educationLevels"
       :training-goals="trainingGoals"

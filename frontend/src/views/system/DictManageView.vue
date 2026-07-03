@@ -294,7 +294,6 @@ onMounted(loadTypes)
           :total="filteredItems.length"
           :loading="itemLoading"
           :max-height="620"
-          :scroll-x="920"
           :pagination="false"
           empty-title="暂无字典项"
           empty-description="当前字典类型下没有可展示的字典项。"

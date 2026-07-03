@@ -21,7 +21,6 @@ import { renderTableActions } from '@/utils/tableActions'
 import { statusLabel } from '@/constants/statusLabels'
 import { formatDate } from '@/utils/format'
 import { listDictItems, type DictItem } from '@/api/dict'
-import { listStudents, type Student } from '@/api/student'
 import { useUserStore } from '@/stores/user'
 import { useYearStore } from '@/stores/year'
 import {
@@ -41,7 +40,6 @@ const keyword = ref('')
 const assessmentYear = ref(yearStore.assessmentYear)
 const statusFilter = ref<string | null>(null)
 const records = ref<Certificate[]>([])
-const students = ref<Student[]>([])
 const statuses = ref<DictItem[]>([])
 const segments = ref<DictItem[]>([])
 const goals = ref<DictItem[]>([])
@@ -63,9 +61,6 @@ const isStudentMode = computed(() => userStore.roles.includes('STUDENT') && canV
 const pageTitle = computed(() => isStudentMode.value ? '我的证书' : '证书管理')
 const pageDescription = computed(() => isStudentMode.value ? '查看本人证书编号、有效期与当前状态。' : '证书生成、签发、导出、归档、更正、作废与重开。')
 
-const studentOptions = computed<SelectOption[]>(() =>
-  students.value.map((item) => ({ label: `${item.studentNo} ${item.name}`, value: item.id }))
-)
 const statusOptions = computed<SelectOption[]>(() => statuses.value.map((item) => ({ label: item.itemValue, value: item.itemCode })))
 const segmentOptions = computed<SelectOption[]>(() => segments.value.map((item) => ({ label: item.itemValue, value: item.itemCode })))
 const goalOptions = computed<SelectOption[]>(() => goals.value.map((item) => ({ label: item.itemValue, value: item.itemCode })))
@@ -143,13 +138,11 @@ async function loadRecords() {
 }
 
 async function loadOptions() {
-  const [studentRes, statusRes, segmentRes, goalRes] = await Promise.all([
-    canGenerate.value ? listStudents() : Promise.resolve(null),
+  const [statusRes, segmentRes, goalRes] = await Promise.all([
     listDictItems('certificate_status', true),
     listDictItems('teaching_segment', true),
     listDictItems('training_goal', true)
   ])
-  students.value = studentRes?.data.records || []
   statuses.value = statusRes.data
   segments.value = segmentRes.data
   goals.value = goalRes.data
@@ -283,7 +276,6 @@ watch(
       :data="records"
       :total="records.length"
       :loading="loading"
-      :scroll-x="1750"
       empty-title="暂无证书"
       empty-description="当前筛选条件下没有证书记录。"
       @refresh="loadRecords"
@@ -298,7 +290,6 @@ watch(
 
     <CertificateGenerateDrawer
       ref="generateDrawer"
-      :student-options="studentOptions"
       :assessment-year="assessmentYear"
       @saved="loadRecords"
     />

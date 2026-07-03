@@ -11,8 +11,6 @@ import ArbitrateModal from './ArbitrateModal.vue'
 import ReturnModal from './ReturnModal.vue'
 import { statusLabel } from '@/constants/statusLabels'
 import { listDictItems, type DictItem } from '@/api/dict'
-import { listStudents, type Student } from '@/api/student'
-import { useUserStore } from '@/stores/user'
 import { useYearStore } from '@/stores/year'
 import { renderTableActions } from '@/utils/tableActions'
 import {
@@ -35,7 +33,6 @@ const props = defineProps<{
 }>()
 
 const message = useMessage()
-const userStore = useUserStore()
 const yearStore = useYearStore()
 
 const loading = ref(false)
@@ -44,7 +41,6 @@ const keyword = ref('')
 const assessmentYear = ref(yearStore.assessmentYear)
 const statusFilter = ref<string | null>(null)
 const reviews = ref<VideoReview[]>([])
-const students = ref<Student[]>([])
 const reviewers = ref<ReviewerCandidate[]>([])
 const groups = ref<ReviewerGroup[]>([])
 const dimensions = ref<DictItem[]>([])
@@ -57,7 +53,6 @@ const assignRef = ref<InstanceType<typeof AssignReviewerModal> | null>(null)
 const arbitrateRef = ref<InstanceType<typeof ArbitrateModal> | null>(null)
 const returnRef = ref<InstanceType<typeof ReturnModal> | null>(null)
 
-const canViewStudents = computed(() => userStore.hasPerm('student:view'))
 const canLoadReviews = computed(() => props.canUpload || props.canAssign || props.canArbitrate || props.canConfirm || props.canPlay)
 
 const statusOptions: SelectOption[] = [
@@ -128,13 +123,11 @@ async function loadReviews() {
 }
 
 async function loadOptions() {
-  const [studentRes, dimensionRes, reviewerRes, groupRes] = await Promise.all([
-    props.canUpload && canViewStudents.value ? listStudents() : Promise.resolve(null),
+  const [dimensionRes, reviewerRes, groupRes] = await Promise.all([
     props.canArbitrate ? listDictItems('video_score_dimension', true) : Promise.resolve(null),
     props.canAssign || props.canArbitrate ? listReviewerCandidates() : Promise.resolve(null),
     props.canAssign ? listReviewerGroups() : Promise.resolve(null)
   ])
-  students.value = studentRes?.data.records || []
   dimensions.value = dimensionRes?.data.slice(0, 9) || []
   reviewers.value = reviewerRes?.data || []
   groups.value = groupRes?.data || []
@@ -255,7 +248,6 @@ watch(
       :data="reviews"
       :total="reviews.length"
       :loading="loading"
-      :scroll-x="1600"
       empty-title="暂无视频评审记录"
       empty-description="当前筛选条件下没有视频评审记录。"
       @refresh="loadReviews"
@@ -268,7 +260,7 @@ watch(
       </template>
     </DataPanel>
 
-    <UploadVideoDrawer v-if="canUpload" ref="uploadRef" :students="students" :assessment-year="assessmentYear" @saved="loadReviews" />
+    <UploadVideoDrawer v-if="canUpload" ref="uploadRef" :assessment-year="assessmentYear" @saved="loadReviews" />
     <AssignReviewerModal v-if="canAssign" ref="assignRef" :reviewers="reviewers" :groups="groups" @saved="loadReviews" />
     <ArbitrateModal v-if="canArbitrate" ref="arbitrateRef" :reviewers="reviewers" :dimensions="dimensions" @saved="loadReviews" />
     <ReturnModal v-if="canConfirm || canArbitrate" ref="returnRef" @saved="loadReviews" />
