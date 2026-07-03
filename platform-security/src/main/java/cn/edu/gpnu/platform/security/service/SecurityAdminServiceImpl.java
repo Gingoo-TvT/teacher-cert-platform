@@ -1,7 +1,6 @@
 package cn.edu.gpnu.platform.security.service;
 
 import cn.edu.gpnu.platform.common.api.PageResult;
-import cn.edu.gpnu.platform.common.context.UserContext;
 import cn.edu.gpnu.platform.common.exception.BizException;
 import cn.edu.gpnu.platform.system.dto.RolePermissionAssignRequest;
 import cn.edu.gpnu.platform.system.dto.RoleSaveRequest;
@@ -13,6 +12,8 @@ import cn.edu.gpnu.platform.system.entity.SysPermission;
 import cn.edu.gpnu.platform.system.entity.SysRole;
 import cn.edu.gpnu.platform.system.entity.SysRolePermission;
 import cn.edu.gpnu.platform.system.entity.SysUser;
+import cn.edu.gpnu.platform.system.entity.SysUserDataScope;
+import cn.edu.gpnu.platform.system.entity.SysUserRole;
 import cn.edu.gpnu.platform.system.mapper.SysCollegeMapper;
 import cn.edu.gpnu.platform.system.mapper.SysMajorMapper;
 import cn.edu.gpnu.platform.system.mapper.SysPermissionMapper;
@@ -150,19 +151,24 @@ public class SecurityAdminServiceImpl implements SecurityAdminService {
     @Transactional(rollbackFor = Exception.class)
     public void assignUserDataScope(Long id, UserDataScopeRequest request) {
         requireUser(id);
-        Long operatorId = UserContext.getUserIdOrSystem();
-        userDataScopeMapper.disableByUserId(id, operatorId);
         LinkedHashSet<Long> collegeIds = new LinkedHashSet<>(request.getCollegeIds() == null ? List.of() : request.getCollegeIds());
         LinkedHashSet<Long> majorIds = new LinkedHashSet<>(request.getMajorIds() == null ? List.of() : request.getMajorIds());
-        long seed = id * 1000;
-        int index = 1;
+        collegeIds.forEach(this::requireCollege);
+        majorIds.forEach(this::requireMajor);
+        // 先物理删除旧授权再重建：主键由 ASSIGN_ID 生成、审计字段由 AuditMetaObjectHandler 自动填充，
+        // 规避复用合成 id 且唯一键不含 deleted 导致的唯一冲突/授权错乱（P0-14）。
+        userDataScopeMapper.deleteByUserId(id);
         for (Long collegeId : collegeIds) {
-            requireCollege(collegeId);
-            userDataScopeMapper.upsert(seed + index++, id, collegeId, null, operatorId);
+            SysUserDataScope scope = new SysUserDataScope();
+            scope.setUserId(id);
+            scope.setCollegeId(collegeId);
+            userDataScopeMapper.insert(scope);
         }
         for (Long majorId : majorIds) {
-            requireMajor(majorId);
-            userDataScopeMapper.upsert(seed + index++, id, null, majorId, operatorId);
+            SysUserDataScope scope = new SysUserDataScope();
+            scope.setUserId(id);
+            scope.setMajorId(majorId);
+            userDataScopeMapper.insert(scope);
         }
     }
 
@@ -217,18 +223,25 @@ public class SecurityAdminServiceImpl implements SecurityAdminService {
     @Transactional(rollbackFor = Exception.class)
     public void assignRolePermissions(Long id, RolePermissionAssignRequest request) {
         requireRole(id);
-        Long operatorId = UserContext.getUserIdOrSystem();
-        rolePermissionMapper.disableByRoleId(id, operatorId);
-        long seed = id * 1000;
-        int index = 1;
+        // 先校验并按权限去重（同一权限多次出现时以最后一次范围为准，规避唯一键冲突）。
+        LinkedHashMap<Long, String> scopeByPermission = new LinkedHashMap<>();
         for (RolePermissionAssignRequest.Item item : request.getPermissions()) {
             requirePermission(item.getPermissionId());
             String scopeType = normalizeRequired(item.getScopeType(), "范围类型不能为空");
             if (!SCOPE_TYPES.contains(scopeType)) {
                 throw new BizException("范围类型不合法：" + scopeType);
             }
-            rolePermissionMapper.upsert(seed + index++, id, item.getPermissionId(), scopeType, operatorId);
+            scopeByPermission.put(item.getPermissionId(), scopeType);
         }
+        // 物理删除旧授权后重建：主键 ASSIGN_ID、审计字段自动填充，规避 id 复用 + 唯一键缺 deleted 冲突（P0-14）。
+        rolePermissionMapper.deleteByRoleId(id);
+        scopeByPermission.forEach((permissionId, scopeType) -> {
+            SysRolePermission relation = new SysRolePermission();
+            relation.setRoleId(id);
+            relation.setPermissionId(permissionId);
+            relation.setScopeType(scopeType);
+            rolePermissionMapper.insert(relation);
+        });
     }
 
     @Override
@@ -263,14 +276,15 @@ public class SecurityAdminServiceImpl implements SecurityAdminService {
         if (roleIds == null || roleIds.isEmpty()) {
             throw new BizException("用户至少需要一个角色");
         }
-        Long operatorId = UserContext.getUserIdOrSystem();
-        userRoleMapper.disableByUserId(userId, operatorId);
         LinkedHashSet<Long> unique = new LinkedHashSet<>(roleIds);
-        int index = 1;
-        long seed = userId * 1000;
+        unique.forEach(this::requireRole);
+        // 物理删除旧关联后重建：主键 ASSIGN_ID、审计字段自动填充，规避 id 复用 + 唯一键缺 deleted 冲突（P0-14）。
+        userRoleMapper.deleteByUserId(userId);
         for (Long roleId : unique) {
-            requireRole(roleId);
-            userRoleMapper.upsert(seed + index++, userId, roleId, operatorId);
+            SysUserRole relation = new SysUserRole();
+            relation.setUserId(userId);
+            relation.setRoleId(roleId);
+            userRoleMapper.insert(relation);
         }
     }
 

@@ -281,8 +281,10 @@
 - ✅ **P1 前端批量下载永远失败** — `material.ts` 泛型笔误 `post<Blob>`→`post<unknown,Blob>` + 消费端 `res.data`→`res`。
 - 说明：删除端点后命中会经全局兜底返回 500「系统异常」而非 404（P1-15 的 200/500-on-error 另行修）；安全目标（不泄露）已达成。
 
-### Phase 37a-part2（进行中：剩余 batch A 安全项）
-- ⏳ P0-7 导入批次 IDOR（batches/confirm/rollback/errorReport 加 operator+学院范围校验；并修 `StatsServiceImpl.batchVisible` 子串匹配漏洞）。
-- ⏳ P0-14 RBAC 授权 upsert 静默损坏 + P0-15 角色弹窗清数据范围（后端 upsert 改按真实 FK 写 + 唯一键补 deleted；前端保留真实 scopeType）。
-- ⏳ P0-9 TLS（nginx 443 配置模板 + HSTS/安全头；证书由运维提供）。
+### Phase 37a-part2 ✅ 已完成并合并（本提交，mvn verify 83/83 绿 + 前端 type-check/build 绿；栈起活体实测）
+- ✅ **P0-7 导入批次 IDOR** — `ExchangeServiceImpl` 新增 `ensureBatchAccessible(batch, perm)`：全校/系统范围放行，否则仅限本人创建的批次（批次以 `operatorId` 归属、无 college_id，用操作人归属校验规避 scopeJson 子串匹配）；植入 `errorReport/confirmImport/rollback`，`batches()` 列表按 allSchool-else-本人 operator 过滤。
+- ✅ **P0-14 RBAC 授权"静默损坏/500"** — **改用"物理先删后插"**替代 `INSERT...ON DUPLICATE`：三张关联表加物理 `DELETE`（`deleteByUserId/deleteByRoleId`），Service 三方法（`replaceUserRoles/assignRolePermissions/assignUserDataScope`）改为 `deleteByX` + `mapper.insert(entity)`（id 由 `ASSIGN_ID` 生雪花、审计字段由 `AuditMetaObjectHandler` 自动填充），同时消除 id 复用与 `parentId*1000` 溢出。**过程更正：** 初拟"给 ON DUPLICATE 补 `role_id=VALUES`"经活体证伪——唯一键不含 `deleted`（`V7:63,99,116`），改 role_id 会撞软删旧行→`DuplicateKeyException`→HTTP200 code=500、DB 不变；先删后插彻底规避。**活体（复现→阻断）：** test_sys_admin 对 test_review_teacher_c 分配 [CLERK,AUDITOR,RT]→code=0/DB 三角色；改分配 [CLERK,RT]→**旧码 code=500/DB 仍 {A,B,C}；新码 code=0/DB 精确 {CLERK,RT}**，junction 用新雪花 id（`2073…858/859`），复原时 hard-delete 顺带清除历史脏行。
+- ✅ **P0-15 角色授权弹窗静默改写数据范围** — `RolePermissionDrawer.vue` 打开时构建 `scopeByPermission` 记录后端真实 per-permission `scopeType`，保存用 `scopeFor()`（保留原范围→权限自身 canonical scopeType→兜底 SCHOOL）替代原 3 桶猜测 `defaultScopeFor`，不再一改全冲。
+- ✅ **P0-9 TLS/安全头/超时** — `nginx.conf` 加 X-Frame-Options/X-Content-Type-Options/Referrer-Policy、`/api` 代理超时 600s（大导入/上传免 502/504）、gzip、`/assets` 长缓存，并附 443 TLS/HSTS/301 跳转模板（运维供证后启用）。
+- 说明：验收栈与 IT 共用 `teacher_cert` 库，`mvn verify` 跑 83 IT 会改测试账号状态（本次把 `test_sys_admin.must_change_pwd` 置 1，已手工复位为 0）；上线前测试库须与运行库物理隔离（见 §7.11/P0-5）。
 

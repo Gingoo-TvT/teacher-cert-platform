@@ -2,6 +2,7 @@ package cn.edu.gpnu.platform.system.mapper;
 
 import cn.edu.gpnu.platform.system.entity.SysUserDataScope;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
@@ -51,4 +52,8 @@ public interface SysUserDataScopeMapper extends BaseMapper<SysUserDataScope> {
             """)
     int upsert(@Param("id") Long id, @Param("userId") Long userId, @Param("collegeId") Long collegeId,
                @Param("majorId") Long majorId, @Param("operatorId") Long operatorId);
+
+    // Phase 37a-part2 (P0-14)：物理删除用户的全部数据范围授权，配合 insert 重建。
+    @Delete("DELETE FROM sys_user_data_scope WHERE user_id = #{userId}")
+    int deleteByUserId(@Param("userId") Long userId);
 }

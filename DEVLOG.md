@@ -15,6 +15,18 @@
 
 ---
 
+## [2026-07-04] Phase 37a-part2 完成（Opus4.8+Sonnet5 执行，Claude 亲自返工关键处）✅ — batch A 安全急修剩余项（复现→阻断）
+- 做了什么：
+  - **P0-7 导入批次 IDOR**：`ExchangeServiceImpl` 新增 `ensureBatchAccessible(batch, perm)`（全校/系统放行，否则仅本人 operator 创建的批次），植入 `errorReport/confirmImport/rollback`；`batches()` 列表按 allSchool-else-本人 operator 过滤。批次以 `operatorId` 归属（无 college_id），用操作人校验规避 scopeJson 子串匹配。
+  - **P0-14 RBAC 授权"静默损坏/500"**：三关联表（SysUserRole/SysRolePermission/SysUserDataScope）加物理 `@Delete`（deleteByUserId/deleteByRoleId），`SecurityAdminServiceImpl.replaceUserRoles/assignRolePermissions/assignUserDataScope` 改 `deleteByX` + `mapper.insert(entity)`（id=ASSIGN_ID 雪花、审计字段 AuditMetaObjectHandler 自动填充）；assignRolePermissions 用 LinkedHashMap 按权限去重（末次范围为准，防唯一冲突）。撤销我此前给 ON DUPLICATE 补的 FK 列，upsert 还原为原始体。
+  - **P0-15 角色弹窗改写数据范围**：`RolePermissionDrawer.vue` 记录后端真实 per-permission `scopeType`，保存用 `scopeFor()`（保原范围→权限 canonical→SCHOOL），弃 3 桶猜测 `defaultScopeFor`。
+  - **P0-9 TLS**：`nginx.conf` 加安全头 + `/api` 超时 600s + gzip + `/assets` 缓存 + 443/HSTS/301 模板。
+- 关键决策与理由：P0-14 初拟"ON DUPLICATE 补 `role_id=VALUES`"被活体证伪——唯一键不含 `deleted`（`V7:63/99/116`），改 role_id 撞软删旧行→`DuplicateKeyException`→HTTP200 code=500、DB 不变。改"物理先删后插"彻底规避 id 复用 + `parentId*1000` 溢出 + 唯一冲突。`upsert` 保留（`StudentServiceImpl:348` + 12 IT 仍用，已还原为原始 ON DUPLICATE 体）。
+- 问题与解决：①旧后端(PID 13632)持 jar 文件锁致 `spring-boot:repackage` 改名失败→按 PID 精杀后重跑 verify 通过。②验收栈与 IT 共用 `teacher_cert` 库，verify 跑 83 IT 把 `test_sys_admin.must_change_pwd` 置 1（JWT filter 每请求校验→assign 返 403"请先修改初始密码"）→手工 `UPDATE` 复位 0。
+- 与规格的偏差/疑问：无阻塞。测试库须与运行库物理隔离（并入 §11 说明 + §7.11/P0-5）。
+- 测试：`mvn -B -ntp verify` BUILD SUCCESS，failsafe **83/83 绿**（0 失败/错误/跳过）。活体（栈 PID 25932 新起 02:15:50、jar 02:12:03）：test_sys_admin 对 test_review_teacher_c 分配 `[CLERK,AUDITOR,RT]`→code=0/DB 三角色；改分配 `[CLERK,RT]`→**code=0/DB 精确 {CLERK,RT}**（旧码此步 code=500/DB 仍三角色），junction 新雪花 id `2073…858/859`；复原 `[RT]` 时 hard-delete 清除历史 CLERK/AUDITOR 脏行，DB 剩单行 role 004。
+- 下一步：batch B/C 剩余 P0（Spring Boot 升级 P0-8、并发 `@Version` P0-10、MinIO 出事务 P0-11、无 FK/孤儿 P0-12、批量下载 OOM P0-2、mysql-root P0-5、假备份 P0-6、P0 无测试 P0-13）。
+
 ## [2026-07-03] Phase 35b 完成（Claude 亲自）✅ — 统计报表重做 + 卡顿治理 + 闪烁修复（用户二次反馈）
 - 背景：用户反馈 ①统计报表仍丑(x 轴名截断只是"能显示"非好方案) ②几乎所有页 sys_admin 点击卡顿(不止材料/免考) ③材料/免考进入仍有"刷新的页面"闪烁。
 - 诊断：①统计图为纵向柱+旋转长标签(治标)；②dev 模式 vite 按需转换模块(Phase 34 拆分后模块数增多→首次导航卡顿)+`hasPerm` O(n) 数组扫描(sys_admin 权限集大)+主包含 naive-ui 未拆；③材料/免考 onMounted `await loadOptions()`→`await loadRecords()` 串行→骨架屏二次闪烁。

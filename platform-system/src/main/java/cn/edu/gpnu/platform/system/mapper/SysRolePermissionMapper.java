@@ -2,6 +2,7 @@ package cn.edu.gpnu.platform.system.mapper;
 
 import cn.edu.gpnu.platform.system.entity.SysRolePermission;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
@@ -47,11 +48,15 @@ public interface SysRolePermissionMapper extends BaseMapper<SysRolePermission> {
             VALUES
                 (#{id}, #{roleId}, #{permissionId}, #{scopeType}, #{operatorId}, NOW(), #{operatorId}, NOW(), 0)
             ON DUPLICATE KEY UPDATE
-                scope_type = VALUES(scope_type),
                 updated_by = VALUES(updated_by),
                 updated_at = NOW(),
                 deleted = 0
             """)
     int upsert(@Param("id") Long id, @Param("roleId") Long roleId, @Param("permissionId") Long permissionId,
                @Param("scopeType") String scopeType, @Param("operatorId") Long operatorId);
+
+    // Phase 37a-part2 (P0-14)：物理删除角色的全部权限关联，配合 insert 重建（避免复用合成 id +
+    // 唯一键缺 deleted 导致的 scope_type/permission 错乱与唯一冲突）。
+    @Delete("DELETE FROM sys_role_permission WHERE role_id = #{roleId}")
+    int deleteByRoleId(@Param("roleId") Long roleId);
 }

@@ -213,6 +213,7 @@ public class ExchangeServiceImpl implements ExchangeService {
     @Override
     public ExchangeFile errorReport(Long batchId) {
         ImportExportBatch batch = requireBatch(batchId);
+        ensureBatchAccessible(batch, "exchange:prevalidate");
         List<ImportErrorDetail> errors = errorMapper.selectList(new LambdaQueryWrapper<ImportErrorDetail>()
                 .eq(ImportErrorDetail::getBatchId, batchId)
                 .orderByAsc(ImportErrorDetail::getRowNo)
@@ -229,6 +230,7 @@ public class ExchangeServiceImpl implements ExchangeService {
     @Override
     public ImportResultVO confirmImport(Long batchId, ImportConfirmRequest request) {
         ImportExportBatch batch = requireBatch(batchId);
+        ensureBatchAccessible(batch, "exchange:import");
         if (ExchangeBatchStatus.of(batch.getStatus()) != ExchangeBatchStatus.PREVALIDATED) {
             throw new BizException("当前批次不可确认导入");
         }
@@ -274,6 +276,7 @@ public class ExchangeServiceImpl implements ExchangeService {
     @Transactional(rollbackFor = Exception.class)
     public RollbackResultVO rollback(Long batchId) {
         ImportExportBatch batch = requireBatch(batchId);
+        ensureBatchAccessible(batch, "exchange:import");
         if (ExchangeBatchStatus.of(batch.getStatus()) != ExchangeBatchStatus.IMPORTED
                 && ExchangeBatchStatus.of(batch.getStatus()) != ExchangeBatchStatus.FAILED
                 && ExchangeBatchStatus.of(batch.getStatus()) != ExchangeBatchStatus.PARTIAL_ROLLBACK) {
@@ -319,7 +322,15 @@ public class ExchangeServiceImpl implements ExchangeService {
         if (StringUtils.hasText(status)) {
             wrapper.eq(ImportExportBatch::getStatus, status.trim());
         }
-        List<BatchVO> records = batchMapper.selectList(wrapper).stream().map(this::toBatchVO).toList();
+        // P0-7：非全校范围只能看到本人创建的批次（批次以 operatorId 归属）
+        DataScopeContext.Scope scope = dataScopeService.resolve("exchange:import");
+        boolean allSchool = scope != null && scope.allSchool();
+        Long uid = UserContext.getUserId();
+        List<ImportExportBatch> list = batchMapper.selectList(wrapper);
+        if (!allSchool) {
+            list = list.stream().filter(b -> uid != null && uid.equals(b.getOperatorId())).toList();
+        }
+        List<BatchVO> records = list.stream().map(this::toBatchVO).toList();
         return new PageResult<>(records.size(), records);
     }
 
@@ -1102,6 +1113,20 @@ public class ExchangeServiceImpl implements ExchangeService {
             return;
         }
         throw new BizException(ResultCode.FORBIDDEN.getCode(), "无权导入该学院数据");
+    }
+
+    // Phase 37a-part2 (P0-7)：批次越权修复。全校/系统范围可访问所有批次，否则仅限本人创建的批次。
+    // 批次表以 operatorId 归属（无 college_id），以操作人归属做校验，避免 scopeJson 子串匹配漏洞。
+    private void ensureBatchAccessible(ImportExportBatch batch, String permission) {
+        DataScopeContext.Scope scope = dataScopeService.resolve(permission);
+        if (scope != null && scope.allSchool()) {
+            return;
+        }
+        Long uid = UserContext.getUserId();
+        if (uid != null && uid.equals(batch.getOperatorId())) {
+            return;
+        }
+        throw new BizException(ResultCode.FORBIDDEN.getCode(), "无权访问该批次");
     }
 
     private void ensureCanUpdateExisting(Object existing, Long targetCollegeId, String label) {
