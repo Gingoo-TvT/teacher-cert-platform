@@ -57,6 +57,7 @@ public class SecurityAdminServiceImpl implements SecurityAdminService {
     private final SysCollegeMapper collegeMapper;
     private final SysMajorMapper majorMapper;
     private final PasswordEncoder passwordEncoder;
+    private final TokenRevocationService tokenRevocationService;
 
     @Value("${platform.security.initial-password:ChangeMe123!}")
     private String initialPassword;
@@ -135,6 +136,7 @@ public class SecurityAdminServiceImpl implements SecurityAdminService {
                 .set(SysUser::getFailedLoginCount, 0)
                 .set(SysUser::getLockedUntil, null)
                 .set(SysUser::getStatus, "ENABLED"));
+        tokenRevocationService.revoke(id); // 重置密码后目标用户旧 token 立即失效
     }
 
     @Override

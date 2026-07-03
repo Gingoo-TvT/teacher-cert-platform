@@ -100,7 +100,8 @@ export function getProcessStatus(studentId: string, assessmentYear: string) {
 }
 
 export function batchDownloadMaterials(query: MaterialQuery = {}) {
-  return request.post<Blob>('/material/batch-download', cleanParams(query), { responseType: 'blob' })
+  // 泛型必须是 <unknown, Blob>：拦截器返回 response.data，故此函数直接 resolve 出 Blob 本身。
+  return request.post<unknown, Blob>('/material/batch-download', cleanParams(query), { responseType: 'blob' })
 }
 
 function cleanParams(query: object) {

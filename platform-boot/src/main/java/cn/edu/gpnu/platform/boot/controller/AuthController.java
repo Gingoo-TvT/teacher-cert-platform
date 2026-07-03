@@ -49,6 +49,7 @@ public class AuthController {
     @AuditLog(bizType = "auth", operation = "logout")
     @PostMapping("/logout")
     public Result<Void> logout() {
+        authService.logout();
         return Result.ok();
     }
 

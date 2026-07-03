@@ -5,6 +5,7 @@ import cn.edu.gpnu.platform.common.api.ResultCode;
 import cn.edu.gpnu.platform.common.context.UserContext;
 import cn.edu.gpnu.platform.common.exception.BizException;
 import cn.edu.gpnu.platform.security.service.JwtService;
+import cn.edu.gpnu.platform.security.service.TokenRevocationService;
 import cn.edu.gpnu.platform.system.service.UserSecurityService;
 import cn.edu.gpnu.platform.system.vo.UserSecurityVO;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -33,6 +34,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private final JwtService jwtService;
     private final UserSecurityService userSecurityService;
     private final ObjectMapper objectMapper;
+    private final TokenRevocationService tokenRevocationService;
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
@@ -51,7 +53,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     unauthorized(response, "token类型不正确");
                     return;
                 }
-                UserSecurityVO user = userSecurityService.loadById(Long.valueOf(claims.getSubject()));
+                Long uid = Long.valueOf(claims.getSubject());
+                if (tokenRevocationService.isRevoked(uid, claims.getIssuedAt())) {
+                    unauthorized(response, "登录状态已失效，请重新登录");
+                    return;
+                }
+                UserSecurityVO user = userSecurityService.loadById(uid);
                 if (user == null || !"ENABLED".equals(user.getStatus())) {
                     unauthorized(response, "用户不存在或已停用");
                     return;

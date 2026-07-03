@@ -8,8 +8,6 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -45,11 +43,8 @@ public class FileController {
         return Result.ok(data);
     }
 
-    @Operation(summary = "获取下载/预览预签名链接")
-    @PreAuthorize("isAuthenticated()")
-    @GetMapping("/{id}/url")
-    public Result<String> presignedUrl(@PathVariable Long id,
-                                       @RequestParam(value = "expiry", defaultValue = "600") int expiry) {
-        return Result.ok(fileService.presignedGet(id, expiry));
-    }
+    // 安全急修(Phase 37a, P0-1)：原 GET /file/{id}/url 预签名端点仅 isAuthenticated、无属主/数据范围校验，
+    // 任一登录者可凭 fileId 下载他人材料/视频/证件(活体已证实)。合法文件访问均走带 @DataScope/服务层
+    // 范围校验的业务端点(材料/免考预览、视频播放、导出，内部再调 presignedGet)；该通用端点无任何调用方，
+    // 直接删除以消除 IDOR 面。若将来需通用预签名，必须走带属主校验的业务入口。
 }

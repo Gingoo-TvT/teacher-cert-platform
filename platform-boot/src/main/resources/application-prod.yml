@@ -1,0 +1,24 @@
+# 生产 profile（Phase 37a 安全急修 P0-4）：关闭接口文档 + 显式 Flyway 安全项。
+# 其余配置继承 application.yml；启动用 SPRING_PROFILES_ACTIVE=prod（docker-compose.yml 已设）。
+
+# 关闭 Swagger / Knife4j —— 生产不暴露 API 文档与"试调"界面
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+knife4j:
+  enable: false
+  production: true
+
+spring:
+  # Flyway 生产安全：禁用 clean、允许在已有非空库上 baseline，避免首次部署硬失败
+  flyway:
+    enabled: true
+    clean-disabled: true
+    baseline-on-migrate: true
+    encoding: UTF-8
+
+logging:
+  level:
+    cn.edu.gpnu.platform: info

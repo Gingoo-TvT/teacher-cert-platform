@@ -267,7 +267,7 @@ async function batchDownload() {
       category: categoryFilter.value,
       assessmentYear: assessmentYear.value
     })
-    const url = URL.createObjectURL(res.data)
+    const url = URL.createObjectURL(res)
     const link = document.createElement('a')
     link.href = url
     link.download = `process-material-${Date.now()}.zip`
