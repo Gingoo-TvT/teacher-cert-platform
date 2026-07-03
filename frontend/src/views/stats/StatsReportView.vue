@@ -63,20 +63,24 @@ const summary = computed(() => {
   }
 })
 
+const chartRows = computed(() => rows.value.slice(0, 20))
+// 横向条形：维度名放 Y 轴左侧完整可读（不再旋转/截断 x 轴长名）；高度随条数增长。
+const chartHeight = computed(() => `${Math.max(320, chartRows.value.length * 34 + 96)}px`)
 const chartOption = computed<EChartsOption>(() => {
-  const chartRows = rows.value.slice(0, 20)
   return {
-    xAxis: {
+    grid: { left: 12, right: 28, top: 12, bottom: 8, containLabel: true },
+    xAxis: { type: 'value', minInterval: 1 },
+    yAxis: {
       type: 'category',
-      data: chartRows.map((row) => chartLabel(row))
+      inverse: true,
+      data: chartRows.value.map((row) => chartLabel(row))
     },
-    yAxis: { type: 'value' },
     series: [
       {
         name: currentType.value.label,
         type: 'bar',
-        barMaxWidth: 34,
-        data: chartRows.map((row) => row.count || 0)
+        barMaxWidth: 20,
+        data: chartRows.value.map((row) => row.count || 0)
       }
     ]
   }
@@ -251,7 +255,7 @@ watch(
           <span class="muted">{{ currentType.description }}</span>
         </n-space>
       </template>
-      <ChartBox :option="chartOption" height="340px" />
+      <ChartBox :option="chartOption" :height="chartHeight" />
     </n-card>
 
     <DataPanel

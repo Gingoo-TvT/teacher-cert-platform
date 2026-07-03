@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { getMe, refreshToken as requestRefreshToken, type CurrentUser, type LoginResult } from '@/api/auth'
 
 export const useUserStore = defineStore('user', () => {
@@ -74,8 +74,10 @@ export const useUserStore = defineStore('user', () => {
     clearSession()
   }
 
+  const permSet = computed(() => new Set(perms.value))
+
   function hasPerm(code: string): boolean {
-    return perms.value.includes(code)
+    return permSet.value.has(code)
   }
 
   function hasAnyPerm(codes: string[]): boolean {

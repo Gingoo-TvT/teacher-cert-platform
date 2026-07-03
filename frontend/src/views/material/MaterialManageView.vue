@@ -295,9 +295,9 @@ function showError(error: unknown, fallback: string) {
   message.error(detail || fallback)
 }
 
-onMounted(async () => {
-  await loadOptions()
-  await loadRecords()
+onMounted(() => {
+  // 并行加载，避免"选项→列表"两段串行造成的骨架屏二次闪烁
+  void Promise.all([loadOptions(), loadRecords()])
 })
 
 watch(

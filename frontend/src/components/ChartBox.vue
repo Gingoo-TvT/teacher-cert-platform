@@ -164,7 +164,7 @@ function normalizeOption(option: echarts.EChartsOption): echarts.EChartsOption {
         }
       }
     }) as echarts.EChartsOption['yAxis'],
-    series: normalizeSeries(option.series, seriesCount) as echarts.EChartsOption['series']
+    series: normalizeSeries(option.series, seriesCount, isCategoryAxis(option.yAxis)) as echarts.EChartsOption['series']
   }
 }
 
@@ -186,7 +186,12 @@ function firstCategoryLabels(axis: echarts.EChartsOption['xAxis']) {
   })
 }
 
-function normalizeSeries(series: echarts.EChartsOption['series'], seriesCount: number) {
+function isCategoryAxis(axis: unknown): boolean {
+  const first = Array.isArray(axis) ? axis[0] : axis
+  return isObject(first) && first.type === 'category'
+}
+
+function normalizeSeries(series: echarts.EChartsOption['series'], seriesCount: number, horizontal = false) {
   const normalize = (item: unknown) => {
     if (!isObject(item) || item.type !== 'bar') return item
     const itemStyle = isObject(item.itemStyle) ? item.itemStyle : {}
@@ -196,7 +201,7 @@ function normalizeSeries(series: echarts.EChartsOption['series'], seriesCount: n
       itemStyle: {
         ...itemStyle,
         color: seriesCount === 1 ? chartSingleBarColor : itemStyle.color,
-        borderRadius: [4, 4, 0, 0]
+        borderRadius: horizontal ? [0, 4, 4, 0] : [4, 4, 0, 0]
       }
     }
   }
