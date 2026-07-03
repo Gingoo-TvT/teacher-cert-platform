@@ -13,6 +13,9 @@ import {
   type FormRules,
   type SelectOption
 } from 'naive-ui'
+import DataPanel from '@/components/DataPanel.vue'
+import DetailPanel from '@/components/DetailPanel.vue'
+import FilterBar from '@/components/FilterBar.vue'
 import PageContainer from '@/components/PageContainer.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import { listDictItems, type DictItem } from '@/api/dict'
@@ -35,6 +38,7 @@ import {
   type TrainingGoalConfig,
   type TrainingGoalConfigPayload
 } from '@/api/organization'
+import { renderTableActions } from '@/utils/tableActions'
 import { useUserStore } from '@/stores/user'
 
 const message = useMessage()
@@ -186,14 +190,14 @@ const collegeColumns = computed<DataTableColumns<College>>(() => {
       key: 'actions',
       width: 146,
       render: (row) =>
-        h(NSpace, { size: 6 }, () => [
+        renderTableActions([
           h(NButton, { size: 'small', quaternary: true, onClick: () => openCollegeDrawer(row) }, { default: () => '编辑' }),
           h(
             NPopconfirm,
             { onPositiveClick: () => removeCollege(row) },
             {
               trigger: () => h(NButton, { size: 'small', quaternary: true, type: 'error' }, { default: () => '删除' }),
-                default: () => '删除学院会校验是否存在专业。'
+              default: () => '删除学院会校验是否存在专业。'
             }
           )
         ])
@@ -223,7 +227,7 @@ const majorColumns = computed<DataTableColumns<Major>>(() => {
       key: 'actions',
       width: 220,
       render: (row) =>
-        h(NSpace, { size: 6 }, () => [
+        renderTableActions([
           h(NButton, { size: 'small', quaternary: true, onClick: () => openMajorDrawer(row) }, { default: () => '编辑' }),
           h(NButton, { size: 'small', quaternary: true, onClick: () => openGoalDrawer(row) }, { default: () => '目标' }),
           h(
@@ -254,29 +258,100 @@ const configColumns = computed<DataTableColumns<TrainingGoalConfig>>(() => {
       title: '操作',
       key: 'actions',
       width: 92,
-      render: (row) => h(NButton, { size: 'small', quaternary: true, onClick: () => openConfigDrawer(row) }, { default: () => '编辑' })
+      render: (row) => renderTableActions([h(NButton, { size: 'small', quaternary: true, onClick: () => openConfigDrawer(row) }, { default: () => '编辑' })])
     })
   }
   return columns
 })
 
-function collegeRowProps(row: College) {
+const selectedConfig = computed(() => configs.value.find((item) => item.trainingGoalCode === selectedConfigCode.value) || configs.value[0] || null)
+
+const collegeDetailItems = computed(() => {
+  const row = selectedCollege.value
+  if (!row) return []
+  return [
+    { label: '学院编码', value: row.code, mono: true },
+    { label: '学院名称', value: row.name },
+    { label: '状态', value: row.status === 1 ? '启用' : '停用' },
+    { label: '排序', value: row.sort ?? 0, mono: true }
+  ]
+})
+
+const majorDetailItems = computed(() => {
+  const row = selectedMajor.value
+  if (!row) return []
+  return [
+    { label: '专业代码', value: row.internalMajorCode, mono: true },
+    { label: '专业名称', value: row.internalMajorName },
+    { label: '学院', value: row.collegeName || selectedCollege.value?.name || '-' },
+    { label: '年度', value: row.yearVersion, mono: true },
+    { label: '试点', value: row.pilotScopeFlag === 1 ? '是' : '否' },
+    { label: '状态', value: row.status === 1 ? '启用' : '停用' },
+    { label: '二级学科', value: [row.secondDisciplineCode, row.secondDisciplineName].filter(Boolean).join(' / ') || '-', span: 2 },
+    { label: '培养目标', value: row.trainingGoals.map((item) => item.name).join('、') || '-', span: 2 }
+  ]
+})
+
+const configDetailItems = computed(() => {
+  const row = selectedConfig.value
+  if (!row) return []
+  return [
+    { label: '培养目标', value: row.trainingGoalName || row.trainingGoalCode },
+    { label: '默认学段', value: row.defaultSegmentName || dictName(teachingSegments.value, row.defaultSegment) },
+    { label: '允许学段', value: row.allowedSegments.map((code) => dictName(teachingSegments.value, code)).join('、'), span: 2 },
+    { label: '默认实习地点', value: row.defaultInternshipLocationName || dictName(internshipLocations.value, row.defaultInternshipLocation) },
+    { label: '状态', value: row.status === 1 ? '启用' : '停用' },
+    { label: '允许实习地点', value: row.allowedInternshipLocations.map((code) => dictName(internshipLocations.value, code)).join('、'), span: 2 }
+  ]
+})
+
+function collegeRowProps(row: object) {
+  const item = row as College
   return {
-    class: row.id === selectedCollegeId.value ? 'is-selected-row' : '',
+    class: item.id === selectedCollegeId.value ? 'is-selected-row' : '',
     onClick: () => {
-      selectedCollegeId.value = row.id
+      selectedCollegeId.value = item.id
       loadMajors()
     }
   }
 }
 
-function majorRowProps(row: Major) {
+function majorRowProps(row: object) {
+  const item = row as Major
   return {
-    class: row.id === selectedMajorId.value ? 'is-selected-row' : '',
+    class: item.id === selectedMajorId.value ? 'is-selected-row' : '',
     onClick: () => {
-      selectedMajorId.value = row.id
+      selectedMajorId.value = item.id
     }
   }
+}
+
+function configRowProps(row: object) {
+  const item = row as TrainingGoalConfig
+  return {
+    class: item.trainingGoalCode === selectedConfig.value?.trainingGoalCode ? 'is-selected-row' : '',
+    onClick: () => {
+      selectedConfigCode.value = item.trainingGoalCode
+    }
+  }
+}
+
+function resetCollegeFilters() {
+  collegeKeyword.value = ''
+  void loadColleges()
+}
+
+function resetMajorFilters() {
+  majorKeyword.value = ''
+  majorYearVersion.value = 'GLOBAL'
+  majorStatus.value = null
+  pilotScopeFlag.value = null
+  void loadMajors()
+}
+
+function resetConfigFilters() {
+  selectedConfigCode.value = null
+  void loadConfigs()
 }
 
 async function loadDictionaries() {
@@ -576,103 +651,171 @@ onMounted(async () => {
     <n-tabs v-if="hasVisibleSection" type="line" animated>
       <n-tab-pane v-if="canLoadCollegeList" name="majors" tab="学院与专业">
         <div class="org-layout">
-          <section class="page-section">
-            <div class="panel-toolbar">
-              <n-input v-model:value="collegeKeyword" clearable placeholder="搜索学院" @keyup.enter="loadColleges" />
-              <n-button secondary @click="loadColleges">查询</n-button>
-            </div>
-            <n-data-table
+          <div class="page-section">
+            <FilterBar :loading="collegeLoading" @submit="loadColleges" @reset="resetCollegeFilters">
+              <label class="filter-field">
+                <span>学院</span>
+                <n-input v-model:value="collegeKeyword" clearable placeholder="学院编码 / 名称" style="width: 220px" @keyup.enter="loadColleges" />
+              </label>
+            </FilterBar>
+            <DataPanel
+              title="学院列表"
               :columns="collegeColumns"
               :data="colleges"
+              :total="colleges.length"
               :loading="collegeLoading"
-              :row-key="(row: College) => row.id"
               :row-props="collegeRowProps"
-              size="small"
-              striped
               :max-height="620"
-            />
-          </section>
+              :pagination="false"
+              empty-title="暂无学院"
+              empty-description="当前筛选条件下没有学院记录。"
+              @refresh="loadColleges"
+            >
+              <template #actions>
+                <n-button v-if="canManageCollege" type="primary" size="small" @click="openCollegeDrawer()">新增学院</n-button>
+              </template>
+            </DataPanel>
+            <n-card :bordered="false" class="detail-card">
+              <div class="detail-head">
+                <div>
+                  <strong>{{ selectedCollege?.name || '学院详情' }}</strong>
+                  <span class="muted mono">{{ selectedCollege?.code || '请选择学院' }}</span>
+                </div>
+              </div>
+              <DetailPanel v-if="selectedCollege" :items="collegeDetailItems" :columns="2" />
+              <n-empty v-else description="请选择学院" />
+            </n-card>
+          </div>
 
-          <section class="page-section">
+          <div class="page-section">
             <n-empty v-if="!canManageMajor" description="当前账号没有专业管理权限" />
-            <div v-else class="panel-toolbar wrap">
-              <n-input v-model:value="majorKeyword" clearable placeholder="搜索专业" style="width: 190px" @keyup.enter="loadMajors" />
-              <n-input v-model:value="majorYearVersion" clearable maxlength="16" placeholder="年度" style="width: 118px" />
-              <n-select
-                v-model:value="pilotScopeFlag"
-                clearable
-                placeholder="试点"
-                style="width: 104px"
-                :options="[
-                  { label: '是', value: 1 },
-                  { label: '否', value: 0 }
-                ]"
-              />
-              <n-select
-                v-model:value="majorStatus"
-                clearable
-                placeholder="状态"
-                style="width: 104px"
-                :options="[
-                  { label: '启用', value: 1 },
-                  { label: '停用', value: 0 }
-                ]"
-              />
-              <n-button secondary @click="loadMajors">查询</n-button>
-              <n-button v-if="canManageMajor" type="primary" :disabled="!canCreateMajor" @click="openMajorDrawer()">新增专业</n-button>
-            </div>
-            <n-data-table
+            <FilterBar v-else :loading="majorLoading" @submit="loadMajors" @reset="resetMajorFilters">
+              <label class="filter-field">
+                <span>专业</span>
+                <n-input v-model:value="majorKeyword" clearable placeholder="专业代码 / 名称" style="width: 220px" @keyup.enter="loadMajors" />
+              </label>
+              <label class="filter-field">
+                <span>年度</span>
+                <n-input v-model:value="majorYearVersion" clearable maxlength="16" placeholder="年度" style="width: 120px" />
+              </label>
+              <label class="filter-field">
+                <span>试点</span>
+                <n-select
+                  v-model:value="pilotScopeFlag"
+                  clearable
+                  placeholder="全部"
+                  style="width: 110px"
+                  :options="[
+                    { label: '是', value: 1 },
+                    { label: '否', value: 0 }
+                  ]"
+                />
+              </label>
+              <label class="filter-field">
+                <span>状态</span>
+                <n-select
+                  v-model:value="majorStatus"
+                  clearable
+                  placeholder="全部"
+                  style="width: 110px"
+                  :options="[
+                    { label: '启用', value: 1 },
+                    { label: '停用', value: 0 }
+                  ]"
+                />
+              </label>
+            </FilterBar>
+            <DataPanel
               v-if="canManageMajor"
+              title="专业列表"
               :columns="majorColumns"
               :data="majors"
+              :total="majors.length"
               :loading="majorLoading"
-              :row-key="(row: Major) => row.id"
               :row-props="majorRowProps"
-              size="small"
-              striped
               :max-height="620"
-            />
-          </section>
+              :scroll-x="1280"
+              empty-title="暂无专业"
+              empty-description="当前筛选条件下没有专业记录。"
+              @refresh="loadMajors"
+            >
+              <template #actions>
+                <n-button v-if="canManageMajor" type="primary" size="small" :disabled="!canCreateMajor" @click="openMajorDrawer()">新增专业</n-button>
+              </template>
+            </DataPanel>
+            <n-card v-if="canManageMajor" :bordered="false" class="detail-card">
+              <div class="detail-head">
+                <div>
+                  <strong>{{ selectedMajor?.internalMajorName || '专业详情' }}</strong>
+                  <span class="muted mono">{{ selectedMajor?.internalMajorCode || '请选择专业' }}</span>
+                </div>
+              </div>
+              <DetailPanel v-if="selectedMajor" :items="majorDetailItems" :columns="2" />
+              <n-empty v-else description="请选择专业" />
+            </n-card>
+          </div>
         </div>
       </n-tab-pane>
 
       <n-tab-pane v-if="canManageMajor" name="configs" tab="联动配置">
-        <section class="page-section">
-          <div class="panel-toolbar wrap">
-            <n-select v-model:value="selectedConfigCode" :options="trainingGoalOptions" clearable placeholder="培养目标" style="width: 240px" @update:value="loadConfigs" />
-            <n-button secondary @click="loadConfigs">查询</n-button>
-            <n-button v-if="canManageMajor" type="primary" @click="openConfigDrawer()">新增/维护配置</n-button>
+        <div class="config-layout">
+          <div class="page-section">
+            <FilterBar :loading="configLoading" @submit="loadConfigs" @reset="resetConfigFilters">
+              <label class="filter-field">
+                <span>培养目标</span>
+                <n-select v-model:value="selectedConfigCode" :options="trainingGoalOptions" clearable placeholder="全部培养目标" style="width: 240px" />
+              </label>
+            </FilterBar>
+            <DataPanel
+              title="联动配置"
+              :columns="configColumns"
+              :data="configs"
+              :total="configs.length"
+              :loading="configLoading"
+              :row-props="configRowProps"
+              :max-height="620"
+              :scroll-x="1120"
+              empty-title="暂无联动配置"
+              empty-description="当前筛选条件下没有培养目标联动配置。"
+              @refresh="loadConfigs"
+            >
+              <template #actions>
+                <n-button v-if="canManageMajor" type="primary" size="small" @click="openConfigDrawer()">新增/维护配置</n-button>
+              </template>
+            </DataPanel>
           </div>
-          <n-data-table
-            :columns="configColumns"
-            :data="configs"
-            :loading="configLoading"
-            :row-key="(row: TrainingGoalConfig) => row.trainingGoalCode"
-            size="small"
-            striped
-            :max-height="620"
-          />
-        </section>
+          <n-card :bordered="false" class="detail-card">
+            <div class="detail-head">
+              <div>
+                <strong>{{ selectedConfig?.trainingGoalName || '配置详情' }}</strong>
+                <span class="muted mono">{{ selectedConfig?.trainingGoalCode || '请选择配置' }}</span>
+              </div>
+            </div>
+            <DetailPanel v-if="selectedConfig" :items="configDetailItems" :columns="2" />
+            <n-empty v-else description="请选择培养目标配置" />
+          </n-card>
+        </div>
       </n-tab-pane>
     </n-tabs>
 
-    <n-drawer v-model:show="collegeDrawerVisible" :width="420" placement="right">
+    <n-drawer v-model:show="collegeDrawerVisible" :width="560" placement="right">
       <n-drawer-content :title="editingCollegeId ? '编辑学院' : '新增学院'">
         <n-form ref="collegeFormRef" :model="collegeForm" :rules="collegeRules" label-placement="top">
-          <n-form-item label="学院编码" path="code">
-            <n-input v-model:value="collegeForm.code" maxlength="64" show-count />
-          </n-form-item>
-          <n-form-item label="学院名称" path="name">
-            <n-input v-model:value="collegeForm.name" maxlength="128" show-count />
-          </n-form-item>
-          <div class="form-grid">
-            <n-form-item label="排序" path="sort">
+          <div class="form-section-title">基本信息</div>
+          <n-grid :cols="2" :x-gap="12">
+            <n-form-item-gi label="学院编码" path="code">
+              <n-input v-model:value="collegeForm.code" maxlength="64" show-count />
+            </n-form-item-gi>
+            <n-form-item-gi label="学院名称" path="name">
+              <n-input v-model:value="collegeForm.name" maxlength="128" show-count />
+            </n-form-item-gi>
+            <n-form-item-gi label="排序" path="sort">
               <n-input-number v-model:value="collegeForm.sort" :min="0" />
-            </n-form-item>
-            <n-form-item label="状态" path="status">
+            </n-form-item-gi>
+            <n-form-item-gi label="状态" path="status">
               <n-switch v-model:value="collegeForm.status" :checked-value="1" :unchecked-value="0" />
-            </n-form-item>
-          </div>
+            </n-form-item-gi>
+          </n-grid>
         </n-form>
         <template #footer>
           <n-space justify="end">
@@ -683,42 +826,45 @@ onMounted(async () => {
       </n-drawer-content>
     </n-drawer>
 
-    <n-drawer v-model:show="majorDrawerVisible" :width="520" placement="right">
+    <n-drawer v-model:show="majorDrawerVisible" :width="560" placement="right">
       <n-drawer-content :title="editingMajorId ? '编辑专业' : '新增专业'">
         <n-form ref="majorFormRef" :model="majorForm" :rules="majorRules" label-placement="top">
-          <n-form-item label="学院" path="collegeId">
-            <n-select v-model:value="majorForm.collegeId" :options="collegeOptions" filterable />
-          </n-form-item>
-          <n-form-item label="校内专业代码" path="internalMajorCode">
-            <n-input v-model:value="majorForm.internalMajorCode" maxlength="64" show-count />
-          </n-form-item>
-          <n-form-item label="校内专业名称" path="internalMajorName">
-            <n-input v-model:value="majorForm.internalMajorName" maxlength="128" show-count />
-          </n-form-item>
-          <div class="form-grid">
-            <n-form-item label="二级学科代码" path="secondDisciplineCode">
+          <div class="form-section-title">基本信息</div>
+          <n-grid :cols="2" :x-gap="12">
+            <n-form-item-gi label="学院" path="collegeId" :span="2">
+              <n-select v-model:value="majorForm.collegeId" :options="collegeOptions" filterable />
+            </n-form-item-gi>
+            <n-form-item-gi label="校内专业代码" path="internalMajorCode">
+              <n-input v-model:value="majorForm.internalMajorCode" maxlength="64" show-count />
+            </n-form-item-gi>
+            <n-form-item-gi label="校内专业名称" path="internalMajorName">
+              <n-input v-model:value="majorForm.internalMajorName" maxlength="128" show-count />
+            </n-form-item-gi>
+          </n-grid>
+          <div class="form-section-title">学科信息</div>
+          <n-grid :cols="2" :x-gap="12">
+            <n-form-item-gi label="二级学科代码" path="secondDisciplineCode">
               <n-input v-model:value="majorForm.secondDisciplineCode" maxlength="64" show-count />
-            </n-form-item>
-            <n-form-item label="二级学科名称" path="secondDisciplineName">
+            </n-form-item-gi>
+            <n-form-item-gi label="二级学科名称" path="secondDisciplineName">
               <n-input v-model:value="majorForm.secondDisciplineName" maxlength="128" show-count />
-            </n-form-item>
-          </div>
-          <div class="form-grid">
-            <n-form-item label="年度版本" path="yearVersion">
+            </n-form-item-gi>
+          </n-grid>
+          <div class="form-section-title">状态设置</div>
+          <n-grid :cols="2" :x-gap="12">
+            <n-form-item-gi label="年度版本" path="yearVersion">
               <n-input v-model:value="majorForm.yearVersion" maxlength="16" show-count />
-            </n-form-item>
-            <n-form-item label="试点范围" path="pilotScopeFlag">
+            </n-form-item-gi>
+            <n-form-item-gi label="试点范围" path="pilotScopeFlag">
               <n-switch v-model:value="majorForm.pilotScopeFlag" :checked-value="1" :unchecked-value="0" />
-            </n-form-item>
-          </div>
-          <div class="form-grid">
-            <n-form-item label="排序" path="sort">
+            </n-form-item-gi>
+            <n-form-item-gi label="排序" path="sort">
               <n-input-number v-model:value="majorForm.sort" :min="0" />
-            </n-form-item>
-            <n-form-item label="状态" path="status">
+            </n-form-item-gi>
+            <n-form-item-gi label="状态" path="status">
               <n-switch v-model:value="majorForm.status" :checked-value="1" :unchecked-value="0" />
-            </n-form-item>
-          </div>
+            </n-form-item-gi>
+          </n-grid>
         </n-form>
         <template #footer>
           <n-space justify="end">
@@ -729,15 +875,18 @@ onMounted(async () => {
       </n-drawer-content>
     </n-drawer>
 
-    <n-drawer v-model:show="goalDrawerVisible" :width="460" placement="right">
+    <n-drawer v-model:show="goalDrawerVisible" :width="560" placement="right">
       <n-drawer-content title="专业培养目标">
         <n-form ref="goalFormRef" :model="goalForm" :rules="goalRules" label-placement="top">
-          <n-form-item label="专业">
-            <n-input :value="selectedMajor ? `${selectedMajor.internalMajorName} ${selectedMajor.internalMajorCode}` : ''" disabled />
-          </n-form-item>
-          <n-form-item label="培养目标" path="trainingGoalCodes">
-            <n-select v-model:value="goalForm.trainingGoalCodes" :options="trainingGoalOptions" multiple filterable />
-          </n-form-item>
+          <div class="form-section-title">目标设置</div>
+          <n-grid :cols="2" :x-gap="12">
+            <n-form-item-gi label="专业" :span="2">
+              <n-input :value="selectedMajor ? `${selectedMajor.internalMajorName} ${selectedMajor.internalMajorCode}` : ''" disabled />
+            </n-form-item-gi>
+            <n-form-item-gi label="培养目标" path="trainingGoalCodes" :span="2">
+              <n-select v-model:value="goalForm.trainingGoalCodes" :options="trainingGoalOptions" multiple filterable />
+            </n-form-item-gi>
+          </n-grid>
         </n-form>
         <template #footer>
           <n-space justify="end">
@@ -748,27 +897,36 @@ onMounted(async () => {
       </n-drawer-content>
     </n-drawer>
 
-    <n-drawer v-model:show="configDrawerVisible" :width="520" placement="right">
+    <n-drawer v-model:show="configDrawerVisible" :width="560" placement="right">
       <n-drawer-content title="培养目标联动配置">
         <n-form ref="configFormRef" :model="configForm" :rules="configRules" label-placement="top">
-          <n-form-item label="培养目标" path="trainingGoalCode">
-            <n-select v-model:value="configForm.trainingGoalCode" :options="trainingGoalOptions" filterable />
-          </n-form-item>
-          <n-form-item label="允许任教学段" path="allowedSegments">
-            <n-select v-model:value="configForm.allowedSegments" :options="segmentOptions" multiple filterable />
-          </n-form-item>
-          <n-form-item label="默认任教学段" path="defaultSegment">
-            <n-select v-model:value="configForm.defaultSegment" :options="segmentOptions" filterable />
-          </n-form-item>
-          <n-form-item label="允许实习地点" path="allowedInternshipLocations">
-            <n-select v-model:value="configForm.allowedInternshipLocations" :options="internshipLocationOptions" multiple filterable />
-          </n-form-item>
-          <n-form-item label="默认实习地点" path="defaultInternshipLocation">
-            <n-select v-model:value="configForm.defaultInternshipLocation" :options="internshipLocationOptions" filterable />
-          </n-form-item>
-          <n-form-item label="状态" path="status">
-            <n-switch v-model:value="configForm.status" :checked-value="1" :unchecked-value="0" />
-          </n-form-item>
+          <div class="form-section-title">培养目标</div>
+          <n-grid :cols="2" :x-gap="12">
+            <n-form-item-gi label="培养目标" path="trainingGoalCode" :span="2">
+              <n-select v-model:value="configForm.trainingGoalCode" :options="trainingGoalOptions" filterable />
+            </n-form-item-gi>
+          </n-grid>
+          <div class="form-section-title">任教学段</div>
+          <n-grid :cols="2" :x-gap="12">
+            <n-form-item-gi label="允许任教学段" path="allowedSegments" :span="2">
+              <n-select v-model:value="configForm.allowedSegments" :options="segmentOptions" multiple filterable />
+            </n-form-item-gi>
+            <n-form-item-gi label="默认任教学段" path="defaultSegment">
+              <n-select v-model:value="configForm.defaultSegment" :options="segmentOptions" filterable />
+            </n-form-item-gi>
+            <n-form-item-gi label="状态" path="status">
+              <n-switch v-model:value="configForm.status" :checked-value="1" :unchecked-value="0" />
+            </n-form-item-gi>
+          </n-grid>
+          <div class="form-section-title">实习地点</div>
+          <n-grid :cols="2" :x-gap="12">
+            <n-form-item-gi label="允许实习地点" path="allowedInternshipLocations" :span="2">
+              <n-select v-model:value="configForm.allowedInternshipLocations" :options="internshipLocationOptions" multiple filterable />
+            </n-form-item-gi>
+            <n-form-item-gi label="默认实习地点" path="defaultInternshipLocation" :span="2">
+              <n-select v-model:value="configForm.defaultInternshipLocation" :options="internshipLocationOptions" filterable />
+            </n-form-item-gi>
+          </n-grid>
         </n-form>
         <template #footer>
           <n-space justify="end">
@@ -789,25 +947,39 @@ onMounted(async () => {
   align-items: start;
 }
 
+.config-layout {
+  display: grid;
+  grid-template-columns: minmax(680px, 1.2fr) minmax(360px, 0.8fr);
+  gap: var(--space-6);
+  align-items: start;
+}
+
 .page-section {
   min-width: 0;
 }
 
-.panel-toolbar {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
+.detail-card {
+  margin-bottom: var(--space-5);
+}
+
+.detail-card :deep(.n-card__content) {
+  padding: var(--space-5);
+}
+
+.detail-head {
   margin-bottom: var(--space-4);
 }
 
-.panel-toolbar.wrap {
-  flex-wrap: wrap;
+.detail-head strong,
+.detail-head span {
+  display: block;
 }
 
-.form-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--space-4);
+.form-section-title {
+  margin: var(--space-2) 0 var(--space-3);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
 }
 
 .pill {
@@ -826,7 +998,8 @@ onMounted(async () => {
 }
 
 @media (max-width: 1220px) {
-  .org-layout {
+  .org-layout,
+  .config-layout {
     grid-template-columns: 1fr;
   }
 }

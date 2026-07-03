@@ -15,6 +15,136 @@
 
 ---
 
+## [2026-07-03] Phase 32 待复核小结（系统域 + 表单/详情/审核体验）
+- 做了什么：从最新 `main` 切出 `feature/phase32-form-detail-review`，执行 `docs/frontend-quality-plan.md` §4 Phase 32。纯前端展示层改造；未改后端、契约、迁移或 stores 逻辑；未新增依赖；未 push。
+- 关键决策与理由：复用 Phase 30/31 的 `FilterBar/DataPanel/DetailPanel/ReviewDialog/StatusTag/formatDateTime/statusLabel`，系统域优先做可见结构件收敛；对 `DataPanel` 仅增加展示型 `rowProps/maxHeight/defaultExpandAll` 透传，支持主从选中行和权限树展开，不改变业务状态。
+- 问题与解决：账号权限页原权限树会展示内部功能编码，本轮改为用户可读的功能名称/类型/路径，角色授权树仍用既有 id/code 计算授权。参数审计备份已在 Phase30 部分接入，本轮补学生数字 help 和 P4 抽屉。
+- 与规格的偏差/疑问：无。按 build-only 要求未启动常驻前端/后端服务；6 角色起栈走查留待 Claude 复核。
+
+### DictManageView — 数据字典
+- 结构件：类型与字典项改为左窄列表卡 + 右详情/明细卡；类型和字典项筛选均接 `FilterBar`，表格接 `DataPanel`，选中类型用 `DetailPanel` 展示。
+- P4：字典类型、字典项抽屉均 560 宽，`n-grid cols=2`，分“基本信息/补充说明/扩展信息”，长文本跨 2 列，footer 保留取消/保存与 saving loading。
+- 肉眼变化：进入页面即可看到左侧字典类型卡头和总数徽标，右侧先显示当前类型详情，再显示该类型字典项列表。
+
+### RegionManageView — 行政区划
+- 结构件：下级区划列表改 `DataPanel`，右侧查询区改 `FilterBar + DetailPanel`；选中行高亮，省级/上级动作放入表格卡头。
+- 特有项：保留级联选择和 6 位代码反查；路径节点继续用标签展示。
+- 肉眼变化：区划页从“左裸表 + 右表单/描述”变成“左列表卡 + 右查询详情卡”。
+
+### SubjectManageView — 任教学科库
+- 结构件：学段/年度/分类/关键词筛选接 `FilterBar`；任教学科表接 `DataPanel`；右侧选择器预览和当前学科接 `DetailPanel`；导入错误表也接 `DataPanel`。
+- 特有项：选择动作仍由按钮触发，避免点击行就写入最近学科记录。
+- 肉眼变化：学科页右侧能直接看到当前学段、学科编码、分类、年度和类型，不再只显示单列描述。
+
+### OrganizationManageView — 组织与专业
+- 结构件：学院/专业两栏均接 `FilterBar + DataPanel + DetailPanel`；联动配置 tab 改为配置列表 + 详情两栏。
+- P4：学院、专业、专业培养目标、培养目标联动配置抽屉均 560 宽，按基本信息/学科信息/状态设置/任教学段/实习地点等分组。
+- 肉眼变化：左侧选学院、右侧看专业列表和专业详情，配置 tab 选中后能看到默认/允许学段与实习地点摘要。
+
+### SecurityManageView — 账号权限
+- 结构件：用户、角色、权限三 tab 均接 `DataPanel`；用户/角色筛选接 `FilterBar`；权限树通过 `DataPanel defaultExpandAll` 展开。
+- 特有项：用户角色列继续用 `StatusTag` 组；功能权限表不再把内部编码作为主列展示；角色授权树显示功能名称。
+- P4：用户、角色、角色授权、数据范围抽屉均 560 宽，分组双列，footer 保留取消/保存与 saving loading。
+- 肉眼变化：账号页三个 tab 都有统一卡头、总数徽标和空态；新增/编辑用户表单分为基本信息、联系信息、账号设置。
+
+### SystemAuditView — 参数审计备份
+- 结构件：沿用参数/审计/备份三个 `FilterBar + DataPanel` 分区。
+- 审计中文化：审计 old/new 状态继续 `statusLabel + StatusTag`，操作名走 `operationLabel`；参数更新时间、审计时间、备份开始/完成时间均 `formatDateTime`。
+- 特有项：学院筛选为学院下拉；学生筛选占位为「学生ID（数字）」并增加“请填写数字编号，用于精确定位学生记录。”提示；参数/备份抽屉改 560 宽双列分组。
+- 肉眼变化：审计筛选不再要求学院数字输入，学生数字条件有明确提示，状态列显示中文标签。
+
+### Cross Page — P4/P5/P6
+- P4 抽屉：学生详情宽度统一；培养编辑、材料上传、免考申请、证书生成/更正补 560 宽、分组标题与双列栅格；系统域所有表单抽屉旧宽度清空。
+- P5 详情：学生、培养管理页查看继续使用 `DetailPanel` 只读抽屉，查看与编辑分离。
+- P6 审核：学生、培养、材料、免考初审/复审入口继续统一 `ReviewDialog`，对象摘要 + 结论 + 意见流程一致。
+
+### 自检证据（W2）
+变更文件范围：
+```
+$ git diff --name-only
+frontend/src/components/DataPanel.vue
+frontend/src/views/certificate/CertificateManageView.vue
+frontend/src/views/exemption/ExemptionManageView.vue
+frontend/src/views/material/MaterialManageView.vue
+frontend/src/views/student/StudentManageView.vue
+frontend/src/views/system/DictManageView.vue
+frontend/src/views/system/OrganizationManageView.vue
+frontend/src/views/system/RegionManageView.vue
+frontend/src/views/system/SecurityManageView.vue
+frontend/src/views/system/SubjectManageView.vue
+frontend/src/views/system/SystemAuditView.vue
+frontend/src/views/training/TrainingManageView.vue
+```
+
+附录 A 黑名单输出为空：
+```
+$ rg -n --glob '*.vue' '(权限点|权限码|[a-z]+:[a-z]+:?[a-zA-Z]*[''"]?\s*(显隐|控制)|后端|接口|API|迁移|Flyway|RBAC|SPI|V-0[0-9])' frontend/src/views frontend/src/layouts frontend/src/components | rg -v '//|/\*|import|hasPerm|perms:|@/api'
+<empty>
+```
+
+W4 时间列检查：
+```
+$ rg -n "key: '(createdAt|updatedAt|operateTime|startedAt|finishedAt|.*ReviewTime|submitTime)'" frontend/src/views
+frontend/src/views\DashboardView.vue:129:  { title: '时间', key: 'createdAt', width: 170, render: (row) => h('span', { class: 'mono tabular-nums' }, formatDateTime(row.createdAt)) }
+frontend/src/views\exchange\ExchangeImportView.vue:64:  { title: '时间', key: 'operateTime', width: 170, render: (row) => h('span', { class: 'mono tabular-nums' }, formatDateTime(row.operateTime)) },
+frontend/src/views\video\VideoReviewView.vue:227:  { title: '提交时间', key: 'submitTime', minWidth: 160, ellipsis: { tooltip: true }, render: (row) => h('span', { class: 'mono tabular-nums' }, formatDateTime(row.submitTime)) },
+frontend/src/views\exchange\ExchangeExportView.vue:75:  { title: '时间', key: 'operateTime', width: 170, render: (row) => h('span', { class: 'mono tabular-nums' }, formatDateTime(row.operateTime)) },
+frontend/src/views\system\SystemAuditView.vue:104:  { title: '更新时间', key: 'updatedAt', minWidth: 170, render: (row) => h('span', { class: 'mono tabular-nums' }, formatDateTime(row.updatedAt)) },
+frontend/src/views\system\SystemAuditView.vue:119:  { title: '时间', key: 'operateTime', minWidth: 168, render: (row) => h('span', { class: 'mono tabular-nums' }, formatDateTime(row.operateTime)) },
+frontend/src/views\system\SystemAuditView.vue:149:  { title: '开始', key: 'startedAt', minWidth: 166, render: (row) => h('span', { class: 'mono tabular-nums' }, formatDateTime(row.startedAt)) },
+frontend/src/views\system\SystemAuditView.vue:150:  { title: '完成', key: 'finishedAt', minWidth: 166, render: (row) => h('span', { class: 'mono tabular-nums' }, formatDateTime(row.finishedAt)) },
+```
+
+纯前端范围输出为空：
+```
+$ git diff --name-only | rg "^(platform-|pom\.xml|docker-compose|.*db/migration|.*Controller|.*Service|.*Mapper|.*\.java)"
+<empty>
+```
+
+系统页裸表格输出为空：
+```
+$ rg -n 'n-data-table' frontend/src/views/system
+<empty>
+```
+
+旧抽屉宽度输出为空：
+```
+$ rg -n 'n-drawer[^\n]*:width="(420|460|480|520|580|620|720)"' frontend/src/views
+<empty>
+```
+
+P5/P6 命中：
+```
+$ rg -n 'ReviewDialog|DetailPanel' frontend/src/views/student/StudentManageView.vue frontend/src/views/training/TrainingManageView.vue frontend/src/views/material/MaterialManageView.vue frontend/src/views/exemption/ExemptionManageView.vue frontend/src/views/certificate/CertificateManageView.vue
+frontend/src/views/material/MaterialManageView.vue:16:import ReviewDialog from '@/components/ReviewDialog.vue'
+frontend/src/views/material/MaterialManageView.vue:475:    <ReviewDialog
+frontend/src/views/exemption/ExemptionManageView.vue:16:import ReviewDialog from '@/components/ReviewDialog.vue'
+frontend/src/views/exemption/ExemptionManageView.vue:546:    <ReviewDialog
+frontend/src/views/student/StudentManageView.vue:15:import DetailPanel from '@/components/DetailPanel.vue'
+frontend/src/views/student/StudentManageView.vue:18:import ReviewDialog from '@/components/ReviewDialog.vue'
+frontend/src/views/student/StudentManageView.vue:426:        <DetailPanel v-if="selectedStudent" :items="detailItems" :columns="2" />
+frontend/src/views/student/StudentManageView.vue:430:    <ReviewDialog
+frontend/src/views/training/TrainingManageView.vue:12:import DetailPanel from '@/components/DetailPanel.vue'
+frontend/src/views/training/TrainingManageView.vue:15:import ReviewDialog from '@/components/ReviewDialog.vue'
+frontend/src/views/training/TrainingManageView.vue:566:        <DetailPanel v-if="selectedProfile" :items="detailItems" :columns="2" />
+frontend/src/views/training/TrainingManageView.vue:570:    <ReviewDialog
+```
+
+Build-only 验证：
+```
+$ npm --prefix frontend run type-check
+> teacher-cert-platform-frontend@1.0.0 type-check
+> vue-tsc --noEmit
+
+$ npm --prefix frontend run build
+> teacher-cert-platform-frontend@1.0.0 build
+> vite build
+✓ 4864 modules transformed.
+✓ built in 7.43s
+(!) Some chunks are larger than 500 kB after minification.
+```
+- 下一步：单分支单提交后等待 Claude 按 Phase 32 gate ①-⑥逐页复核。
+
 ## [2026-07-03] Phase 31 复核通过（Claude · frontend-quality-plan §5）✅ — 业务域列表页铺开
 - 做了什么：复核 `feature/phase31-list-rollout` 单提交 `652c0f1`（14 文件）。逐页核结构件接入矩阵；W4 grep（日期列全走 formatter、无裸状态码）；W3 附录 A 黑名单复跑空；导出学院下拉/通知 n-list/材料免考文件列逐项验；`vue-tsc`+`vite build` 读输出全绿。**首次活体走查**：captcha 解码登录 3 角色（SYS_ADMIN/ACADEMIC_ADMIN/COLLEGE_CLERK），6 个列表接口全 HTTP200 code=0、零 403、数据范围正确（教务员 student=9<12、college=1<2）。
 - 结论：**PASS**（一轮·0 修补）。12 页结构件全接入、格式化/状态中文全覆盖、各页特有项落实；DEVLOG 逐页（W9）+ 证据（W2）+ 诚实披露 2 处规格差异。

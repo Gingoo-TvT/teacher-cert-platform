@@ -443,16 +443,23 @@ watch(
 
     <n-drawer v-model:show="generateVisible" :width="560">
       <n-drawer-content title="生成证书编号" closable>
-        <n-space vertical>
-          <n-alert type="info" :bordered="false">
-            生成前会聚合基本信息、材料、测试、视频等前置条件；缺项会阻断生成。
-          </n-alert>
-          <n-select v-model:value="generateForm.studentId" filterable :options="studentOptions" placeholder="学生" />
-          <n-input v-model:value="generateForm.assessmentYear" placeholder="考核年度" class="mono-input" />
+        <n-alert type="info" :bordered="false" class="page-section">
+          生成前会聚合基本信息、材料、测试、视频等前置条件；缺项会阻断生成。
+        </n-alert>
+        <n-form label-placement="top">
+          <div class="form-section-title">生成信息</div>
+          <n-grid :cols="2" :x-gap="12">
+            <n-form-item-gi label="学生" :span="2">
+              <n-select v-model:value="generateForm.studentId" filterable :options="studentOptions" placeholder="学生" />
+            </n-form-item-gi>
+            <n-form-item-gi label="考核年度">
+              <n-input v-model:value="generateForm.assessmentYear" placeholder="考核年度" class="mono-input" />
+            </n-form-item-gi>
+          </n-grid>
           <n-alert v-if="precheck" :type="precheck.passed ? 'success' : 'warning'" :bordered="false">
             {{ precheck.passed ? '前置条件已满足' : `缺失：${missingText(precheck.missingItems)}` }}
           </n-alert>
-        </n-space>
+        </n-form>
         <template #footer>
           <n-space justify="end">
             <n-button @click="generateVisible = false">取消</n-button>
@@ -491,17 +498,40 @@ watch(
       </n-space>
     </n-modal>
 
-    <n-drawer v-model:show="correctVisible" :width="580">
+    <n-drawer v-model:show="correctVisible" :width="560">
       <n-drawer-content title="证书更正" closable>
-        <n-space vertical>
-          <n-input v-model:value="correctForm.certNo" placeholder="18位证书编号" class="mono-input" />
-          <n-input v-model:value="correctForm.validUntil" placeholder="有效期至，如 2029/6/30" class="mono-input" />
-          <n-select v-model:value="correctForm.teachingSegment" clearable :options="segmentOptions" placeholder="任教学段" />
-          <n-input v-model:value="correctForm.teachingSubjectCode" placeholder="任教学科代码" class="mono-input" />
-          <n-input v-model:value="correctForm.teachingSubjectName" placeholder="任教学科名称" />
-          <n-select v-model:value="correctForm.trainingGoal" clearable :options="goalOptions" placeholder="培养目标" />
-          <n-input v-model:value="correctForm.reason" type="textarea" :autosize="{ minRows: 3, maxRows: 6 }" placeholder="更正原因" />
-        </n-space>
+        <n-form label-placement="top">
+          <div class="form-section-title">证书信息</div>
+          <n-grid :cols="2" :x-gap="12">
+            <n-form-item-gi label="证书编号" :span="2">
+              <n-input v-model:value="correctForm.certNo" placeholder="18位证书编号" class="mono-input" />
+            </n-form-item-gi>
+            <n-form-item-gi label="有效期至">
+              <n-input v-model:value="correctForm.validUntil" placeholder="如 2029/6/30" class="mono-input" />
+            </n-form-item-gi>
+            <n-form-item-gi label="任教学段">
+              <n-select v-model:value="correctForm.teachingSegment" clearable :options="segmentOptions" placeholder="任教学段" />
+            </n-form-item-gi>
+          </n-grid>
+          <div class="form-section-title">任教学科</div>
+          <n-grid :cols="2" :x-gap="12">
+            <n-form-item-gi label="学科代码">
+              <n-input v-model:value="correctForm.teachingSubjectCode" placeholder="任教学科代码" class="mono-input" />
+            </n-form-item-gi>
+            <n-form-item-gi label="学科名称">
+              <n-input v-model:value="correctForm.teachingSubjectName" placeholder="任教学科名称" />
+            </n-form-item-gi>
+            <n-form-item-gi label="培养目标" :span="2">
+              <n-select v-model:value="correctForm.trainingGoal" clearable :options="goalOptions" placeholder="培养目标" />
+            </n-form-item-gi>
+          </n-grid>
+          <div class="form-section-title">更正原因</div>
+          <n-grid :cols="2" :x-gap="12">
+            <n-form-item-gi label="原因" :span="2">
+              <n-input v-model:value="correctForm.reason" type="textarea" :autosize="{ minRows: 3, maxRows: 6 }" placeholder="更正原因" />
+            </n-form-item-gi>
+          </n-grid>
+        </n-form>
         <template #footer>
           <n-space justify="end">
             <n-button @click="correctVisible = false">取消</n-button>
@@ -514,6 +544,13 @@ watch(
 </template>
 
 <style scoped>
+.form-section-title {
+  margin: var(--space-2) 0 var(--space-3);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+}
+
 .mono-input :deep(input) {
   font-family: var(--font-mono);
 }

@@ -383,7 +383,10 @@ onMounted(loadVisibleSections)
           <template #more>
             <label class="filter-field">
               <span>学生</span>
-              <n-input v-model:value="auditQuery.studentId" clearable placeholder="学生ID（数字）" style="width: 150px" @keyup.enter="loadAudits" />
+              <div class="filter-control">
+                <n-input v-model:value="auditQuery.studentId" clearable placeholder="学生ID（数字）" style="width: 150px" @keyup.enter="loadAudits" />
+                <span class="filter-help">请填写数字编号，用于精确定位学生记录。</span>
+              </div>
             </label>
             <label class="filter-field">
               <span>批次</span>
@@ -439,15 +442,18 @@ onMounted(loadVisibleSections)
       </n-tab-pane>
     </n-tabs>
 
-    <n-drawer v-model:show="paramDrawerVisible" :width="520" placement="right">
+    <n-drawer v-model:show="paramDrawerVisible" :width="560" placement="right">
       <n-drawer-content :title="editingParam ? editingParam.paramKey : '编辑参数'">
         <n-form ref="paramFormRef" :model="paramForm" :rules="paramRules" label-placement="top">
-          <n-form-item label="参数值" path="paramValue">
-            <n-input v-model:value="paramForm.paramValue" maxlength="512" show-count />
-          </n-form-item>
-          <n-form-item label="说明">
-            <n-input v-model:value="paramForm.description" type="textarea" maxlength="255" show-count />
-          </n-form-item>
+          <div class="form-section-title">参数内容</div>
+          <n-grid :cols="2" :x-gap="12">
+            <n-form-item-gi label="参数值" path="paramValue" :span="2">
+              <n-input v-model:value="paramForm.paramValue" maxlength="512" show-count />
+            </n-form-item-gi>
+            <n-form-item-gi label="说明" :span="2">
+              <n-input v-model:value="paramForm.description" type="textarea" maxlength="255" show-count />
+            </n-form-item-gi>
+          </n-grid>
         </n-form>
         <template #footer>
           <n-space justify="end">
@@ -458,25 +464,28 @@ onMounted(loadVisibleSections)
       </n-drawer-content>
     </n-drawer>
 
-    <n-drawer v-model:show="backupDrawerVisible" :width="480" placement="right">
+    <n-drawer v-model:show="backupDrawerVisible" :width="560" placement="right">
       <n-drawer-content title="记录备份演练">
         <n-form ref="backupFormRef" :model="backupForm" :rules="backupRules" label-placement="top">
-          <n-form-item label="备份类型" path="backupType">
-            <n-select
-              v-model:value="backupForm.backupType"
-              :options="[
-                { label: 'MySQL', value: 'mysql' },
-                { label: 'MinIO', value: 'minio' },
-                { label: '全量', value: 'full' }
-              ]"
-            />
-          </n-form-item>
-          <n-form-item label="范围">
-            <n-input v-model:value="backupForm.scope" maxlength="128" />
-          </n-form-item>
-          <n-form-item label="备注">
-            <n-input v-model:value="backupForm.remark" type="textarea" maxlength="500" show-count />
-          </n-form-item>
+          <div class="form-section-title">备份内容</div>
+          <n-grid :cols="2" :x-gap="12">
+            <n-form-item-gi label="备份类型" path="backupType">
+              <n-select
+                v-model:value="backupForm.backupType"
+                :options="[
+                  { label: 'MySQL', value: 'mysql' },
+                  { label: 'MinIO', value: 'minio' },
+                  { label: '全量', value: 'full' }
+                ]"
+              />
+            </n-form-item-gi>
+            <n-form-item-gi label="范围">
+              <n-input v-model:value="backupForm.scope" maxlength="128" />
+            </n-form-item-gi>
+            <n-form-item-gi label="备注" :span="2">
+              <n-input v-model:value="backupForm.remark" type="textarea" maxlength="500" show-count />
+            </n-form-item-gi>
+          </n-grid>
         </n-form>
         <template #footer>
           <n-space justify="end">
@@ -492,5 +501,23 @@ onMounted(loadVisibleSections)
 <style scoped>
 .n-tabs {
   margin-top: var(--space-2);
+}
+
+.filter-control {
+  display: grid;
+  gap: 4px;
+}
+
+.filter-help {
+  color: var(--text-tertiary);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.form-section-title {
+  margin: var(--space-2) 0 var(--space-3);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
 }
 </style>

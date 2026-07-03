@@ -5,15 +5,18 @@ import {
   NInput,
   NInputNumber,
   NPopconfirm,
-  NSpace,
   NSwitch,
   useMessage,
   type DataTableColumns,
   type FormInst,
   type FormRules
 } from 'naive-ui'
+import DataPanel from '@/components/DataPanel.vue'
+import DetailPanel from '@/components/DetailPanel.vue'
+import FilterBar from '@/components/FilterBar.vue'
 import PageContainer from '@/components/PageContainer.vue'
 import StatusTag from '@/components/StatusTag.vue'
+import { renderTableActions } from '@/utils/tableActions'
 import {
   createDictItem,
   createDictType,
@@ -149,14 +152,14 @@ const typeColumns = computed<DataTableColumns<DictType>>(() => {
       key: 'actions',
       width: 146,
       render: (row) =>
-        h(NSpace, { size: 6 }, () => [
+        renderTableActions([
           h(NButton, { size: 'small', quaternary: true, onClick: () => openTypeDrawer(row) }, { default: () => '编辑' }),
           h(
             NPopconfirm,
             { onPositiveClick: () => removeType(row) },
             {
               trigger: () => h(NButton, { size: 'small', quaternary: true, type: 'error' }, { default: () => '删除' }),
-                default: () => '删除字典类型会校验是否存在字典项。'
+              default: () => '删除字典类型会校验是否存在字典项。'
             }
           )
         ])
@@ -180,7 +183,7 @@ const itemColumns = computed<DataTableColumns<DictItem>>(() => {
       key: 'actions',
       width: 146,
       render: (row) =>
-        h(NSpace, { size: 6 }, () => [
+        renderTableActions([
           h(NButton, { size: 'small', quaternary: true, onClick: () => openItemDrawer(row) }, { default: () => '编辑' }),
           h(
             NPopconfirm,
@@ -196,10 +199,23 @@ const itemColumns = computed<DataTableColumns<DictItem>>(() => {
   return columns
 })
 
-function typeRowProps(row: DictType) {
+const typeDetailItems = computed(() => {
+  const row = selectedType.value
+  if (!row) return []
+  return [
+    { label: '类型编码', value: row.typeCode, mono: true },
+    { label: '类型名称', value: row.typeName },
+    { label: '状态', value: row.status === 1 ? '启用' : '停用' },
+    { label: '排序', value: row.sort ?? 0, mono: true },
+    { label: '说明', value: row.description || '-', span: 2 }
+  ]
+})
+
+function typeRowProps(row: object) {
+  const item = row as DictType
   return {
-    class: row.typeCode === selectedTypeCode.value ? 'is-selected-row' : '',
-    onClick: () => selectType(row)
+    class: item.typeCode === selectedTypeCode.value ? 'is-selected-row' : '',
+    onClick: () => selectType(item)
   }
 }
 
@@ -240,6 +256,14 @@ function selectType(row: DictType) {
   selectedTypeCode.value = row.typeCode
   itemKeyword.value = ''
   loadItems(row.typeCode)
+}
+
+function resetTypeFilters() {
+  typeKeyword.value = ''
+}
+
+function resetItemFilters() {
+  itemKeyword.value = ''
 }
 
 function resetTypeForm() {
@@ -386,66 +410,94 @@ onMounted(loadTypes)
     </template>
 
     <div class="master-detail-grid">
-      <section class="page-section">
-        <div class="panel-toolbar">
-          <n-input v-model:value="typeKeyword" clearable placeholder="搜索类型编码或名称" />
-        </div>
-        <n-data-table
+      <div class="page-section">
+        <FilterBar :loading="typeLoading" @submit="loadTypes" @reset="resetTypeFilters">
+          <label class="filter-field">
+            <span>类型</span>
+            <n-input v-model:value="typeKeyword" clearable placeholder="编码 / 名称" style="width: 220px" />
+          </label>
+        </FilterBar>
+        <DataPanel
+          title="字典类型"
           :columns="typeColumns"
           :data="filteredTypes"
+          :total="filteredTypes.length"
           :loading="typeLoading"
-          :row-key="(row: DictType) => row.id"
           :row-props="typeRowProps"
-          size="small"
-          striped
           :max-height="620"
-        />
-      </section>
+          :pagination="false"
+          empty-title="暂无字典类型"
+          empty-description="当前筛选条件下没有字典类型。"
+          @refresh="loadTypes"
+        >
+          <template #actions>
+            <n-button v-if="canManage" type="primary" size="small" @click="openTypeDrawer()">新增类型</n-button>
+          </template>
+        </DataPanel>
+      </div>
 
-      <section class="page-section">
-        <div class="detail-head">
-          <div>
-            <strong>{{ selectedType?.typeName || '未选择类型' }}</strong>
-            <span class="muted mono">{{ selectedTypeCode || '请选择左侧字典类型' }}</span>
+      <div class="page-section">
+        <n-card :bordered="false" class="detail-card">
+          <div class="detail-head">
+            <div>
+              <strong>{{ selectedType?.typeName || '未选择类型' }}</strong>
+              <span class="muted mono">{{ selectedTypeCode || '请选择左侧字典类型' }}</span>
+            </div>
           </div>
-          <n-space>
-            <n-input v-model:value="itemKeyword" clearable placeholder="搜索字典项" style="width: 220px" />
-            <n-button secondary :disabled="!selectedTypeCode" @click="loadItems()">刷新项</n-button>
-            <n-button v-if="canManage" type="primary" :disabled="!selectedTypeCode" @click="openItemDrawer()">新增项</n-button>
-          </n-space>
-        </div>
-        <n-data-table
+          <DetailPanel v-if="selectedType" :items="typeDetailItems" :columns="2" />
+          <n-empty v-else description="请选择左侧字典类型" />
+        </n-card>
+
+        <FilterBar :loading="itemLoading" @submit="loadItems()" @reset="resetItemFilters">
+          <label class="filter-field">
+            <span>字典项</span>
+            <n-input v-model:value="itemKeyword" clearable placeholder="编码 / 值 / 父级" style="width: 240px" />
+          </label>
+        </FilterBar>
+        <DataPanel
+          title="字典项"
           :columns="itemColumns"
           :data="filteredItems"
+          :total="filteredItems.length"
           :loading="itemLoading"
-          :row-key="(row: DictItem) => row.id"
-          size="small"
-          striped
           :max-height="620"
-        />
-      </section>
+          :scroll-x="920"
+          :pagination="false"
+          empty-title="暂无字典项"
+          empty-description="当前字典类型下没有可展示的字典项。"
+          @refresh="loadItems()"
+        >
+          <template #actions>
+            <n-button v-if="canManage" type="primary" size="small" :disabled="!selectedTypeCode" @click="openItemDrawer()">新增项</n-button>
+          </template>
+        </DataPanel>
+      </div>
     </div>
 
-    <n-drawer v-model:show="typeDrawerVisible" :width="420" placement="right">
+    <n-drawer v-model:show="typeDrawerVisible" :width="560" placement="right">
       <n-drawer-content :title="editingTypeId ? '编辑字典类型' : '新增字典类型'">
         <n-form ref="typeFormRef" :model="typeForm" :rules="typeRules" label-placement="top">
-          <n-form-item label="类型编码" path="typeCode">
-            <n-input v-model:value="typeForm.typeCode" :disabled="!!editingTypeId" maxlength="64" show-count />
-          </n-form-item>
-          <n-form-item label="类型名称" path="typeName">
-            <n-input v-model:value="typeForm.typeName" maxlength="128" show-count />
-          </n-form-item>
-          <n-form-item label="描述" path="description">
-            <n-input v-model:value="typeForm.description" type="textarea" maxlength="255" show-count />
-          </n-form-item>
-          <div class="form-grid">
-            <n-form-item label="排序" path="sort">
+          <div class="form-section-title">基本信息</div>
+          <n-grid :cols="2" :x-gap="12">
+            <n-form-item-gi label="类型编码" path="typeCode">
+              <n-input v-model:value="typeForm.typeCode" :disabled="!!editingTypeId" maxlength="64" show-count />
+            </n-form-item-gi>
+            <n-form-item-gi label="类型名称" path="typeName">
+              <n-input v-model:value="typeForm.typeName" maxlength="128" show-count />
+            </n-form-item-gi>
+            <n-form-item-gi label="排序" path="sort">
               <n-input-number v-model:value="typeForm.sort" :min="0" />
-            </n-form-item>
-            <n-form-item label="状态" path="status">
+            </n-form-item-gi>
+            <n-form-item-gi label="状态" path="status">
               <n-switch v-model:value="typeForm.status" :checked-value="1" :unchecked-value="0" />
-            </n-form-item>
-          </div>
+            </n-form-item-gi>
+          </n-grid>
+          <div class="form-section-title">补充说明</div>
+          <n-grid :cols="2" :x-gap="12">
+            <n-form-item-gi label="描述" path="description" :span="2">
+              <n-input v-model:value="typeForm.description" type="textarea" maxlength="255" show-count />
+            </n-form-item-gi>
+          </n-grid>
         </n-form>
         <template #footer>
           <n-space justify="end">
@@ -456,37 +508,39 @@ onMounted(loadTypes)
       </n-drawer-content>
     </n-drawer>
 
-    <n-drawer v-model:show="itemDrawerVisible" :width="480" placement="right">
+    <n-drawer v-model:show="itemDrawerVisible" :width="560" placement="right">
       <n-drawer-content :title="editingItemId ? '编辑字典项' : '新增字典项'">
         <n-form ref="itemFormRef" :model="itemForm" :rules="itemRules" label-placement="top">
-          <n-form-item label="类型编码" path="typeCode">
-            <n-input v-model:value="itemForm.typeCode" disabled />
-          </n-form-item>
-          <n-form-item label="项编码" path="itemCode">
-            <n-input v-model:value="itemForm.itemCode" :disabled="!!editingItemId" maxlength="128" show-count />
-          </n-form-item>
-          <n-form-item label="项值" path="itemValue">
-            <n-input v-model:value="itemForm.itemValue" maxlength="255" show-count />
-          </n-form-item>
-          <div class="form-grid">
-            <n-form-item label="父级编码" path="parentCode">
+          <div class="form-section-title">基本信息</div>
+          <n-grid :cols="2" :x-gap="12">
+            <n-form-item-gi label="类型编码" path="typeCode">
+              <n-input v-model:value="itemForm.typeCode" disabled />
+            </n-form-item-gi>
+            <n-form-item-gi label="项编码" path="itemCode">
+              <n-input v-model:value="itemForm.itemCode" :disabled="!!editingItemId" maxlength="128" show-count />
+            </n-form-item-gi>
+            <n-form-item-gi label="项值" path="itemValue" :span="2">
+              <n-input v-model:value="itemForm.itemValue" maxlength="255" show-count />
+            </n-form-item-gi>
+            <n-form-item-gi label="父级编码" path="parentCode">
               <n-input v-model:value="itemForm.parentCode" maxlength="128" clearable />
-            </n-form-item>
-            <n-form-item label="年度版本" path="yearVersion">
+            </n-form-item-gi>
+            <n-form-item-gi label="年度版本" path="yearVersion">
               <n-input v-model:value="itemForm.yearVersion" maxlength="16" show-count />
-            </n-form-item>
-          </div>
-          <div class="form-grid">
-            <n-form-item label="排序" path="sort">
+            </n-form-item-gi>
+            <n-form-item-gi label="排序" path="sort">
               <n-input-number v-model:value="itemForm.sort" :min="0" />
-            </n-form-item>
-            <n-form-item label="状态" path="status">
+            </n-form-item-gi>
+            <n-form-item-gi label="状态" path="status">
               <n-switch v-model:value="itemForm.status" :checked-value="1" :unchecked-value="0" />
-            </n-form-item>
-          </div>
-          <n-form-item label="扩展 JSON" path="extJson">
-            <n-input v-model:value="itemForm.extJson" type="textarea" :autosize="{ minRows: 5, maxRows: 10 }" />
-          </n-form-item>
+            </n-form-item-gi>
+          </n-grid>
+          <div class="form-section-title">扩展信息</div>
+          <n-grid :cols="2" :x-gap="12">
+            <n-form-item-gi label="扩展 JSON" path="extJson" :span="2">
+              <n-input v-model:value="itemForm.extJson" type="textarea" :autosize="{ minRows: 5, maxRows: 10 }" />
+            </n-form-item-gi>
+          </n-grid>
         </n-form>
         <template #footer>
           <n-space justify="end">
@@ -511,10 +565,6 @@ onMounted(loadTypes)
   min-width: 0;
 }
 
-.panel-toolbar {
-  margin-bottom: var(--space-4);
-}
-
 .detail-head {
   display: flex;
   align-items: center;
@@ -528,10 +578,19 @@ onMounted(loadTypes)
   display: block;
 }
 
-.form-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--space-4);
+.detail-card {
+  margin-bottom: var(--space-5);
+}
+
+.detail-card :deep(.n-card__content) {
+  padding: var(--space-5);
+}
+
+.form-section-title {
+  margin: var(--space-2) 0 var(--space-3);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
 }
 
 :deep(.is-selected-row td) {

@@ -475,15 +475,25 @@ watch(
       </template>
     </DataPanel>
 
-    <n-drawer v-model:show="drawerVisible" :width="720">
+    <n-drawer v-model:show="drawerVisible" :width="560">
       <n-drawer-content title="免考申请" closable>
         <n-alert type="info" :bordered="false" class="page-section">
           每个免考科目独立审核，须分别上传佐证；仅复审通过科目会从应考清单中剔除。
         </n-alert>
-        <n-space vertical>
-          <n-select v-model:value="form.studentId" :options="studentOptions" :disabled="selfMode" filterable placeholder="学生" />
-          <n-input v-model:value="form.assessmentYear" placeholder="考核年度" class="mono-input" />
-          <n-select v-model:value="form.teachingSegment" :options="segmentOptions" placeholder="任教学段" @update:value="handleSegmentChange" />
+        <n-form label-placement="top">
+          <div class="form-section-title">申请信息</div>
+          <n-grid :cols="2" :x-gap="12">
+            <n-form-item-gi label="学生" :span="2">
+              <n-select v-model:value="form.studentId" :options="studentOptions" :disabled="selfMode" filterable placeholder="学生" />
+            </n-form-item-gi>
+            <n-form-item-gi label="考核年度">
+              <n-input v-model:value="form.assessmentYear" placeholder="考核年度" class="mono-input" />
+            </n-form-item-gi>
+            <n-form-item-gi label="任教学段">
+              <n-select v-model:value="form.teachingSegment" :options="segmentOptions" placeholder="任教学段" @update:value="handleSegmentChange" />
+            </n-form-item-gi>
+          </n-grid>
+          <div class="form-section-title">免考科目</div>
           <n-space justify="space-between" align="center">
             <span>免考科目</span>
             <n-button size="small" @click="addSubjectRow">添加科目</n-button>
@@ -499,7 +509,7 @@ watch(
               <n-upload v-model:file-list="row.fileList" :max="1" accept=".pdf,.jpg,.jpeg,.png" :default-upload="false" />
             </n-space>
           </section>
-        </n-space>
+        </n-form>
         <template #footer>
           <n-space justify="end">
             <n-button @click="drawerVisible = false">取消</n-button>
@@ -554,6 +564,13 @@ watch(
 </template>
 
 <style scoped>
+.form-section-title {
+  margin: var(--space-2) 0 var(--space-3);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+}
+
 .subject-row {
   padding: var(--space-4);
   border: 1px solid var(--shell-border);

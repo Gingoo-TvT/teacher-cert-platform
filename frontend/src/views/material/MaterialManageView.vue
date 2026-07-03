@@ -430,12 +430,26 @@ watch(
         <n-alert v-if="replacing" type="info" :bordered="false" class="page-section">
           替换材料沿用原学生、年度与材料类别。
         </n-alert>
-        <n-space vertical>
-          <n-select v-model:value="uploadForm.studentId" :options="studentOptions" :disabled="Boolean(replacing) || selfMode" filterable placeholder="学生" />
-          <n-input v-model:value="uploadForm.assessmentYear" :disabled="Boolean(replacing)" placeholder="考核年度" class="mono-input" />
-          <n-select v-model:value="uploadForm.category" :options="categoryOptions" :disabled="Boolean(replacing)" placeholder="材料类别" />
-          <n-upload v-model:file-list="fileList" :max="1" accept=".pdf,.jpg,.jpeg,.png" :default-upload="false" />
-        </n-space>
+        <n-form label-placement="top">
+          <div class="form-section-title">材料信息</div>
+          <n-grid :cols="2" :x-gap="12">
+            <n-form-item-gi label="学生" :span="2">
+              <n-select v-model:value="uploadForm.studentId" :options="studentOptions" :disabled="Boolean(replacing) || selfMode" filterable placeholder="学生" />
+            </n-form-item-gi>
+            <n-form-item-gi label="考核年度">
+              <n-input v-model:value="uploadForm.assessmentYear" :disabled="Boolean(replacing)" placeholder="考核年度" class="mono-input" />
+            </n-form-item-gi>
+            <n-form-item-gi label="材料类别">
+              <n-select v-model:value="uploadForm.category" :options="categoryOptions" :disabled="Boolean(replacing)" placeholder="材料类别" />
+            </n-form-item-gi>
+          </n-grid>
+          <div class="form-section-title">上传文件</div>
+          <n-grid :cols="2" :x-gap="12">
+            <n-form-item-gi label="文件" :span="2">
+              <n-upload v-model:file-list="fileList" :max="1" accept=".pdf,.jpg,.jpeg,.png" :default-upload="false" />
+            </n-form-item-gi>
+          </n-grid>
+        </n-form>
         <template #footer>
           <n-space justify="end">
             <n-button @click="uploadVisible = false">取消</n-button>
@@ -484,6 +498,13 @@ watch(
 </template>
 
 <style scoped>
+.form-section-title {
+  margin: var(--space-2) 0 var(--space-3);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+}
+
 .preview-frame {
   width: 100%;
   height: min(70vh, 720px);

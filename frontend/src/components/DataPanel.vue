@@ -15,12 +15,15 @@ const props = withDefaults(defineProps<{
   scrollX?: number
   pageSize?: number
   rowHeight?: number
+  maxHeight?: number
+  defaultExpandAll?: boolean
   size?: 'small' | 'medium' | 'large'
   striped?: boolean
   emptyTitle?: string
   emptyDescription?: string
   showRefresh?: boolean
   pagination?: false | PaginationProps
+  rowProps?: (row: DataTableRowData) => Record<string, unknown>
 }>(), {
   pageSize: 10,
   rowHeight: 48,
@@ -55,6 +58,18 @@ function rowKey(row: DataTableRowData): DataTableRowKey {
   if (typeof id === 'string' || typeof id === 'number') return id
   return JSON.stringify(row)
 }
+
+function rowProps(row: DataTableRowData) {
+  const customProps = props.rowProps ? props.rowProps(row) : {}
+  const style = customProps.style
+  return {
+    ...customProps,
+    style: {
+      ...(typeof style === 'object' && style !== null ? style : {}),
+      height: `${props.rowHeight}px`
+    }
+  }
+}
 </script>
 
 <template>
@@ -82,9 +97,11 @@ function rowKey(row: DataTableRowData): DataTableRowKey {
       :data="tableData"
       :loading="loading"
       :row-key="rowKey"
-      :row-props="() => ({ style: { height: `${rowHeight}px` } })"
+      :row-props="rowProps"
       :pagination="resolvedPagination"
       :scroll-x="scrollX"
+      :max-height="maxHeight"
+      :default-expand-all="defaultExpandAll"
       :size="size"
       :striped="striped"
     >

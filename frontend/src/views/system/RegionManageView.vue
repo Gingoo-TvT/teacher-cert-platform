@@ -1,10 +1,14 @@
 <script setup lang="ts">
 import { computed, h, onMounted, ref } from 'vue'
 import { NButton, useMessage, type DataTableColumns } from 'naive-ui'
+import DataPanel from '@/components/DataPanel.vue'
+import DetailPanel from '@/components/DetailPanel.vue'
+import FilterBar from '@/components/FilterBar.vue'
 import PageContainer from '@/components/PageContainer.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import RegionCascader, { type RegionSelection } from '@/components/RegionCascader.vue'
 import { getRegionPath, listRegionChildren, type RegionNode } from '@/api/region'
+import { renderTableActions } from '@/utils/tableActions'
 
 const message = useMessage()
 
@@ -51,13 +55,22 @@ const columns: DataTableColumns<RegionTableRow> = [
     key: 'actions',
     width: 110,
     render: (row) =>
-      h(
-        NButton,
-        { size: 'small', quaternary: true, onClick: () => inspectNode(row) },
-        { default: () => (row.leaf ? '路径' : '下级') }
-      )
+      renderTableActions([
+        h(
+          NButton,
+          { size: 'small', quaternary: true, onClick: () => inspectNode(row) },
+          { default: () => (row.leaf ? '路径' : '下级') }
+        )
+      ])
   }
 ]
+
+const regionDetailItems = computed(() => [
+  { label: '当前代码', value: regionCode.value, mono: true },
+  { label: '完整文本', value: fullName.value, span: 2 },
+  { label: '路径层级', value: pathNodes.value.length ? `${pathNodes.value.length} 级` : '-' },
+  { label: '当前列表', value: parentLabel.value }
+])
 
 async function loadChildren(parent?: string | null, sourceNode?: RegionNode | null) {
   loading.value = true
@@ -109,6 +122,26 @@ function handleCascaderChange(selection: RegionSelection | null) {
   pathNodes.value = selection.nodes
 }
 
+function rowProps(row: object) {
+  const item = row as RegionTableRow
+  return {
+    class: item.code === regionCode.value ? 'is-selected-row' : '',
+    onClick: () => {
+      regionCode.value = item.code
+      codeInput.value = item.code
+      fullName.value = item.name
+      pathNodes.value = []
+    }
+  }
+}
+
+function resetPathQuery() {
+  regionCode.value = null
+  codeInput.value = ''
+  fullName.value = ''
+  pathNodes.value = []
+}
+
 function levelName(level: number) {
   if (level === 1) return '省级'
   if (level === 2) return '地市级'
@@ -136,57 +169,69 @@ onMounted(() => loadChildren())
     </template>
 
     <div class="region-layout">
-      <section class="page-section">
-        <div class="panel-toolbar">
-          <div>
-            <strong>{{ parentLabel }}</strong>
-            <span class="muted">{{ currentChildren.length }} 个下级区划</span>
-          </div>
-        </div>
-        <n-data-table
+      <div class="page-section">
+        <DataPanel
+          :title="parentLabel"
           :columns="columns"
           :data="tableRows"
+          :total="tableRows.length"
           :loading="loading"
-          :row-key="(row: RegionTableRow) => row.code"
-          size="small"
-          striped
+          :row-props="rowProps"
           :max-height="640"
-        />
-      </section>
+          :scroll-x="760"
+          :pagination="false"
+          empty-title="暂无下级区划"
+          empty-description="当前层级下没有可展示的行政区划。"
+          @refresh="loadChildren(selectedParent, selectedNode)"
+        >
+          <template #actions>
+            <n-button size="small" secondary @click="loadChildren()">省级</n-button>
+            <n-button size="small" secondary :disabled="!selectedNode?.parentCode" @click="loadChildren(selectedNode?.parentCode || null)">
+              上级
+            </n-button>
+          </template>
+        </DataPanel>
+      </div>
 
-      <section class="page-section detail-panel">
-        <n-space vertical :size="14">
-          <n-form label-placement="top">
-            <n-form-item label="级联选择">
+      <div class="page-section detail-panel">
+        <FilterBar :loading="pathLoading" @submit="loadPath()" @reset="resetPathQuery">
+          <label class="filter-field filter-field--wide">
+            <span>级联选择</span>
+            <div class="filter-control">
               <RegionCascader
                 v-model:value="regionCode"
                 @update:full-name="fullName = $event"
                 @update:path="pathNodes = $event"
                 @change="handleCascaderChange"
               />
-            </n-form-item>
-            <n-form-item label="代码反查">
+            </div>
+          </label>
+          <template #more>
+            <label class="filter-field">
+              <span>代码</span>
               <n-input-group>
                 <n-input v-model:value="codeInput" clearable maxlength="6" placeholder="输入 6 位行政区划代码" />
-                <n-button type="primary" :loading="pathLoading" @click="loadPath()">查询</n-button>
               </n-input-group>
-            </n-form-item>
-          </n-form>
+            </label>
+          </template>
+        </FilterBar>
 
-          <n-descriptions bordered :column="1" size="small">
-            <n-descriptions-item label="当前代码">
-              <span class="mono">{{ regionCode || '-' }}</span>
-            </n-descriptions-item>
-            <n-descriptions-item label="完整文本">{{ fullName || '-' }}</n-descriptions-item>
-          </n-descriptions>
+        <n-card :bordered="false" class="detail-card">
+          <div class="detail-head">
+            <div>
+              <strong>{{ fullName || '区划详情' }}</strong>
+              <span class="muted mono">{{ regionCode || '请选择或输入行政区划代码' }}</span>
+            </div>
+          </div>
+          <DetailPanel :items="regionDetailItems" :columns="2" />
 
           <n-space v-if="pathNodes.length" :size="8" class="path-tags">
             <n-tag v-for="node in pathNodes" :key="node.code" type="info" :bordered="false">
               {{ node.name }} · <span class="mono">{{ node.code }}</span>
             </n-tag>
           </n-space>
-        </n-space>
-      </section>
+        </n-card>
+      </div>
     </div>
   </PageContainer>
 </template>
@@ -203,21 +248,38 @@ onMounted(() => loadChildren())
   min-width: 0;
 }
 
-.panel-toolbar {
-  margin-bottom: var(--space-4);
-}
-
-.panel-toolbar strong,
-.panel-toolbar span {
-  display: block;
-}
-
 .detail-panel {
   min-width: 320px;
 }
 
+.detail-card :deep(.n-card__content) {
+  padding: var(--space-5);
+}
+
+.detail-head {
+  margin-bottom: var(--space-4);
+}
+
+.detail-head strong,
+.detail-head span {
+  display: block;
+}
+
+.filter-field--wide {
+  flex: 1 1 280px;
+}
+
+.filter-control {
+  min-width: 280px;
+}
+
 .path-tags {
   align-items: center;
+  margin-top: var(--space-4);
+}
+
+:deep(.is-selected-row td) {
+  background: var(--brand-soft);
 }
 
 @media (max-width: 1080px) {

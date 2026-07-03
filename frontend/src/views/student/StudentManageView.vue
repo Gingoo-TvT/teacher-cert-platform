@@ -421,7 +421,7 @@ onMounted(async () => {
       </n-drawer-content>
     </n-drawer>
 
-    <n-drawer v-model:show="detailVisible" :width="620">
+    <n-drawer v-model:show="detailVisible" :width="560">
       <n-drawer-content title="学生详情" closable>
         <DetailPanel v-if="selectedStudent" :items="detailItems" :columns="2" />
       </n-drawer-content>

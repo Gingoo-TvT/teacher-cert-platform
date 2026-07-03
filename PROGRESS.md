@@ -5,10 +5,10 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**Phase 31 ✅ 已复核（Claude 07-03，PASS·一轮·0 修补）**——12 业务列表页铺开完成；下一步 Phase 32（系统域 + 表单/详情/审核体验，§4-Phase32）。
+- 当前阶段：**Phase 32 待复核**——系统域 6 页 + 抽屉表单 P4 + 详情 P5 + 审核 P6 + 审计状态中文化已完成，等待 Claude 复核。
 - 阻塞项：无
-- 最近更新：2026-07-03（Phase 31 复核通过：12 页结构件全接入、W4 格式化/状态中文全过、W3 黑名单空、导出学院下拉、通知列表化；**活体 3 角色 API 走查零 403、数据范围正确**（教务员 9<12 学生、学院下拉 1<2）；构建绿；Minor 2 非阻断记录备查。详见 docs/reviews/phase-31-review.md）
-- 下一步：Phase 32（系统域 6 页 + 抽屉 P4 + 详情 P5 + 审核 P6 统一）；派发词见 frontend-quality-plan 附录 D。
+- 最近更新：2026-07-03（Phase 32 待复核：系统域 6 页接入 FilterBar/DataPanel/DetailPanel；账号权限三 tab 卡化；参数审计备份审计 old/new 状态中文 + 学院下拉 + 学生ID数字提示；学生/培养/材料/免考/证书相关抽屉按 P4 收敛；学生/培养详情 P5、审核 P6 保持统一。`type-check` + `build` 通过，仅既有 Vite chunk-size warning）
+- 下一步：Claude 按 Phase 32 gate 逐页复核与起栈走查；codex 不自行置复核通过。
 
 ## 阶段汇总
 | Phase | 名称 | 优先级 | 任务数 | 完成 | 状态 |
@@ -332,6 +332,14 @@
 - [x] 证书/签发：证书号 mono；签发日期/有效期 `formatDate`；生命周期状态映射；签发队列卡化。
 - [x] 导入/导出/统计/通知：导入批次时间/策略中文，异常表卡化；导出学院筛选改学院下拉并继续传 id；统计表格卡化且 ChartBox 保持附录 C；通知改 `n-list`、未读圆点/标题加粗/灰色时间、行点击标记已读并打开全文抽屉。
 - 验证：`npm --prefix frontend run type-check` 通过；`npm --prefix frontend run build` 通过（仅 Vite chunk-size warning）；附录 A 黑名单与纯前端范围检查输出为空。等待 Claude 复核，未自行置阶段通过。
+
+## 收官后 · Phase 32 / 系统域 + 表单/详情/审核体验
+- Phase 32 `系统域 + 表单/详情/审核体验`：**待复核**（分支：`feature/phase32-form-detail-review`）。纯前端展示层改造；未改后端、契约、迁移或 stores 逻辑；未新增依赖；本地私有无 remote、不 push。
+- [x] 系统域 6 页：字典/学科/区划/组织改主从两栏，接 `FilterBar + DataPanel + DetailPanel`；账号权限用户/角色/权限三 tab 接规范表格卡；参数审计备份保留三 tab 并补审计筛选提示。
+- [x] P4 抽屉表单：系统域字典/组织/账号/参数/备份抽屉统一 560 宽、双列栅格、分组标题与底部取消/保存；学生/培养/材料/免考/证书相关表单抽屉同步收敛。
+- [x] P5/P6：学生与培养查看继续走 `DetailPanel` 只读面板，查看不复用编辑表单；学生/培养/材料/免考审核入口统一 `ReviewDialog`。
+- [x] 审计中文化：审计 old/new 状态继续 `statusLabel + StatusTag`；操作名走 `operationLabel`；审计学院筛选为学院下拉，学生筛选占位「学生ID（数字）」并带数字提示；参数/审计/备份时间列均 `formatDateTime`。
+- 验证：`npm --prefix frontend run type-check` 通过；`npm --prefix frontend run build` 通过（仅既有 Vite chunk-size warning）；附录 A 黑名单、纯前端范围、旧抽屉宽度、系统页裸表格扫描输出为空。等待 Claude 复核，未自行置复核通过。
 
 ---
 

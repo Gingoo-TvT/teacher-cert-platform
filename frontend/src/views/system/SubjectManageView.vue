@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { computed, h, onMounted, ref } from 'vue'
 import { NButton, useMessage, type DataTableColumns, type SelectOption, type UploadCustomRequestOptions } from 'naive-ui'
+import DataPanel from '@/components/DataPanel.vue'
+import DetailPanel from '@/components/DetailPanel.vue'
+import FilterBar from '@/components/FilterBar.vue'
 import PageContainer from '@/components/PageContainer.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import { listDictItems, type DictItem } from '@/api/dict'
@@ -14,6 +17,7 @@ import {
   type SubjectImportResult,
   type TeachingSubject
 } from '@/api/subject'
+import { renderTableActions } from '@/utils/tableActions'
 import { useUserStore } from '@/stores/user'
 
 const message = useMessage()
@@ -71,11 +75,13 @@ const subjectColumns: DataTableColumns<SubjectTableRow> = [
     key: 'actions',
     width: 92,
     render: (row) =>
-      h(
-        NButton,
-        { size: 'small', quaternary: true, disabled: !row.selectable, onClick: () => chooseSubject(row) },
-        { default: () => '选择' }
-      )
+      renderTableActions([
+        h(
+          NButton,
+          { size: 'small', quaternary: true, disabled: !row.selectable, onClick: () => chooseSubject(row) },
+          { default: () => '选择' }
+        )
+      ])
   }
 ]
 
@@ -85,6 +91,25 @@ const errorColumns: DataTableColumns<SubjectImportError> = [
   { title: '错误值', key: 'errorValue', minWidth: 160, ellipsis: { tooltip: true } },
   { title: '原因', key: 'reason', minWidth: 220, ellipsis: { tooltip: true } }
 ]
+
+const subjectDetailItems = computed(() => {
+  const row = selectedSubject.value
+  if (!row) {
+    return [
+      { label: '当前学段', value: selectedSegment.value ? segmentName(selectedSegment.value) : '-' },
+      { label: '当前学科', value: '-' }
+    ]
+  }
+  return [
+    { label: '当前学段', value: segmentName(row.segmentCode) },
+    { label: '学科名称', value: row.subjectName },
+    { label: '学科编码', value: row.subjectCode, mono: true },
+    { label: '分类', value: categoryName(row.categoryNode) },
+    { label: '年度', value: row.yearVersion, mono: true },
+    { label: '类型', value: row.selectable ? '可选' : '类别' },
+    { label: '关键词', value: row.keyword || '-', span: 2 }
+  ]
+})
 
 async function loadSegments() {
   try {
@@ -187,6 +212,20 @@ function handleSubjectChange(subject: TeachingSubject | null) {
   selectedSubject.value = subject
 }
 
+function rowProps(row: object) {
+  const item = row as TeachingSubject
+  return {
+    class: item.subjectCode === selectedSubjectCode.value ? 'is-selected-row' : ''
+  }
+}
+
+function resetFilters() {
+  keyword.value = ''
+  category.value = null
+  yearVersion.value = 'GLOBAL'
+  void refreshAll()
+}
+
 function segmentName(code: string) {
   return segments.value.find((item) => item.itemCode === code)?.itemValue || code
 }
@@ -219,70 +258,89 @@ onMounted(async () => {
     </template>
 
     <div class="subject-layout">
-      <section class="page-section">
-        <div class="panel-toolbar">
-          <n-space class="filters" :size="10">
+      <div class="page-section">
+        <FilterBar :loading="loading" @submit="refreshAll" @reset="resetFilters">
+          <label class="filter-field">
+            <span>学段</span>
             <n-select
               v-model:value="selectedSegment"
               :options="segmentOptions"
-              placeholder="任教学段"
+              placeholder="全部学段"
               style="width: 180px"
               @update:value="handleSegmentUpdate"
             />
+          </label>
+          <label class="filter-field">
+            <span>年度</span>
             <n-input v-model:value="yearVersion" clearable maxlength="16" placeholder="年度版本" style="width: 140px" />
+          </label>
+          <label class="filter-field">
+            <span>分类</span>
             <n-select v-model:value="category" :options="categoryOptions" clearable placeholder="分类" style="width: 220px" @update:value="loadSubjectsData" />
+          </label>
+          <label class="filter-field">
+            <span>关键词</span>
             <n-input v-model:value="keyword" clearable placeholder="关键词" style="width: 220px" @keyup.enter="loadSubjectsData" />
-            <n-button type="primary" secondary @click="refreshAll">查询</n-button>
-          </n-space>
-        </div>
+          </label>
+        </FilterBar>
 
-        <n-data-table
+        <DataPanel
+          title="任教学科"
           :columns="subjectColumns"
           :data="tableRows"
+          :total="tableRows.length"
           :loading="loading"
-          :row-key="(row: SubjectTableRow) => row.id"
-          size="small"
-          striped
+          :row-props="rowProps"
           :max-height="620"
+          :scroll-x="1080"
+          empty-title="暂无任教学科"
+          empty-description="当前筛选条件下没有任教学科记录。"
+          @refresh="refreshAll"
         />
-      </section>
+      </div>
 
-      <section class="page-section side-panel">
-        <n-space vertical :size="14">
+      <div class="page-section side-panel">
+        <n-card :bordered="false" class="detail-card">
+          <div class="detail-head">
+            <div>
+              <strong>{{ selectedSubject?.subjectName || '学科详情' }}</strong>
+              <span class="muted mono">{{ selectedSubjectCode || '请选择任教学科' }}</span>
+            </div>
+          </div>
           <n-form label-placement="top">
             <n-form-item label="表单选择器预览">
               <SubjectSelect v-model:value="selectedSubjectCode" :segment-code="selectedSegment" :year-version="yearVersion" @change="handleSubjectChange" />
             </n-form-item>
-            <n-form-item v-if="canImport" label="导入年度">
+          </n-form>
+          <DetailPanel :items="subjectDetailItems" :columns="2" />
+        </n-card>
+
+        <n-card v-if="canImport" :bordered="false" class="detail-card">
+          <div class="form-section-title">导入设置</div>
+          <n-form label-placement="top">
+            <n-form-item label="导入年度">
               <n-input v-model:value="importYearVersion" clearable maxlength="16" />
             </n-form-item>
           </n-form>
-
-          <n-descriptions bordered :column="1" size="small">
-            <n-descriptions-item label="当前学段">{{ selectedSegment ? segmentName(selectedSegment) : '-' }}</n-descriptions-item>
-            <n-descriptions-item label="当前学科">
-              {{ selectedSubject ? selectedSubject.subjectName : '-' }}
-              <span v-if="selectedSubject" class="mono muted">{{ selectedSubject.subjectCode }}</span>
-            </n-descriptions-item>
-          </n-descriptions>
-
-          <div v-if="importResult" class="import-result">
-            <n-space :size="8">
-              <n-tag type="info" :bordered="false">总数 {{ importResult.total }}</n-tag>
-              <n-tag type="success" :bordered="false">成功 {{ importResult.successCount }}</n-tag>
-              <n-tag :type="importResult.failCount > 0 ? 'error' : 'default'" :bordered="false">失败 {{ importResult.failCount }}</n-tag>
-            </n-space>
-            <n-data-table
-              v-if="importResult.errors.length"
+          <n-space v-if="importResult" :size="8" class="import-tags">
+            <n-tag type="info" :bordered="false">总数 {{ importResult.total }}</n-tag>
+            <n-tag type="success" :bordered="false">成功 {{ importResult.successCount }}</n-tag>
+            <n-tag :type="importResult.failCount > 0 ? 'error' : 'default'" :bordered="false">失败 {{ importResult.failCount }}</n-tag>
+          </n-space>
+          <DataPanel
+            v-if="importResult?.errors.length"
+            title="导入错误"
               :columns="errorColumns"
               :data="importResult.errors"
-              :row-key="(row: SubjectImportError) => `${row.rowNo}-${row.field}-${row.errorValue}`"
-              size="small"
+            :total="importResult.errors.length"
+            :scroll-x="640"
               :max-height="260"
-            />
-          </div>
-        </n-space>
-      </section>
+            empty-title="暂无错误"
+            empty-description="当前导入结果没有错误明细。"
+            :show-refresh="false"
+          />
+        </n-card>
+      </div>
     </div>
   </PageContainer>
 </template>
@@ -299,21 +357,40 @@ onMounted(async () => {
   min-width: 0;
 }
 
-.panel-toolbar {
-  margin-bottom: var(--space-4);
-}
-
-.filters {
-  flex-wrap: wrap;
-}
-
 .side-panel {
   min-width: 320px;
 }
 
-.import-result {
-  display: grid;
-  gap: var(--space-4);
+.detail-card {
+  margin-bottom: var(--space-5);
+}
+
+.detail-card :deep(.n-card__content) {
+  padding: var(--space-5);
+}
+
+.detail-head {
+  margin-bottom: var(--space-4);
+}
+
+.detail-head strong,
+.detail-head span {
+  display: block;
+}
+
+.form-section-title {
+  margin: var(--space-2) 0 var(--space-3);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.import-tags {
+  margin-bottom: var(--space-4);
+}
+
+:deep(.is-selected-row td) {
+  background: var(--brand-soft);
 }
 
 @media (max-width: 1180px) {

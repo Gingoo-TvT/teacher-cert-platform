@@ -488,13 +488,14 @@ watch(
       </template>
     </DataPanel>
 
-    <n-drawer v-model:show="drawerVisible" :width="720">
+    <n-drawer v-model:show="drawerVisible" :width="560">
       <n-drawer-content :title="editingId ? '编辑专业培养信息' : '新增专业培养信息'" closable>
         <n-alert type="info" :bordered="false" class="page-section">
           任教学科必须先选择学段，再从学科库中选择；培养目标会限制可选学段和实习地点。
         </n-alert>
         <n-form ref="formRef" :model="form" :rules="rules" label-placement="top">
-          <n-grid :cols="2" :x-gap="12" responsive="screen">
+          <div class="form-section-title">基本信息</div>
+          <n-grid :cols="2" :x-gap="12">
             <n-form-item-gi label="学生" path="studentId">
               <n-select
                 v-model:value="form.studentId"
@@ -513,12 +514,18 @@ watch(
             <n-form-item-gi label="校内专业">
               <n-select v-model:value="form.internalMajorCode" clearable filterable :options="majorOptions" @update:value="handleMajorChange" />
             </n-form-item-gi>
+          </n-grid>
+          <div class="form-section-title">学业信息</div>
+          <n-grid :cols="2" :x-gap="12">
             <n-form-item-gi label="二级学科代码" path="secondDisciplineCode">
               <n-input v-model:value="form.secondDisciplineCode" class="mono-input" />
             </n-form-item-gi>
             <n-form-item-gi label="二级学科名称" path="secondDisciplineName">
               <n-input v-model:value="form.secondDisciplineName" />
             </n-form-item-gi>
+          </n-grid>
+          <div class="form-section-title">培养与考核</div>
+          <n-grid :cols="2" :x-gap="12">
             <n-form-item-gi label="培养目标" path="trainingGoal">
               <n-select v-model:value="form.trainingGoal" :options="trainingGoalOptions" />
             </n-form-item-gi>
@@ -538,9 +545,12 @@ watch(
               <n-select v-model:value="form.abilityTestConclusion" clearable :options="conclusionOptions" />
             </n-form-item-gi>
           </n-grid>
-          <n-form-item label="任教学科" path="teachingSubjectCode">
-            <SubjectSelect v-model:value="form.teachingSubjectCode" :segment-code="form.teachingSegment" />
-          </n-form-item>
+          <div class="form-section-title">任教学科</div>
+          <n-grid :cols="2" :x-gap="12">
+            <n-form-item-gi label="任教学科" path="teachingSubjectCode" :span="2">
+              <SubjectSelect v-model:value="form.teachingSubjectCode" :segment-code="form.teachingSegment" />
+            </n-form-item-gi>
+          </n-grid>
         </n-form>
         <template #footer>
           <n-space justify="end">
@@ -573,6 +583,13 @@ watch(
 </template>
 
 <style scoped>
+.form-section-title {
+  margin: var(--space-2) 0 var(--space-3);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+}
+
 .mono-input :deep(input) {
   font-family: var(--font-mono);
 }

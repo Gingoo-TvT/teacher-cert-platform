@@ -34,6 +34,8 @@ import {
   type User,
   type UserPayload
 } from '@/api/security'
+import DataPanel from '@/components/DataPanel.vue'
+import FilterBar from '@/components/FilterBar.vue'
 import PageContainer from '@/components/PageContainer.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import StatCard from '@/components/StatCard.vue'
@@ -207,29 +209,27 @@ const roleColumns: DataTableColumns<Role> = [
     key: 'actions',
     width: 210,
     render: (row) =>
-      h(NSpace, { size: 6 }, () =>
-        canManageRoles.value
-          ? [
-              h(NButton, { size: 'small', quaternary: true, onClick: () => openRoleDrawer(row) }, { default: () => '编辑' }),
-              h(NButton, { size: 'small', quaternary: true, onClick: () => openRolePermissionDrawer(row) }, { default: () => '权限' }),
-              h(
-                NPopconfirm,
-                { onPositiveClick: () => removeRole(row) },
-                {
-                  trigger: () => h(NButton, { size: 'small', quaternary: true, type: 'error' }, { default: () => '删除' }),
-                  default: () => '确认删除该角色？'
-                }
-              )
-            ]
-          : []
-      )
+      canManageRoles.value
+        ? renderTableActions([
+            h(NButton, { size: 'small', quaternary: true, onClick: () => openRoleDrawer(row) }, { default: () => '编辑' }),
+            h(NButton, { size: 'small', quaternary: true, onClick: () => openRolePermissionDrawer(row) }, { default: () => '授权' }),
+            h(
+              NPopconfirm,
+              { onPositiveClick: () => removeRole(row) },
+              {
+                trigger: () => h(NButton, { size: 'small', quaternary: true, type: 'error' }, { default: () => '删除' }),
+                default: () => '确认删除该角色？'
+              }
+            )
+          ])
+        : null
   }
 ]
 
 const permissionColumns: DataTableColumns<Permission> = [
-  { title: '权限编码', key: 'code', minWidth: 230, ellipsis: { tooltip: true } },
-  { title: '权限名称', key: 'name', minWidth: 180, ellipsis: { tooltip: true } },
-  { title: '类型', key: 'type', width: 90 },
+  { title: '功能名称', key: 'name', minWidth: 220, ellipsis: { tooltip: true } },
+  { title: '类型', key: 'type', width: 90, render: (row) => permissionTypeName(row.type) },
+  { title: '路径', key: 'path', minWidth: 220, ellipsis: { tooltip: true }, render: (row) => row.path || '-' },
   { title: '排序', key: 'sort', width: 72, render: (row) => h('span', { class: 'numeric' }, String(row.sort ?? 0)) },
   { title: '状态', key: 'status', width: 82, render: (row) => enabledTag(row.status) }
 ]
@@ -474,7 +474,7 @@ async function removeRole(row: Role) {
 function toTreeOption(permission: Permission): TreeOption {
   return {
     key: permission.id,
-    label: `${permission.name} ${permission.code}`,
+    label: permission.name,
     children: permission.children?.map(toTreeOption)
   }
 }
@@ -503,8 +503,26 @@ function userTypeTag(type: string) {
   return h(StatusTag, { text: type === 'STUDENT' ? '学生' : '教职工' })
 }
 
+function permissionTypeName(type: string) {
+  if (type === 'MENU') return '菜单'
+  if (type === 'BUTTON') return '按钮'
+  if (type === 'DATA') return '数据'
+  return type || '-'
+}
+
 function statusName(status: string) {
   return status === 'ENABLED' ? '启用' : status === 'LOCKED' ? '锁定' : '停用'
+}
+
+function resetUserFilters() {
+  keyword.value = ''
+  statusFilter.value = null
+  void loadUsers()
+}
+
+function resetRoleFilters() {
+  roleKeyword.value = ''
+  void loadRoles()
 }
 
 function cleanOptional(value: string | null | undefined) {
@@ -537,14 +555,18 @@ onMounted(refreshAll)
 
     <n-tabs v-if="hasVisibleSection" type="line" animated>
       <n-tab-pane v-if="canManageUsers" name="users" tab="用户">
-        <section class="panel page-section">
-          <div class="panel-toolbar">
-            <n-space class="filters" :size="10">
+        <div class="panel page-section">
+          <FilterBar :loading="userLoading" @submit="loadUsers" @reset="resetUserFilters">
+            <label class="filter-field">
+              <span>用户</span>
               <n-input v-model:value="keyword" clearable placeholder="用户名 / 姓名 / 工号" style="width: 220px" />
+            </label>
+            <label class="filter-field">
+              <span>状态</span>
               <n-select
                 v-model:value="statusFilter"
                 clearable
-                placeholder="状态"
+                placeholder="全部状态"
                 style="width: 120px"
                 :options="[
                   { label: '启用', value: 'ENABLED' },
@@ -552,93 +574,106 @@ onMounted(refreshAll)
                   { label: '停用', value: 'DISABLED' }
                 ]"
               />
-              <n-button secondary @click="loadUsers">查询</n-button>
-              <n-button v-if="canManageUsers" type="primary" @click="openUserDrawer()">新增用户</n-button>
-            </n-space>
-          </div>
-          <n-data-table
+            </label>
+          </FilterBar>
+          <DataPanel
+            title="用户列表"
             :columns="userColumns"
             :data="users"
+            :total="users.length"
             :scroll-x="1040"
             :loading="userLoading"
-            :row-key="(row: User) => row.id"
-            size="small"
-            striped
             :max-height="620"
-          />
-        </section>
+            empty-title="暂无用户"
+            empty-description="当前筛选条件下没有用户记录。"
+            @refresh="loadUsers"
+          >
+            <template #actions>
+              <n-button v-if="canManageUsers" type="primary" size="small" @click="openUserDrawer()">新增用户</n-button>
+            </template>
+          </DataPanel>
+        </div>
       </n-tab-pane>
 
       <n-tab-pane v-if="canManageRoles" name="roles" tab="角色">
-        <section class="panel page-section">
-          <div class="panel-toolbar">
-            <n-space class="filters" :size="10">
+        <div class="panel page-section">
+          <FilterBar :loading="roleLoading" @submit="loadRoles" @reset="resetRoleFilters">
+            <label class="filter-field">
+              <span>角色</span>
               <n-input v-model:value="roleKeyword" clearable placeholder="角色编码 / 名称" style="width: 220px" />
-              <n-button secondary @click="loadRoles">查询</n-button>
-              <n-button v-if="canManageRoles" type="primary" @click="openRoleDrawer()">新增角色</n-button>
-            </n-space>
-          </div>
-          <n-data-table
+            </label>
+          </FilterBar>
+          <DataPanel
+            title="角色列表"
             :columns="roleColumns"
             :data="roles"
+            :total="roles.length"
             :loading="roleLoading"
-            :row-key="(row: Role) => row.id"
-            size="small"
-            striped
             :max-height="620"
-          />
-        </section>
+            :scroll-x="840"
+            empty-title="暂无角色"
+            empty-description="当前筛选条件下没有角色记录。"
+            @refresh="loadRoles"
+          >
+            <template #actions>
+              <n-button v-if="canManageRoles" type="primary" size="small" @click="openRoleDrawer()">新增角色</n-button>
+            </template>
+          </DataPanel>
+        </div>
       </n-tab-pane>
 
       <n-tab-pane v-if="canManagePerms" name="permissions" tab="权限">
-        <section class="panel page-section">
+        <div class="panel page-section">
           <n-alert v-if="canManagePerms" type="info" :bordered="false" class="page-section">
             功能权限为系统预置；本页用于查看权限树并在角色授权中配置。
           </n-alert>
-          <n-data-table
+          <DataPanel
+            title="权限树"
             :columns="permissionColumns"
             :data="permissions"
-            :scroll-x="1200"
+            :total="summary.permissions"
+            :scroll-x="760"
             :loading="permissionLoading"
-            :row-key="(row: Permission) => row.id"
-            size="small"
-            striped
             :max-height="620"
             default-expand-all
+            empty-title="暂无权限"
+            empty-description="当前没有可展示的功能权限。"
+            @refresh="loadPermissions"
           />
-        </section>
+        </div>
       </n-tab-pane>
     </n-tabs>
 
-    <n-drawer v-model:show="userDrawerVisible" :width="520" placement="right">
+    <n-drawer v-model:show="userDrawerVisible" :width="560" placement="right">
       <n-drawer-content :title="editingUserId ? '编辑用户' : '新增用户'">
         <n-form ref="userFormRef" :model="userForm" :rules="userRules" label-placement="top">
-          <div class="form-grid">
-            <n-form-item label="用户名" path="username">
+          <div class="form-section-title">基本信息</div>
+          <n-grid :cols="2" :x-gap="12">
+            <n-form-item-gi label="用户名" path="username">
               <n-input v-model:value="userForm.username" maxlength="64" show-count />
-            </n-form-item>
-            <n-form-item label="姓名" path="realName">
+            </n-form-item-gi>
+            <n-form-item-gi label="姓名" path="realName">
               <n-input v-model:value="userForm.realName" maxlength="128" show-count />
-            </n-form-item>
-          </div>
-          <div class="form-grid">
-            <n-form-item label="工号" path="workNo">
+            </n-form-item-gi>
+            <n-form-item-gi label="工号" path="workNo">
               <n-input v-model:value="userForm.workNo" maxlength="64" show-count />
-            </n-form-item>
-            <n-form-item label="学生ID" path="studentId">
+            </n-form-item-gi>
+            <n-form-item-gi label="学生ID" path="studentId">
               <n-input v-model:value="userForm.studentId" />
-            </n-form-item>
-          </div>
-          <div class="form-grid">
-            <n-form-item label="邮箱" path="email">
+            </n-form-item-gi>
+          </n-grid>
+          <div class="form-section-title">联系信息</div>
+          <n-grid :cols="2" :x-gap="12">
+            <n-form-item-gi label="邮箱" path="email">
               <n-input v-model:value="userForm.email" maxlength="128" show-count />
-            </n-form-item>
-            <n-form-item label="手机号" path="phone">
+            </n-form-item-gi>
+            <n-form-item-gi label="手机号" path="phone">
               <n-input v-model:value="userForm.phone" maxlength="32" show-count />
-            </n-form-item>
-          </div>
-          <div class="form-grid">
-            <n-form-item label="用户类型" path="userType">
+            </n-form-item-gi>
+          </n-grid>
+          <div class="form-section-title">账号设置</div>
+          <n-grid :cols="2" :x-gap="12">
+            <n-form-item-gi label="用户类型" path="userType">
               <n-select
                 v-model:value="userForm.userType"
                 :options="[
@@ -646,8 +681,8 @@ onMounted(refreshAll)
                   { label: '学生', value: 'STUDENT' }
                 ]"
               />
-            </n-form-item>
-            <n-form-item label="状态" path="status">
+            </n-form-item-gi>
+            <n-form-item-gi label="状态" path="status">
               <n-select
                 v-model:value="userForm.status"
                 :options="[
@@ -656,14 +691,14 @@ onMounted(refreshAll)
                   { label: '停用', value: 'DISABLED' }
                 ]"
               />
-            </n-form-item>
-          </div>
-          <n-form-item label="所属学院" path="collegeId">
-            <n-select v-model:value="userForm.collegeId" :options="collegeOptions" clearable filterable />
-          </n-form-item>
-          <n-form-item label="角色" path="roleIds">
-            <n-select v-model:value="userForm.roleIds" :options="roleOptions" multiple filterable />
-          </n-form-item>
+            </n-form-item-gi>
+            <n-form-item-gi label="所属学院" path="collegeId" :span="2">
+              <n-select v-model:value="userForm.collegeId" :options="collegeOptions" clearable filterable />
+            </n-form-item-gi>
+            <n-form-item-gi label="角色" path="roleIds" :span="2">
+              <n-select v-model:value="userForm.roleIds" :options="roleOptions" multiple filterable />
+            </n-form-item-gi>
+          </n-grid>
         </n-form>
         <template #footer>
           <n-space justify="end">
@@ -674,26 +709,27 @@ onMounted(refreshAll)
       </n-drawer-content>
     </n-drawer>
 
-    <n-drawer v-model:show="roleDrawerVisible" :width="460" placement="right">
+    <n-drawer v-model:show="roleDrawerVisible" :width="560" placement="right">
       <n-drawer-content :title="editingRoleId ? '编辑角色' : '新增角色'">
         <n-form ref="roleFormRef" :model="roleForm" :rules="roleRules" label-placement="top">
-          <n-form-item label="角色编码" path="code">
-            <n-input v-model:value="roleForm.code" maxlength="64" show-count />
-          </n-form-item>
-          <n-form-item label="角色名称" path="name">
-            <n-input v-model:value="roleForm.name" maxlength="128" show-count />
-          </n-form-item>
-          <n-form-item label="说明" path="description">
-            <n-input v-model:value="roleForm.description" type="textarea" maxlength="255" show-count />
-          </n-form-item>
-          <div class="form-grid">
-            <n-form-item label="排序" path="sort">
+          <div class="form-section-title">基本信息</div>
+          <n-grid :cols="2" :x-gap="12">
+            <n-form-item-gi label="角色编码" path="code">
+              <n-input v-model:value="roleForm.code" maxlength="64" show-count />
+            </n-form-item-gi>
+            <n-form-item-gi label="角色名称" path="name">
+              <n-input v-model:value="roleForm.name" maxlength="128" show-count />
+            </n-form-item-gi>
+            <n-form-item-gi label="说明" path="description" :span="2">
+              <n-input v-model:value="roleForm.description" type="textarea" maxlength="255" show-count />
+            </n-form-item-gi>
+            <n-form-item-gi label="排序" path="sort">
               <n-input-number v-model:value="roleForm.sort" :min="0" />
-            </n-form-item>
-            <n-form-item label="状态" path="status">
+            </n-form-item-gi>
+            <n-form-item-gi label="状态" path="status">
               <n-switch v-model:value="roleForm.status" :checked-value="1" :unchecked-value="0" />
-            </n-form-item>
-          </div>
+            </n-form-item-gi>
+          </n-grid>
         </n-form>
         <template #footer>
           <n-space justify="end">
@@ -706,6 +742,7 @@ onMounted(refreshAll)
 
     <n-drawer v-model:show="rolePermDrawerVisible" :width="560" placement="right">
       <n-drawer-content :title="currentPermissionRole ? `角色权限：${currentPermissionRole.name}` : '角色权限'">
+        <div class="form-section-title">功能授权</div>
         <n-tree
           v-model:checked-keys="selectedPermissionIds"
           :data="permissionOptions"
@@ -723,15 +760,18 @@ onMounted(refreshAll)
       </n-drawer-content>
     </n-drawer>
 
-    <n-drawer v-model:show="userScopeDrawerVisible" :width="520" placement="right">
+    <n-drawer v-model:show="userScopeDrawerVisible" :width="560" placement="right">
       <n-drawer-content :title="currentScopeUser ? `数据范围：${currentScopeUser.realName}` : '数据范围'">
         <n-form label-placement="top">
-          <n-form-item label="授权学院">
-            <n-select v-model:value="scopeCollegeIds" :options="collegeOptions" multiple filterable />
-          </n-form-item>
-          <n-form-item label="授权专业">
-            <n-select v-model:value="scopeMajorIds" :options="majorOptions" multiple filterable />
-          </n-form-item>
+          <div class="form-section-title">可查看范围</div>
+          <n-grid :cols="2" :x-gap="12">
+            <n-form-item-gi label="授权学院" :span="2">
+              <n-select v-model:value="scopeCollegeIds" :options="collegeOptions" multiple filterable />
+            </n-form-item-gi>
+            <n-form-item-gi label="授权专业" :span="2">
+              <n-select v-model:value="scopeMajorIds" :options="majorOptions" multiple filterable />
+            </n-form-item-gi>
+          </n-grid>
         </n-form>
         <template #footer>
           <n-space justify="end">
@@ -745,39 +785,14 @@ onMounted(refreshAll)
 </template>
 
 <style scoped>
-.panel-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-4);
-}
-
 .panel {
   min-width: 0;
 }
 
-.panel-toolbar {
-  margin-bottom: var(--space-4);
-}
-
-.filters {
-  flex-wrap: wrap;
-}
-
-.form-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--space-4);
-}
-
-@media (max-width: 1120px) {
-  .panel-toolbar {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .form-grid {
-    grid-template-columns: 1fr;
-  }
+.form-section-title {
+  margin: var(--space-2) 0 var(--space-3);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
 }
 </style>
