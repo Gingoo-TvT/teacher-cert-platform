@@ -15,6 +15,12 @@
 
 ---
 
+## [2026-07-03] Phase 35 复核通过（Claude · 亲自返工关键件）✅ — 前端验收缺陷 F1–F5
+- 做了什么：复核 `feature/phase35-acceptance-fix`（343c491，35 文件）。逐项核 F1–F5 与关键共享件：DataPanel 自动 scroll-x(删 27 硬编码,残留 0)、StudentSelect 远程搜索(去全量 listStudents 预载)、videoDuration 探测+两上传面板+拖拽区、ChartBox 长类目、StatCard 单位内联+greeting 去尾+去重复标签。type-check+build 两轮绿；活体 `/student?keyword=` 张1/DEMO10/李1、端点零 403。
+- 结论：**PASS**。codex 本轮质量高（关键件均自行完成且设计正确）。
+- **Claude 亲自返工（F4，不退 codex）**：ChartBox 加大标签 `bottom` 但容器仍 320/340px→长类目绘图区被压扁。抽出 `chartLayout` computed 集中 rotate/labelWidth/bottom/top，新增 `resolvedHeight=max(base, top+184+bottom)` 让容器随标签高度同步增高（ResizeObserver 已在→自动 chart.resize）。type-check+build 复跑绿。
+- 放行：PROGRESS Phase 35 置 ✅；合并 `main`（本地私有、无远程、不 push）；重启 vite 供用户三宽度目验。
+
 ## [2026-07-03] Phase 35 待复核小结（前端验收缺陷修复 F1-F5）
 - 做了什么：从 `main` 切出 `feature/phase35-acceptance-fix`，执行 `docs/frontend-fix-plan.md` F1-F5。纯前端展示/交互修复；未改后端、契约、迁移或 stores 逻辑；未新增依赖；未 push。
 - 关键决策与理由：共享件按本轮分工先做初版，供 Claude 后续把关/返工：`DataPanel` 自动表宽、`StudentSelect` 远程搜索、视频时长 metadata 探测、`ChartBox` 长类目轴策略、`StatCard` 单位内联。重复铺开项用页面小补丁完成，避免再做批量编码改写。

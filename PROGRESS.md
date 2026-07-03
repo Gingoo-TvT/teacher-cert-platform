@@ -5,10 +5,10 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**Phase 35 待复核**——前端验收缺陷修复 F1–F5 已提交，等待 Claude 按 `docs/frontend-fix-plan.md` 复核。
+- 当前阶段：**Phase 35 ✅ 已复核（Claude 07-03，PASS + Claude 亲自返工 F4 1 处）**——前端验收缺陷 F1–F5 修复完成。
 - 阻塞项：无
-- 最近更新：2026-07-03（Phase 35：删除视图硬编码 `scroll-x`，DataPanel 自动推导表宽；学生下拉远程搜索并移除无参全量预载；上传区改拖拽并补视频时长自动识别；统计图长类目旋转/扩底；首页问候与 StatCard 单位内联修正；纯前端，type-check+build 通过。）
-- 下一步：Claude 按 Phase35 gate ①-⑥ 做 1280/1440/1920 目验、材料/免考流畅度、上传与统计图/首页复核。
+- 最近更新：2026-07-03（Phase 35 复核通过：F1 DataPanel 自动 scroll-x+删 27 硬编码/F2 StudentSelect 远程搜索去全量预载/F3 视频时长自动探测+拖拽上传区/F4 ChartBox 长类目/F5 首页问候去尾+StatCard 单位内联+去重复标签。codex 质量高；**Claude 亲自返工 F4**：ChartBox 容器高度随标签 bottom 同步增高，绘图区不再被压扁。type-check+build 绿；活体关键词搜索通、零 403。详见 docs/reviews/phase-35-review.md）
+- 下一步：用户对 5 类缺陷做最终目验（1280/1440/1920 三宽度列表、上传、统计图、首页）。
 
 ## 阶段汇总
 | Phase | 名称 | 优先级 | 任务数 | 完成 | 状态 |
@@ -349,7 +349,7 @@
 - 验证：`npm --prefix frontend run type-check` 通过；`npm --prefix frontend run build` 通过（仅既有 Vite chunk-size warning）；附录 A 黑名单、纯前端范围、视频主文件行数和组件命中证据已写入 `DEVLOG.md`。等待 Claude 复核，未自行置复核通过。
 
 ## 收官后 · Phase 35 / 前端验收缺陷修复
-- Phase 35 `前端验收缺陷修复`：**待复核**（分支：`feature/phase35-acceptance-fix`）。纯前端，不改后端/契约/迁移/stores 逻辑；未新增依赖；本地私有无 remote，不 push。
+- Phase 35 `前端验收缺陷修复`：**✅ 已复核（Claude 2026-07-03，PASS + Claude 亲自返工 F4 图高 1 处）**（分支：`feature/phase35-acceptance-fix`）。F1–F5 全落地，关键共享件由 codex 完成、Claude 核验；F4 ChartBox 容器高度由 Claude 返工。详见 `docs/reviews/phase-35-review.md`。纯前端；未新增依赖。
 - [x] F1 列表横滚：删除 27 处视图硬编码 `:scroll-x`，`DataPanel` 未显式传值时按列 `width/minWidth` 自动推导表宽。
 - [x] F2 学生下拉：新增 `StudentSelect` 远程搜索；材料、免考、视频、证书、培养、测试导入、学生本人页去掉无参全量学生预载。
 - [x] F3 上传入口：视频、材料、免考、导入中心、测试结果、学科库导入使用 `n-upload-dragger`；视频上传两处用浏览器 metadata 自动识别时长，失败才显示手填。

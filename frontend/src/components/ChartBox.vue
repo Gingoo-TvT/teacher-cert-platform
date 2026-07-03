@@ -19,6 +19,24 @@ const el = ref<HTMLElement | null>(null)
 let chart: echarts.ECharts | null = null
 let resizeObserver: ResizeObserver | null = null
 
+const chartLayout = computed(() => {
+  const labels = firstCategoryLabels(props.option.xAxis)
+  const maxLen = labels.reduce((max, label) => Math.max(max, visibleLength(label)), 0)
+  const rotate = maxLen > 12 || labels.length > 10 ? 45 : 0
+  const labelWidth = rotate ? Math.min(180, Math.max(112, maxLen * 8)) : 120
+  const bottom = rotate ? Math.min(156, Math.max(92, maxLen * 6 + 54)) : Math.max(48, Math.min(76, maxLen * 4 + 32))
+  const seriesCount = Array.isArray(props.option.series) ? props.option.series.length : props.option.series ? 1 : 0
+  const top = seriesCount > 1 ? 48 : 28
+  return { rotate, labelWidth, bottom, top }
+})
+
+// 旋转/换行的长类目会撑高 grid.bottom；容器高度需同步增高，否则绘图区被压扁。
+const resolvedHeight = computed(() => {
+  const base = Number.parseInt(props.height || '320', 10) || 320
+  const needed = chartLayout.value.top + 184 + chartLayout.value.bottom
+  return `${Math.max(base, needed)}px`
+})
+
 const normalizedOption = computed(() => normalizeOption(props.option))
 
 function resize() {
@@ -47,13 +65,7 @@ onBeforeUnmount(() => {
 })
 
 function normalizeOption(option: echarts.EChartsOption): echarts.EChartsOption {
-  const categoryLabels = firstCategoryLabels(option.xAxis)
-  const maxLabelLength = categoryLabels.reduce((max, label) => Math.max(max, visibleLength(label)), 0)
-  const hasLongLabels = maxLabelLength > 12
-  const hasCrowdedLabels = categoryLabels.length > 10
-  const rotate = hasLongLabels || hasCrowdedLabels ? 45 : 0
-  const labelWidth = rotate ? Math.min(180, Math.max(112, maxLabelLength * 8)) : 120
-  const bottom = rotate ? Math.min(156, Math.max(92, maxLabelLength * 6 + 54)) : Math.max(48, Math.min(76, maxLabelLength * 4 + 32))
+  const { rotate, labelWidth, bottom } = chartLayout.value
   const tooltip = isObject(option.tooltip) ? option.tooltip : {}
   const tooltipTextStyle = isObject(tooltip.textStyle) ? tooltip.textStyle : {}
   const seriesCount = Array.isArray(option.series) ? option.series.length : option.series ? 1 : 0
@@ -201,5 +213,5 @@ function isObject(value: unknown): value is Record<string, unknown> {
 </script>
 
 <template>
-  <div ref="el" :style="{ height: height || '320px', width: '100%' }" />
+  <div ref="el" :style="{ height: resolvedHeight, width: '100%' }" />
 </template>
