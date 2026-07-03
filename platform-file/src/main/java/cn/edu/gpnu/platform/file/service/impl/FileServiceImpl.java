@@ -33,7 +33,10 @@ public class FileServiceImpl implements FileService {
         String ext = (originalName != null && originalName.contains(".")) ? originalName.substring(originalName.lastIndexOf('.')) : "";
         String prefix = (bizType == null || bizType.isEmpty()) ? "misc" : bizType;
         String objectKey = prefix + "/" + UUID.randomUUID().toString().replace("-", "") + ext;
-        try {
+        // Phase 41.3（§7.2 P1）：try-with-resources 关闭入参流，防高并发下流/底层 socket/临时文件句柄泄漏。
+        // MinIO putObject 在返回前已按声明的 size 同步读完整个 stream，故可在本方法内安全关闭，
+        // 调用方（controller/service）均不在 upload 返回后继续使用该流。
+        try (in) {
             minioClient.putObject(PutObjectArgs.builder()
                     .bucket(props.getBucket())
                     .object(objectKey)

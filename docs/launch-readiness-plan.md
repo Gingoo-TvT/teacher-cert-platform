@@ -18,7 +18,7 @@
 | P0-2 | ~~**批量下载整包进堆**：`batchDownload` 无行数上限，全部文件读进 `ByteArrayOutputStream` 再返回 byte[]~~ | ~~`ProcessMaterialServiceImpl`~~ | — | **已修（Phase 38a，见 §11）：zip 直写响应输出流 + 2000 条上限** | 完成 |
 | P0-3 | ~~multipart 上限缺失~~ | ~~application.yml~~ | — | **已修（见 §0）** | 完成 |
 | P0-4 | **无 prod profile，Swagger/Knife4j 对公网全开**：`SecurityConfig` permitAll `/doc.html`/`/v3/api-docs`，且无 `application-prod.yml`（compose 却默认 `SPRING_PROFILES_ACTIVE=prod`） | `application.yml:17-20`、`SecurityConfig.java:61`、`docker-compose.yml:56` | 生产接口文档+试调界面公开 | 新增 `application-prod.yml`：关 knife4j/springdoc；prod 下移除文档路径放行 | Opus |
-| P0-5 | **应用用 root 连 MySQL** | `docker-compose.yml:68-69` | 任一注入/依赖沦陷=整库沦陷 | 建 `teacher_cert` 专用最小权限账号 | Sonnet（模板化） |
+| P0-5 | ~~**应用用 root 连 MySQL**~~ | ~~`docker-compose.yml:68-69`~~ | — | **配置就绪待复核合并（Phase 41，见 §11）：`teacher_app` 最小权限账号（`deploy/mysql-init/01-app-user.sh`）+ `application-prod.yml` env 化 + 3306 不 publish** | 待复核合并 |
 | P0-6 | **备份是"演练记录"非真备份**：triggerBackup 仅插一行 COMPLETED；全库 0 处 `@Scheduled`；运维手册命令指向 dev 容器/密码 | `SystemManagementServiceImpl.java:132-146`、`docs/备份与恢复手册.md` | 真事故时无备份可恢复、手册照抄即失败 | 定时 mysqldump+MinIO mirror 脚本（宿主 cron 或容器 sidecar）；手册改指 prod 栈；backup_record 关联真实产物 | Opus 设计 + Sonnet 脚本 |
 
 ## 2. P1 —— 上线前应修（规模/一致性风险）
@@ -76,7 +76,7 @@
 - **P0 MinIO I/O 在 `@Transactional` 内**（`VideoReviewServiceImpl` uploadChunk:162,178 / merge:211,236）→ MinIO 网络往返期间**占用 DB 连接**；截止日并发大上传耗尽 Hikari 连接池（默认 10）→ **全站 DB 阻塞=总瘫**。这是运维上最危险的一条。修：MinIO 调用移出事务，DB 元数据单独短事务。**✅ 已修复（Phase 37c，见 §11）：** uploadChunk/merge 去方法级 `@Transactional`，`putObject/composeObject` 在事务外执行，元数据落库改 `TransactionTemplate` 短事务。**收尾✅（Phase 37c-2）：** material/exemption 4 个上传方法（material `upload`/`replace`、exemption `uploadMaterial`/`replaceMaterial`）去方法级 `@Transactional`，`fileService.upload` 的 MinIO putObject 不再占用 DB 连接（各方法仅 1 次业务写，autocommit 原子）。
 - **P1 审计/通知写入吞异常**（`AuditLogServiceImpl.record:22-41`、`ReviewNotificationHelper.notifyXxx` 只 log.warn）→ 在 `@Transactional(rollbackFor=Exception)` 内失败**不触发回滚** → 状态改了但无审计（正是要防的不一致）。
 - **P1 `ExchangeServiceImpl.confirmImport` 无 `@Transactional`**（`:229-271`）：状态末尾才翻转，双确认全量重导。
-- **P1 `FileServiceImpl.upload` InputStream 未关闭**（`:32-59`，无 try-with-resources）→ 高并发泄漏流/socket。
+- **P1 `FileServiceImpl.upload` InputStream 未关闭**（`:32-59`，无 try-with-resources）→ 高并发泄漏流/socket。**✅ 已修复（Phase 41，待复核合并，见 §11）：** 改用 `try (in) { minioClient.putObject(...) }`（Java 9+ 等价 try-with-resources），MinIO putObject 已按声明 size 同步读完流，返回前即可安全关闭；5 处调用方（`FileController.upload`、material `upload`/`replace`、exemption `uploadMaterial`/`replaceMaterial`）均不在 upload 返回后复用该流。
 
 ### 7.3 规模/性能 P1（缺失索引=无，见 §7.9）
 - **N+1 `toVO`/导出（5 处）**：`VideoReviewServiceImpl.toVO:1011,1034,1060`（三重嵌套）、`TrainingProfileServiceImpl.toVO:329`、`AbilityTestResultServiceImpl.toVO:227,233`、`ExchangeServiceImpl.rowFromCertificate:836-841`/`fullReviewRows:894-899`。正确批量范式在 `ExemptionServiceImpl.toVO:384`/`ProcessMaterialServiceImpl:379` 已有——照抄 `.in()`+Map。
@@ -133,8 +133,8 @@
 ### 7.11 部署 · 运维 · 依赖 · TLS
 - **P0 Spring Boot 3.2.11 已 EOL + 命中方法级鉴权 CVE 影响面**（`pom.xml:10`）：3.2.x 2024-11 停 OSS 支持、2025-12 全面 EOL；传递 Spring Security 6.2.x，2025 年鉴权绕过族（CVE-2025-41249/41248/41232）正打 `@EnableMethodSecurity`+`@PreAuthorize`——**本平台 RBAC 的根基**。配置无法缓解，**上线前须升到受支持的 3.3+/3.4+**。
 - **P0 全链路无 TLS**：`nginx.conf:1` 只听 `:80`，仓库无 443/证书/HSTS；`docker-compose.yml:107` 前端 :80 直发主机。登录密码、`Authorization: Bearer` JWT、身份证 PII **明文传输**——面向数千学生 PII 的公网服务不可接受。
-- **P1 无 `.dockerignore` → 真实 `.env` 被打进镜像层**（后端 `Dockerfile:17` `COPY . .`，README:49 让运维在构建上下文放含生产密码的 `.env`）→ 密钥随镜像/推送泄露；还带入 `.git/target/*.log`。
-- **P1 生产把 DB/Redis/MinIO 端口发布到主机 + Redis 无密码**（`docker-compose.yml:14/29/47`，`:28` redis 无 requirepass）→ 主机网可达=无认证 Redis（存登录锁/验证码/会话）。后端只需内部 DNS，无需 publish。
+- **P1 无 `.dockerignore` → 真实 `.env` 被打进镜像层**（后端 `Dockerfile:17` `COPY . .`，README:49 让运维在构建上下文放含生产密码的 `.env`）→ 密钥随镜像/推送泄露；还带入 `.git/target/*.log`。**✅ 已修复（Phase 41，待复核合并，见 §11）：** 根新增 `.dockerignore`，排除 `.env`/`.git`/`**/target`/`**/*.log`/`node_modules`/`frontend/dist`。
+- **P1 生产把 DB/Redis/MinIO 端口发布到主机 + Redis 无密码**（`docker-compose.yml:14/29/47`，`:28` redis 无 requirepass）→ 主机网可达=无认证 Redis（存登录锁/验证码/会话）。后端只需内部 DNS，无需 publish。**部分修复（Phase 41，待复核合并，见 §11）：** DB(3306)、Redis(6379，加 `--requirepass ${REDIS_PASSWORD}`) 已不再 publish 到主机。**MinIO(9000/9001) 本次未动**——`FileServiceImpl.presignedGet` 返回的预签名 URL 本就直接嵌入 `minio` 这一容器内部 DNS 名，浏览器端无论端口是否 publish 都无法解析，对外可达性是独立的架构问题（需反代或公网 endpoint 设计），非本次任务范围，留后续 phase 一并处理。
 - **P1 nginx `/api` 无 proxy 超时**（默认 60s）→ 万行导入/大视频上传 502/504，与 `client_max_body_size 2048m` 自相矛盾（`nginx.conf:8-17`）。
 - **P1 nginx 无安全响应头**（无 X-Frame-Options/CSP/X-Content-Type-Options/HSTS）。
 - **P1 健康端点是"静态谎言"**：`HealthController:23` 无条件返回 UP，却被用作容器 healthcheck+依赖门（`compose:94,108`）→ MySQL/Redis/MinIO 挂了后端仍"健康"，无重启/就绪信号。无 actuator/可观测性（无 metrics/trace）。
@@ -259,7 +259,7 @@
 **批次 C · 数据/运维/容量（Phase 38/40）**
 12. 无 DB 外键 + 删父孤儿 + 删学生不停登录（§9.1）。
 13. 批量下载整包进堆 OOM（§1 P0-2）— 流式。
-14. app 用 mysql root（§1 P0-5）— 专用最小权限账号。
+14. app 用 mysql root（§1 P0-5）— 专用最小权限账号。**配置就绪待复核合并（Phase 41，见 §11）。**
 15. 假备份 + 全库无 @Scheduled（§1 P0-6）— 真定时备份 + 清理任务。
 16. 关键 bug 零测试（§9.3）— 修 P0 时**同步补并发/复活/双确认测试**（否则改完无从证明，且 reissue 测试会假失败）。
 
@@ -304,4 +304,14 @@
 - ✅ **P0-12 删学生不停登录（安全/访问撤销）** — `StudentServiceImpl.delete` 后置停用关联 `sys_user`（`.eq(studentId).set(status,'DISABLED')`）；JWT filter 每请求校验 `status=ENABLED`（`filter:62`）→ 旧 token 下次请求即 401。**活体（复现→阻断）：** test_student 旧 token `/auth/me` 删除前 200；管理员 `DELETE /student/9001` 后同一 token=**401「用户不存在或已停用」**、`sys_user.status=DISABLED`、`student.deleted=1`；测毕复原 ENABLED。
 - ✅ **P0-12 删学院静默孤儿** — `OrganizationServiceImpl.deleteCollege` 在原「有专业则拒删」外，增「有用户（`sys_user.college_id`，含学生/教职工）则拒删」，补住"有学生却无 major 行"缺口（注入 `SysUserMapper`，同模块）。**活体：** 删有专业/用户的学院被拒、学院仍在（本例经既有专业守卫拦下；用户守卫为 majors=0 场景兜底，demo 无此实例，由编译+IT+守卫简单性保证）。
 - ⏳ **P0-12 收尾**：`deleteMajor` 使用守卫（引用方在 business 模块 + training 用 code/name 快照非 major_id，跨模块无关联键，需设计）、DB 外键约束、MinIO 分片/孤儿清理与定时任务（P1-9）。
+
+### Phase 41（41.1 + 41.3，Phase 41，待复核合并 —— 分支 `feature/phase41-ops`，单 commit，未合并入 main，mvn verify 83/83 绿）
+- ✅ **P0-5 生产 DB 非 root 最小权限账号** — 新增 `deploy/mysql-init/01-app-user.sh`（`docker-entrypoint-initdb.d` 初始化脚本；用 `.sh` 而非计划原文提到的 `.sql`——官方 MySQL 镜像对 `.sql` 按字面执行、不做变量替换，若要"密码来自环境变量、不硬编码"必须用 shell 读容器 env 再拼 SQL，`.sh` 是唯一能同时满足"env 驱动"与"非硬编码"两个约束的标准做法），创建 `teacher_app`@`%` 账号，仅授 `SELECT,INSERT,UPDATE,DELETE,CREATE,ALTER,INDEX,REFERENCES,DROP ON teacher_cert.*`（覆盖 DML + Flyway 46 个迁移文件实际所需 DDL，已逐一 grep 确认无 `CREATE TRIGGER/VIEW/PROCEDURE/EVENT`/`LOCK TABLES`/`CREATE TEMPORARY` 等更高权限需求），不授 `GRANT OPTION`/`SUPER`/`FILE`/`PROCESS`/`*.*`；若 `DB_PASSWORD` 未设置则初始化直接 `exit 1` 拒绝以空密码建账号。`application-prod.yml` 新增 `spring.datasource.username/password: ${DB_USERNAME}/${DB_PASSWORD}`（url 不变，仍用既有 `SPRING_DATASOURCE_URL`）。生产 `docker-compose.yml`：mysql 服务不再 `ports:` publish 3306 到主机、挂载 `./deploy/mysql-init:/docker-entrypoint-initdb.d:ro`；backend 服务把 `SPRING_DATASOURCE_USERNAME: root`/`SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD}` 替换为 `DB_USERNAME`/`DB_PASSWORD`。**dev 栈（`docker-compose.dev.yml`/`application-dev.yml`）未动，仍用 root**，符合任务范围。**验证：** 在 dev 库 `tcp-mysql` 容器内活体建同名测试账号 → `SHOW GRANTS` 核对与设计**完全一致**（`GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, DROP, REFERENCES, INDEX, ALTER ON \`teacher_cert\`.* TO ...`，无 `GRANT OPTION`/`SUPER`/`FILE`/`*.*`）→ 以该账号实测 `SELECT`/`CREATE TABLE`/`DROP TABLE` 均成功（满足 Flyway DDL 需求）→ `DROP USER` 清理，dev root 数据源全程未动、未重启。
+- ✅ **41.3 `.dockerignore`** — 根新增，排除 `.env`/`.git`/`**/target`/`**/*.log`/`node_modules`/`frontend/dist`，防后端 `Dockerfile:17` 的 `COPY . .` 把真实密钥/`.git` 历史/编译产物打进镜像层。
+- ✅ **41.3 Redis 生产鉴权** — `docker-compose.yml` redis 服务 `command` 加 `--requirepass ${REDIS_PASSWORD}`、不再 publish 6379 到主机，healthcheck 同步改 `redis-cli -a ${REDIS_PASSWORD} --no-auth-warning ping`；`application-prod.yml` 新增 `spring.data.redis.password: ${REDIS_PASSWORD}`。**MinIO(9000/9001) 端口本次未动**（见 §7.11 说明，presigned URL 内部 DNS 是独立更大的架构问题，非本任务范围）。
+- ✅ **41.3 `FileServiceImpl.upload` InputStream 泄漏（§7.2 P1）** — 改 `try (in) { minioClient.putObject(...) }`（Java 9+ 等价 try-with-resources）；已逐一追踪全部 5 处调用方确认 upload 返回后均不复用该流，可安全内部关闭。
+- ✅ `.env.example`/`README.md` 同步补 `DB_USERNAME`/`DB_PASSWORD`/`REDIS_PASSWORD` 说明，移除不再使用的 `MYSQL_PORT`/`REDIS_PORT`。
+- **验证：** `mvn -B -ntp verify` **BUILD SUCCESS，83/83 绿（0 fail/error/skip）**，9 个 reactor 模块全 SUCCESS（含 `FileServiceImpl.upload` 改动路径覆盖的 `Phase5MaterialIT`/`Phase6ExemptionIT` 等真实 MinIO 上传集成测试）。配置类改动（yml/compose/`.dockerignore`）为语法与静态核对，未起 prod 栈活体（生产 compose 需要真实生产网络/密钥，本地不可行，符合 §3 前言"验收以配置正确+文档齐+可解释为准"）。
+- **与规格的偏差**：§7.11 原文把 MySQL/Redis/MinIO 端口发布合并为一条，本 phase 任务书显式只收窄到 MySQL(41.1)+Redis(41.3)，MinIO 端口发布/公网可达性留待后续独立 phase（需先设计反代或公网 endpoint，否则即便发布端口，浏览器仍无法解析 `minio` 这一内部服务名）。
+- ⏳ **未合并**：本 phase 严格按任务要求只做 41.1+41.3，**41.2（真实定时备份，P0-6）未动**；分支 `feature/phase41-ops` 停在单个 commit，待人工复核后再决定是否 merge 进 main。
 

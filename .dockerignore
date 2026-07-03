@@ -1,0 +1,11 @@
+# Docker build context 排除清单（Phase 41.3，见 docs/remaining-p0-execution-plan.md §3 41.3）。
+# 背景：后端 Dockerfile 用 `COPY . .`（Dockerfile:17）；缺此文件时，真实 .env（含生产密钥）、
+# .git 历史、各模块 target/ 编译产物、日志文件、node_modules、frontend/dist 都会被发进
+# build context、甚至打进镜像层，随镜像/推送泄露。
+
+.env
+.git
+**/target
+**/*.log
+node_modules
+frontend/dist

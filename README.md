@@ -47,7 +47,8 @@ cd frontend && npm install && npm run dev
 ```bash
 # 1) 准备环境变量
 cp .env.example .env
-# 修改 JWT_SECRET、数据库/MinIO 密码和端口
+# 修改 JWT_SECRET、数据库/MinIO 密码和端口；必须设置 DB_USERNAME/DB_PASSWORD（非 root 应用账号，
+# 见 deploy/mysql-init/01-app-user.sh）与 REDIS_PASSWORD（Redis 生产鉴权），不可留空/沿用示例值
 
 # 2) 构建并启动生产服务（后台）
 docker compose up -d --build

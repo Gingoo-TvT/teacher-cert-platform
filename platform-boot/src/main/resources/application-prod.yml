@@ -12,6 +12,16 @@ knife4j:
   production: true
 
 spring:
+  # 生产 DB 账号非 root（Phase 41.1，P0-5）：由 deploy/mysql-init/01-app-user.sh 创建的最小权限
+  # 账号，用户名/密码经环境变量注入（docker-compose.yml 的 backend 服务 environment），不落明文；
+  # url 仍沿用 SPRING_DATASOURCE_URL 环境变量（host/库名不变，仅收窄连接账号权限）。
+  datasource:
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+  # Redis 生产加密码（Phase 41.3）：与 prod compose redis --requirepass 配套，env 注入。
+  data:
+    redis:
+      password: ${REDIS_PASSWORD}
   # Flyway 生产安全：禁用 clean、允许在已有非空库上 baseline，避免首次部署硬失败
   flyway:
     enabled: true
