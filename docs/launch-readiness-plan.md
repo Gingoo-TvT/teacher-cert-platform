@@ -73,7 +73,7 @@
 → 修复主线：给 BaseEntity 加 `@Version`（系统性解大部分）+ 关键流转改条件 UPDATE/行锁 + 补 `(student_id,assessment_year)` 等唯一约束。
 
 ### 7.2 事务边界与资源 P0/P1
-- **P0 MinIO I/O 在 `@Transactional` 内**（`VideoReviewServiceImpl` uploadChunk:162,178 / merge:211,236）→ MinIO 网络往返期间**占用 DB 连接**；截止日并发大上传耗尽 Hikari 连接池（默认 10）→ **全站 DB 阻塞=总瘫**。这是运维上最危险的一条。修：MinIO 调用移出事务，DB 元数据单独短事务。
+- **P0 MinIO I/O 在 `@Transactional` 内**（`VideoReviewServiceImpl` uploadChunk:162,178 / merge:211,236）→ MinIO 网络往返期间**占用 DB 连接**；截止日并发大上传耗尽 Hikari 连接池（默认 10）→ **全站 DB 阻塞=总瘫**。这是运维上最危险的一条。修：MinIO 调用移出事务，DB 元数据单独短事务。**✅ 已修复（Phase 37c，见 §11）：** uploadChunk/merge 去方法级 `@Transactional`，`putObject/composeObject` 在事务外执行，元数据落库改 `TransactionTemplate` 短事务。**收尾：** material/exemption 单文件上传（`FileServiceImpl.upload` 处于各自 `@Transactional` 内）同一反模式，量小待收尾。
 - **P1 审计/通知写入吞异常**（`AuditLogServiceImpl.record:22-41`、`ReviewNotificationHelper.notifyXxx` 只 log.warn）→ 在 `@Transactional(rollbackFor=Exception)` 内失败**不触发回滚** → 状态改了但无审计（正是要防的不一致）。
 - **P1 `ExchangeServiceImpl.confirmImport` 无 `@Transactional`**（`:229-271`）：状态末尾才翻转，双确认全量重导。
 - **P1 `FileServiceImpl.upload` InputStream 未关闭**（`:32-59`，无 try-with-resources）→ 高并发泄漏流/socket。
@@ -291,4 +291,8 @@
 ### Phase 37b ✅ 已完成并合并（本提交，mvn verify 83/83 绿；栈起 6 并发活体实测）
 - ✅ **P0-10 状态流转 TOCTOU 竞态** — 18 处审核状态流转由"读状态→Java 判断→`updateById`"（无守卫、后写覆盖先写）改为 **DB 原子条件更新** `update(entity, wrapper.eq(id).eq(status, oldStatus))` + 校验受影响行数，0 行即抛"操作冲突"（`code=1000`）。覆盖：学生(submit/初审/复审)、专业培养(submit/初审/复审)、过程材料(submit/初审/复审)、免考(submit/初审/复审，状态字段 `finalStatus`)、证书(issue/markExported/archive/void)、视频(arbitrate/confirm)。单线程 happy-path 语义不变（status 恒等 → 命中 1 行），故 83 IT 全绿。**活体（复现→阻断）：** test_college_clerk 对同一 FIRST_REVIEW 学生（`990000000000000002`）6 线程 barrier 同时初审 PASS —— **旧码 6× code=0 / 审计 6 条 / 终态非确定（last-writer-wins）；新码仅 1× code=0、5× code=1000「操作冲突」、审计恰 +1、终态确定 `SECOND_REVIEW`**（达成 §8.2 验收标准）。
 - ⏳ **P0-10 收尾（下一批，需异于状态守卫的处理）**：证书 `reissue`（并 §7.4「REISSUED 从不落库」+ 唯一约束）、`correct`（内容编辑非流转）、导入 `confirmImport` 双确认（需新增 IMPORTING 过渡态或导入幂等/唯一码，§7.1）、视频 `submitScore/settle/thirdReview/merge/returnReview`（分数计票/幂等）；以及 §7.1 唯一约束 `(student_id, assessment_year)` 等与 `BaseEntity` `@Version` 系统性兜底。
+
+### Phase 37c ✅ 已完成并合并（本提交，mvn verify 83/83 绿，含 `Phase7VideoReviewIT` 11/11 真实 MinIO HTTP 集成）
+- ✅ **P0-11 MinIO I/O 在事务内（连接池耗尽=全站总瘫，§7.2 运维最危项）** — `VideoReviewServiceImpl.uploadChunk/merge` 去方法级 `@Transactional`：MinIO `putObject`（分片）/`composeObject`+小分片流式回退（合并）在**事务外**执行，网络往返期间不再占用 DB 连接；元数据落库改 `TransactionTemplate` 短事务（分片：chunk 增改 + 进度刷新；合并：文件对象 + 评审 upsert + 会话状态；`detail()` 移到提交后）。`TransactionTemplate` 由 Spring Boot 自动装配注入。**验证：** 83/83 绿，其中 `Phase7VideoReviewIT` 11/11 经 RANDOM_PORT TestRestTemplate 走**真实 HTTP + 真实 MinIO/MySQL** 跑通 init→chunk→merge→评审全链路（栈级活体）；"连接不再跨 MinIO 往返被持有"属架构级保证（MinIO 调用已移出事务边界，新起后端 PID 亦确认 `TransactionTemplate` 运行期装配成功）。孤儿风险与改前一致（MinIO 非事务性，分片 key 确定可覆盖、合并随机 key 失败重试留孤儿，均同旧行为，未劣化）。
+- ⏳ **P0-11 收尾**：`FileServiceImpl.upload` 处于 material/exemption 各自 `@Transactional` 内的单文件上传（同反模式、量小），可同法（上传移出事务 + 元数据短事务）收尾。
 

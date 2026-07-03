@@ -61,6 +61,7 @@ import io.minio.PutObjectArgs;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.StringUtils;
 
 import java.io.InputStream;
@@ -113,6 +114,7 @@ public class VideoReviewServiceImpl implements VideoReviewService {
     private final ObjectMapper objectMapper;
     private final ReviewNotificationHelper notificationHelper;
     private final AuditLogService auditLogService;
+    private final TransactionTemplate transactionTemplate;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -159,7 +161,6 @@ public class VideoReviewServiceImpl implements VideoReviewService {
     }
 
     @Override
-    @Transactional(rollbackFor = Exception.class)
     public void uploadChunk(String uploadId, Integer index, String md5, InputStream input, long size) {
         VideoUploadSession session = requireSession(uploadId);
         ensureCanWriteStudent(requireStudent(session.getStudentId()), "video:upload");
@@ -174,6 +175,7 @@ public class VideoReviewServiceImpl implements VideoReviewService {
         }
         String chunkMd5 = requiredTrim(md5, "分片MD5不能为空").toLowerCase(Locale.ROOT);
         String objectKey = CHUNK_BIZ_TYPE + "/" + uploadId + "/" + index;
+        // MinIO 分片上传在事务外执行：网络往返期间不占用 DB 连接，避免并发大上传耗尽连接池（P0-11）
         try {
             minioClient.putObject(PutObjectArgs.builder()
                     .bucket(minioProperties.getBucket())
@@ -184,31 +186,33 @@ public class VideoReviewServiceImpl implements VideoReviewService {
         } catch (Exception e) {
             throw new BizException("分片上传失败: " + e.getMessage());
         }
-        VideoUploadChunk existing = chunkMapper.selectOne(new LambdaQueryWrapper<VideoUploadChunk>()
-                .eq(VideoUploadChunk::getUploadId, uploadId)
-                .eq(VideoUploadChunk::getChunkIndex, index)
-                .last("LIMIT 1"));
-        if (existing == null) {
-            VideoUploadChunk chunk = new VideoUploadChunk();
-            chunk.setUploadId(uploadId);
-            chunk.setChunkIndex(index);
-            chunk.setChunkMd5(chunkMd5);
-            chunk.setChunkSize(size);
-            chunk.setObjectKey(objectKey);
-            chunk.setUploadedAt(LocalDateTime.now());
-            chunkMapper.insert(chunk);
-        } else {
-            existing.setChunkMd5(chunkMd5);
-            existing.setChunkSize(size);
-            existing.setObjectKey(objectKey);
-            existing.setUploadedAt(LocalDateTime.now());
-            chunkMapper.updateById(existing);
-        }
-        refreshSessionProgress(uploadId);
+        // 分片元数据写入单独短事务
+        transactionTemplate.executeWithoutResult(txStatus -> {
+            VideoUploadChunk existing = chunkMapper.selectOne(new LambdaQueryWrapper<VideoUploadChunk>()
+                    .eq(VideoUploadChunk::getUploadId, uploadId)
+                    .eq(VideoUploadChunk::getChunkIndex, index)
+                    .last("LIMIT 1"));
+            if (existing == null) {
+                VideoUploadChunk chunk = new VideoUploadChunk();
+                chunk.setUploadId(uploadId);
+                chunk.setChunkIndex(index);
+                chunk.setChunkMd5(chunkMd5);
+                chunk.setChunkSize(size);
+                chunk.setObjectKey(objectKey);
+                chunk.setUploadedAt(LocalDateTime.now());
+                chunkMapper.insert(chunk);
+            } else {
+                existing.setChunkMd5(chunkMd5);
+                existing.setChunkSize(size);
+                existing.setObjectKey(objectKey);
+                existing.setUploadedAt(LocalDateTime.now());
+                chunkMapper.updateById(existing);
+            }
+            refreshSessionProgress(uploadId);
+        });
     }
 
     @Override
-    @Transactional(rollbackFor = Exception.class)
     public VideoReviewVO merge(VideoUploadMergeRequest request) {
         VideoUploadSession session = requireSession(request.getUploadId());
         Student student = requireStudent(session.getStudentId());
@@ -241,16 +245,20 @@ public class VideoReviewServiceImpl implements VideoReviewService {
         } catch (Exception e) {
             streamComposeForSmallChunks(sortedChunks, objectKey, session.getFileSize());
         }
-        FileObject file = registerComposedFile(session, objectKey);
-        session.setFileId(file.getId());
-        VideoReview review = upsertReviewAfterValidation(student, session.getAssessmentYear(), file,
-                session.getFileMd5(), duration, false, session.getUploadId());
-        session.setStatus(VideoReviewStatus.of(review.getStatus()) == VideoReviewStatus.VALIDATION_FAILED
-                ? VideoUploadStatus.VALIDATION_FAILED.name()
-                : VideoUploadStatus.MERGED.name());
-        session.setValidationMessage(review.getValidationMessage());
-        sessionMapper.updateById(session);
-        return detail(review.getId());
+        // MinIO 合并已在事务外完成；元数据落库（文件对象 + 评审 + 会话状态）单独短事务（P0-11）
+        Long reviewId = transactionTemplate.execute(txStatus -> {
+            FileObject file = registerComposedFile(session, objectKey);
+            session.setFileId(file.getId());
+            VideoReview review = upsertReviewAfterValidation(student, session.getAssessmentYear(), file,
+                    session.getFileMd5(), duration, false, session.getUploadId());
+            session.setStatus(VideoReviewStatus.of(review.getStatus()) == VideoReviewStatus.VALIDATION_FAILED
+                    ? VideoUploadStatus.VALIDATION_FAILED.name()
+                    : VideoUploadStatus.MERGED.name());
+            session.setValidationMessage(review.getValidationMessage());
+            sessionMapper.updateById(session);
+            return review.getId();
+        });
+        return detail(reviewId);
     }
 
     @Override

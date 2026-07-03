@@ -15,6 +15,15 @@
 
 ---
 
+## [2026-07-04] Phase 37c 完成（Opus4.8+Sonnet5 执行，Claude 亲自把关关键处）✅ — P0-11 MinIO I/O 移出事务（连接池耗尽=总瘫）
+- 做了什么：`VideoReviewServiceImpl.uploadChunk/merge` 去方法级 `@Transactional`；MinIO `putObject`（分片）/`composeObject`+小分片流式回退（合并）在事务外执行；元数据落库改用注入的 `TransactionTemplate` 短事务（分片：chunk 增改 + `refreshSessionProgress`；合并：`registerComposedFile` + `upsertReviewAfterValidation` + 会话状态；`detail()` 移到提交后）。
+- 关键决策与理由：根因是 MinIO 网络往返期间事务未提交 → 持有 Hikari 连接（默认 10）→ 截止日并发大上传耗尽连接池致全站 DB 阻塞。选"上传移出事务 + 元数据短事务"（plan §7.2 修法），而非把整段设 REQUIRES_NEW。`TransactionTemplate` 用 Spring Boot 自动装配 bean 注入，规避同类自调用 `@Transactional` 失效问题。已确认 `registerComposedFile/upsertReviewAfterValidation/validateMergedVideo` 均纯 DB/CPU 无 MinIO，故 merge 可整段抽取。
+- 收尾：`FileServiceImpl.upload` 处于 material/exemption 各自 `@Transactional` 内的单文件上传（同反模式、量小）同法收尾。
+- 问题与解决：先按 PID 精杀 :8080 后端释放 jar 锁再 `verify`。
+- 与规格的偏差/疑问：无阻塞。孤儿风险与改前一致（MinIO 非事务性，未劣化）；已登记 §11 收尾项。
+- 测试：`mvn -B -ntp verify` BUILD SUCCESS，failsafe **83/83 绿**，其中 `Phase7VideoReviewIT` **11/11** 经 RANDOM_PORT TestRestTemplate 走真实 HTTP + 真实 MinIO/MySQL 跑通 init→chunk→merge→评审全链路（栈级活体）；连接不再跨 MinIO 往返被持有属架构级保证（调用已移出事务边界），新起后端 PID 16192 启动成功亦确认 `TransactionTemplate` 运行期装配。
+- 下一步：P0-11/P0-10 收尾批，或其余 batch B/C P0（Spring Boot 升级 P0-8、批量下载 OOM P0-2、无 FK/孤儿 P0-12、mysql-root P0-5、假备份 P0-6）。
+
 ## [2026-07-04] Phase 37b 完成（Opus4.8+Sonnet5 执行，Claude 亲自把关关键处）✅ — P0-10 状态流转并发竞态（复现→阻断）
 - 做了什么：18 处审核状态流转由"读状态→Java 判断→`updateById`"（无守卫、后写覆盖先写）改为 **DB 原子条件更新** `update(entity, new LambdaUpdateWrapper().eq(id).eq(status, oldStatus))` + 校验受影响行数，0 行抛"操作冲突"(`code=1000`)。覆盖 6 服务：Student/TrainingProfile/ProcessMaterial(submit/firstReview/secondReview)、Exemption(同上，状态字段 `finalStatus`)、Certificate(issue/markExported/archive/void)、VideoReview(arbitrate/confirm)。
 - 关键决策与理由：本期主线选"条件 UPDATE"而非"BaseEntity `@Version`"——前者外科式、免迁移、直达 §8.2 验收标准（6 并发仅 1 成功）且单线程语义不变；`@Version` 系统性兜底 + 唯一约束列为收尾批。`update(entity, wrapper)` 以实体非空字段作 SET、wrapper 作 WHERE，与 `updateById` 行为一致仅多一道状态守卫；`@TableLogic` 自动追加 `deleted=0`、审计字段经 `AuditMetaObjectHandler` 自动填充。
