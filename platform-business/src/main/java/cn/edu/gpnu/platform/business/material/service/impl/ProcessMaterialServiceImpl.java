@@ -27,6 +27,7 @@ import cn.edu.gpnu.platform.system.service.AuditLogService;
 import cn.edu.gpnu.platform.system.service.DataScopeService;
 import cn.edu.gpnu.platform.system.service.ParamService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import io.minio.GetObjectArgs;
 import io.minio.MinioClient;
 import lombok.RequiredArgsConstructor;
@@ -139,9 +140,14 @@ public class ProcessMaterialServiceImpl implements ProcessMaterialService {
         if (!status.editable()) {
             throw new BizException("当前状态不可提交");
         }
+        String oldStatus = entity.getStatus();
         String targetStatus = returnTargetFromSecondRejected(status);
         entity.setStatus(targetStatus);
-        processMaterialMapper.updateById(entity);
+        // 原子条件更新：仅当状态未被并发改变时才写入，防重复提交竞态（P0-10）
+        if (processMaterialMapper.update(entity, new LambdaUpdateWrapper<ProcessMaterial>()
+                .eq(ProcessMaterial::getId, id).eq(ProcessMaterial::getStatus, oldStatus)) == 0) {
+            throw new BizException("操作冲突：该记录已被其他操作更新，请刷新后重试");
+        }
         notificationHelper.notifySubmitted(entity.getCollegeId(), entity.getStudentId(), "过程性材料",
                 targetStatus, "process_material", entity.getId());
     }
@@ -172,7 +178,11 @@ public class ProcessMaterialServiceImpl implements ProcessMaterialService {
         entity.setFirstReviewerId(UserContext.getUserIdOrSystem());
         entity.setFirstReviewTime(LocalDateTime.now());
         entity.setFirstReviewComment(trimToNull(request.getComment()));
-        processMaterialMapper.updateById(entity);
+        // 原子条件更新：仅当仍为初审态时才写入，防并发/重复初审竞态（P0-10）
+        if (processMaterialMapper.update(entity, new LambdaUpdateWrapper<ProcessMaterial>()
+                .eq(ProcessMaterial::getId, id).eq(ProcessMaterial::getStatus, oldStatus)) == 0) {
+            throw new BizException("操作冲突：该记录已被其他操作更新，请刷新后重试");
+        }
         auditLogService.record("material", entity.getId(), materialTarget(entity), "firstReview",
                 oldStatus, entity.getStatus(), trimToNull(request.getComment()));
         if ("PASS".equals(action)) {
@@ -212,7 +222,11 @@ public class ProcessMaterialServiceImpl implements ProcessMaterialService {
         entity.setSecondReviewerId(UserContext.getUserIdOrSystem());
         entity.setSecondReviewTime(LocalDateTime.now());
         entity.setSecondReviewComment(trimToNull(request.getComment()));
-        processMaterialMapper.updateById(entity);
+        // 原子条件更新：仅当仍为复审态时才写入，防并发/重复复审竞态（P0-10）
+        if (processMaterialMapper.update(entity, new LambdaUpdateWrapper<ProcessMaterial>()
+                .eq(ProcessMaterial::getId, id).eq(ProcessMaterial::getStatus, oldStatus)) == 0) {
+            throw new BizException("操作冲突：该记录已被其他操作更新，请刷新后重试");
+        }
         auditLogService.record("material", entity.getId(), materialTarget(entity), "secondReview",
                 oldStatus, entity.getStatus(), trimToNull(request.getComment()));
         if (!"PASS".equals(action)) {

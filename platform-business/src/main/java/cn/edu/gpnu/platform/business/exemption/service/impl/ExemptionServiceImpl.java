@@ -30,6 +30,7 @@ import cn.edu.gpnu.platform.system.service.AuditLogService;
 import cn.edu.gpnu.platform.system.service.DataScopeService;
 import cn.edu.gpnu.platform.system.service.ParamService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -219,10 +220,15 @@ public class ExemptionServiceImpl implements ExemptionService {
         if (materialCount(entity.getId()) <= 0) {
             throw new BizException("免考佐证不能为空");
         }
+        String oldStatus = entity.getFinalStatus();
         String targetStatus = returnTargetFromSecondRejected(status);
         entity.setFinalStatus(targetStatus);
         entity.setIncludedInExam(1);
-        requestMapper.updateById(entity);
+        // 原子条件更新：仅当状态未被并发改变时才写入，防重复提交竞态（P0-10）
+        if (requestMapper.update(entity, new LambdaUpdateWrapper<ExemptionRequest>()
+                .eq(ExemptionRequest::getId, id).eq(ExemptionRequest::getFinalStatus, oldStatus)) == 0) {
+            throw new BizException("操作冲突：该记录已被其他操作更新，请刷新后重试");
+        }
         notificationHelper.notifySubmitted(entity.getCollegeId(), entity.getStudentId(), "免考申请",
                 targetStatus, "exemption_request", entity.getId());
     }
@@ -254,7 +260,11 @@ public class ExemptionServiceImpl implements ExemptionService {
         entity.setFirstReviewerId(UserContext.getUserIdOrSystem());
         entity.setFirstReviewTime(LocalDateTime.now());
         entity.setFirstReviewComment(trimToNull(request.getComment()));
-        requestMapper.updateById(entity);
+        // 原子条件更新：仅当仍为初审态时才写入，防并发/重复初审竞态（P0-10）
+        if (requestMapper.update(entity, new LambdaUpdateWrapper<ExemptionRequest>()
+                .eq(ExemptionRequest::getId, id).eq(ExemptionRequest::getFinalStatus, oldStatus)) == 0) {
+            throw new BizException("操作冲突：该记录已被其他操作更新，请刷新后重试");
+        }
         auditLogService.record("exemption", entity.getId(), exemptionTarget(entity), "firstReview",
                 oldStatus, entity.getFinalStatus(), trimToNull(request.getComment()));
         if ("PASS".equals(action)) {
@@ -297,7 +307,11 @@ public class ExemptionServiceImpl implements ExemptionService {
         entity.setSecondReviewerId(UserContext.getUserIdOrSystem());
         entity.setSecondReviewTime(LocalDateTime.now());
         entity.setSecondReviewComment(trimToNull(request.getComment()));
-        requestMapper.updateById(entity);
+        // 原子条件更新：仅当仍为复审态时才写入，防并发/重复复审竞态（P0-10）
+        if (requestMapper.update(entity, new LambdaUpdateWrapper<ExemptionRequest>()
+                .eq(ExemptionRequest::getId, id).eq(ExemptionRequest::getFinalStatus, oldStatus)) == 0) {
+            throw new BizException("操作冲突：该记录已被其他操作更新，请刷新后重试");
+        }
         auditLogService.record("exemption", entity.getId(), exemptionTarget(entity), "secondReview",
                 oldStatus, entity.getFinalStatus(), trimToNull(request.getComment()));
         if (!"PASS".equals(action)) {

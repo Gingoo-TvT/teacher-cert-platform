@@ -166,7 +166,7 @@
 
 ### 8.2 🔴 P0-10 并发无乐观锁 —— 现场证实竞态
 - 手法：6 线程用 barrier 同时对同一 `FIRST_REVIEW` 学生发 `POST /student/{id}/first-review` PASS → **6 次全部 HTTP200 成功**，`audit_log` 产生 **6 条**同一逻辑审核记录，`first_review_comment` 最终为 `race-2`（last-writer-wins，非确定）。
-- 结论：状态流转无 `@Version`/无条件更新，重复/并发提交都过守卫都提交 → 若一 PASS 一 REJECT 并发，最终态不确定；审计与实际状态可背离。修复验收：同样 6 并发应仅 1 次成功、审计 1 条。
+- 结论：状态流转无 `@Version`/无条件更新，重复/并发提交都过守卫都提交 → 若一 PASS 一 REJECT 并发，最终态不确定；审计与实际状态可背离。修复验收：同样 6 并发应仅 1 次成功、审计 1 条。**✅ 已修复验证（Phase 37b，见 §11）：** 6 并发仅 1× 成功、5× code=1000「操作冲突」、审计恰 +1、终态确定 SECOND_REVIEW。
 
 ### 8.3 🟢 正面项现场证实（避免误修）
 - **数据范围 SELF/COLLEGE 生效**：学生 `GET /student` 列表只返回本人 1 条(id 9001)；学生读他人学生详情(990..005)→404；学院A教务员读学院B学生(990..009)→404。
@@ -287,4 +287,8 @@
 - ✅ **P0-15 角色授权弹窗静默改写数据范围** — `RolePermissionDrawer.vue` 打开时构建 `scopeByPermission` 记录后端真实 per-permission `scopeType`，保存用 `scopeFor()`（保留原范围→权限自身 canonical scopeType→兜底 SCHOOL）替代原 3 桶猜测 `defaultScopeFor`，不再一改全冲。
 - ✅ **P0-9 TLS/安全头/超时** — `nginx.conf` 加 X-Frame-Options/X-Content-Type-Options/Referrer-Policy、`/api` 代理超时 600s（大导入/上传免 502/504）、gzip、`/assets` 长缓存，并附 443 TLS/HSTS/301 跳转模板（运维供证后启用）。
 - 说明：验收栈与 IT 共用 `teacher_cert` 库，`mvn verify` 跑 83 IT 会改测试账号状态（本次把 `test_sys_admin.must_change_pwd` 置 1，已手工复位为 0）；上线前测试库须与运行库物理隔离（见 §7.11/P0-5）。
+
+### Phase 37b ✅ 已完成并合并（本提交，mvn verify 83/83 绿；栈起 6 并发活体实测）
+- ✅ **P0-10 状态流转 TOCTOU 竞态** — 18 处审核状态流转由"读状态→Java 判断→`updateById`"（无守卫、后写覆盖先写）改为 **DB 原子条件更新** `update(entity, wrapper.eq(id).eq(status, oldStatus))` + 校验受影响行数，0 行即抛"操作冲突"（`code=1000`）。覆盖：学生(submit/初审/复审)、专业培养(submit/初审/复审)、过程材料(submit/初审/复审)、免考(submit/初审/复审，状态字段 `finalStatus`)、证书(issue/markExported/archive/void)、视频(arbitrate/confirm)。单线程 happy-path 语义不变（status 恒等 → 命中 1 行），故 83 IT 全绿。**活体（复现→阻断）：** test_college_clerk 对同一 FIRST_REVIEW 学生（`990000000000000002`）6 线程 barrier 同时初审 PASS —— **旧码 6× code=0 / 审计 6 条 / 终态非确定（last-writer-wins）；新码仅 1× code=0、5× code=1000「操作冲突」、审计恰 +1、终态确定 `SECOND_REVIEW`**（达成 §8.2 验收标准）。
+- ⏳ **P0-10 收尾（下一批，需异于状态守卫的处理）**：证书 `reissue`（并 §7.4「REISSUED 从不落库」+ 唯一约束）、`correct`（内容编辑非流转）、导入 `confirmImport` 双确认（需新增 IMPORTING 过渡态或导入幂等/唯一码，§7.1）、视频 `submitScore/settle/thirdReview/merge/returnReview`（分数计票/幂等）；以及 §7.1 唯一约束 `(student_id, assessment_year)` 等与 `BaseEntity` `@Version` 系统性兜底。
 

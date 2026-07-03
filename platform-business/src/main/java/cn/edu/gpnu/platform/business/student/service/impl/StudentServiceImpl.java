@@ -145,9 +145,14 @@ public class StudentServiceImpl implements StudentService {
             throw new BizException("当前状态不可提交");
         }
         ensureRequired(entity);
+        String oldStatus = entity.getStatus();
         String targetStatus = returnTargetFromSecondRejected(status);
         entity.setStatus(targetStatus);
-        studentMapper.updateById(entity);
+        // 原子条件更新：仅当状态未被并发改变时才写入，防重复提交竞态（P0-10）
+        if (studentMapper.update(entity, new LambdaUpdateWrapper<Student>()
+                .eq(Student::getId, id).eq(Student::getStatus, oldStatus)) == 0) {
+            throw new BizException("操作冲突：该记录已被其他操作更新，请刷新后重试");
+        }
         notificationHelper.notifySubmitted(entity.getCollegeId(), entity.getId(), "学生基本信息",
                 targetStatus, "student", entity.getId());
     }
@@ -175,7 +180,11 @@ public class StudentServiceImpl implements StudentService {
         entity.setFirstReviewerId(UserContext.getUserIdOrSystem());
         entity.setFirstReviewTime(LocalDateTime.now());
         entity.setFirstReviewComment(trimToNull(request.getComment()));
-        studentMapper.updateById(entity);
+        // 原子条件更新：仅当仍为初审态时才写入，防并发/重复初审竞态（P0-10）
+        if (studentMapper.update(entity, new LambdaUpdateWrapper<Student>()
+                .eq(Student::getId, id).eq(Student::getStatus, oldStatus)) == 0) {
+            throw new BizException("操作冲突：该记录已被其他操作更新，请刷新后重试");
+        }
         auditLogService.record("student", entity.getId(), studentTarget(entity), "firstReview",
                 oldStatus, entity.getStatus(), trimToNull(request.getComment()));
         if ("PASS".equals(action)) {
@@ -210,7 +219,11 @@ public class StudentServiceImpl implements StudentService {
         entity.setSecondReviewerId(UserContext.getUserIdOrSystem());
         entity.setSecondReviewTime(LocalDateTime.now());
         entity.setSecondReviewComment(trimToNull(request.getComment()));
-        studentMapper.updateById(entity);
+        // 原子条件更新：仅当仍为复审态时才写入，防并发/重复复审竞态（P0-10）
+        if (studentMapper.update(entity, new LambdaUpdateWrapper<Student>()
+                .eq(Student::getId, id).eq(Student::getStatus, oldStatus)) == 0) {
+            throw new BizException("操作冲突：该记录已被其他操作更新，请刷新后重试");
+        }
         auditLogService.record("student", entity.getId(), studentTarget(entity), "secondReview",
                 oldStatus, entity.getStatus(), trimToNull(request.getComment()));
         if (!"PASS".equals(action)) {

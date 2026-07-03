@@ -142,13 +142,18 @@ public class CertificateServiceImpl implements CertificateService {
         if (CertificateStatus.of(entity.getStatus()) != CertificateStatus.GENERATED) {
             throw new BizException("当前状态不可签发");
         }
+        String oldStatus = entity.getStatus();
         entity.setIssuer(requiredTrim(request.getIssuer(), "签发人不能为空"));
         String issueDate = normalizeDate(requiredTrim(request.getIssueDate(), "签发日期不能为空"));
         entity.setIssueDate(issueDate);
         entity.setValidUntil(validUntil(issueDate));
         entity.setStatus(CertificateStatus.ISSUED.name());
         entity.setLocked(1);
-        certificateMapper.updateById(entity);
+        // 原子条件更新：仅当仍为待签发态时才写入，防并发/重复签发竞态（P0-10）
+        if (certificateMapper.update(entity, new LambdaUpdateWrapper<Certificate>()
+                .eq(Certificate::getId, id).eq(Certificate::getStatus, oldStatus)) == 0) {
+            throw new BizException("操作冲突：该记录已被其他操作更新，请刷新后重试");
+        }
         return toVO(entity);
     }
 
@@ -160,9 +165,14 @@ public class CertificateServiceImpl implements CertificateService {
         if (CertificateStatus.of(entity.getStatus()) != CertificateStatus.ISSUED) {
             throw new BizException("当前状态不可标记导出");
         }
+        String oldStatus = entity.getStatus();
         entity.setStatus(CertificateStatus.EXPORTED.name());
         entity.setLocked(1);
-        certificateMapper.updateById(entity);
+        // 原子条件更新：仅当仍为已签发态时才写入，防并发/重复标记竞态（P0-10）
+        if (certificateMapper.update(entity, new LambdaUpdateWrapper<Certificate>()
+                .eq(Certificate::getId, id).eq(Certificate::getStatus, oldStatus)) == 0) {
+            throw new BizException("操作冲突：该记录已被其他操作更新，请刷新后重试");
+        }
         return toVO(entity);
     }
 
@@ -174,9 +184,14 @@ public class CertificateServiceImpl implements CertificateService {
         if (CertificateStatus.of(entity.getStatus()) != CertificateStatus.EXPORTED) {
             throw new BizException("当前状态不可归档");
         }
+        String oldStatus = entity.getStatus();
         entity.setStatus(CertificateStatus.ARCHIVED.name());
         entity.setLocked(1);
-        certificateMapper.updateById(entity);
+        // 原子条件更新：仅当仍为已导出态时才写入，防并发/重复归档竞态（P0-10）
+        if (certificateMapper.update(entity, new LambdaUpdateWrapper<Certificate>()
+                .eq(Certificate::getId, id).eq(Certificate::getStatus, oldStatus)) == 0) {
+            throw new BizException("操作冲突：该记录已被其他操作更新，请刷新后重试");
+        }
         return toVO(entity);
     }
 
@@ -195,7 +210,11 @@ public class CertificateServiceImpl implements CertificateService {
         entity.setVoidTime(LocalDateTime.now());
         entity.setStatus(CertificateStatus.VOIDED.name());
         entity.setLocked(1);
-        certificateMapper.updateById(entity);
+        // 原子条件更新：仅当仍为可作废态时才写入，防并发/重复作废竞态（P0-10）
+        if (certificateMapper.update(entity, new LambdaUpdateWrapper<Certificate>()
+                .eq(Certificate::getId, id).eq(Certificate::getStatus, oldStatus)) == 0) {
+            throw new BizException("操作冲突：该记录已被其他操作更新，请刷新后重试");
+        }
         recordAudit(entity, "void", oldStatus, entity.getStatus(), entity.getVoidReason());
         return toVO(entity);
     }

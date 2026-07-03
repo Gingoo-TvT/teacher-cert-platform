@@ -415,7 +415,11 @@ public class VideoReviewServiceImpl implements VideoReviewService {
         review.setFinalConclusion(conclusionByScore(score));
         review.setStatus(VideoReviewStatus.REVIEW_COMPLETED.name());
         review.setLocked(1);
-        reviewMapper.updateById(review);
+        // 原子条件更新：仅当仍为待仲裁态时才写入，防并发/重复仲裁竞态（P0-10）
+        if (reviewMapper.update(review, new LambdaUpdateWrapper<VideoReview>()
+                .eq(VideoReview::getId, reviewId).eq(VideoReview::getStatus, oldStatus)) == 0) {
+            throw new BizException("操作冲突：该记录已被其他操作更新，请刷新后重试");
+        }
         auditLogService.record("video", review.getId(), videoTarget(review), "arbitrate",
                 oldStatus, review.getStatus(), trimToNull(request.getComment()));
     }
@@ -433,7 +437,11 @@ public class VideoReviewServiceImpl implements VideoReviewService {
         review.setConfirmedBy(UserContext.getUserIdOrSystem());
         review.setConfirmedAt(LocalDateTime.now());
         review.setLocked(1);
-        reviewMapper.updateById(review);
+        // 原子条件更新：仅当仍为待确认态时才写入，防并发/重复确认竞态（P0-10）
+        if (reviewMapper.update(review, new LambdaUpdateWrapper<VideoReview>()
+                .eq(VideoReview::getId, reviewId).eq(VideoReview::getStatus, oldStatus)) == 0) {
+            throw new BizException("操作冲突：该记录已被其他操作更新，请刷新后重试");
+        }
         auditLogService.record("video", review.getId(), videoTarget(review), "confirm",
                 oldStatus, review.getStatus(), null);
     }

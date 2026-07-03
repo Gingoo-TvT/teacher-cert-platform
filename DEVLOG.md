@@ -15,6 +15,15 @@
 
 ---
 
+## [2026-07-04] Phase 37b 完成（Opus4.8+Sonnet5 执行，Claude 亲自把关关键处）✅ — P0-10 状态流转并发竞态（复现→阻断）
+- 做了什么：18 处审核状态流转由"读状态→Java 判断→`updateById`"（无守卫、后写覆盖先写）改为 **DB 原子条件更新** `update(entity, new LambdaUpdateWrapper().eq(id).eq(status, oldStatus))` + 校验受影响行数，0 行抛"操作冲突"(`code=1000`)。覆盖 6 服务：Student/TrainingProfile/ProcessMaterial(submit/firstReview/secondReview)、Exemption(同上，状态字段 `finalStatus`)、Certificate(issue/markExported/archive/void)、VideoReview(arbitrate/confirm)。
+- 关键决策与理由：本期主线选"条件 UPDATE"而非"BaseEntity `@Version`"——前者外科式、免迁移、直达 §8.2 验收标准（6 并发仅 1 成功）且单线程语义不变；`@Version` 系统性兜底 + 唯一约束列为收尾批。`update(entity, wrapper)` 以实体非空字段作 SET、wrapper 作 WHERE，与 `updateById` 行为一致仅多一道状态守卫；`@TableLogic` 自动追加 `deleted=0`、审计字段经 `AuditMetaObjectHandler` 自动填充。
+- 收尾（下一批，异于状态守卫的处理）：证书 `reissue`（并 §7.4「REISSUED 从不落库」+ 唯一约束）/`correct`（内容编辑）、导入 `confirmImport` 双确认（需 IMPORTING 过渡态或导入幂等/唯一码）、视频 `submitScore/settle/thirdReview/merge/returnReview`（计票/幂等）、唯一约束 `(student_id,assessment_year)` 等、`@Version` 系统兜底。
+- 问题与解决：①先按 PID 精杀 :8080 后端释放 jar 文件锁再 `verify`。②IT 又把 `test_college_clerk.must_change_pwd` 置 1 → 手工复位 0。③活体脚本审计表名笔误 `sys_audit_log` → 实为 `audit_log`（V1），已更正。
+- 与规格的偏差/疑问：无阻塞。P0-10 收尾项已登记 §11。
+- 测试：`mvn -B -ntp verify` BUILD SUCCESS，failsafe **83/83 绿**。活体（栈 PID 19024 新起、fresh jar）：test_college_clerk 对学生 `990000000000000002` 6 线程 barrier 同时初审 PASS → **仅 1× code=0、5× code=1000「操作冲突」、审计 firstReview 增量=1、终态 `SECOND_REVIEW`**（旧码为 6× 成功/审计 6 条/终态非确定）；测毕复原 FIRST_REVIEW。
+- 下一步：P0-10 收尾批，或其余 batch B/C P0（Spring Boot 升级 P0-8、MinIO 出事务 P0-11、批量下载 OOM P0-2、无 FK/孤儿 P0-12、mysql-root P0-5、假备份 P0-6）。
+
 ## [2026-07-04] Phase 37a-part2 完成（Opus4.8+Sonnet5 执行，Claude 亲自返工关键处）✅ — batch A 安全急修剩余项（复现→阻断）
 - 做了什么：
   - **P0-7 导入批次 IDOR**：`ExchangeServiceImpl` 新增 `ensureBatchAccessible(batch, perm)`（全校/系统放行，否则仅本人 operator 创建的批次），植入 `errorReport/confirmImport/rollback`；`batches()` 列表按 allSchool-else-本人 operator 过滤。批次以 `operatorId` 归属（无 college_id），用操作人校验规避 scopeJson 子串匹配。

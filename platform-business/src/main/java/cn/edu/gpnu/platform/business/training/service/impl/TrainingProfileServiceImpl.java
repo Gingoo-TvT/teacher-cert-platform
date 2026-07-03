@@ -27,6 +27,7 @@ import cn.edu.gpnu.platform.system.service.DataScopeService;
 import cn.edu.gpnu.platform.system.service.ParamService;
 import cn.edu.gpnu.platform.system.vo.TeachingSubjectVO;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -121,9 +122,14 @@ public class TrainingProfileServiceImpl implements TrainingProfileService {
                 && status != TrainingStatus.SECOND_REJECTED) {
             throw new BizException("当前状态不可提交");
         }
+        String oldStatus = entity.getStatus();
         String targetStatus = returnTargetFromSecondRejected(status);
         entity.setStatus(targetStatus);
-        trainingProfileMapper.updateById(entity);
+        // 原子条件更新：仅当状态未被并发改变时才写入，防重复提交竞态（P0-10）
+        if (trainingProfileMapper.update(entity, new LambdaUpdateWrapper<TrainingProfile>()
+                .eq(TrainingProfile::getId, id).eq(TrainingProfile::getStatus, oldStatus)) == 0) {
+            throw new BizException("操作冲突：该记录已被其他操作更新，请刷新后重试");
+        }
         notificationHelper.notifySubmitted(entity.getCollegeId(), entity.getStudentId(), "专业培养信息",
                 targetStatus, "training_profile", entity.getId());
     }
@@ -151,7 +157,11 @@ public class TrainingProfileServiceImpl implements TrainingProfileService {
         entity.setFirstReviewerId(UserContext.getUserIdOrSystem());
         entity.setFirstReviewTime(LocalDateTime.now());
         entity.setFirstReviewComment(trimToNull(request.getComment()));
-        trainingProfileMapper.updateById(entity);
+        // 原子条件更新：仅当仍为初审态时才写入，防并发/重复初审竞态（P0-10）
+        if (trainingProfileMapper.update(entity, new LambdaUpdateWrapper<TrainingProfile>()
+                .eq(TrainingProfile::getId, id).eq(TrainingProfile::getStatus, oldStatus)) == 0) {
+            throw new BizException("操作冲突：该记录已被其他操作更新，请刷新后重试");
+        }
         auditLogService.record("training", entity.getId(), trainingTarget(entity), "firstReview",
                 oldStatus, entity.getStatus(), trimToNull(request.getComment()));
         if ("PASS".equals(action)) {
@@ -187,7 +197,11 @@ public class TrainingProfileServiceImpl implements TrainingProfileService {
         entity.setSecondReviewerId(UserContext.getUserIdOrSystem());
         entity.setSecondReviewTime(LocalDateTime.now());
         entity.setSecondReviewComment(trimToNull(request.getComment()));
-        trainingProfileMapper.updateById(entity);
+        // 原子条件更新：仅当仍为复审态时才写入，防并发/重复复审竞态（P0-10）
+        if (trainingProfileMapper.update(entity, new LambdaUpdateWrapper<TrainingProfile>()
+                .eq(TrainingProfile::getId, id).eq(TrainingProfile::getStatus, oldStatus)) == 0) {
+            throw new BizException("操作冲突：该记录已被其他操作更新，请刷新后重试");
+        }
         auditLogService.record("training", entity.getId(), trainingTarget(entity), "secondReview",
                 oldStatus, entity.getStatus(), trimToNull(request.getComment()));
         if (!"PASS".equals(action)) {
