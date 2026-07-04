@@ -432,19 +432,52 @@ public class CertificateServiceImpl implements CertificateService {
     }
 
     private int nextSequence(String scopeKey) {
+        CertSequence sequence = lockScopeRow(scopeKey);
+        int next = (sequence.getCurrentSeq() == null ? 0 : sequence.getCurrentSeq()) + 1;
+        if (next > MAX_SEQUENCE) {
+            throw new BizException("证书序列已超过99999");
+        }
+        setSequence(sequence, next);
+        return next;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void reserveImportedSequence(String certNo) {
+        String cert = certNo == null ? null : certNo.trim();
+        // 仅本系统 18 位标准编号可映射到序列作用域；历史/外部编号无法映射，跳过占用（不阻断导入）。
+        if (cert == null || !cert.matches("^\\d{18}$")) {
+            return;
+        }
+        int seq;
+        try {
+            seq = Integer.parseInt(cert.substring(13));
+        } catch (NumberFormatException e) {
+            return;
+        }
+        // 由编号自身还原 年度/学校码/学段码，与 nextCertNo 采用同一 scopeKey 规则 →
+        // 后续自动生成落在同一序列行，从而跳过已占号（导入校验已保证编号段码与配置一致）。
+        String scopeKey = scopeKey(cert.substring(0, 4), cert.substring(4, 9), cert.substring(12, 13));
+        CertSequence sequence = lockScopeRow(scopeKey);
+        int current = sequence.getCurrentSeq() == null ? 0 : sequence.getCurrentSeq();
+        if (seq > current) {
+            setSequence(sequence, seq);
+        }
+    }
+
+    private CertSequence lockScopeRow(String scopeKey) {
         sequenceMapper.ensureScopeRow(IdWorker.getId(), scopeKey);
         CertSequence sequence = sequenceMapper.selectByScopeKeyForUpdate(scopeKey);
         if (sequence == null) {
             throw new BizException("证书序列初始化失败");
         }
-        int next = (sequence.getCurrentSeq() == null ? 0 : sequence.getCurrentSeq()) + 1;
-        if (next > MAX_SEQUENCE) {
-            throw new BizException("证书序列已超过99999");
-        }
+        return sequence;
+    }
+
+    private void setSequence(CertSequence sequence, int value) {
         sequenceMapper.update(null, new LambdaUpdateWrapper<CertSequence>()
                 .eq(CertSequence::getId, sequence.getId())
-                .set(CertSequence::getCurrentSeq, next));
-        return next;
+                .set(CertSequence::getCurrentSeq, value));
     }
 
     private String scopeKey(String year, String schoolCode, String segmentCode) {

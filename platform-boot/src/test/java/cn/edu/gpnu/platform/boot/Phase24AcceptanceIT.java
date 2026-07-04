@@ -579,7 +579,9 @@ class Phase24AcceptanceIT {
             assertThat(formatter.formatCellValue(data.getCell(22))).isEqualTo(certNo);
             assertThat(formatter.formatCellValue(data.getCell(23))).isEqualTo(validUntil);
             assertThat(formatter.formatCellValue(data.getCell(24))).isEqualTo("校长");
-            assertThat(formatter.formatCellValue(data.getCell(25))).isEqualTo("ARCHIVED");
+            // Phase 43.2 §7.4：标准导出的备注列（Z）不再复用为证书状态，而是承载学院ID，
+            // 与导入端 resolveCollegeId 读备注解析学院ID 对齐，保证 导出→导入 学院标识无损往返。
+            assertThat(formatter.formatCellValue(data.getCell(25))).isEqualTo(String.valueOf(COLLEGE_A));
         }
     }
 

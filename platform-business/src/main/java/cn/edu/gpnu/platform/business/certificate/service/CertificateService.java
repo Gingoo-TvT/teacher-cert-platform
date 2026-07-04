@@ -30,4 +30,13 @@ public interface CertificateService {
     CertificateVO reissue(Long id);
 
     CertificateVO correct(Long id, CertificateCorrectRequest request);
+
+    /**
+     * Phase 43.2 §7.4：将导入的证书编号纳入序列占用。
+     * 导入的 18 位标准证书号若不推进 {@code cert_sequence}，会与后续自动生成永久撞号
+     * （generate 撞号回滚又不推进序列 → “证书编号已存在，请重试”永远失败）。
+     * 本方法按与 {@code nextCertNo} 相同的 scopeKey 规则，把对应序列推进到不小于导入号的序号，
+     * 使后续自动生成跳过已占号。
+     */
+    void reserveImportedSequence(String certNo);
 }

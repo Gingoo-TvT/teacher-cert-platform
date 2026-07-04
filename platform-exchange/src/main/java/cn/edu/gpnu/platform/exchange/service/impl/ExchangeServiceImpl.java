@@ -2,6 +2,7 @@ package cn.edu.gpnu.platform.exchange.service.impl;
 
 import cn.edu.gpnu.platform.business.certificate.entity.Certificate;
 import cn.edu.gpnu.platform.business.certificate.mapper.CertificateMapper;
+import cn.edu.gpnu.platform.business.certificate.service.CertificateService;
 import cn.edu.gpnu.platform.business.certificate.support.CertificateStatus;
 import cn.edu.gpnu.platform.business.material.entity.ProcessMaterial;
 import cn.edu.gpnu.platform.business.material.mapper.ProcessMaterialMapper;
@@ -115,6 +116,7 @@ public class ExchangeServiceImpl implements ExchangeService {
     private final StudentMapper studentMapper;
     private final TrainingProfileMapper trainingProfileMapper;
     private final CertificateMapper certificateMapper;
+    private final CertificateService certificateService;
     private final ProcessMaterialMapper materialMapper;
     private final VideoReviewMapper videoReviewMapper;
     private final SysDictItemMapper dictItemMapper;
@@ -472,6 +474,10 @@ public class ExchangeServiceImpl implements ExchangeService {
         }
         recordRef(batch, preview.rowNo(), "certificate", certificate.getId(), certExisting ? "UPDATE" : "INSERT",
                 beforeCert, snapshot(certificate), certExisting ? "导入更新证书快照" : "导入新增证书快照");
+        // Phase 43.2 §7.4：把导入的证书号纳入序列占用，杜绝与后续自动生成永久撞号
+        // （否则 generate 反复命中已被导入占用的号、回滚又不推进序列 → “证书编号已存在，请重试”永远失败）。
+        // 与本行导入同一 REQUIRES_NEW 事务：证书落库与序列推进同提交/同回滚，保持一致。
+        certificateService.reserveImportedSequence(certificate.getCertNo());
         return new ImportDecision(true, "导入成功");
     }
 
@@ -760,9 +766,32 @@ public class ExchangeServiceImpl implements ExchangeService {
         if (!StringUtils.hasText(certificate.getStatus())) {
             certificate.setStatus(CertificateStatus.ISSUED.name());
         }
+        // Phase 43.2 §7.4：导入的「已签发」证书必须有签发日期（否则汇总表/证书详情的签发日期为空、
+        // 且无补设路径）。缺失时由证书年度 + 有效期上/下半年推导一个与系统 validUntil 规则自洽的签发日期
+        // （对该日期再套 validUntil 规则可复现导入的有效期）；已有签发日期则不覆盖。
+        if (CertificateStatus.ISSUED.name().equals(certificate.getStatus())
+                && !StringUtils.hasText(certificate.getIssueDate())) {
+            certificate.setIssueDate(importedIssueDate(certificate.getAssessmentYear(), certificate.getValidUntil()));
+        }
         if (certificate.getLocked() == null) {
             certificate.setLocked(1);
         }
+    }
+
+    private String importedIssueDate(String assessmentYear, String validUntil) {
+        Integer issueYear = null;
+        if (StringUtils.hasText(assessmentYear) && assessmentYear.trim().matches("^\\d{4}$")) {
+            issueYear = Integer.parseInt(assessmentYear.trim());
+        } else if (StringUtils.hasText(validUntil) && validUntil.trim().length() >= 4
+                && validUntil.trim().substring(0, 4).matches("^\\d{4}$")) {
+            // 有效期经校验为 证书年度+3 的上/下半年；反推证书年度。
+            issueYear = Integer.parseInt(validUntil.trim().substring(0, 4)) - 3;
+        }
+        if (issueYear == null) {
+            return null;
+        }
+        boolean secondHalf = StringUtils.hasText(validUntil) && validUntil.trim().endsWith("12/31");
+        return issueYear + (secondHalf ? "/12/31" : "/6/30");
     }
 
     private RollbackDecision rollbackOne(ImportRecordRef ref) {
@@ -888,7 +917,11 @@ public class ExchangeServiceImpl implements ExchangeService {
         row.setCertNo(cert.getCertNo());
         row.setValidUntil(cert.getValidUntil());
         row.setIssuer(cert.getIssuer());
-        row.setRemark(cert.getStatus());
+        // Phase 43.2 §7.4：备注列承载「学院ID」，与导入端 resolveCollegeId 读备注解析学院ID 对齐，
+        // 保证 导出→导入 学院标识无损往返。旧实现把证书状态写入备注（与导入语义冲突：
+        // 重导出文件时该列被当作学院ID parseLong，破坏学院识别）；证书状态另有汇总表/完整审核表的
+        // 「证书状态」专列承载，不再复用备注一列表达两种含义。
+        row.setRemark(cert.getCollegeId() == null ? "" : String.valueOf(cert.getCollegeId()));
         return row;
     }
 
