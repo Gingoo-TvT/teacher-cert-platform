@@ -43,6 +43,7 @@ import java.util.Set;
 public class OrganizationServiceImpl implements OrganizationService {
 
     private static final int ENABLED = 1;
+    private static final int DISABLED = 0;
     private static final String DEFAULT_YEAR_VERSION = "GLOBAL";
     private static final String TRAINING_GOAL_TYPE = "training_goal";
     private static final String TEACHING_SEGMENT_TYPE = "teaching_segment";
@@ -194,10 +195,18 @@ public class OrganizationServiceImpl implements OrganizationService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void deleteMajor(Long id) {
-        requireMajor(id);
-        majorTrainingGoalMapper.delete(new LambdaQueryWrapper<MajorTrainingGoal>()
-                .eq(MajorTrainingGoal::getMajorId, id));
-        majorMapper.deleteById(id);
+        // Phase 43.1 / P0-12：专业“删除”改为“停用”（status=DISABLED），不再软删该行。
+        // 理由：引用方 student / training_profile 位于 business 模块，且以专业 code/name 快照
+        // 引用（非 major_id），system 模块无法常规统计使用量；软删专业行会让这些快照静默悬挂成孤儿。
+        // 停用后行仍在库、引用完整、可随时恢复启用，杜绝孤儿。幂等：已停用直接返回。
+        // major_training_goal 联动一并保留（停用非删除，恢复后目标不丢；停用专业本身已从新增/
+        // 下拉可选项中排除，联动只在启用专业上生效），不再随“删除”清除。
+        SysMajor entity = requireMajor(id);
+        if (entity.getStatus() != null && entity.getStatus() == DISABLED) {
+            return;
+        }
+        entity.setStatus(DISABLED);
+        majorMapper.updateById(entity);
     }
 
     @Override

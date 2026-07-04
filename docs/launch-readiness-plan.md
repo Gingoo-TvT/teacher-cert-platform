@@ -184,8 +184,8 @@
 ## 9. 三轮深扫（数据模型/迁移 · 系统域模块 · 测试覆盖）
 
 ### 9.1 数据模型 / 迁移 / 种子完整性
-- **全库无任何 DB 外键约束**（23 迁移 grep `FOREIGN KEY/REFERENCES/ON DELETE` = 0）：父子关系全靠应用码维护，级联删除 100% 手动且各服务不一致。软删统一 `deleted TINYINT`(@TableLogic)，生产码无硬删（正面）。**根因性**：无 DB 安全网，下列孤儿问题无兜底。
-- **P0 删除父实体产生静默孤儿**：`OrganizationServiceImpl.deleteCollege` 只查 major 数、`deleteMajor` **零守卫**；而 `MajorCodeValidator` 让 `education_master` 学生**跳过 sys_major 存在校验** → 学院可有真实学生却无 major 行 → 通过 deleteCollege 唯一守卫，student/training/material/exemption/video/cert/sys_user 仍指向已删学院，无报错永久悬挂。**✅ 部分修复（Phase 39）：** `deleteCollege` 增 `sys_user.college_id` 在用校验（有账号=学生/教职工则拒删，补住"有学生无 major"缺口）。**待收尾：** `deleteMajor` 使用守卫（引用方 student/training 在 business 模块、且 training 用 code/name 快照非 major_id，跨模块+无 major_id 关联，需设计）与 DB 外键。
+- **全库无任何 DB 外键约束**（23 迁移 grep `FOREIGN KEY/REFERENCES/ON DELETE` = 0）：父子关系全靠应用码维护，级联删除 100% 手动且各服务不一致。软删统一 `deleted TINYINT`(@TableLogic)，生产码无硬删（正面）。**根因性**：无 DB 安全网，下列孤儿问题无兜底。**✅ 决策已定（Phase 43.1，待复核合并，用户拍板）：不加 DB 外键。** 理由：全库全程软删、生产码无硬删 → 软删父行仍物理存在（FK 约束仍满足）→ FK 级联删除几乎不触发；对既有存量回填「无违约 + 迁移」再加 FK 风险高收益低。孤儿防治维持在**应用层**（删学院用户守卫 + 删学生停登录，Phase 39 已交付；`deleteMajor→停用`，Phase 43.1 已交付；孤儿巡检定时任务 P1-9 后续）。FK 部分仅文档化决策与理由、**零 schema/代码改动**（无新迁移）。
+- **P0 删除父实体产生静默孤儿**：`OrganizationServiceImpl.deleteCollege` 只查 major 数、`deleteMajor` **零守卫**；而 `MajorCodeValidator` 让 `education_master` 学生**跳过 sys_major 存在校验** → 学院可有真实学生却无 major 行 → 通过 deleteCollege 唯一守卫，student/training/material/exemption/video/cert/sys_user 仍指向已删学院，无报错永久悬挂。**✅ 部分修复（Phase 39）：** `deleteCollege` 增 `sys_user.college_id` 在用校验（有账号=学生/教职工则拒删，补住"有学生无 major"缺口）。**✅ 收尾（Phase 43.1，待复核合并）：** `deleteMajor` 由「软删专业行 + 硬删其 `major_training_goal` 联动」改为「**停用**」（`status=DISABLED(0)`、行不软删、联动保留、幂等）——引用方 student/training 用 code/name 快照（非 major_id）、system 无法跨模块数使用量，遂把 major 移除定义为停用：行持久化、快照可解析、杜绝孤儿、可恢复；DB 外键按上条决策**不加**。活体见 §11。
 - **P0 删除学生不停用其登录账号**：`StudentServiceImpl.delete` 只 `deleteById(student)`，不级联、**不停用关联 `sys_user`**（sys_user.student_id）→ 已删/退学学生仍有可用登录（访问撤销失败）。**✅ 已修复（Phase 39）：** `delete` 后置停用关联 `sys_user`(student_id) `status=DISABLED`；JWT filter 每请求校验 `status=ENABLED`（`:62`）→ 旧 token 下次请求即 401。**活体（复现→阻断）：** 删学生前其旧 token `/auth/me`=200，管理员删除后同一 token=**401「用户不存在或已停用」**、账号 DISABLED。
 - **P1 sys_user/sys_role 唯一键漏 `deleted`**（`V7:28-30,49`，与 V9-V22 惯例不一致）+ create 未捕获 DuplicateKey → **删了再建同名用户/工号/角色码 直接崩**（裸 DuplicateKeyException，对比 `CertificateServiceImpl:129` 有捕获）。
 - **P1 无 Flyway prod 配置**：`baseline-on-migrate` 只在 application-dev（prod 走默认 false）→ 首次部署若 schema 非全空 Flyway 硬失败无恢复文档。
@@ -207,7 +207,7 @@
 - **P1 多个 `@DataScope` 是误导性空操作/恒拒**：`training_goal_config`/`sys_dict_type`/`sys_dict_item`/`sys_region` 别名**不在 TABLE_RULES** → 不加任何过滤（失败开放，好在这些是全局参考数据）；而 `major_training_goal` 对 COLLEGE/SELF 调用者**恒拒返回空**（`GET /major/{id}/training-goals` 学生/学院职员永远看不到，仅 SCHOOL 走 allSchool 才有数据）。
 - **P1 字典编码唯一性软删盲 → 复建报 500**：`DictServiceImpl.existsTypeCode/existsItem` 用 `selectCount`(过滤 deleted=0)，但唯一键不含 deleted → 删了再建同码 → 裸 DuplicateKey → 无 `DataIntegrityViolationException` 处理器 → "系统异常"。Organization 的同类检查用了 `*IncludingDeleted` 正确，Dict/RBAC 没跟上（**修复不一致**）。**✅ Dict 已修复待复核合并（Phase 43.4，见 §11）：** 对齐 Organization 的 `*IncludingDeleted` 模式（新增 `SysDictTypeMapper.countByTypeCodeIncludingDeleted`/`SysDictItemMapper.countByItemIncludingDeleted`），并在 `GlobalExceptionHandler` 加 `DataIntegrityViolationException` 兜底处理器（友好业务错误替代裸 500）。**RBAC 同类检查未排查、不在本次范围，仍待跟进。**
 - **P1 禁用字典"类型"对其"项"零级联**：`queryItems/listItems` 只看 item.status 不查父 type.status → 禁用类型纯装饰，项仍可服务可缓存可新增。
-- **P1 组织删除守卫不全**：`deleteMajor` 零使用校验（且 training_profile 用 code/name 快照非 major_id，无法常规校验）；`deleteCollege` 只查 major 数不查人；编辑专业培养目标联动时 `getMajorTrainingGoals` 过滤掉"已禁用但仍生效"的联动 → 全量替换保存时**静默软删管理员没看见的联动**。
+- **P1 组织删除守卫不全**：`deleteMajor` 零使用校验（且 training_profile 用 code/name 快照非 major_id，无法常规校验）**✅ 已解（Phase 43.1，待复核合并）：改为停用（不软删、无孤儿），旁路跨模块使用量校验难题**；`deleteCollege` 只查 major 数不查人（✅ Phase 39 增用户守卫）；编辑专业培养目标联动时 `getMajorTrainingGoals` 过滤掉"已禁用但仍生效"的联动 → 全量替换保存时**静默软删管理员没看见的联动**。
 - **P1 param 解析静默兜底**：`ParamServiceImpl.getInt/Boolean` 解析失败静默返回默认值**无日志** → 管理员把阈值(如视频过线分)打错成非数字，系统静默按默认跑，毫无提示。
 - **P1 审计查询硬编码 `LIMIT 500` 无分页无 offset 无截断提示**（`AuditQueryMapper:144`）→ 大量审计静默截尾（合规/取证缺口；SQL 本身参数化不可注入）。
 - **P1 work_no/student_id 复用烧号**：`sys_user` 唯一键无 deleted，username 有友好校验但 work_no/student_id 没 → 重发离职工号撞裸约束 → 500。
@@ -229,7 +229,7 @@
 - **测试质量红旗**：Phase24:314 `auditLogMapper.selectCount(空条件)>0`（表里有任意行就过）；Phase3:119 拿 nanoTime 随机 id 比硬编码常量（恒不等，形同虚设）；多处仅断 HTTP200 不查字段/DB；14 文件共用硬编码种子 id + `@Order`/PER_CLASS 实例字段跨用例传递 → **不可并行/分片，一个早失败级联假失败**；Phase5/7 的 file_object 清理按 biz_type 全删（越界）。
 
 ### 9.4 三轮 P0 汇总（并入优先级）
-- **P0-12 无 DB 外键 + 删父静默孤儿 + 删学生不停登录**（§9.1）——数据完整性靠应用码且不一致，上线前需补关键级联/停用逻辑或 DB 约束。**✅ 关键两项已修（Phase 39）：** 删学生停用登录（活体 200→401）、deleteCollege 增用户在用校验；**待收尾：** deleteMajor 守卫、DB 外键、MinIO 孤儿清理（P1-9）。
+- **P0-12 无 DB 外键 + 删父静默孤儿 + 删学生不停登录**（§9.1）——数据完整性靠应用码且不一致，上线前需补关键级联/停用逻辑或 DB 约束。**✅ 关键两项已修（Phase 39）：** 删学生停用登录（活体 200→401）、deleteCollege 增用户在用校验；**✅ 收尾（Phase 43.1，待复核合并）：** deleteMajor 改停用（不软删/无孤儿，活体验证）、DB 外键决策＝不加（软删设计下 FK 近无用且回填风险高，孤儿防治留在应用层 + P1-9 巡检）；**仍待：** MinIO 孤儿清理（P1-9）。
 - **P0-13 关键 bug 零测试**（§9.3）——修 P0 时必须**同步补并发/复活/双确认测试**，否则改完无从证明、且 reissue 测试会假失败。
 > 迁移建议随手做的低风险项：sys_user/sys_role 唯一键补 `deleted`（V24 新迁移）、create 捕获 DuplicateKey、免考种子占位值清空、Flyway prod 配置。
 
@@ -257,7 +257,7 @@
 11. MinIO I/O 在事务内（§7.2）— 移出事务防连接池耗尽。
 
 **批次 C · 数据/运维/容量（Phase 38/40）**
-12. 无 DB 外键 + 删父孤儿 + 删学生不停登录（§9.1）。
+12. 无 DB 外键 + 删父孤儿 + 删学生不停登录（§9.1）。**关键项已闭环（Phase 39 删学生停登录/删学院守卫；Phase 43.1 deleteMajor→停用 + 不加外键决策，均待复核合并，见 §11）；剩 MinIO 孤儿清理（P1-9）。**
 13. 批量下载整包进堆 OOM（§1 P0-2）— 流式。
 14. app 用 mysql root（§1 P0-5）— 专用最小权限账号。**配置就绪待复核合并（Phase 41，见 §11）。**
 15. ~~假备份 + 全库无 @Scheduled（§1 P0-6）~~ — **已实现待复核合并（Phase 41.2，见 §11）：应用内 JDBC 逻辑备份→gzip→MinIO 真实产物 + 定时任务(prod 门禁)。**
@@ -303,7 +303,7 @@
 ### Phase 39 ✅ 已完成并合并（本提交，mvn verify 83/83 绿；栈起活体删学生→401）
 - ✅ **P0-12 删学生不停登录（安全/访问撤销）** — `StudentServiceImpl.delete` 后置停用关联 `sys_user`（`.eq(studentId).set(status,'DISABLED')`）；JWT filter 每请求校验 `status=ENABLED`（`filter:62`）→ 旧 token 下次请求即 401。**活体（复现→阻断）：** test_student 旧 token `/auth/me` 删除前 200；管理员 `DELETE /student/9001` 后同一 token=**401「用户不存在或已停用」**、`sys_user.status=DISABLED`、`student.deleted=1`；测毕复原 ENABLED。
 - ✅ **P0-12 删学院静默孤儿** — `OrganizationServiceImpl.deleteCollege` 在原「有专业则拒删」外，增「有用户（`sys_user.college_id`，含学生/教职工）则拒删」，补住"有学生却无 major 行"缺口（注入 `SysUserMapper`，同模块）。**活体：** 删有专业/用户的学院被拒、学院仍在（本例经既有专业守卫拦下；用户守卫为 majors=0 场景兜底，demo 无此实例，由编译+IT+守卫简单性保证）。
-- ⏳ **P0-12 收尾**：`deleteMajor` 使用守卫（引用方在 business 模块 + training 用 code/name 快照非 major_id，跨模块无关联键，需设计）、DB 外键约束、MinIO 分片/孤儿清理与定时任务（P1-9）。
+- ✅ **P0-12 收尾（Phase 43.1，待复核合并，见下条目）**：`deleteMajor` 改「停用」（引用方在 business 模块 + training 用 code/name 快照非 major_id、跨模块无关联键，遂旁路为停用而非补使用量守卫）、DB 外键决策＝**不加**（软删设计下近无用 + 回填风险高，孤儿防治留应用层）。⏳ **仍待**：MinIO 分片/孤儿清理与定时任务（P1-9）。
 
 ### Phase 41（41.1 + 41.3，Phase 41，待复核合并 —— 分支 `feature/phase41-ops`，单 commit，未合并入 main，mvn verify 83/83 绿）
 - ✅ **P0-5 生产 DB 非 root 最小权限账号** — 新增 `deploy/mysql-init/01-app-user.sh`（`docker-entrypoint-initdb.d` 初始化脚本；用 `.sh` 而非计划原文提到的 `.sql`——官方 MySQL 镜像对 `.sql` 按字面执行、不做变量替换，若要"密码来自环境变量、不硬编码"必须用 shell 读容器 env 再拼 SQL，`.sh` 是唯一能同时满足"env 驱动"与"非硬编码"两个约束的标准做法），创建 `teacher_app`@`%` 账号，仅授 `SELECT,INSERT,UPDATE,DELETE,CREATE,ALTER,INDEX,REFERENCES,DROP ON teacher_cert.*`（覆盖 DML + Flyway 46 个迁移文件实际所需 DDL，已逐一 grep 确认无 `CREATE TRIGGER/VIEW/PROCEDURE/EVENT`/`LOCK TABLES`/`CREATE TEMPORARY` 等更高权限需求），不授 `GRANT OPTION`/`SUPER`/`FILE`/`PROCESS`/`*.*`；若 `DB_PASSWORD` 未设置则初始化直接 `exit 1` 拒绝以空密码建账号。`application-prod.yml` 新增 `spring.datasource.username/password: ${DB_USERNAME}/${DB_PASSWORD}`（url 不变，仍用既有 `SPRING_DATASOURCE_URL`）。生产 `docker-compose.yml`：mysql 服务不再 `ports:` publish 3306 到主机、挂载 `./deploy/mysql-init:/docker-entrypoint-initdb.d:ro`；backend 服务把 `SPRING_DATASOURCE_USERNAME: root`/`SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD}` 替换为 `DB_USERNAME`/`DB_PASSWORD`。**dev 栈（`docker-compose.dev.yml`/`application-dev.yml`）未动，仍用 root**，符合任务范围。**验证：** 在 dev 库 `tcp-mysql` 容器内活体建同名测试账号 → `SHOW GRANTS` 核对与设计**完全一致**（`GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, DROP, REFERENCES, INDEX, ALTER ON \`teacher_cert\`.* TO ...`，无 `GRANT OPTION`/`SUPER`/`FILE`/`*.*`）→ 以该账号实测 `SELECT`/`CREATE TABLE`/`DROP TABLE` 均成功（满足 Flyway DDL 需求）→ `DROP USER` 清理，dev root 数据源全程未动、未重启。
@@ -362,4 +362,12 @@
 - **FORK CHECK（已核，非分叉）：** 教育部 26 列 A-Z 标准模板是固定外部规格，但本次**未改任何列的列头/列序/列数**；「备注」列在标准里即自由 remark 字段（`ExchangeColumn.REMARK` `required=false`），并无外部规格规定它必须承载证书状态或学院ID——是导出/导入两端对该自由列的**内部语义各行其是**（导出写状态、导入读学院ID）造成的往返坏账。故这是内部契约 bug、非模板格式的产品决策，可直接修正、无需 STOP 上报。
 - **与规格的偏差/范围：** 严格限 §7.4 的三条往返/序列/签发日期项（对应 §7.4 列表第 3/4/5 条），未碰 43.1/43.3/43.4 及其它 phase。**§7.4 另两条未在本次范围、保持原状：**「导入静默改 voided/archived 证书」（`certificateByStudentYear` 无状态过滤，与 `correct()` 守卫矛盾）与 P2「`correct()` 不校验 cert_no 内嵌码与学段/层次一致」——均非本任务指派的三缺陷，另行分发。
 - ⏳ **未合并**：分支 `feature/phase43-cert-roundtrip` 单 commit（off main `0323e7e`），`git remote -v` 为空、未 push、未 checkout main、未 merge，待人工复核。
+
+### Phase 43.1（Phase 43.1，待复核合并 —— 分支 `feature/phase43-nofk-disablemajor`，单 commit，未合并入 main，mvn verify 91/91 绿；栈起 fresh jar 活体阻断）
+- ✅ **P0-12 收尾 / DB 外键决策＝不加（用户拍板，仅文档化）** — 全库全程软删（`@TableLogic`）、生产码无硬删 → 软删父行仍物理存在（FK 约束仍满足）→ FK 级联删除几乎不触发；对既有存量回填「无违约 + 迁移」再加 FK 风险高、收益低。孤儿防治维持在**应用层**：删学院用户守卫 + 删学生停登录（Phase 39 已交付）+ `deleteMajor→停用`（本 phase）+ 孤儿巡检定时任务（P1-9 后续）。**零 schema/代码改动、无新迁移**（库 max 仍 V25）。
+- ✅ **P0-12 收尾 / `deleteMajor` 软删 → 停用** — `OrganizationServiceImpl.deleteMajor` 原「`majorTrainingGoalMapper.delete(...)` 硬删该专业全部 `major_training_goal` 联动 + `majorMapper.deleteById` 软删专业行、零使用守卫」→ 改为「`requireMajor` 取实体；已 `DISABLED(0)` 则幂等直接返回；否则 `setStatus(DISABLED)` + `updateById`」，**不再删除联动**（停用非删除，联动随专业保留、恢复启用后目标不丢；停用专业已从新增/下拉可选项排除，联动仅在启用专业生效）。新增 `DISABLED=0` 常量。**为何停用而非补跨模块使用量守卫**：引用方 `student`/`training_profile` 在 business 模块且以专业 **code/name 快照**引用（非 `major_id`），system 无法常规 count 跨模块使用量；停用使行持久化、快照可解析、杜绝孤儿且可恢复，旁路了跨模块数使用量难题。控制器 `MajorController.delete`（`DELETE /api/major/{id}`，`@pms.has('major:manage')`）端点与 `@AuditLog(operation="delete")` **不动**（HTTP DELETE 仍表「移出可用名册」、审计沿用历史），仅服务语义与前端标签改。
+- ✅ **前端 `MajorsPanel.vue` 标签由「删除」改「停用」** — 行操作按钮 `删除`→`停用`（`type` `error`→`warning`）、`NPopconfirm` 文案 `确认删除该专业？`→`确认停用该专业？停用后不再可选用（可在编辑中恢复启用），已有引用不受影响。`、处理函数 `removeMajor`→`disableMajor`、提示 `专业已删除/删除失败`→`专业已停用/停用失败`。「状态」列本已渲染 `status===1?启用:停用`、`MajorDrawer` 状态开关可切回启用 → 停用专业读作「停用」且可编辑恢复，无需新增 UI。
+- **IT 影响：无需修正** — 全仓核对 `platform-boot/src/test` **无任何 IT 断言 major 删除行为**（`grep deleteMajor / DELETE /major/{id}` 均无命中；含"major"的测试文件仅把专业作夹具）→ 未新增/删除/减弱任何测试，91 基线不受扰。
+- **验证：** `mvn -B -ntp verify`（先按 PID 精杀 :8080 验收后端 PID=36620；docker `tcp-mysql`(healthy)/`tcp-redis`/`tcp-minio` 均在）**BUILD SUCCESS，91/91 绿（0 fail/error/skip）**，8 reactor 模块全 SUCCESS。前端 `npm run type-check` 干净、`npm run build` 成功（仅既有 echarts/naive chunk-size 警告）。**活体（栈起 fresh jar，新 PID 20968，非旧 36620；复位 `must_change_pwd`）：** test_sys_admin（`SYS_ADMIN`，持 `major:manage`）对 major `810000000000000101`（P4_NORMAL_A，学院A，2 条 `major_training_goal` 联动）`DELETE /api/major/810000000000000101` → `http=200 code=0`；**改后 `sys_major.status=0`（停用）、`deleted=0`（行仍在库、`GET /major/{id}` 仍返 status=0 = 未软删）、`major_training_goal` 活跃联动仍 2 条（旧行为硬删归 0）、`training_profile` 活跃 5 行不变（业务快照引用不孤儿）**；再次 `DELETE`→`code=0`、`status` 仍 0（**幂等**）。测毕**精确复原** `sys_major(810…101)` 至 `status=1/deleted=0/updated_by=NULL/updated_at=2026-06-18 20:37:00`（原值）、2 条联动原样、`test_sys_admin.must_change_pwd` 复位 1。**旧（复现）＝ deleteMajor 软删专业行 + 硬删联动 → 引用 code/name 快照的 student/training 悬挂已删专业成孤儿。**
+- ⏳ **未合并**：分支 `feature/phase43-nofk-disablemajor` 单 commit（off main），`git remote -v` 空、未 push、未 checkout main、未 merge，待人工复核。P0-12 剩 MinIO 分片/孤儿清理 + 孤儿巡检定时任务（P1-9）；43.3（Rule 11 材料卡死）、40（SB 升级）另行分发。
 

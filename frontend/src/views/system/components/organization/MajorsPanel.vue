@@ -116,10 +116,10 @@ const majorColumns = computed<DataTableColumns<Major>>(() => {
           h(NButton, { size: 'small', quaternary: true, onClick: () => goalDrawer.value?.open(row) }, { default: () => '目标' }),
           h(
             NPopconfirm,
-            { onPositiveClick: () => removeMajor(row) },
+            { onPositiveClick: () => disableMajor(row) },
             {
-              trigger: () => h(NButton, { size: 'small', quaternary: true, type: 'error' }, { default: () => '删除' }),
-              default: () => '确认删除该专业？'
+              trigger: () => h(NButton, { size: 'small', quaternary: true, type: 'warning' }, { default: () => '停用' }),
+              default: () => '确认停用该专业？停用后不再可选用（可在编辑中恢复启用），已有引用不受影响。'
             }
           )
         ])
@@ -261,14 +261,15 @@ async function removeCollege(row: College) {
   }
 }
 
-async function removeMajor(row: Major) {
+async function disableMajor(row: Major) {
   try {
+    // 后端 DELETE /major/{id} 现为“停用”语义（status→0），行仍在库、引用不孤儿、可恢复启用。
     await deleteMajor(row.id)
-    message.success('专业已删除')
+    message.success('专业已停用')
     if (selectedMajorId.value === row.id) selectedMajorId.value = null
     await loadMajors()
   } catch (error) {
-    showError(error, '专业删除失败')
+    showError(error, '专业停用失败')
   }
 }
 
