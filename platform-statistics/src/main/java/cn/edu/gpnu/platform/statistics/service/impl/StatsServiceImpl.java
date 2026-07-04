@@ -37,10 +37,9 @@ import cn.edu.gpnu.platform.statistics.vo.StatsMetricVO;
 import cn.edu.gpnu.platform.statistics.vo.StatsReportVO;
 import cn.edu.gpnu.platform.statistics.vo.StatsRowVO;
 import cn.edu.gpnu.platform.system.entity.SysCollege;
-import cn.edu.gpnu.platform.system.entity.SysDictItem;
 import cn.edu.gpnu.platform.system.mapper.SysCollegeMapper;
-import cn.edu.gpnu.platform.system.mapper.SysDictItemMapper;
 import cn.edu.gpnu.platform.system.service.DataScopeService;
+import cn.edu.gpnu.platform.system.service.DictService;
 import cn.edu.gpnu.platform.system.service.ParamService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
@@ -79,7 +78,7 @@ public class StatsServiceImpl implements StatsService {
     private final CertificateMapper certificateMapper;
     private final ImportExportBatchMapper batchMapper;
     private final SysCollegeMapper collegeMapper;
-    private final SysDictItemMapper dictItemMapper;
+    private final DictService dictService;
     private final DataScopeService dataScopeService;
     private final ParamService paramService;
     private final ExchangeExcelHelper excelHelper;
@@ -617,13 +616,10 @@ public class StatsServiceImpl implements StatsService {
                 .collect(Collectors.toMap(SysCollege::getId, SysCollege::getName, (a, b) -> a, LinkedHashMap::new));
     }
 
+    // Phase 44c（§7.3）：改走 DictService 缓存标签表（写时逐出）。返回可变副本——调用方（如 statMaterials 补齐缺失类别）
+    // 会 putIfAbsent 原地改写，故必须复制，杜绝污染共享缓存对象。
     private Map<String, String> dictLabels(String typeCode) {
-        return dictItemMapper.selectList(new LambdaQueryWrapper<SysDictItem>()
-                        .eq(SysDictItem::getTypeCode, typeCode)
-                        .eq(SysDictItem::getStatus, 1)
-                        .orderByAsc(SysDictItem::getSort))
-                .stream()
-                .collect(Collectors.toMap(SysDictItem::getItemCode, SysDictItem::getItemValue, (a, b) -> a, LinkedHashMap::new));
+        return new LinkedHashMap<>(dictService.dictLabels(typeCode));
     }
 
     private String currentYear(StatsQuery query) {

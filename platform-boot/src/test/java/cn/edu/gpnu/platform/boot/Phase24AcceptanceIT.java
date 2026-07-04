@@ -109,6 +109,9 @@ class Phase24AcceptanceIT {
     private SysParamMapper paramMapper;
 
     @Autowired
+    private org.springframework.cache.CacheManager cacheManager;
+
+    @Autowired
     private SysDictItemMapper dictItemMapper;
 
     @Autowired
@@ -840,6 +843,11 @@ class Phase24AcceptanceIT {
         if (param != null) {
             param.setParamValue(value);
             paramMapper.updateById(param);
+            // Phase 44c（§7.3）：测试越过 service 直接改库，须与生产 updateParam 一样逐出参数缓存，否则经 ParamService 读到旧值。
+            org.springframework.cache.Cache paramCache = cacheManager.getCache("sysParam");
+            if (paramCache != null) {
+                paramCache.clear();
+            }
         }
     }
 

@@ -18,6 +18,7 @@ import cn.edu.gpnu.platform.system.mapper.SysDictItemMapper;
 import cn.edu.gpnu.platform.system.mapper.SysMajorMapper;
 import cn.edu.gpnu.platform.system.mapper.SysUserMapper;
 import cn.edu.gpnu.platform.system.mapper.TrainingGoalConfigMapper;
+import cn.edu.gpnu.platform.system.service.DictService;
 import cn.edu.gpnu.platform.system.service.OrganizationService;
 import cn.edu.gpnu.platform.system.vo.CollegeVO;
 import cn.edu.gpnu.platform.system.vo.MajorVO;
@@ -56,6 +57,7 @@ public class OrganizationServiceImpl implements OrganizationService {
     private final SysDictItemMapper dictItemMapper;
     private final SysUserMapper userMapper;
     private final ObjectMapper objectMapper;
+    private final DictService dictService;
 
     @Override
     public List<CollegeVO> listColleges(String keyword, Integer status) {
@@ -410,17 +412,10 @@ public class OrganizationServiceImpl implements OrganizationService {
         }
     }
 
+    // Phase 44c（§7.3）：专业列表 toMajorVO→getMajorTrainingGoals 原对同一字典逐条查库（~3N+1），改走
+    // DictService 的缓存（GLOBAL 版启用项，写时经 evictItemsCache 逐出）。返回可变副本，保持原「每次返回新 map」语义。
     private Map<String, SysDictItem> dictItems(String typeCode) {
-        List<SysDictItem> items = dictItemMapper.selectList(new LambdaQueryWrapper<SysDictItem>()
-                .eq(SysDictItem::getTypeCode, typeCode)
-                .eq(SysDictItem::getYearVersion, DEFAULT_YEAR_VERSION)
-                .eq(SysDictItem::getStatus, ENABLED)
-                .orderByAsc(SysDictItem::getSort));
-        Map<String, SysDictItem> result = new LinkedHashMap<>();
-        for (SysDictItem item : items) {
-            result.put(item.getItemCode(), item);
-        }
-        return result;
+        return new LinkedHashMap<>(dictService.globalEnabledDictItems(typeCode));
     }
 
     private List<String> normalizeCodeList(List<String> codes, String message) {

@@ -1,6 +1,7 @@
 package cn.edu.gpnu.platform.system.service.impl;
 
 import cn.edu.gpnu.platform.common.exception.BizException;
+import cn.edu.gpnu.platform.system.config.CacheConfig;
 import cn.edu.gpnu.platform.system.dto.DictItemSaveRequest;
 import cn.edu.gpnu.platform.system.dto.DictTypeSaveRequest;
 import cn.edu.gpnu.platform.system.entity.SysDictItem;
@@ -14,13 +15,19 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.Cache;
+import org.springframework.cache.CacheManager;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.time.Duration;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -35,6 +42,7 @@ public class DictServiceImpl implements DictService {
     private final SysDictItemMapper dictItemMapper;
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
+    private final CacheManager cacheManager;
 
     @Override
     public List<DictTypeVO> listTypes() {
@@ -159,8 +167,51 @@ public class DictServiceImpl implements DictService {
     @Override
     public void evictItemsCache(String typeCode) {
         if (StringUtils.hasText(typeCode)) {
-            redisTemplate.delete(cacheKey(typeCode.trim()));
+            String normalized = typeCode.trim();
+            redisTemplate.delete(cacheKey(normalized));
+            // Phase 44c（§7.3）：同步逐出进程内 Caffeine 参考缓存。evictItemsCache 是所有字典增改删的唯一 choke point
+            // （createItem/updateItem×2/deleteItem/updateType×2/deleteType 都调它），故按 typeCode 逐出即覆盖全部写路径。
+            // 手工逐出（非 @CacheEvict）：本方法被同类的写方法内部调用（self-invocation），注解式 AOP 不会生效。
+            evictCaffeine(CacheConfig.DICT_LABELS, normalized);
+            evictCaffeine(CacheConfig.ORG_DICT_ITEMS, normalized);
         }
+    }
+
+    private void evictCaffeine(String cacheName, String key) {
+        Cache cache = cacheManager.getCache(cacheName);
+        if (cache != null) {
+            cache.evict(key);
+        }
+    }
+
+    // Phase 44c（§7.3）：跨模块共用的 code→label 标签表（typeCode + 启用，不限年度版本；与原 4 处私有 dictLabels/
+    // categoryLabels 语义一致）。返回不可变视图护住缓存对象；重复 itemCode（跨年度版本）取首个（保序）。
+    @Override
+    @Cacheable(cacheNames = CacheConfig.DICT_LABELS, key = "#typeCode")
+    public Map<String, String> dictLabels(String typeCode) {
+        Map<String, String> labels = new LinkedHashMap<>();
+        for (SysDictItem item : dictItemMapper.selectList(new LambdaQueryWrapper<SysDictItem>()
+                .eq(SysDictItem::getTypeCode, typeCode)
+                .eq(SysDictItem::getStatus, ENABLED)
+                .orderByAsc(SysDictItem::getSort))) {
+            labels.putIfAbsent(item.getItemCode(), item.getItemValue());
+        }
+        return Collections.unmodifiableMap(labels);
+    }
+
+    // Phase 44c（§7.3）：GLOBAL 版启用字典项（code→item），对齐原 OrganizationServiceImpl.dictItems 查询。
+    @Override
+    @Cacheable(cacheNames = CacheConfig.ORG_DICT_ITEMS, key = "#typeCode")
+    public Map<String, SysDictItem> globalEnabledDictItems(String typeCode) {
+        Map<String, SysDictItem> result = new LinkedHashMap<>();
+        for (SysDictItem item : dictItemMapper.selectList(new LambdaQueryWrapper<SysDictItem>()
+                .eq(SysDictItem::getTypeCode, typeCode)
+                .eq(SysDictItem::getYearVersion, DEFAULT_YEAR_VERSION)
+                .eq(SysDictItem::getStatus, ENABLED)
+                .orderByAsc(SysDictItem::getSort))) {
+            result.putIfAbsent(item.getItemCode(), item);
+        }
+        return Collections.unmodifiableMap(result);
     }
 
     private List<DictItemVO> queryItems(String typeCode, boolean enabledOnly) {

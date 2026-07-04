@@ -5,6 +5,7 @@ import cn.edu.gpnu.platform.common.api.ResultCode;
 import cn.edu.gpnu.platform.common.context.DataScopeContext;
 import cn.edu.gpnu.platform.common.context.UserContext;
 import cn.edu.gpnu.platform.common.exception.BizException;
+import cn.edu.gpnu.platform.system.config.CacheConfig;
 import cn.edu.gpnu.platform.system.dto.AuditLogQuery;
 import cn.edu.gpnu.platform.system.dto.BackupTriggerRequest;
 import cn.edu.gpnu.platform.system.dto.SysParamUpdateRequest;
@@ -21,6 +22,7 @@ import cn.edu.gpnu.platform.system.vo.BackupRecordVO;
 import cn.edu.gpnu.platform.system.vo.SysParamVO;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -66,8 +68,10 @@ public class SystemManagementServiceImpl implements SystemManagementService {
         return new PageResult<>(records.size(), records);
     }
 
+    // Phase 44c（§7.3）：参数唯一生产写路径 → 逐出整个 sysParam 缓存（key 含默认值无法精准逐单键，且参数写罕见，allEntries 简单可靠）。
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @CacheEvict(cacheNames = CacheConfig.SYS_PARAM, allEntries = true)
     public SysParamVO updateParam(Long id, SysParamUpdateRequest request) {
         if (id == null) {
             throw new BizException("参数ID不能为空");

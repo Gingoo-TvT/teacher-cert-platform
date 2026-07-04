@@ -20,9 +20,8 @@ import cn.edu.gpnu.platform.common.api.PageResult;
 import cn.edu.gpnu.platform.common.api.ResultCode;
 import cn.edu.gpnu.platform.common.context.DataScopeContext;
 import cn.edu.gpnu.platform.common.exception.BizException;
-import cn.edu.gpnu.platform.system.entity.SysDictItem;
-import cn.edu.gpnu.platform.system.mapper.SysDictItemMapper;
 import cn.edu.gpnu.platform.system.service.DataScopeService;
+import cn.edu.gpnu.platform.system.service.DictService;
 import cn.idev.excel.FastExcel;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -54,7 +53,7 @@ public class AbilityTestResultServiceImpl implements AbilityTestResultService {
     private final AbilityTestResultMapper resultMapper;
     private final StudentMapper studentMapper;
     private final TrainingProfileMapper trainingProfileMapper;
-    private final SysDictItemMapper dictItemMapper;
+    private final DictService dictService;
     private final ExemptionService exemptionService;
     private final DataScopeService dataScopeService;
     private final ObjectMapper objectMapper;
@@ -441,16 +440,9 @@ public class AbilityTestResultServiceImpl implements AbilityTestResultService {
         }
     }
 
+    // Phase 44c（§7.3）：改走 DictService 缓存标签表（写时逐出）；返回可变副本，保持原「每次新 map」语义。
     private Map<String, String> dictLabels(String typeCode) {
-        Map<String, String> result = new LinkedHashMap<>();
-        List<SysDictItem> items = dictItemMapper.selectList(new LambdaQueryWrapper<SysDictItem>()
-                .eq(SysDictItem::getTypeCode, typeCode)
-                .eq(SysDictItem::getStatus, 1)
-                .orderByAsc(SysDictItem::getSort));
-        for (SysDictItem item : items) {
-            result.put(item.getItemCode(), item.getItemValue());
-        }
-        return result;
+        return new LinkedHashMap<>(dictService.dictLabels(typeCode));
     }
 
     private AbilityTestResult existing(Long studentId, String year) {

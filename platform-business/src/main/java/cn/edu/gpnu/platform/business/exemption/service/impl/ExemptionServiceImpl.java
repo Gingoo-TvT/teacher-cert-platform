@@ -28,6 +28,7 @@ import cn.edu.gpnu.platform.system.entity.SysDictItem;
 import cn.edu.gpnu.platform.system.mapper.SysDictItemMapper;
 import cn.edu.gpnu.platform.system.service.AuditLogService;
 import cn.edu.gpnu.platform.system.service.DataScopeService;
+import cn.edu.gpnu.platform.system.service.DictService;
 import cn.edu.gpnu.platform.system.service.ParamService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
@@ -64,6 +65,7 @@ public class ExemptionServiceImpl implements ExemptionService {
     private final FileService fileService;
     private final DataScopeService dataScopeService;
     private final ParamService paramService;
+    private final DictService dictService;
     private final ReviewNotificationHelper notificationHelper;
     private final AuditLogService auditLogService;
 
@@ -487,11 +489,9 @@ public class ExemptionServiceImpl implements ExemptionService {
         return labels;
     }
 
+    // Phase 44c（§7.3）：改走 DictService 缓存标签表（写时逐出）；返回可变副本，保持原「每次新 map」语义。
     private Map<String, String> dictLabels(String typeCode) {
-        return dictItemMapper.selectList(dictWrapper(typeCode).orderByAsc(SysDictItem::getSort))
-                .stream()
-                .collect(Collectors.toMap(SysDictItem::getItemCode, SysDictItem::getItemValue,
-                        (left, right) -> left, LinkedHashMap::new));
+        return new LinkedHashMap<>(dictService.dictLabels(typeCode));
     }
 
     private LambdaQueryWrapper<SysDictItem> dictWrapper(String typeCode) {

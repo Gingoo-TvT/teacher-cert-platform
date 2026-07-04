@@ -1,6 +1,7 @@
 package cn.edu.gpnu.platform.system.service.impl;
 
 import cn.edu.gpnu.platform.common.exception.BizException;
+import cn.edu.gpnu.platform.system.config.CacheConfig;
 import cn.edu.gpnu.platform.system.entity.SysRegion;
 import cn.edu.gpnu.platform.system.mapper.SysRegionMapper;
 import cn.edu.gpnu.platform.system.service.RegionService;
@@ -8,6 +9,7 @@ import cn.edu.gpnu.platform.system.vo.RegionPathVO;
 import cn.edu.gpnu.platform.system.vo.RegionVO;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -27,7 +29,11 @@ public class RegionServiceImpl implements RegionService {
 
     private final SysRegionMapper regionMapper;
 
+    // Phase 44c（§7.3）：行政区划为静态基础数据、应用层无运行时写路径，缓存读方法、仅靠 TTL 兜底（无写即无需逐出）。
+    // path() 原按层级 while 循环逐级查库 → 整条 path 结果按 code 记忆化。
     @Override
+    @Cacheable(cacheNames = CacheConfig.REGION_CHILDREN,
+            key = "T(org.springframework.util.StringUtils).hasText(#parentCode) ? #parentCode.trim() : 'ROOT'")
     public List<RegionVO> children(String parentCode) {
         LambdaQueryWrapper<SysRegion> wrapper = new LambdaQueryWrapper<SysRegion>()
                 .eq(SysRegion::getStatus, ENABLED)
@@ -44,6 +50,8 @@ public class RegionServiceImpl implements RegionService {
     }
 
     @Override
+    @Cacheable(cacheNames = CacheConfig.REGION_PATH, key = "#code",
+            condition = "T(org.springframework.util.StringUtils).hasText(#code)")
     public RegionPathVO path(String code) {
         String normalizedCode = normalizeCode(code);
         SysRegion current = requireRegion(normalizedCode);
@@ -68,6 +76,8 @@ public class RegionServiceImpl implements RegionService {
     }
 
     @Override
+    @Cacheable(cacheNames = CacheConfig.REGION_FULL_NAME, key = "#code",
+            condition = "T(org.springframework.util.StringUtils).hasText(#code)")
     public String fullName(String code) {
         return path(code).getFullName();
     }

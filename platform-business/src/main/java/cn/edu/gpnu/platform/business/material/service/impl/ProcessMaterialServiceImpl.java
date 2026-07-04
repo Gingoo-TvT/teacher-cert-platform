@@ -21,10 +21,9 @@ import cn.edu.gpnu.platform.common.exception.BizException;
 import cn.edu.gpnu.platform.file.entity.FileObject;
 import cn.edu.gpnu.platform.file.mapper.FileObjectMapper;
 import cn.edu.gpnu.platform.file.service.FileService;
-import cn.edu.gpnu.platform.system.entity.SysDictItem;
-import cn.edu.gpnu.platform.system.mapper.SysDictItemMapper;
 import cn.edu.gpnu.platform.system.service.AuditLogService;
 import cn.edu.gpnu.platform.system.service.DataScopeService;
+import cn.edu.gpnu.platform.system.service.DictService;
 import cn.edu.gpnu.platform.system.service.ParamService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
@@ -59,7 +58,7 @@ public class ProcessMaterialServiceImpl implements ProcessMaterialService {
 
     private final ProcessMaterialMapper processMaterialMapper;
     private final StudentMapper studentMapper;
-    private final SysDictItemMapper dictItemMapper;
+    private final DictService dictService;
     private final FileObjectMapper fileObjectMapper;
     private final FileService fileService;
     private final DataScopeService dataScopeService;
@@ -412,16 +411,9 @@ public class ProcessMaterialServiceImpl implements ProcessMaterialService {
         return studentMapper.selectBatchIds(studentIds).stream().collect(Collectors.toMap(Student::getId, item -> item));
     }
 
+    // Phase 44c（§7.3）：改走 DictService 缓存标签表（写时逐出）；返回可变副本，保持原「每次新 map」语义。
     private Map<String, String> categoryLabels() {
-        List<SysDictItem> items = dictItemMapper.selectList(new LambdaQueryWrapper<SysDictItem>()
-                .eq(SysDictItem::getTypeCode, "material_category")
-                .eq(SysDictItem::getStatus, 1)
-                .orderByAsc(SysDictItem::getSort));
-        Map<String, String> result = new LinkedHashMap<>();
-        for (SysDictItem item : items) {
-            result.put(item.getItemCode(), item.getItemValue());
-        }
-        return result;
+        return new LinkedHashMap<>(dictService.dictLabels("material_category"));
     }
 
     private void validateCategory(String category) {
