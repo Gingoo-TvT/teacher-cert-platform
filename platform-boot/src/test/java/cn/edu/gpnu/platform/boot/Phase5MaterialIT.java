@@ -203,6 +203,81 @@ class Phase5MaterialIT {
         assertThat(studentRecords.at("/0/studentId").asLong()).isEqualTo(9001L);
     }
 
+    @Test
+    // Phase 43.3 / §7.5 Rule 11：某类别先被判 FAILED（终态、locked），学生为同一类别重传一份新材料并复审通过 →
+    // 合格判定取"最新/有效"一份材料（更晚的 PASSED 取代更早的 FAILED）→ 该类别恢复合格。
+    // 旧实现按全历史行 passedCount>0 && failedCount==0 计数 → 一条 FAILED 永久钉住不合格、无恢复路径（本用例即证阻断）。
+    void failedCategoryRecoversWhenNewerMaterialPasses() throws Exception {
+        LoginResult student = readyLogin("test_student");
+        LoginResult clerk = readyLogin("test_college_clerk");
+        LoginResult auditor = readyLogin("test_college_auditor");
+
+        long failed = uploadOk(student.accessToken(), 9001L, YEAR, MORALITY, "morality-v1.pdf");
+        submit(student.accessToken(), failed);
+        firstReview(clerk.accessToken(), failed, "PASS", "初审通过");
+        secondReview(auditor.accessToken(), failed, "FAIL", "复审不通过");
+        JsonNode afterFail = processStatus(student.accessToken(), 9001L, YEAR);
+        assertThat(categoryPassed(afterFail, MORALITY)).isFalse();
+
+        long recovered = uploadOk(student.accessToken(), 9001L, YEAR, MORALITY, "morality-v2.pdf");
+        submit(student.accessToken(), recovered);
+        firstReview(clerk.accessToken(), recovered, "PASS", "初审通过");
+        secondReview(auditor.accessToken(), recovered, "PASS", "复审通过");
+        JsonNode afterRecover = processStatus(student.accessToken(), 9001L, YEAR);
+        JsonNode morality = category(afterRecover, MORALITY);
+        assertThat(morality.at("/passed").asBoolean()).isTrue();
+        // 历史计数口径不变（信息展示）：仍保留 1 条 FAILED、1 条 PASSED，但合格只看最新一份。
+        assertThat(morality.at("/totalCount").asLong()).isEqualTo(2);
+        assertThat(morality.at("/passedCount").asLong()).isEqualTo(1);
+        assertThat(morality.at("/failedCount").asLong()).isEqualTo(1);
+    }
+
+    @Test
+    // Phase 43.3 / §7.5 Rule 11 修复正确性边界（负向）：真失败仍不合格。
+    // 情形一：类别唯一一份材料 FAILED、无更晚材料 → 不合格。
+    // 情形二：先复审通过(PASSED) 再上传一份更晚材料被判 FAILED → "最新一份为 FAILED"取代先前 PASSED → 仍不合格
+    //        （证明修复不是"只要有过 PASSED 就放行"，而是严格按最新/有效材料判定）。
+    void genuineFailureStaysUnqualifiedIncludingLatestFailOverridingEarlierPass() throws Exception {
+        LoginResult student = readyLogin("test_student");
+        LoginResult clerk = readyLogin("test_college_clerk");
+        LoginResult auditor = readyLogin("test_college_auditor");
+
+        long onlyFailed = uploadOk(student.accessToken(), 9001L, YEAR, COURSE, "course.pdf");
+        submit(student.accessToken(), onlyFailed);
+        firstReview(clerk.accessToken(), onlyFailed, "PASS", "初审通过");
+        secondReview(auditor.accessToken(), onlyFailed, "FAIL", "复审不通过");
+
+        long earlierPass = uploadOk(student.accessToken(), 9001L, YEAR, PRACTICE, "practice-pass.pdf");
+        submit(student.accessToken(), earlierPass);
+        firstReview(clerk.accessToken(), earlierPass, "PASS", "初审通过");
+        secondReview(auditor.accessToken(), earlierPass, "PASS", "复审通过");
+        long laterFail = uploadOk(student.accessToken(), 9001L, YEAR, PRACTICE, "practice-fail.pdf");
+        submit(student.accessToken(), laterFail);
+        firstReview(clerk.accessToken(), laterFail, "PASS", "初审通过");
+        secondReview(auditor.accessToken(), laterFail, "FAIL", "复审不通过");
+
+        JsonNode status = processStatus(student.accessToken(), 9001L, YEAR);
+        assertThat(categoryPassed(status, COURSE)).isFalse();
+        JsonNode practice = category(status, PRACTICE);
+        assertThat(practice.at("/passed").asBoolean()).isFalse();
+        assertThat(practice.at("/passedCount").asLong()).isEqualTo(1);
+        assertThat(practice.at("/failedCount").asLong()).isEqualTo(1);
+        assertThat(status.at("/qualified").asBoolean()).isFalse();
+    }
+
+    private JsonNode category(JsonNode processStatus, String categoryCode) {
+        for (JsonNode node : processStatus.at("/categories")) {
+            if (categoryCode.equals(node.at("/category").asText())) {
+                return node;
+            }
+        }
+        throw new AssertionError("类别不存在于聚合状态: " + categoryCode);
+    }
+
+    private boolean categoryPassed(JsonNode processStatus, String categoryCode) {
+        return category(processStatus, categoryCode).at("/passed").asBoolean();
+    }
+
     private void approve(String clerkToken, String auditorToken, long id) throws Exception {
         submit(readyLogin("test_student").accessToken(), id);
         firstReview(clerkToken, id, "PASS", "初审通过");

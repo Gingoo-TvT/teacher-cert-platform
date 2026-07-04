@@ -39,6 +39,7 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -383,10 +384,23 @@ public class ProcessMaterialServiceImpl implements ProcessMaterialService {
         ProcessStatusVO.CategoryStatus item = new ProcessStatusVO.CategoryStatus();
         item.setCategory(category);
         item.setCategoryLabel(label);
+        // totalCount/passedCount/failedCount 保留"全历史"口径，仅作展示信息（前端「复审通过」「不通过」列），不参与合格判定。
         item.setTotalCount(records.size());
         item.setPassedCount(records.stream().filter(record -> MaterialStatus.of(record.getStatus()) == MaterialStatus.PASSED).count());
         item.setFailedCount(records.stream().filter(record -> MaterialStatus.of(record.getStatus()) == MaterialStatus.FAILED).count());
-        item.setPassed(item.getPassedCount() > 0 && item.getFailedCount() == 0);
+        // Rule 11（§7.5 唯一真 bug）合格判定修复：合格只看该类别"最新/有效"的一份材料。
+        // 分组槽位 = 同一 (student_id, assessment_year, category)（本方法入参 records 即该槽位内的全部材料，
+        // 上游 selectList 经 @TableLogic 已排除软删行）；"最新" = 该槽位内**创建顺序最靠后**的一条，取自主键
+        // id（雪花 ASSIGN_ID 随创建时间单调递增，max(id) 即最后提交的那份材料；id 不可变、不受 replace 改动，
+        // 比 uploadTime 更稳健地表达"最后一次提交的材料"）。该"有效材料"状态为 PASSED 才算此类别合格。
+        // 效果：更晚提交并 PASSED 的材料会"取代"更早的 FAILED（恢复合格）；而"最新一份为 FAILED"或"该类别无
+        // 任何 PASSED 材料"仍判不合格（真失败不放行）。
+        // 旧实现按全历史行 passedCount>0 && failedCount==0：一条终态 FAILED 永久钉住 failedCount≥1，使该类别再也
+        // 无法 passed（即便后续重传通过）→ 证书合格永久卡死、无恢复路径。
+        ProcessMaterial effective = records.stream()
+                .max(Comparator.comparing(ProcessMaterial::getId, Comparator.nullsFirst(Comparator.naturalOrder())))
+                .orElse(null);
+        item.setPassed(effective != null && MaterialStatus.of(effective.getStatus()) == MaterialStatus.PASSED);
         return item;
     }
 
