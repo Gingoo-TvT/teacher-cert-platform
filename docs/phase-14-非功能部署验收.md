@@ -17,6 +17,11 @@ M14 扩展点预留、后端/前端 Dockerfile、生产 docker-compose、兼容�
 - `docker-compose.yml`：mysql/redis/minio/backend/frontend + `.env` + 数据卷 + 健康检查。
 - 启动初始化：Flyway 自动迁移 + 种子（字典/角色/超管/参数）。
 - 产出 `README`（部署、初始账号、参数说明）。
+- **关键环境变量（`.env.example` → 复制为 `.env`，均须显式设强值，勿沿用示例）**：
+  - `SPRING_PROFILES_ACTIVE=prod`（**必须**；否则默认 `dev` profile 会启用非密默认值——dev 库 root、内置 JWT dev 密钥、MinIO 默认口令）。
+  - `JWT_SECRET`（**必须**，≥32 字节；base 空默认下 prod 未注入即拒绝启动。可为任意 ≥32 字节字符串，含人类可读口令）。
+  - `DB_PASSWORD` / `REDIS_PASSWORD`（**必须**强口令）。
+  - `CORS_ALLOWED_ORIGINS`（P1-7）：允许跨域的前端来源白名单，逗号分隔、含协议+端口、无末尾斜杠（如 `https://cert.gpnu.edu.cn`）。同源部署（前端 nginx 同域反代 `/api`）下 CORS 不参与、可留空；跨域独立前端域名时**必须**设为真实域名，否则被拦截。`allowCredentials=true` 下不可用通配 `*`。
 
 ## 4. 非功能收口（plan §十二）
 - 安全/权限、个人信息保护、文件安全、性能（批量/分片）、存储（大视频）、可靠性（备份/逻辑删除）、审计、兼容性、可配置性逐项核对。

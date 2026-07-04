@@ -134,14 +134,16 @@ class Phase8TestResultIT {
         LoginResult auditor = readyLogin("test_college_auditor");
         String year = "P8-MANUAL-OFF";
 
+        // 手动录入/修改端点从未实现（/api/test 仅有 GET），故 POST/PUT 命中「方法不被支持」。
+        // P1-10 后该客户端错误正确返回 405（此前无 405 处理器、落到兜底：改造前 200、改造中一度 500）。
         ResponseEntity<String> created = exchange("/api/test", HttpMethod.POST, auditor.accessToken(),
                 saveBody(9001L, year, "88", "qualified"));
-        assertThat(created.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(created.getStatusCode()).isEqualTo(HttpStatus.METHOD_NOT_ALLOWED);
         assertThat(json(created).at("/code").asInt()).isNotEqualTo(0);
 
         ResponseEntity<String> updated = exchange("/api/test", HttpMethod.PUT, auditor.accessToken(),
                 saveBody(9001L, year, "89", "unqualified"));
-        assertThat(updated.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(updated.getStatusCode()).isEqualTo(HttpStatus.METHOD_NOT_ALLOWED);
         assertThat(json(updated).at("/code").asInt()).isNotEqualTo(0);
 
         assertThat(resultMapper.selectCount(new LambdaQueryWrapper<AbilityTestResult>()

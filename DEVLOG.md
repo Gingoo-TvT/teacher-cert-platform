@@ -15,6 +15,17 @@
 
 ---
 
+## [2026-07-05] Phase 46（P1-10 异常状态码契约 + P1-7 CORS 部署配置）— 未知故障→500/客户端错误→4xx + 前端拦截器兼容；CORS 白名单 env 化；114/114 绿 + 前端 build 绿
+- 做了什么：
+  - **P1-10**：`GlobalExceptionHandler` 兜底 `handle(Exception)` 加 `@ResponseStatus(500)`——此前无注解默认 200，未知故障对 APM/网关/告警「隐形」（HTTP 全绿）。同时补 `HttpRequestMethodNotSupportedException→405`、`NoHandlerFoundException→404` 两个客户端错误处理器（否则错方法/错路径会一并落进 500 兜底、被误报为服务端故障）。已知可恢复类（`BizException`/参数校验/数据完整性冲突）仍 200+业务码。前端 `request.ts` 错误分支补「非 2xx 但响应体是统一 `Result`（code≠0）→ 提取 `data.msg`」，与成功分支一致，保证状态码改变后友好提示不丢失、且不与既有 401-refresh 分支冲突（401 先返回）。
+  - **P1-7**：`CorsConfig` 早已读 `CORS_ALLOWED_ORIGINS`（无需改码）；补全部署面——`.env.example` 增 `CORS_ALLOWED_ORIGINS`（含用法注释：逗号分隔、含协议端口、无末尾斜杠、`allowCredentials` 下不可用 `*`）、`docker-compose.yml` backend 环境透传 `${CORS_ALLOWED_ORIGINS:-}`、`docs/phase-14-非功能部署验收.md` 增「关键环境变量」小节（`SPRING_PROFILES_ACTIVE=prod` 必须、`JWT_SECRET`/`DB_PASSWORD`/`REDIS_PASSWORD` 必须强值、CORS 说明）。
+- 关键决策与理由：
+  - **兜底 500 必须配套 4xx 客户端错误处理器**：否则「让监控看见未知故障」的目标会被错路径/错方法的 405/404 噪声淹没。改造中一度让 `Phase8TestResultIT.manualCreateAndUpdateEndpointsAreOffline`（对仅 GET 映射的 `/api/test` 发 POST/PUT）从 200 变 500 暴露了这点——正确语义：**客户端错误 4xx、服务端故障 5xx、业务可恢复 200+码**。该测试断言相应从 `OK` 更正为 `METHOD_NOT_ALLOWED`（更强地证明「手动录入/修改端点不可用」，非弱化）。
+  - 契约敏感、前后端同步改：单独改后端会丢友好提示、单独改前端无意义。
+- 与规格的偏差/疑问：无。`CorsConfig` 未改（已支持 env）；CORS 留空时 fail-closed（仅本地 localhost），同源部署（nginx 同域反代）CORS 不参与。无迁移（库 max 仍 V25）。
+- 测试：`mvn -B -ntp clean verify` **BUILD SUCCESS 114/114 绿**（Phase8 offline 断言更正为 405 后）；前端 `npm run type-check` 干净 + `npm run build` 成功。
+- 下一步：继续 §11 剩余 P1（P1-8 初始密码可预测 / P1-9 定时清理 / 种子污染清理 / P1-4 异步导入 / §7.4 两项 / P1-2 视频上传）分发 opus/sonnet 子代理。
+
 ## [2026-07-04] Phase 45（修复本地/dev 启动崩溃 = 用户「点开是 500」的根因）— dev 提供 JWT_SECRET 默认值 + JwtService 非 Base64 密钥回退修复；114/114 绿 + 活体不带 JWT_SECRET 起栈成功
 - 做了什么：
   - `application-dev.yml` 新增 `platform.security.jwt.secret: ${JWT_SECRET:<dev 默认>}`——dev profile 专用、明确标注「仅本地、勿用于生产」的默认密钥，使「直接 `java -jar` / `mvn` 起栈」在未设置 `JWT_SECRET` 环境变量时也能启动。

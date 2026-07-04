@@ -56,6 +56,12 @@ request.interceptors.response.use(
       window.location.href = '/login'
       return Promise.reject(new Error('登录已过期，请重新登录'))
     }
+    // 非 2xx 但响应体仍是统一 Result（如 P1-10 后未知异常返回 HTTP 500 + {code,msg}）：
+    // 与成功分支 code!==0 一致地提取 msg，保证友好提示不因状态码变化而丢失。
+    const data = response?.data as { code?: number; msg?: string } | undefined
+    if (data && typeof data.code !== 'undefined' && data.code !== 0) {
+      return Promise.reject(new Error(data.msg || '请求失败'))
+    }
     return Promise.reject(error)
   }
 )

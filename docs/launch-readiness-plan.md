@@ -30,10 +30,10 @@
 | P1-4 | 万行 Excel 导入同步逐行处理 vs 前端 30s 全局超时 → 客户端先超时、疑似失败重复提交 | `ExchangeServiceImpl.java:230-271`、`request.ts:13` | 导入改异步（返回批次号轮询）或该请求单独长超时 + 幂等防重 | Opus 设计 |
 | P1-5 | ~~通知扇出逐条 INSERT~~ | ~~`ReviewNotificationHelper.java:100-105`~~ | **已修复（Phase 44a，见 §11）：`NotifyChannel.sendBatch`（default 逐行兜底，`InAppNotifyChannel` 覆盖为 `Db.saveBatch` 真批量）+ `NotificationService/Impl.sendBatch`，`notifyRole`/`notifyVideoAssigned` 改单次批量插入** | 已合并 |
 | P1-6 | ~~N+1：`attachmentRows` 循环 selectById~~ | ~~`ExchangeServiceImpl.java:952-985`~~ | **已修复（Phase 44a，见 §11）：`attachmentRows` 内学生查询改 `selectBatchIds`+`Map<Id,Student>`** | 已合并 |
-| P1-7 | CORS 生产域名未配置且无文档，默认仅 localhost | `CorsConfig.java:27`、compose/.env.example | compose+.env.example 增 `CORS_ALLOWED_ORIGINS` 并写入部署文档 | Sonnet |
+| P1-7 | ~~CORS 生产域名未配置且无文档，默认仅 localhost~~ | ~~`CorsConfig.java:27`~~ | **已完成（Phase 46，见 §11）：`CorsConfig` 早已 env 化读 `CORS_ALLOWED_ORIGINS`；补 `.env.example` + `docker-compose.yml` backend 透传 + `docs/phase-14` 部署变量说明** | 已合并 |
 | P1-8 | 学生初始密码=身份证后 6 位（可预测；已有强制首登改密+锁定缓解，但存在抢先注册窗口） | `StudentServiceImpl.java:351-361` | 初始密码加盐随机后缀经名册下发，或首登绑定学号+证件双因子核验 | Opus 定策略 |
 | P1-9 | 全库无任何定时任务：上传残片/孤儿对象、audit_log/notification 只增不清 | 全局 | `@EnableScheduling`：残片清理、MinIO 未完成分片 abort（生命周期规则）、日志归档策略 | Sonnet 按 Opus 规格 |
-| P1-10 | 兜底异常返回 HTTP 200（监控/告警失明） | `GlobalExceptionHandler.java:46-50` | 未知异常返回 500（保留 code/msg 结构；前端拦截器兼容验证） | Opus（契约敏感） |
+| P1-10 | ~~兜底异常返回 HTTP 200（监控/告警失明）~~ | ~~`GlobalExceptionHandler.java`~~ | **已完成（Phase 46，见 §11）：兜底 `Exception→500` + 客户端错误 `405/404` 处理器（错方法/错路径不再落 500）+ 前端拦截器提取非 2xx 的 Result.msg；业务/校验仍 200+码** | 已合并 |
 
 ## 3. P2 —— 上线后迭代
 - compose 无资源限额（`deploy.resources`）；Hikari 未调优（按并发压测定 pool）；
@@ -281,6 +281,11 @@
 - ✅ **修法**：① `application-dev.yml` 加 `platform.security.jwt.secret: ${JWT_SECRET:<dev 默认>}`（dev 专用、明确标注勿用于生产），dev「直接起栈」开箱即用。② `JwtService` 的 base64 回退 `catch` 补 `io.jsonwebtoken.io.DecodingException`（jjwt 对非 base64 串抛此异常、非 `IllegalArgumentException` 子类，原未捕获 → 任何可读口令型 `JWT_SECRET` 都崩溃启动）——现 `JWT_SECRET` 接受任意 ≥32 字节串。
 - ✅ **prod 安全不削弱**：prod active=prod 不加载 dev 文件 + base 空默认 → 仍强制注入 `JWT_SECRET`。⚠️ **运维提示**：默认 active=dev（既有设计），生产部署务必设 `SPRING_PROFILES_ACTIVE=prod`，否则会用 dev 非密默认（DB root/JWT/MinIO）。
 - ✅ **验证**：`mvn verify` 114/114 绿（ITs 经 `@SpringBootTest properties` 覆盖密钥、不受影响）；活体重建 jar **不带** `JWT_SECRET` 起栈 → health=UP + captcha/login/鉴权调用 200。已 ff-merge 入 main。
+
+### Phase 46（P1-10 异常状态码契约 + P1-7 CORS 部署配置，Phase 46 —— 分支 `feature/phase46-errstatus-cors`，单 commit，已 ff-merge 入 main，mvn verify 114/114 绿 + 前端 build 绿）
+- ✅ **P1-10 异常状态码契约（契约敏感、前后端同步）**：`GlobalExceptionHandler` 兜底 `handle(Exception)` 加 `@ResponseStatus(500)`（此前默认 200 → 未知故障对监控/告警隐形）；**同步补** `HttpRequestMethodNotSupportedException→405`、`NoHandlerFoundException→404`——否则错方法/错路径也落进 500 兜底、把客户端错误误报为服务端故障（正确语义：客户端错误 4xx、服务端故障 5xx、业务可恢复 200+码）。前端 `request.ts` 错误分支补「非 2xx 但响应体是统一 `Result`（code≠0）→ 提取 `data.msg`」，与成功分支一致、不夺 401-refresh 分支，保证状态码改变后友好提示不丢。`Phase8TestResultIT.manualCreateAndUpdateEndpointsAreOffline`（对仅 GET 的 `/api/test` 发 POST/PUT）断言从 `OK` 更正为 `METHOD_NOT_ALLOWED`（更强证明端点不可用，非弱化）。
+- ✅ **P1-7 CORS 部署配置**：`CorsConfig` 早已 env 化读 `CORS_ALLOWED_ORIGINS`（无需改码）；补 `.env.example`（`CORS_ALLOWED_ORIGINS` + 用法注释）、`docker-compose.yml` backend 环境透传 `${CORS_ALLOWED_ORIGINS:-}`、`docs/phase-14-非功能部署验收.md`「关键环境变量」小节（`SPRING_PROFILES_ACTIVE=prod`/`JWT_SECRET`/`DB_PASSWORD`/`REDIS_PASSWORD`/CORS 必设项）。CORS 留空 fail-closed（仅本地）；同源部署 CORS 不参与。
+- ✅ **验证**：`mvn -B -ntp clean verify` **114/114 绿**（Phase8 offline 断言更正为 405）；前端 `npm run type-check` 干净 + `npm run build` 成功。已 ff-merge 入 main。无迁移（库 max 仍 V25）。
 
 ### Phase 37a-part1 ✅ 已完成并合并（`72beeaf`，mvn verify 83/83 绿 + 前端 build 绿）
 - ✅ **P0-1 文件预签名 IDOR** — 删除无属主校验的 `GET /file/{id}/url`（无任何调用方，合法访问走带范围校验的业务端点）。**活体：** 学院B学生带 token 请求 → `data=None` 拿不到下载 URL（原可下载出学院A学生材料字节）。
