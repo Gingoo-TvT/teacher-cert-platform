@@ -15,6 +15,29 @@
 
 ---
 
+## [2026-07-05] Phase 53（各角色 demo/mock 数据，含视频）— 门禁式 `DemoDataInitializer`（`platform.demo.enabled=true` 才装载）+ `db/demo/demo-data.sql` + 三微型样例文件；分支 `feature/phase53-demo-mock-data`，单 commit，未合并；mvn verify 119/119 绿（demo OFF）+ 活体 demo-on/幂等重跑证
+- 做了什么：
+  - 新增门禁组件 `platform-boot/.../config/DemoDataInitializer.java`：`@Component + @ConditionalOnProperty(prefix="platform.demo", name="enabled", havingValue="true")`（与 `CleanupScheduleConfig` 同款门禁，默认缺省 = 不注册），实现 `ApplicationRunner`——上下文刷新后（Flyway+testseed 已装、MinIO bucket 已确保）幂等 ①上传样例文件到 MinIO（`statObject` 探测、已存在跳过）②执行 `db/demo/demo-data.sql`（`ResourceDatabasePopulator`）。
+  - 新增 `platform-boot/src/main/resources/db/demo/demo-data.sql`：全 `INSERT ... ON DUPLICATE KEY UPDATE`（幂等），固定 id 段（学生 9101-9108、其余 `8_100_000_000_000_0xxx`），覆盖 8 学生（跨学院 201/202、多状态）、7 培养、4 材料、1 免考+1 佐证、3 视频评审+3 会话+3 评审任务（分配 `test_review_teacher`3005）、4 测试、3 证书（2 签发+1 作废）、9 未读站内信，另建 `demo_student` 登录（绑定 9101）。
+  - 新增三个微型样例 `db/demo/sample-{image.png(99B),material.pdf(659B),video.mp4(528B)}`（`scripts/gen-demo-samples.py` 纯标准库生成、无 ffmpeg 依赖）；`application-demo.yml`（仅置 `platform.demo.enabled: true`）。
+  - 文档：本 DEVLOG 条目 + `docs/launch-readiness-plan.md` §11 Phase 53 条目。
+- 关键决策与理由：
+  - **门禁默认 OFF 是不破坏 IT 的核心**：ITs 走默认 dev profile、从不设 `platform.demo.enabled` → bean 不注册、演示数据永不进库 → `mvn verify` 基于基础种子的精确计数断言零影响（**119/119 不变**，verify 后查库演示行=0 佐证）。启用仅 `--platform.demo.enabled=true` 或 `SPRING_PROFILES_ACTIVE=dev,demo`。
+  - **固定 id 段与基础种子/IT 运行期行完全隔离**：演示实体 `8.1e15`（16 位）远小于 testseed 的 18 位段，学生 9101+ 不撞 9001/9002 与雪花 id；两步 + SQL 全幂等（`ON DUPLICATE KEY UPDATE` + MinIO skip-if-exists），可安全重跑不重复。
+  - **不改基础 `test_student→9001` 绑定**：另建 `demo_student`（must_change_pwd=0、密码同 `ChangeMe123!`）绑定 rich 学生 9101 给「学生」角色看完整视图——避免给 9001 挂数据撞 IT 运行期为 9001 建的 `(student_id, assessment_year)` 唯一键。
+  - **枚举/字典严格对齐真源**：学生状态用真实机 `DRAFT/FIRST_REVIEW/FIRST_REJECTED/SECOND_REVIEW/SECOND_REJECTED/PASSED/FAILED`（无「APPROVED」）；视频 `video_review` 状态/`video_upload_session=MERGED`/材料类别/免考科目依据/证书状态/`cert_no`（年+校码+级码+省码+段码+序=18 位，内嵌码自洽）均取自 V1-V26 迁移与 V3 字典种子。
+  - **STORED 生成列不赋值**：`student.idcard_key`/`certificate.active_key` 由 MySQL 计算；演示学生证件号各异满足 `uk_student_idcard`、作废证书 `active_key=NULL` 不撞 `uk_cert_active`。
+- 问题与解决：
+  - 无阻塞。落库前先以「`START TRANSACTION; <脚本>; ROLLBACK;`」在 dev 库干跑验证 SQL 语法/约束（PIPE_EXIT=0、计数正确、回滚后库净），再跑 verify，确保 verify 时库无演示数据。
+  - MinIO 桶已有大量历史 `video-chunk` 对象，`mc ls` 全量过大 → 按 4 个 demo 前缀精确 `mc ls`/`mc stat` 取证。
+- 与规格的偏差/疑问：
+  - **诚实说明视频可播放性**：本环境无 ffmpeg/无 H.264 编码器，`sample-video.mp4` 是**结构合法可下载**的 MP4 容器（`ftyp+moov(空样本轨)+mdat`，`Content-Type: video/mp4`、528B），**浏览器可否播放未验证**——按任务书授权交付「可下载占位对象」，不虚报可播放性。评审教师取件路径（`presignedGet(videoFileId)` 预签名）由既有 `Phase7VideoReviewIT` 覆盖。
+- 测试：
+  - `mvn -B -ntp clean verify`（先按精确 PID 释放 :8080）**BUILD SUCCESS，Tests run: 119, Failures: 0, Errors: 0**（数不变=demo 全程 OFF）。
+  - demo-on 活体：`java -jar --platform.demo.enabled=true`（不带 JWT_SECRET 起栈）health=UP；`[demo]` 日志 4 对象上传 + SQL 成功；查库演示行落地（student 8 / file_object 8 / video_review_task@3005 3 / certificate 3 / notification 未读 9 …）；`mc ls` 证 MinIO 4 对象（mp4 528B video/mp4、pdf 659B、png 99B）。
+  - 幂等重跑：重启再 demo-on → `[demo]` 4 对象「已存在跳过」、新上传 0、各表计数不变；随后按精确 :8080 PID 杀应用、端口释放、无残留 jar 进程。
+- 下一步：交主 Opus 复核（单 commit、分支 `feature/phase53-demo-mock-data`，**未 merge**）。§11 Phase 53 已记启用方式（`platform.demo.enabled=true` / demo profile）。
+
 ## [2026-07-05] Phase 52（种子测试/生产分离）— 测试专用种子抽到 `db/testseed`（R__ 可重复迁移，仅 dev/test 加载）+ V26 生产路径删除；分支 `feature/phase52-seed-separation`，单 commit，未合并；mvn verify 119/119 绿 + scratch schema 证生产干净
 - 做了什么：
   - 新 Flyway 位置 `platform-boot/src/main/resources/db/testseed/R__testseed.sql`（**可重复**迁移）：把混入 `V8/V9/V10/V12` 的测试专用种子——测试学院 201/202、其 4 专业 + 5 培养目标、测试学生 9001/9002、7 个 `test_*` 账号 + 授权(4002-4008)/数据范围(5001-5002)、免考科目 7 + 免考依据 2 占位——以**相同 id**、`INSERT ... ON DUPLICATE KEY UPDATE`（幂等）重建。

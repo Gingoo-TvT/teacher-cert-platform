@@ -1,0 +1,14 @@
+# =============================================================
+# Phase 53（各角色 demo/mock 数据）——「demo」附加 profile（仅 TEST/DEV）
+#
+# 作用：仅开启演示数据装载开关 platform.demo.enabled=true，其余配置继承 dev。
+# 用法（二选一，均需 dev 基础种子已加载）：
+#   1) SPRING_PROFILES_ACTIVE=dev,demo   （附加本 profile；推荐）
+#   2) java -jar teacher-cert-platform.jar --platform.demo.enabled=true   （命令行覆盖，走默认 dev profile）
+#
+# 注意：dev 默认【不】开启（application-dev.yml 未设该键），故 `mvn verify` 与常规 dev 运行不受影响、
+#       ITs 永不装载演示数据（基于基础种子的精确计数断言不被污染）。
+# =============================================================
+platform:
+  demo:
+    enabled: true
