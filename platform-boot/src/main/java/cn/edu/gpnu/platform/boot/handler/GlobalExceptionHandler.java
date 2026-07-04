@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.servlet.NoHandlerFoundException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 /**
  * 全局异常处理：统一转为 {@link Result}，不向前端泄漏堆栈。
@@ -72,6 +73,19 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(NoHandlerFoundException.class)
     public Result<Void> handleNoHandler(NoHandlerFoundException e) {
         log.warn("无匹配处理器: {}", e.getMessage());
+        return Result.fail(ResultCode.NOT_FOUND);
+    }
+
+    /**
+     * 未映射路径 / 静态资源未找到：404，属客户端错误。Spring 6.1+（Boot 3.2+）对无处理器且无静态资源的
+     * 路径抛 {@link NoResourceFoundException}（而非 {@link NoHandlerFoundException}）——若不单独处理会落进
+     * 下方 500 兜底，令任意错拼/探测路径都误报为服务端故障（告警噪声）。后端只服务 /api/**、不托管 SPA
+     * 静态资源（前端由 nginx 独立托管），故此异常即「未知 API 路径」，归 404。
+     */
+    @ResponseStatus(HttpStatus.NOT_FOUND)
+    @ExceptionHandler(NoResourceFoundException.class)
+    public Result<Void> handleNoResource(NoResourceFoundException e) {
+        log.warn("资源不存在: {}", e.getMessage());
         return Result.fail(ResultCode.NOT_FOUND);
     }
 

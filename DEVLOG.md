@@ -15,6 +15,13 @@
 
 ---
 
+## [2026-07-05] Phase 51（P1-10 收尾：未知路径 404）— 整体冒烟发现未映射路径返回 500，补 NoResourceFoundException→404 处理器；119/119 绿
+- 做了什么：`GlobalExceptionHandler` 补 `@ExceptionHandler(NoResourceFoundException)→404`。Phase 46 只加了 `NoHandlerFoundException`，但 Spring 6.1+/Boot 3.2+ 对「无处理器且无静态资源」的路径抛的是 `org.springframework.web.servlet.resource.NoResourceFoundException`（非 `NoHandlerFoundException`）——未单独处理时落进 500 兜底。新增 `Phase8TestResultIT.unknownApiPathReturnsNotFoundNotServerError` 回归测试（鉴权后 GET 未知路径断言 404）。
+- 关键决策与理由：整体冒烟活体发现 `GET /api/nonexistent` 返回 **500**（应 404）——run 日志确认异常类为 `NoResourceFoundException: No static resource ...`。任意错拼/爬虫/探测路径都误报为服务端 500 会污染监控告警（正是 P1-10 要消除的「客户端错误伪装成服务端故障」）。后端只服务 `/api/**`、不托管 SPA（前端 nginx 独立托管），故未映射路径即「未知 API 路径」，归 404 安全无副作用。
+- 与规格的偏差/疑问：无。属 Phase 46 P1-10 的收尾补丁（冒烟暴露的边角）。无迁移（库 max 仍 V25）。
+- 测试：`mvn -B -ntp clean verify` **119/119 绿**（118+1 回归）；随后活体重跑冒烟确认 `GET /api/nonexistent` 返回 404。
+- 下一步：整体冒烟其余项全绿（6 角色登录、管理员各「点开」端点 200、数据范围 clerk≤admin、405 正确）；向用户汇报冒烟结论 + 剩余推迟项建议。
+
 ## [2026-07-05] Phase 50（P1-4 批量导入/导出客户端超时）— 前端 bulk op 单独放宽超时至 5 分钟；幂等防重已由 Phase 42.2 兜底
 - 做了什么：`frontend/src/api/exchange.ts` 为「万行级」批量操作（`prevalidateExchange` 校验、`confirmExchangeImport` 导入、`exportExchange`/`exportExchangeAttachments` 大导出）加 `timeout: 5*60*1000`（新增常量 `BULK_OP_TIMEOUT_MS`），覆盖全局默认 30s。
 - 关键决策与理由：P1-4 原述「导入同步逐行 vs 前端 30s 全局超时 → 客户端先超时、疑似失败重复提交」。**「幂等防重」这半早已闭环**——Phase 42.2 `confirmImport` 的 `PREVALIDATED→IMPORTING` 原子认领已防重复导入；故本相只需消除「客户端先超时误报」这半：对确会长耗时的 bulk 请求放宽超时即可，无需改成异步轮询（更大的契约改造，非必要）。放宽到 5 分钟足以覆盖万行处理，超时仍触发也有后端幂等兜底、不会重复导入。

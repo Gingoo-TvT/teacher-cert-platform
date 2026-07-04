@@ -152,6 +152,15 @@ class Phase8TestResultIT {
     }
 
     @Test
+    void unknownApiPathReturnsNotFoundNotServerError() throws Exception {
+        // P1-10 收尾（Phase 51）：未映射路径在 Boot 3.2+ 抛 NoResourceFoundException，须归 404（客户端错误）、
+        // 而非落 500 兜底（否则任意错拼/探测路径都误报为服务端故障、污染告警）。
+        LoginResult auditor = readyLogin("test_college_auditor");
+        ResponseEntity<String> resp = exchange("/api/no-such-endpoint-xyz", HttpMethod.GET, auditor.accessToken(), null);
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    @Test
     void confirmedResultLocksAndRejectsDirectConclusionChange() throws Exception {
         LoginResult academic = readyLogin("test_academic_admin");
         String year = "P8-LOCK";
