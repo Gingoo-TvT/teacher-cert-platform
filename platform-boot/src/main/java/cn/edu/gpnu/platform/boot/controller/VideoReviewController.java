@@ -114,8 +114,10 @@ public class VideoReviewController {
     @Operation(summary = "我的视频评审任务")
     @PreAuthorize("@pms.has('video:score')")
     @GetMapping("/tasks/my")
-    public Result<PageResult<VideoReviewTaskVO>> myTasks(@RequestParam(value = "status", required = false) String status) {
-        return Result.ok(videoReviewService.myTasks(status));
+    public Result<PageResult<VideoReviewTaskVO>> myTasks(@RequestParam(value = "status", required = false) String status,
+                                                          @RequestParam(value = "page", required = false) Integer page,
+                                                          @RequestParam(value = "size", required = false) Integer size) {
+        return Result.ok(videoReviewService.myTasks(status, page, size));
     }
 
     @Operation(summary = "评审任务详情")

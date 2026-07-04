@@ -53,6 +53,8 @@ export interface AuditQuery {
   keyword?: string | null
   startTime?: string | null
   endTime?: string | null
+  page?: number
+  size?: number
 }
 
 export function listSystemParams(
@@ -77,7 +79,9 @@ export function listAuditLogs(query: AuditQuery) {
       batchNo: query.batchNo,
       keyword: query.keyword,
       startTime: query.startTime,
-      endTime: query.endTime
+      endTime: query.endTime,
+      page: query.page,
+      size: query.size
     })
   })
 }
@@ -86,8 +90,10 @@ export function deleteAuditLog(id: string) {
   return request.delete<unknown, ApiResult<null>>(`/audit/log/${id}`)
 }
 
-export function listBackups(status?: string | null) {
-  return request.get<unknown, ApiResult<PageResult<BackupRecord>>>('/system/backup', { params: cleanParams({ status }) })
+export function listBackups(status?: string | null, page?: number, size?: number) {
+  return request.get<unknown, ApiResult<PageResult<BackupRecord>>>('/system/backup', {
+    params: cleanParams({ status, page, size })
+  })
 }
 
 export function triggerBackup(payload: { backupType: string; scope?: string | null; remark?: string | null }) {

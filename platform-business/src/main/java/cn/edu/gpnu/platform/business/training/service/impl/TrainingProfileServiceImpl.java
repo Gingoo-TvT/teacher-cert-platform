@@ -13,6 +13,7 @@ import cn.edu.gpnu.platform.business.training.support.TrainingLinkValidator;
 import cn.edu.gpnu.platform.business.training.support.TrainingStatus;
 import cn.edu.gpnu.platform.business.training.vo.TrainingOptionsVO;
 import cn.edu.gpnu.platform.business.training.vo.TrainingProfileVO;
+import cn.edu.gpnu.platform.common.api.PageQuery;
 import cn.edu.gpnu.platform.common.api.PageResult;
 import cn.edu.gpnu.platform.common.api.ResultCode;
 import cn.edu.gpnu.platform.common.context.DataScopeContext;
@@ -28,6 +29,7 @@ import cn.edu.gpnu.platform.system.service.ParamService;
 import cn.edu.gpnu.platform.system.vo.TeachingSubjectVO;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -56,10 +58,16 @@ public class TrainingProfileServiceImpl implements TrainingProfileService {
     private final ReviewNotificationHelper notificationHelper;
     private final AuditLogService auditLogService;
 
+    // Phase 44e-rollout（P1-1 真分页）：由「全表 selectList 后 new PageResult<>(size, records)」改为
+    // MyBatis-Plus Page + selectPage 真分页。@DataScope（TrainingProfileController.list，alias=training_profile）
+    // 设置的线程范围经数据权限拦截器在 selectPage 的 count 与数据两条 SQL 上均生效 → 该页与 total 同为
+    // 「已按学院/本人范围过滤」的结果。
     @Override
-    public PageResult<TrainingProfileVO> list(String keyword, String status, Long collegeId, String assessmentYear) {
-        List<TrainingProfile> records = listProfiles(keyword, status, collegeId, assessmentYear);
-        return new PageResult<>(records.size(), toVOs(records));
+    public PageResult<TrainingProfileVO> list(String keyword, String status, Long collegeId, String assessmentYear,
+                                              Integer page, Integer size) {
+        Page<TrainingProfile> result = trainingProfileMapper.selectPage(
+                PageQuery.of(page, size), buildListWrapper(keyword, status, collegeId, assessmentYear));
+        return new PageResult<>(result.getTotal(), toVOs(result.getRecords()));
     }
 
     @Override
@@ -238,7 +246,7 @@ public class TrainingProfileServiceImpl implements TrainingProfileService {
         return vo;
     }
 
-    private List<TrainingProfile> listProfiles(String keyword, String status, Long collegeId, String assessmentYear) {
+    private LambdaQueryWrapper<TrainingProfile> buildListWrapper(String keyword, String status, Long collegeId, String assessmentYear) {
         LambdaQueryWrapper<TrainingProfile> wrapper = new LambdaQueryWrapper<TrainingProfile>()
                 .orderByAsc(TrainingProfile::getAssessmentYear)
                 .orderByAsc(TrainingProfile::getStudentId);
@@ -259,7 +267,7 @@ public class TrainingProfileServiceImpl implements TrainingProfileService {
         if (StringUtils.hasText(assessmentYear)) {
             wrapper.eq(TrainingProfile::getAssessmentYear, assessmentYear.trim());
         }
-        return trainingProfileMapper.selectList(wrapper);
+        return wrapper;
     }
 
     private void fill(TrainingProfile entity, Student student, TrainingProfileSaveRequest request,

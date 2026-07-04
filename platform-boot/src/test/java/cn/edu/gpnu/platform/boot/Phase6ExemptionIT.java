@@ -247,6 +247,44 @@ class Phase6ExemptionIT {
         assertThat(studentRecords.at("/0/studentId").asLong()).isEqualTo(9001L);
     }
 
+    /**
+     * Phase 44e-rollout（P1-1 真分页 · 数据范围 × 分页组合的正确性证明，逐字参照
+     * Phase3StudentIT.paginatedStudentListIsScopedAndPagedForCollegeUser 落地到免考列表）：
+     * 学院文员（学院A）对含跨学院同年度免考申请列表做真分页——
+     * ① total 为「已按学院范围过滤」的总数（3，学院B 那条不计入，证明分页 count SQL 也走了数据权限拦截器）；
+     * ② 每页条数=请求 size；③ 各页均无学院B 数据；④ 页间记录不重叠（真 LIMIT/OFFSET，非全表包壳）。
+     */
+    @Test
+    void paginatedExemptionListIsScopedAndPagedForCollegeUser() throws Exception {
+        LoginResult studentA = readyLogin("test_student");
+        LoginResult studentB = readyLogin("test_student_b");
+        LoginResult clerk = readyLogin("test_college_clerk");
+
+        // assessment_year 列是 VARCHAR(16)：完整 nanoTime()（最多 19 位）拼接前缀会超长触发截断异常，
+        // 故对 nanoTime 取模到 9 位以内，'P6PAGE'(6 位)+最多 9 位数字 <= 15 位，留有余量。
+        String year = "P6PAGE" + Math.abs(System.nanoTime() % 1_000_000_000L);
+        // 学院A（学生9001）同年度 3 科申请。
+        applyOk(studentA.accessToken(), 9001L, year, SEGMENT, SUBJECT_A, SUBJECT_B, SUBJECT_C);
+        // 学院B（学生9002）同年度 1 科：年度能命中，但学院文员的数据范围应把它排除在 total 与 records 之外。
+        applyOk(studentB.accessToken(), 9002L, year, SEGMENT, SUBJECT_A);
+
+        JsonNode page1 = json(exchange("/api/exemption?assessmentYear=" + year + "&page=1&size=2",
+                HttpMethod.GET, clerk.accessToken(), null)).at("/data");
+        assertThat(page1.at("/total").asLong()).isEqualTo(3);
+        assertThat(page1.at("/records").size()).isEqualTo(2);
+        assertThat(page1.at("/records").toString()).contains(String.valueOf(COLLEGE_A));
+        assertThat(page1.at("/records").toString()).doesNotContain(String.valueOf(COLLEGE_B));
+
+        JsonNode page2 = json(exchange("/api/exemption?assessmentYear=" + year + "&page=2&size=2",
+                HttpMethod.GET, clerk.accessToken(), null)).at("/data");
+        assertThat(page2.at("/total").asLong()).isEqualTo(3);
+        assertThat(page2.at("/records").size()).isEqualTo(1);
+        assertThat(page2.at("/records").toString()).doesNotContain(String.valueOf(COLLEGE_B));
+
+        assertThat(page1.at("/records/0/id").asLong())
+                .isNotEqualTo(page2.at("/records/0/id").asLong());
+    }
+
     private List<Long> applyOk(String token, long studentId, String year, String segment, String... subjects) throws Exception {
         ResponseEntity<String> response = exchange("/api/exemption", HttpMethod.POST, token,
                 applyBody(studentId, year, segment, subjects));

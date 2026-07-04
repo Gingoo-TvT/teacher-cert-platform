@@ -8,7 +8,8 @@ import cn.edu.gpnu.platform.common.api.PageResult;
 
 public interface TrainingProfileService {
 
-    PageResult<TrainingProfileVO> list(String keyword, String status, Long collegeId, String assessmentYear);
+    PageResult<TrainingProfileVO> list(String keyword, String status, Long collegeId, String assessmentYear,
+                                       Integer page, Integer size);
 
     TrainingProfileVO get(Long studentId, String assessmentYear);
 

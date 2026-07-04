@@ -13,6 +13,7 @@ import cn.edu.gpnu.platform.business.material.vo.ProcessStatusVO;
 import cn.edu.gpnu.platform.business.student.entity.Student;
 import cn.edu.gpnu.platform.business.student.mapper.StudentMapper;
 import cn.edu.gpnu.platform.business.support.ReviewNotificationHelper;
+import cn.edu.gpnu.platform.common.api.PageQuery;
 import cn.edu.gpnu.platform.common.api.PageResult;
 import cn.edu.gpnu.platform.common.api.ResultCode;
 import cn.edu.gpnu.platform.common.context.DataScopeContext;
@@ -27,6 +28,7 @@ import cn.edu.gpnu.platform.system.service.DictService;
 import cn.edu.gpnu.platform.system.service.ParamService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import io.minio.GetObjectArgs;
 import io.minio.MinioClient;
 import lombok.RequiredArgsConstructor;
@@ -67,14 +69,21 @@ public class ProcessMaterialServiceImpl implements ProcessMaterialService {
     private final ReviewNotificationHelper notificationHelper;
     private final AuditLogService auditLogService;
 
+    // Phase 44e（P1-1 真分页 rollout）：由「全表 selectList 后 new PageResult<>(size, records)」改为
+    // MyBatis-Plus Page + selectPage 真分页。@DataScope（ProcessMaterialController.list，alias=process_material）
+    // 设置的线程范围经数据权限拦截器在 selectPage 的 count 与数据两条 SQL 上均生效 → 该页与 total 同为
+    // 「已按学院/本人范围过滤」的结果。批量下载（batchDownload）仍需全量，继续走 selectMaterials/selectList，不受影响。
     @Override
     public PageResult<ProcessMaterialVO> list(MaterialQuery query) {
-        List<ProcessMaterial> records = selectMaterials(query, null);
-        Map<Long, Student> students = students(records);
+        MaterialQuery q = query == null ? new MaterialQuery() : query;
+        Page<ProcessMaterial> result = processMaterialMapper.selectPage(
+                PageQuery.of(q.getPage(), q.getSize()), buildListWrapper(q, null));
+        Map<Long, Student> students = students(result.getRecords());
         Map<String, String> categories = categoryLabels();
-        return new PageResult<>(records.size(), records.stream()
+        List<ProcessMaterialVO> records = result.getRecords().stream()
                 .map(item -> toVO(item, students.get(item.getStudentId()), categories))
-                .toList());
+                .toList();
+        return new PageResult<>(result.getTotal(), records);
     }
 
     @Override
@@ -306,6 +315,12 @@ public class ProcessMaterialServiceImpl implements ProcessMaterialService {
     }
 
     private List<ProcessMaterial> selectMaterials(MaterialQuery query, List<Long> ids) {
+        return processMaterialMapper.selectList(buildListWrapper(query, ids));
+    }
+
+    // 抽出自原 selectMaterials：供 list()（selectPage 真分页）与 selectMaterials()（batchDownload 全量下载
+    // selectList，不分页）共用同一套过滤条件，保证两者筛选口径一致（Phase 44e P1-1 真分页 rollout）。
+    private LambdaQueryWrapper<ProcessMaterial> buildListWrapper(MaterialQuery query, List<Long> ids) {
         MaterialQuery q = query == null ? new MaterialQuery() : query;
         LambdaQueryWrapper<ProcessMaterial> wrapper = new LambdaQueryWrapper<ProcessMaterial>()
                 .orderByAsc(ProcessMaterial::getAssessmentYear)
@@ -336,7 +351,7 @@ public class ProcessMaterialServiceImpl implements ProcessMaterialService {
                     .or()
                     .like(ProcessMaterial::getCategory, keyword));
         }
-        return processMaterialMapper.selectList(wrapper);
+        return wrapper;
     }
 
     private MaterialQuery toQuery(MaterialBatchDownloadRequest request) {

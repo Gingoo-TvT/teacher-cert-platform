@@ -40,6 +40,9 @@ const playerVisible = ref(false)
 const keyword = ref('')
 const assessmentYear = ref(yearStore.assessmentYear)
 const statusFilter = ref<string | null>(null)
+const page = ref(1)
+const size = ref(20)
+const reviewTotal = ref(0)
 const reviews = ref<VideoReview[]>([])
 const reviewers = ref<ReviewerCandidate[]>([])
 const groups = ref<ReviewerGroup[]>([])
@@ -65,12 +68,15 @@ const statusOptions: SelectOption[] = [
   { label: '已确认', value: 'CONFIRMED' }
 ]
 
+// P1-1 真分页：total 取后端 PageResult.total（全量），但 wait/reviewingCount/need/returned 仍是对
+// reviews.value（当页）的本地筛选计数——分页后这四项只代表当页计数，不再是全量统计。后端未提供
+// 按状态分组计数的聚合接口，暂不新增（超出本次两端点分页改造范围），故按 rollout 约定标注于此。
 const statusSummary = computed(() => {
   const wait = reviews.value.filter((item) => item.status === 'WAIT_REVIEW').length
   const reviewingCount = reviews.value.filter((item) => item.status === 'REVIEWING').length
   const need = reviews.value.filter((item) => item.status === 'NEED_REVIEW').length
   const returned = reviews.value.filter((item) => item.status === 'RETURNED').length
-  return { total: reviews.value.length, wait, reviewingCount, need, returned }
+  return { total: reviewTotal.value, wait, reviewingCount, need, returned }
 })
 
 const columns: DataTableColumns<VideoReview> = [
@@ -105,6 +111,7 @@ const columns: DataTableColumns<VideoReview> = [
 async function loadReviews() {
   if (!canLoadReviews.value) {
     reviews.value = []
+    reviewTotal.value = 0
     return
   }
   loading.value = true
@@ -112,14 +119,33 @@ async function loadReviews() {
     const res = await listVideoReviews({
       keyword: keyword.value,
       status: statusFilter.value,
-      assessmentYear: assessmentYear.value
+      assessmentYear: assessmentYear.value,
+      page: page.value,
+      size: size.value
     })
     reviews.value = res.data.records
+    reviewTotal.value = res.data.total
   } catch (error) {
     showError(error, '视频评审列表加载失败')
   } finally {
     loading.value = false
   }
+}
+
+function search() {
+  page.value = 1
+  void loadReviews()
+}
+
+function onPageChange(next: number) {
+  page.value = next
+  void loadReviews()
+}
+
+function onPageSizeChange(next: number) {
+  size.value = next
+  page.value = 1
+  void loadReviews()
 }
 
 async function loadOptions() {
@@ -175,6 +201,7 @@ function resetFilters() {
   keyword.value = ''
   assessmentYear.value = yearStore.assessmentYear
   statusFilter.value = null
+  page.value = 1
   void loadReviews()
 }
 
@@ -208,6 +235,7 @@ watch(
   () => yearStore.assessmentYear,
   async (year) => {
     assessmentYear.value = year
+    page.value = 1
     await loadReviews()
   }
 )
@@ -223,10 +251,10 @@ watch(
       <n-gi><StatCard label="已退回" :value="statusSummary.returned" tone="error" /></n-gi>
     </n-grid>
 
-    <FilterBar :loading="loading" @submit="loadReviews" @reset="resetFilters">
+    <FilterBar :loading="loading" @submit="search" @reset="resetFilters">
       <label class="filter-field">
         <span>关键词</span>
-        <n-input v-model:value="keyword" clearable placeholder="学生 / 文件名 / MD5" style="width: 230px" @keyup.enter="loadReviews" />
+        <n-input v-model:value="keyword" clearable placeholder="学生 / 文件名 / MD5" style="width: 230px" @keyup.enter="search" />
       </label>
       <label class="filter-field">
         <span>年度</span>
@@ -246,11 +274,16 @@ watch(
       title="视频评审列表"
       :columns="columns"
       :data="reviews"
-      :total="reviews.length"
+      :total="reviewTotal"
       :loading="loading"
+      remote
+      :page="page"
+      :page-size="size"
       empty-title="暂无视频评审记录"
       empty-description="当前筛选条件下没有视频评审记录。"
       @refresh="loadReviews"
+      @update:page="onPageChange"
+      @update:page-size="onPageSizeChange"
     >
       <template #actions>
         <n-button v-if="canUpload" type="primary" size="small" @click="openUpload()">上传视频</n-button>

@@ -22,6 +22,7 @@ import cn.edu.gpnu.platform.system.vo.AuditLogVO;
 import cn.edu.gpnu.platform.system.vo.BackupRecordVO;
 import cn.edu.gpnu.platform.system.vo.SysParamVO;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import lombok.RequiredArgsConstructor;
 import org.springframework.cache.annotation.CacheEvict;
@@ -99,6 +100,11 @@ public class SystemManagementServiceImpl implements SystemManagementService {
         return toParamVO(paramMapper.selectById(id));
     }
 
+    // Phase 44e-rollout（P1-1 真分页 · 自定义 @Select 手写 mapper）：selectLogs 原以 LIMIT 500 兜底防止
+    // 无上限拉全表，rollout 改为标准 IPage 入参（首参数）+ 去掉硬编码 LIMIT，交给 PaginationInnerInterceptor
+    // 自动改写 SQL 追加 COUNT 与真实 LIMIT/OFFSET。auditCollegeScope 仍在 Java 侧解析范围、把结果集
+    // collegeIds 传入 mapper 的 SQL WHERE（非 selectList 后再 Java 过滤），故分页 COUNT 与分页数据同样精确
+    // 遵循学院范围 —— 与其他 11 个 rollout 端点一致，不存在"范围过滤晚于分页"的问题。
     @Override
     public PageResult<AuditLogVO> auditLogs(AuditLogQuery query) {
         AuditLogQuery q = query == null ? new AuditLogQuery() : query;
@@ -106,7 +112,8 @@ public class SystemManagementServiceImpl implements SystemManagementService {
         if (collegeIds != null && collegeIds.isEmpty()) {
             return new PageResult<>(0, List.of());
         }
-        List<AuditLogVO> records = auditQueryMapper.selectLogs(
+        IPage<Map<String, Object>> result = auditQueryMapper.selectLogs(
+                PageQuery.of(q.getPage(), q.getSize()),
                 trimToNull(q.getBizType()),
                 q.getBizId(),
                 trimToNull(q.getOperation()),
@@ -117,8 +124,9 @@ public class SystemManagementServiceImpl implements SystemManagementService {
                 trimToNull(q.getKeyword()),
                 normalizeDateTime(q.getStartTime()),
                 normalizeDateTime(q.getEndTime())
-        ).stream().map(this::toAuditVO).toList();
-        return new PageResult<>(records.size(), records);
+        );
+        List<AuditLogVO> records = result.getRecords().stream().map(this::toAuditVO).toList();
+        return new PageResult<>(result.getTotal(), records);
     }
 
     @Override
@@ -128,16 +136,19 @@ public class SystemManagementServiceImpl implements SystemManagementService {
         throw new BizException(ResultCode.FORBIDDEN.getCode(), "审计日志不可删除");
     }
 
+    // Phase 44e-rollout（P1-1 真分页 · 无数据范围列表）：由全表 selectList 改为 selectPage 真分页。
+    // 本接口无 @DataScope（备份记录为运维数据、无学院/学生归属），与 params(...) 同构：仅按 status 过滤。
     @Override
-    public PageResult<BackupRecordVO> backups(String status) {
+    public PageResult<BackupRecordVO> backups(String status, Integer page, Integer size) {
         LambdaQueryWrapper<BackupRecord> wrapper = new LambdaQueryWrapper<BackupRecord>()
                 .orderByDesc(BackupRecord::getStartedAt)
                 .orderByDesc(BackupRecord::getId);
         if (StringUtils.hasText(status)) {
             wrapper.eq(BackupRecord::getStatus, status.trim().toUpperCase(Locale.ROOT));
         }
-        List<BackupRecordVO> records = backupRecordMapper.selectList(wrapper).stream().map(this::toBackupVO).toList();
-        return new PageResult<>(records.size(), records);
+        Page<BackupRecord> result = backupRecordMapper.selectPage(PageQuery.of(page, size), wrapper);
+        List<BackupRecordVO> records = result.getRecords().stream().map(this::toBackupVO).toList();
+        return new PageResult<>(result.getTotal(), records);
     }
 
     /**

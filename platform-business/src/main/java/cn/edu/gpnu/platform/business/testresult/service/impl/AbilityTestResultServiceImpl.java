@@ -16,6 +16,7 @@ import cn.edu.gpnu.platform.business.testresult.vo.AbilityTestResultVO;
 import cn.edu.gpnu.platform.business.testresult.vo.AbilityTestValidityVO;
 import cn.edu.gpnu.platform.business.training.entity.TrainingProfile;
 import cn.edu.gpnu.platform.business.training.mapper.TrainingProfileMapper;
+import cn.edu.gpnu.platform.common.api.PageQuery;
 import cn.edu.gpnu.platform.common.api.PageResult;
 import cn.edu.gpnu.platform.common.api.ResultCode;
 import cn.edu.gpnu.platform.common.context.DataScopeContext;
@@ -24,6 +25,7 @@ import cn.edu.gpnu.platform.system.service.DataScopeService;
 import cn.edu.gpnu.platform.system.service.DictService;
 import cn.idev.excel.FastExcel;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -58,10 +60,16 @@ public class AbilityTestResultServiceImpl implements AbilityTestResultService {
     private final DataScopeService dataScopeService;
     private final ObjectMapper objectMapper;
 
+    // Phase 44e-contract（P1-1 真分页 rollout）：由「全表 selectList 后 new PageResult<>(size, records)」改为
+    // MyBatis-Plus Page + selectPage 真分页。@DataScope（AbilityTestResultController.list，alias=ability_test_result）
+    // 设置的线程范围经数据权限拦截器在 selectPage 的 count 与数据两条 SQL 上均生效 → 该页与 total 同为
+    // 「已按学院/本人范围过滤」的结果。
     @Override
     public PageResult<AbilityTestResultVO> list(AbilityTestQuery query) {
-        List<AbilityTestResult> records = selectResults(query);
-        return new PageResult<>(records.size(), toVOs(records));
+        AbilityTestQuery q = query == null ? new AbilityTestQuery() : query;
+        Page<AbilityTestResult> result = resultMapper.selectPage(PageQuery.of(q.getPage(), q.getSize()), buildListWrapper(q));
+        List<AbilityTestResultVO> records = toVOs(result.getRecords());
+        return new PageResult<>(result.getTotal(), records);
     }
 
     @Override
@@ -184,8 +192,12 @@ public class AbilityTestResultServiceImpl implements AbilityTestResultService {
         return entity.getId();
     }
 
-    private List<AbilityTestResult> selectResults(AbilityTestQuery query) {
-        AbilityTestQuery q = query == null ? new AbilityTestQuery() : query;
+    // Phase 44e 真分页（P1-1）：原 keyword 是 selectList 全量后用 Java stream 后置过滤（跨表匹配学号/姓名，
+    // 或成绩文本包含关键词）。真分页下若仍先 selectPage 再对当页结果 stream 过滤，count 与当页会基于
+    // 「未经 keyword 过滤」的行集算出——total 偏大、某页可能被过滤到不足 size 条、页间关系失真。
+    // 故这里把 keyword 下推为 wrapper 条件（命中学号/姓名的 studentId 集合 IN，或成绩 LIKE），
+    // 与其余过滤条件一样交给 selectPage 的 count 与数据两条 SQL 同口径处理。
+    private LambdaQueryWrapper<AbilityTestResult> buildListWrapper(AbilityTestQuery q) {
         LambdaQueryWrapper<AbilityTestResult> wrapper = new LambdaQueryWrapper<AbilityTestResult>()
                 .orderByAsc(AbilityTestResult::getAssessmentYear)
                 .orderByAsc(AbilityTestResult::getStudentId);
@@ -204,22 +216,23 @@ public class AbilityTestResultServiceImpl implements AbilityTestResultService {
         if (StringUtils.hasText(q.getConfirmStatus())) {
             wrapper.eq(AbilityTestResult::getConfirmStatus, q.getConfirmStatus().trim());
         }
-        List<AbilityTestResult> records = resultMapper.selectList(wrapper);
-        if (!StringUtils.hasText(q.getKeyword())) {
-            return records;
+        if (StringUtils.hasText(q.getKeyword())) {
+            String keyword = q.getKeyword().trim();
+            Set<Long> matchedStudentIds = studentMapper.selectList(new LambdaQueryWrapper<Student>()
+                            .like(Student::getStudentNo, keyword)
+                            .or()
+                            .like(Student::getName, keyword))
+                    .stream()
+                    .map(Student::getId)
+                    .collect(Collectors.toSet());
+            if (matchedStudentIds.isEmpty()) {
+                wrapper.like(AbilityTestResult::getScore, keyword);
+            } else {
+                wrapper.and(w -> w.in(AbilityTestResult::getStudentId, matchedStudentIds)
+                        .or().like(AbilityTestResult::getScore, keyword));
+            }
         }
-        String keyword = q.getKeyword().trim();
-        Set<Long> matchedStudentIds = studentMapper.selectList(new LambdaQueryWrapper<Student>()
-                        .like(Student::getStudentNo, keyword)
-                        .or()
-                        .like(Student::getName, keyword))
-                .stream()
-                .map(Student::getId)
-                .collect(Collectors.toSet());
-        return records.stream()
-                .filter(item -> matchedStudentIds.contains(item.getStudentId())
-                        || (item.getScore() != null && item.getScore().contains(keyword)))
-                .toList();
+        return wrapper;
     }
 
     private List<AbilityTestResultVO> toVOs(List<AbilityTestResult> records) {

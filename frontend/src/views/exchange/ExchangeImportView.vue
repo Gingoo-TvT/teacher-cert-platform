@@ -42,6 +42,9 @@ const fileList = ref<UploadFileInfo[]>([])
 const prevalidate = ref<PrevalidateResult | null>(null)
 const strategy = ref('INSERT_ONLY')
 const batches = ref<ExchangeBatch[]>([])
+const batchTotal = ref(0)
+const batchPage = ref(1)
+const batchSize = ref(20)
 
 const strategyOptions: SelectOption[] = [
   { label: '新增', value: 'INSERT_ONLY' },
@@ -110,17 +113,30 @@ const errorColumns: DataTableColumns<ImportError> = [
 async function loadBatches() {
   if (!canViewBatches.value) {
     batches.value = []
+    batchTotal.value = 0
     return
   }
   loading.value = true
   try {
-    const res = await listExchangeBatches('import')
+    const res = await listExchangeBatches('import', null, batchPage.value, batchSize.value)
     batches.value = res.data.records
+    batchTotal.value = res.data.total
   } catch (error) {
     showError(error, '批次列表加载失败')
   } finally {
     loading.value = false
   }
+}
+
+function onBatchPageChange(next: number) {
+  batchPage.value = next
+  void loadBatches()
+}
+
+function onBatchPageSizeChange(nextSize: number) {
+  batchSize.value = nextSize
+  batchPage.value = 1
+  void loadBatches()
 }
 
 async function downloadTpl() {
@@ -332,10 +348,15 @@ onMounted(() => {
           title="导入批次记录"
           :columns="batchColumns"
           :data="batches"
-          :total="batches.length"
+          :total="batchTotal"
           :loading="loading"
+          remote
+          :page="batchPage"
+          :page-size="batchSize"
           empty-title="暂无导入批次"
           empty-description="完成预校验或导入后会生成批次记录。"
+          @update:page="onBatchPageChange"
+          @update:page-size="onBatchPageSizeChange"
           @refresh="loadBatches"
         />
       </n-tab-pane>

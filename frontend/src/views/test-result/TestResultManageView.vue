@@ -44,6 +44,9 @@ const assessmentYear = ref(yearStore.assessmentYear)
 const conclusionFilter = ref<string | null>(null)
 const confirmFilter = ref<string | null>(null)
 const records = ref<AbilityTestResult[]>([])
+const total = ref(0)
+const page = ref(1)
+const size = ref(20)
 const conclusions = ref<DictItem[]>([])
 const examRows = ref<ExamSubject[]>([])
 const importText = ref('')
@@ -61,11 +64,13 @@ const confirmOptions: SelectOption[] = [
   { label: '待确认', value: 'PENDING' },
   { label: '已确认', value: 'CONFIRMED' }
 ]
+// Phase 44e 真分页（P1-1）：records 真分页后只含当页数据，valid/pending/confirmed 三项统计
+// 只能反映当页（已在模板标签标注「当页」）；total 改用后端返回的全量 total，不再用 records.length。
 const summary = computed(() => {
   const valid = records.value.filter((item) => item.validForCertificate).length
   const pending = records.value.filter((item) => item.confirmStatus !== 'CONFIRMED').length
   const confirmed = records.value.filter((item) => item.confirmStatus === 'CONFIRMED').length
-  return { total: records.value.length, valid, pending, confirmed }
+  return { total: total.value, valid, pending, confirmed }
 })
 
 const columns: DataTableColumns<AbilityTestResult> = [
@@ -114,14 +119,34 @@ async function loadRecords() {
       keyword: keyword.value,
       assessmentYear: assessmentYear.value,
       conclusion: conclusionFilter.value,
-      confirmStatus: confirmFilter.value
+      confirmStatus: confirmFilter.value,
+      page: page.value,
+      size: size.value
     })
     records.value = res.data.records
+    total.value = res.data.total
   } catch (error) {
     showError(error, '测试结果加载失败')
   } finally {
     loading.value = false
   }
+}
+
+// 筛选变更（关键词/年度/结论/确认状态）→ 回到第 1 页再查（真分页下 total/页码需随筛选重置）。
+function search() {
+  page.value = 1
+  void loadRecords()
+}
+
+function onPageChange(next: number) {
+  page.value = next
+  void loadRecords()
+}
+
+function onPageSizeChange(nextSize: number) {
+  size.value = nextSize
+  page.value = 1
+  void loadRecords()
 }
 
 async function loadOptions() {
@@ -233,7 +258,7 @@ function resetFilters() {
   assessmentYear.value = yearStore.assessmentYear
   conclusionFilter.value = null
   confirmFilter.value = null
-  void loadRecords()
+  search()
 }
 
 function showError(error: unknown, fallback: string) {
@@ -248,9 +273,9 @@ onMounted(async () => {
 
 watch(
   () => yearStore.assessmentYear,
-  async (year) => {
+  (year) => {
     assessmentYear.value = year
-    await loadRecords()
+    search()
   }
 )
 </script>
@@ -259,15 +284,15 @@ watch(
   <PageContainer title="测试结果" description="测试成绩通过导入产生，院校人员确认锁定。">
     <n-grid :cols="4" :x-gap="12" responsive="screen" class="page-section">
       <n-gi><StatCard label="结果总数" :value="summary.total" /></n-gi>
-      <n-gi><StatCard label="证书前置有效" :value="summary.valid" tone="success" /></n-gi>
-      <n-gi><StatCard label="待确认" :value="summary.pending" tone="warning" /></n-gi>
-      <n-gi><StatCard label="已确认" :value="summary.confirmed" tone="info" /></n-gi>
+      <n-gi><StatCard label="证书前置有效（当页）" :value="summary.valid" tone="success" /></n-gi>
+      <n-gi><StatCard label="待确认（当页）" :value="summary.pending" tone="warning" /></n-gi>
+      <n-gi><StatCard label="已确认（当页）" :value="summary.confirmed" tone="info" /></n-gi>
     </n-grid>
 
-    <FilterBar :loading="loading" @submit="loadRecords" @reset="resetFilters">
+    <FilterBar :loading="loading" @submit="search" @reset="resetFilters">
       <label class="filter-field">
         <span>关键词</span>
-        <n-input v-model:value="keyword" clearable placeholder="学号 / 姓名 / 成绩" style="width: 220px" @keyup.enter="loadRecords" />
+        <n-input v-model:value="keyword" clearable placeholder="学号 / 姓名 / 成绩" style="width: 220px" @keyup.enter="search" />
       </label>
       <label class="filter-field">
         <span>年度</span>
@@ -287,10 +312,15 @@ watch(
       title="测试结果列表"
       :columns="columns"
       :data="records"
-      :total="records.length"
+      :total="total"
       :loading="loading"
+      remote
+      :page="page"
+      :page-size="size"
       empty-title="暂无测试结果"
       empty-description="当前筛选条件下没有测试结果记录。"
+      @update:page="onPageChange"
+      @update:page-size="onPageSizeChange"
       @refresh="loadRecords"
     >
       <template #actions>

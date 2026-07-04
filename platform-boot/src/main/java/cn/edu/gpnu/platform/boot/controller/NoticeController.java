@@ -26,8 +26,10 @@ public class NoticeController {
     @Operation(summary = "通知列表")
     @PreAuthorize("@pms.has('notice:view')")
     @GetMapping
-    public Result<PageResult<NotificationVO>> list(@RequestParam(value = "read", required = false) Boolean read) {
-        return Result.ok(notificationService.list(read));
+    public Result<PageResult<NotificationVO>> list(@RequestParam(value = "read", required = false) Boolean read,
+                                                    @RequestParam(value = "page", required = false) Integer page,
+                                                    @RequestParam(value = "size", required = false) Integer size) {
+        return Result.ok(notificationService.list(read, page, size));
     }
 
     @Operation(summary = "未读通知数")

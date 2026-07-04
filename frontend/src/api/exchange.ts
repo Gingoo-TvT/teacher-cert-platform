@@ -131,9 +131,14 @@ export function rollbackExchangeImport(batchId: string) {
   return request.post<unknown, ApiResult<RollbackResult>>(`/exchange/import/${batchId}/rollback`, {})
 }
 
-export function listExchangeBatches(type?: string | null, status?: string | null) {
+export function listExchangeBatches(
+  type?: string | null,
+  status?: string | null,
+  page?: number,
+  size?: number
+) {
   return request.get<unknown, ApiResult<PageResult<ExchangeBatch>>>('/exchange/batches', {
-    params: cleanParams({ type, status })
+    params: cleanParams({ type, status, page, size })
   })
 }
 
@@ -159,9 +164,10 @@ export function saveBlob(blob: Blob, filename: string) {
 }
 
 function cleanParams(query: object) {
-  const params: Record<string, string> = {}
+  const params: Record<string, string | number> = {}
   for (const [key, value] of Object.entries(query)) {
     if (typeof value === 'string' && value.trim()) params[key] = value.trim()
+    else if (typeof value === 'number' && Number.isFinite(value)) params[key] = value
   }
   return params
 }

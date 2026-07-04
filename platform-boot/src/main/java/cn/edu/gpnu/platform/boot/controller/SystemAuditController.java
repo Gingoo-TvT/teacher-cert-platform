@@ -70,8 +70,10 @@ public class SystemAuditController {
     @Operation(summary = "备份记录列表")
     @PreAuthorize("@pms.has('system:backup')")
     @GetMapping("/api/system/backup")
-    public Result<PageResult<BackupRecordVO>> backups(@RequestParam(value = "status", required = false) String status) {
-        return Result.ok(systemManagementService.backups(status));
+    public Result<PageResult<BackupRecordVO>> backups(@RequestParam(value = "status", required = false) String status,
+                                                       @RequestParam(value = "page", required = false) Integer page,
+                                                       @RequestParam(value = "size", required = false) Integer size) {
+        return Result.ok(systemManagementService.backups(status, page, size));
     }
 
     @Operation(summary = "触发数据库逻辑备份（JDBC 导出→gzip→MinIO）")

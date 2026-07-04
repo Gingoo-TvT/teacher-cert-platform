@@ -27,6 +27,9 @@ const message = useMessage()
 const loading = ref(false)
 const saving = ref(false)
 const playerVisible = ref(false)
+const page = ref(1)
+const size = ref(20)
+const total = ref(0)
 const tasks = ref<VideoTask[]>([])
 const dimensions = ref<DictItem[]>([])
 const reviewMap = ref<Record<string, VideoReview>>({})
@@ -49,6 +52,9 @@ const conclusionOptions: SelectOption[] = [
 
 const selectedTask = computed(() => tasks.value.find((item) => item.id === selectedTaskId.value) || null)
 const selectedReview = computed(() => selectedTask.value ? reviewMap.value[selectedTask.value.videoReviewId] || null : null)
+// P1-1 真分页：tasks.value 现为「当页」而非全量，故 pendingCount/submittedCount 只反映当页计数，
+// 不再是该评审教师的全量待评分/已提交总数。后端未提供按 submitted 分组计数的聚合接口，暂不新增
+// （超出本次两端点分页改造范围），按 rollout 约定标注于此。
 const pendingCount = computed(() => tasks.value.filter((item) => item.submitted === 0).length)
 const submittedCount = computed(() => tasks.value.filter((item) => item.submitted === 1).length)
 
@@ -58,10 +64,11 @@ async function loadData() {
   loading.value = true
   try {
     const [taskRes, dimensionRes] = await Promise.all([
-      listMyVideoTasks(),
+      listMyVideoTasks(undefined, page.value, size.value),
       listDictItems('video_score_dimension', true)
     ])
     tasks.value = taskRes.data.records
+    total.value = taskRes.data.total
     dimensions.value = dimensionRes.data.slice(0, 9)
     await loadReviewDetails()
     if (!selectedTaskId.value || !tasks.value.some((item) => item.id === selectedTaskId.value)) {
@@ -73,6 +80,17 @@ async function loadData() {
   } finally {
     loading.value = false
   }
+}
+
+function onPageChange(next: number) {
+  page.value = next
+  void loadData()
+}
+
+function onPageSizeChange(next: number) {
+  size.value = next
+  page.value = 1
+  void loadData()
 }
 
 async function loadReviewDetails() {
@@ -220,6 +238,17 @@ function showError(error: unknown, fallback: string) {
             </div>
           </n-list-item>
         </n-list>
+        <n-pagination
+          v-if="total > 0"
+          class="task-list-pagination"
+          :page="page"
+          :page-size="size"
+          :item-count="total"
+          show-size-picker
+          :page-sizes="[10, 20, 50, 100]"
+          @update:page="onPageChange"
+          @update:page-size="onPageSizeChange"
+        />
       </n-spin>
     </n-card>
 
@@ -339,6 +368,12 @@ function showError(error: unknown, fallback: string) {
 .task-list :deep(.n-list-item) {
   padding: var(--space-3);
   border-radius: var(--radius-control);
+}
+
+.task-list-pagination {
+  justify-content: flex-end;
+  margin-top: var(--space-3);
+  padding: 0 var(--space-3);
 }
 
 .task-list :deep(.n-list-item.task-item--active) {

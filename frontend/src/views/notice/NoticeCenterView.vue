@@ -16,18 +16,30 @@ const message = useMessage()
 const noticeStore = useNoticeStore()
 const loading = ref(false)
 const notices = ref<NotificationItem[]>([])
+const total = ref(0)
+const page = ref(1)
+const size = ref(20)
 const readFilter = ref<ReadFilter>('all')
 const typeFilter = ref<string | null>(null)
 const selectedNotice = ref<NotificationItem | null>(null)
 const drawerVisible = ref(false)
 let noticeTimer: number | undefined
 
-const unreadCount = computed(() => notices.value.filter((item) => item.readFlag === 0).length)
-const readCount = computed(() => notices.value.filter((item) => item.readFlag === 1).length)
+// Phase 44e-contract（P1-1 真分页 rollout · NoticeCenterView 前端特例，见 docs/pagination-rollout-spec.md §2）：
+// 真分页后 notices 只是当页数据，「未读」不能再靠本地 filter 当页统计（会漏掉其它页），改读
+// noticeStore.unreadCount（全局真实未读数，来自 /notice/unread-count，标记已读/全部已读时已同步刷新）；
+// 「已读」按当前 read 筛选精确推：筛未读时子集全未读→0，筛已读时子集全已读→total，筛全部时 total－全局未读。
+const unreadCount = computed(() => noticeStore.unreadCount)
+const readCount = computed(() => {
+  if (readFilter.value === 'unread') return 0
+  if (readFilter.value === 'read') return total.value
+  return Math.max(0, total.value - noticeStore.unreadCount)
+})
 const typeOptions = computed<SelectOption[]>(() => {
   const types = [...new Set(notices.value.map((item) => item.type).filter(Boolean))]
   return types.map((type) => ({ label: typeName(type), value: type }))
 })
+// 通知类型未下推为后端参数（后端仅接受 read/page/size）——仅筛当页，翻页后可选项/结果会变化（spec 允许的降级）。
 const filteredNotices = computed(() => {
   if (!typeFilter.value) return notices.value
   return notices.value.filter((item) => item.type === typeFilter.value)
@@ -41,6 +53,7 @@ const filterOptions: SelectOption[] = [
 
 onMounted(() => {
   loadNotices()
+  void noticeStore.refresh()
   noticeTimer = window.setInterval(loadNotices, 60000)
 })
 
@@ -52,13 +65,31 @@ async function loadNotices() {
   loading.value = true
   try {
     const read = readFilter.value === 'all' ? null : readFilter.value === 'read'
-    const res = await listNotices(read)
+    const res = await listNotices(read, page.value, size.value)
     notices.value = res.data.records || []
+    total.value = res.data.total || 0
   } catch (error) {
     showError(error, '通知加载失败')
   } finally {
     loading.value = false
   }
+}
+
+// Phase 44e-contract：真分页配方的 search/onPageChange/onPageSizeChange 三件套（与 DataPanel 视图同名同职责）。
+function search() {
+  page.value = 1
+  void loadNotices()
+}
+
+function onPageChange(p: number) {
+  page.value = p
+  void loadNotices()
+}
+
+function onPageSizeChange(s: number) {
+  size.value = s
+  page.value = 1
+  void loadNotices()
 }
 
 async function openNotice(row: NotificationItem) {
@@ -85,15 +116,15 @@ async function handleReadAll() {
   }
 }
 
-async function onReadFilterChange() {
+function onReadFilterChange() {
   typeFilter.value = null
-  await loadNotices()
+  search()
 }
 
 function resetFilters() {
   readFilter.value = 'all'
   typeFilter.value = null
-  void loadNotices()
+  search()
 }
 
 function typeName(type?: string | null) {
@@ -123,12 +154,12 @@ function showError(error: unknown, fallback: string) {
     </template>
 
     <n-grid :cols="3" :x-gap="12" responsive="screen" class="page-section">
-      <n-gi><StatCard label="通知总数" :value="notices.length" /></n-gi>
+      <n-gi><StatCard label="通知总数" :value="total" /></n-gi>
       <n-gi><StatCard label="未读" :value="unreadCount" tone="error" /></n-gi>
       <n-gi><StatCard label="已读" :value="readCount" tone="success" /></n-gi>
     </n-grid>
 
-    <FilterBar :loading="loading" submit-text="刷新" @submit="loadNotices" @reset="resetFilters">
+    <FilterBar :loading="loading" submit-text="刷新" @submit="search" @reset="resetFilters">
       <label class="filter-field">
         <span>阅读状态</span>
         <n-segmented v-model:value="readFilter" :options="filterOptions" @update:value="onReadFilterChange" />
@@ -168,6 +199,22 @@ function showError(error: unknown, fallback: string) {
       <EmptyState v-else title="暂无通知" description="当前筛选条件下没有通知。" />
     </n-spin>
 
+    <!-- Phase 44e-contract（P1-1 真分页 · n-list 特例）：n-list 无内置分页，DataPanel 的 remote 分页配方
+         不适用于此处，改用独立 n-pagination 绑定后端 total / page / size，翻页与改页大小回抛后端重新查询。 -->
+    <n-pagination
+      v-if="total > 0"
+      class="notice-pagination"
+      :page="page"
+      :page-size="size"
+      :item-count="total"
+      :page-sizes="[10, 20, 50, 100]"
+      show-size-picker
+      @update:page="onPageChange"
+      @update:page-size="onPageSizeChange"
+    >
+      <template #prefix="{ itemCount }">共 {{ itemCount }} 条</template>
+    </n-pagination>
+
     <n-drawer v-model:show="drawerVisible" :width="560">
       <n-drawer-content :title="selectedNotice?.title || '通知详情'" closable>
         <n-space v-if="selectedNotice" vertical :size="16">
@@ -200,6 +247,12 @@ function showError(error: unknown, fallback: string) {
 .notice-list {
   margin-bottom: var(--space-7);
   background: var(--surface);
+}
+
+.notice-pagination {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: var(--space-7);
 }
 
 .notice-row {

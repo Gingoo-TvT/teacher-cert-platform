@@ -227,6 +227,45 @@ class Phase8TestResultIT {
         assertThat(studentBRecords.at("/0/studentId").asLong()).isEqualTo(9002L);
     }
 
+    /**
+     * Phase 44e-contract（P1-1 真分页样例 · 数据范围 × 分页组合的正确性证明）：
+     * 学院文员（学院A）对含跨学院同年度测试结果的列表做真分页——
+     * ① total 为「已按学院范围过滤」的总数（3，学院B 那条不计入，证明分页 count SQL 也走了数据权限拦截器）；
+     * ② 每页条数=请求 size；③ 各页均无学院B 数据；④ 页间记录不重叠（真 LIMIT/OFFSET，非全表包壳）。
+     */
+    @Test
+    void paginatedTestResultListIsScopedAndPagedForCollegeUser() throws Exception {
+        LoginResult academic = readyLogin("test_academic_admin");
+        String year = "P8-PAGE";
+        String studentNoPrefix = "P8PAGE" + System.nanoTime();
+        long studentA2 = createStudent(studentNoPrefix + "A2", COLLEGE_A);
+        long studentA3 = createStudent(studentNoPrefix + "A3", COLLEGE_A);
+
+        importOk(academic.accessToken(), 9001L, year, "81", "qualified");
+        importOk(academic.accessToken(), studentA2, year, "82", "qualified");
+        importOk(academic.accessToken(), studentA3, year, "83", "qualified");
+        // 学院B 同年度 1 条：年度筛选能命中，但学院文员的数据范围应把它排除在 total 与 records 之外。
+        importOk(academic.accessToken(), 9002L, year, "84", "qualified");
+
+        LoginResult clerk = readyLogin("test_college_clerk");
+
+        JsonNode page1 = json(exchange("/api/test?assessmentYear=" + year + "&page=1&size=2",
+                HttpMethod.GET, clerk.accessToken(), null)).at("/data");
+        assertThat(page1.at("/total").asLong()).isEqualTo(3);
+        assertThat(page1.at("/records").size()).isEqualTo(2);
+        assertThat(page1.at("/records").toString()).contains(String.valueOf(COLLEGE_A));
+        assertThat(page1.at("/records").toString()).doesNotContain(String.valueOf(COLLEGE_B));
+
+        JsonNode page2 = json(exchange("/api/test?assessmentYear=" + year + "&page=2&size=2",
+                HttpMethod.GET, clerk.accessToken(), null)).at("/data");
+        assertThat(page2.at("/total").asLong()).isEqualTo(3);
+        assertThat(page2.at("/records").size()).isEqualTo(1);
+        assertThat(page2.at("/records").toString()).doesNotContain(String.valueOf(COLLEGE_B));
+
+        assertThat(page1.at("/records/0/id").asLong())
+                .isNotEqualTo(page2.at("/records/0/id").asLong());
+    }
+
     private JsonNode importOk(String token, long studentId, String year, String score, String conclusion) throws Exception {
         ResponseEntity<String> response = importRows(token, studentId, year, score, conclusion);
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
@@ -266,6 +305,25 @@ class Phase8TestResultIT {
         request.setIncludedInExam(0);
         request.setLocked(1);
         exemptionRequestMapper.insert(request);
+    }
+
+    // Phase 44e 真分页 IT（P1-1）：分页×数据范围样例需要同年度、跨学院的多条学生数据；直接经 studentMapper
+    // 插入（而非走 /api/student 建档流程），绕开与本测试无关的证件格式/姓名等校验，只保证分页所需的
+    // college_id 区分与 student_no 唯一（uk_student_no 不受 deleted 限定，故仍用 nanoTime 后缀防串号）。
+    private long createStudent(String studentNo, long collegeId) {
+        Student student = new Student();
+        student.setStudentNo(studentNo);
+        student.setName("分页测试学生");
+        student.setGender("female");
+        student.setIdCardType("resident_id_card");
+        student.setIdCardNo("P8IDCARD" + System.nanoTime());
+        student.setBirthDate("2000/1/1");
+        student.setIdentityType("normal_student");
+        student.setCollegeId(collegeId);
+        student.setStatus("DRAFT");
+        student.setLocked(0);
+        studentMapper.insert(student);
+        return student.getId();
     }
 
     private ResponseEntity<String> exchange(String path, HttpMethod method, String accessToken, Object body) {
@@ -409,6 +467,9 @@ class Phase8TestResultIT {
         jdbcTemplate.update("DELETE FROM exemption_material WHERE exemption_request_id IN (SELECT id FROM exemption_request WHERE assessment_year LIKE 'P8%')");
         jdbcTemplate.update("DELETE FROM exemption_request WHERE assessment_year LIKE 'P8%'");
         jdbcTemplate.update("DELETE FROM process_material WHERE assessment_year LIKE 'P8%'");
+        // Phase 44e 真分页 IT（P1-1）：paginatedTestResultListIsScopedAndPagedForCollegeUser 经 createStudent()
+        // 直接插入的分页测试专用学生（学号前缀 P8PAGE，非 REST 建档流程产生），随其余 P8 测试数据一并硬删除。
+        jdbcTemplate.update("DELETE FROM student WHERE student_no LIKE 'P8PAGE%'");
     }
 
     private record LoginResult(String accessToken, String refreshToken, boolean mustChangePwd) {

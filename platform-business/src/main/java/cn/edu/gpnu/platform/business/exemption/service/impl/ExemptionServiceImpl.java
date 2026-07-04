@@ -16,6 +16,7 @@ import cn.edu.gpnu.platform.business.exemption.vo.ExemptionRequestVO;
 import cn.edu.gpnu.platform.business.student.entity.Student;
 import cn.edu.gpnu.platform.business.student.mapper.StudentMapper;
 import cn.edu.gpnu.platform.business.support.ReviewNotificationHelper;
+import cn.edu.gpnu.platform.common.api.PageQuery;
 import cn.edu.gpnu.platform.common.api.PageResult;
 import cn.edu.gpnu.platform.common.api.ResultCode;
 import cn.edu.gpnu.platform.common.context.DataScopeContext;
@@ -32,6 +33,7 @@ import cn.edu.gpnu.platform.system.service.DictService;
 import cn.edu.gpnu.platform.system.service.ParamService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -79,10 +81,15 @@ public class ExemptionServiceImpl implements ExemptionService {
         return dictItemMapper.selectList(wrapper);
     }
 
+    // Phase 44e-rollout（P1-1 真分页）：由「全表 selectList 后 new PageResult<>(size, records)」改为
+    // MyBatis-Plus Page + selectPage 真分页。@DataScope（ExemptionController.list，alias=exemption_request）设置的
+    // 线程范围经数据权限拦截器在 selectPage 的 count 与数据两条 SQL 上均生效 → 该页与 total 同为「已按范围过滤」的结果。
     @Override
     public PageResult<ExemptionRequestVO> list(ExemptionQuery query) {
-        List<ExemptionRequest> records = selectRequests(query);
-        return new PageResult<>(records.size(), toVO(records));
+        ExemptionQuery q = query == null ? new ExemptionQuery() : query;
+        Page<ExemptionRequest> result = requestMapper.selectPage(PageQuery.of(q.getPage(), q.getSize()), buildListWrapper(q));
+        List<ExemptionRequestVO> records = toVO(result.getRecords());
+        return new PageResult<>(result.getTotal(), records);
     }
 
     @Override
@@ -359,6 +366,12 @@ public class ExemptionServiceImpl implements ExemptionService {
     }
 
     private List<ExemptionRequest> selectRequests(ExemptionQuery query) {
+        return requestMapper.selectList(buildListWrapper(query));
+    }
+
+    // Phase 44e-rollout（P1-1 真分页）：从原 selectRequests 拆出纯 wrapper 构造，供 list() 的 selectPage
+    // 与 selectRequests()（studentRequests 等仍需全量）共用，两处过滤条件保持逐字一致。
+    private LambdaQueryWrapper<ExemptionRequest> buildListWrapper(ExemptionQuery query) {
         ExemptionQuery q = query == null ? new ExemptionQuery() : query;
         LambdaQueryWrapper<ExemptionRequest> wrapper = new LambdaQueryWrapper<ExemptionRequest>()
                 .orderByAsc(ExemptionRequest::getAssessmentYear)
@@ -390,7 +403,7 @@ public class ExemptionServiceImpl implements ExemptionService {
                     .or()
                     .like(ExemptionRequest::getRemark, keyword));
         }
-        return requestMapper.selectList(wrapper);
+        return wrapper;
     }
 
     private List<ExemptionRequestVO> toVO(List<ExemptionRequest> records) {

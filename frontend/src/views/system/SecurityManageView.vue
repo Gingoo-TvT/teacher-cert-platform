@@ -28,6 +28,9 @@ const keyword = ref('')
 const roleKeyword = ref('')
 const statusFilter = ref<string | null>(null)
 const users = ref<User[]>([])
+const userTotal = ref(0)
+const userPage = ref(1)
+const userPageSize = ref(20)
 const roles = ref<Role[]>([])
 const permissions = ref<Permission[]>([])
 const colleges = ref<College[]>([])
@@ -57,9 +60,10 @@ const canManageUsers = computed(() => userStore.hasPerm('system:user:manage'))
 const canManageRoles = computed(() => userStore.hasPerm('system:role:manage'))
 const canManagePerms = computed(() => userStore.hasPerm('system:perm:manage'))
 const hasVisibleSection = computed(() => canManageUsers.value || canManageRoles.value || canManagePerms.value)
+// Phase 44e-contract（P1-1 真分页样例）：真分页后 users 仅为当页数据，用户总数改用后端 total；
+// 原「启用用户」为本地按当页 status 过滤统计，翻页后不再代表全量，故移除（不再具备统计意义）。
 const summary = computed(() => ({
-  users: users.value.length,
-  enabledUsers: users.value.filter((item) => item.status === 'ENABLED').length,
+  users: userTotal.value,
   roles: roles.value.length,
   permissions: flattenPermissions(permissions.value).length
 }))
@@ -136,17 +140,41 @@ const permissionColumns: DataTableColumns<Permission> = [
 async function loadUsers() {
   if (!canManageUsers.value) {
     users.value = []
+    userTotal.value = 0
     return
   }
   userLoading.value = true
   try {
-    const res = await listUsers({ keyword: keyword.value, status: statusFilter.value })
+    const res = await listUsers({
+      keyword: keyword.value,
+      status: statusFilter.value,
+      page: userPage.value,
+      size: userPageSize.value
+    })
     users.value = res.data.records
+    userTotal.value = res.data.total
   } catch (error) {
     showError(error, '用户加载失败')
   } finally {
     userLoading.value = false
   }
+}
+
+// 筛选变更（用户名/姓名/工号关键词 · 状态）→ 回到第 1 页再查（真分页下 total/页码需随筛选重置）。
+function searchUsers() {
+  userPage.value = 1
+  void loadUsers()
+}
+
+function onUserPageChange(next: number) {
+  userPage.value = next
+  void loadUsers()
+}
+
+function onUserPageSizeChange(nextSize: number) {
+  userPageSize.value = nextSize
+  userPage.value = 1
+  void loadUsers()
 }
 
 async function loadRoles() {
@@ -262,7 +290,7 @@ function statusName(status: string) {
 function resetUserFilters() {
   keyword.value = ''
   statusFilter.value = null
-  void loadUsers()
+  searchUsers()
 }
 
 function resetRoleFilters() {
@@ -286,9 +314,8 @@ onMounted(refreshAll)
 
     <n-empty v-if="!hasVisibleSection" description="当前账号没有可访问的账号权限分区" class="page-section" />
 
-    <n-grid v-if="hasVisibleSection" :cols="4" :x-gap="12" responsive="screen" class="page-section">
+    <n-grid v-if="hasVisibleSection" :cols="3" :x-gap="12" responsive="screen" class="page-section">
       <n-gi v-if="canManageUsers"><StatCard label="用户总数" :value="summary.users" /></n-gi>
-      <n-gi v-if="canManageUsers"><StatCard label="启用用户" :value="summary.enabledUsers" tone="success" /></n-gi>
       <n-gi v-if="canManageRoles"><StatCard label="角色数" :value="summary.roles" tone="info" /></n-gi>
       <n-gi v-if="canManagePerms"><StatCard label="功能权限" :value="summary.permissions" tone="neutral" /></n-gi>
     </n-grid>
@@ -296,10 +323,10 @@ onMounted(refreshAll)
     <n-tabs v-if="hasVisibleSection" type="line" animated>
       <n-tab-pane v-if="canManageUsers" name="users" tab="用户">
         <div class="panel page-section">
-          <FilterBar :loading="userLoading" @submit="loadUsers" @reset="resetUserFilters">
+          <FilterBar :loading="userLoading" @submit="searchUsers" @reset="resetUserFilters">
             <label class="filter-field">
               <span>用户</span>
-              <n-input v-model:value="keyword" clearable placeholder="用户名 / 姓名 / 工号" style="width: 220px" />
+              <n-input v-model:value="keyword" clearable placeholder="用户名 / 姓名 / 工号" style="width: 220px" @keyup.enter="searchUsers" />
             </label>
             <label class="filter-field">
               <span>状态</span>
@@ -320,11 +347,16 @@ onMounted(refreshAll)
             title="用户列表"
             :columns="userColumns"
             :data="users"
-            :total="users.length"
+            :total="userTotal"
             :loading="userLoading"
             :max-height="620"
+            remote
+            :page="userPage"
+            :page-size="userPageSize"
             empty-title="暂无用户"
             empty-description="当前筛选条件下没有用户记录。"
+            @update:page="onUserPageChange"
+            @update:page-size="onUserPageSizeChange"
             @refresh="loadUsers"
           >
             <template #actions>

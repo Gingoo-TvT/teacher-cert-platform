@@ -22,7 +22,7 @@ public interface ExchangeService {
 
     RollbackResultVO rollback(Long batchId);
 
-    PageResult<BatchVO> batches(String type, String status);
+    PageResult<BatchVO> batches(String type, String status, Integer page, Integer size);
 
     ExchangeFile export(String type, ExchangeQuery query);
 

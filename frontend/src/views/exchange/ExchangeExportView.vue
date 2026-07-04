@@ -26,6 +26,9 @@ const yearStore = useYearStore()
 const exporting = ref(false)
 const loading = ref(false)
 const batches = ref<ExchangeBatch[]>([])
+const batchTotal = ref(0)
+const batchPage = ref(1)
+const batchSize = ref(20)
 const statuses = ref<DictItem[]>([])
 const segments = ref<DictItem[]>([])
 const goals = ref<DictItem[]>([])
@@ -62,10 +65,12 @@ const statusOptions = computed<SelectOption[]>(() => statuses.value.map((item) =
 const segmentOptions = computed<SelectOption[]>(() => segments.value.map((item) => ({ label: item.itemValue, value: item.itemCode })))
 const goalOptions = computed<SelectOption[]>(() => goals.value.map((item) => ({ label: item.itemValue, value: item.itemCode })))
 const collegeOptions = computed<SelectOption[]>(() => colleges.value.map((item) => ({ label: item.name, value: item.id })))
+// Phase 44e-rollout：批次列表改真分页后 batches 数组仅为当页数据。"total" 已切到后端真实 total；
+// "已完成"/"生成文件" 原先靠 batches.value.filter(...).length 在全量数组上统计，真分页后会静默退化为
+// 「仅当页命中数」。补一次按 status 精确统计的聚合查询超出本次机械 rollout 范围，故与 spec 对
+// listUsers/backups 等条目的既定处理一致：去掉这两张会显示误导性数字的统计卡片。
 const summary = computed(() => ({
-  total: batches.value.length,
-  exported: batches.value.filter((item) => item.status === 'EXPORTED').length,
-  files: batches.value.filter((item) => item.fileName).length
+  total: batchTotal.value
 }))
 
 const batchColumns: DataTableColumns<ExchangeBatch> = [
@@ -94,17 +99,30 @@ async function loadOptions() {
 async function loadBatches() {
   if (!canExport.value) {
     batches.value = []
+    batchTotal.value = 0
     return
   }
   loading.value = true
   try {
-    const res = await listExchangeBatches('export')
+    const res = await listExchangeBatches('export', null, batchPage.value, batchSize.value)
     batches.value = res.data.records
+    batchTotal.value = res.data.total
   } catch (error) {
     showError(error, '导出批次加载失败')
   } finally {
     loading.value = false
   }
+}
+
+function onBatchPageChange(next: number) {
+  batchPage.value = next
+  void loadBatches()
+}
+
+function onBatchPageSizeChange(nextSize: number) {
+  batchSize.value = nextSize
+  batchPage.value = 1
+  void loadBatches()
 }
 
 async function runExport() {
@@ -210,10 +228,8 @@ watch(
   <PageContainer title="导出中心" description="导出标准上报表、完整审核表、证书汇总、异常数据与附件打包。">
     <n-empty v-if="!canExport" description="当前账号没有可访问的导出分区" class="page-section" />
 
-    <n-grid v-if="canExport" :cols="3" :x-gap="12" responsive="screen" class="page-section">
+    <n-grid v-if="canExport" :cols="1" :x-gap="12" responsive="screen" class="page-section">
       <n-gi><StatCard label="导出批次" :value="summary.total" /></n-gi>
-      <n-gi><StatCard label="已完成" :value="summary.exported" tone="success" /></n-gi>
-      <n-gi><StatCard label="生成文件" :value="summary.files" tone="info" /></n-gi>
     </n-grid>
 
     <FilterBar v-if="canExport" :loading="exporting" submit-text="导出" @submit="runExport" @reset="resetQuery">
@@ -266,10 +282,15 @@ watch(
       title="导出批次记录"
       :columns="batchColumns"
       :data="batches"
-      :total="batches.length"
+      :total="batchTotal"
       :loading="loading"
+      remote
+      :page="batchPage"
+      :page-size="batchSize"
       empty-title="暂无导出批次"
       empty-description="执行导出后会生成批次记录。"
+      @update:page="onBatchPageChange"
+      @update:page-size="onBatchPageSizeChange"
       @refresh="loadBatches"
     />
   </PageContainer>

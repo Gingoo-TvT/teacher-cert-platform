@@ -38,8 +38,10 @@ public class TrainingProfileController {
     public Result<PageResult<TrainingProfileVO>> list(@RequestParam(value = "keyword", required = false) String keyword,
                                                       @RequestParam(value = "status", required = false) String status,
                                                       @RequestParam(value = "collegeId", required = false) Long collegeId,
-                                                      @RequestParam(value = "assessmentYear", required = false) String assessmentYear) {
-        return Result.ok(trainingProfileService.list(keyword, status, collegeId, assessmentYear));
+                                                      @RequestParam(value = "assessmentYear", required = false) String assessmentYear,
+                                                      @RequestParam(value = "page", required = false) Integer page,
+                                                      @RequestParam(value = "size", required = false) Integer size) {
+        return Result.ok(trainingProfileService.list(keyword, status, collegeId, assessmentYear, page, size));
     }
 
     @Operation(summary = "查询学生培养信息")

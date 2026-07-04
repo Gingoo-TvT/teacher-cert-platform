@@ -10,4 +10,6 @@ public class CertificateQuery {
     private Long collegeId;
     private String assessmentYear;
     private String status;
+    private Integer page;
+    private Integer size;
 }

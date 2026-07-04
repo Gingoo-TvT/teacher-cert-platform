@@ -15,4 +15,6 @@ public class AuditLogQuery {
     private String keyword;
     private String startTime;
     private String endTime;
+    private Integer page;
+    private Integer size;
 }

@@ -32,6 +32,7 @@ import cn.edu.gpnu.platform.business.video.vo.VideoReviewVO;
 import cn.edu.gpnu.platform.business.video.vo.VideoUploadInitVO;
 import cn.edu.gpnu.platform.business.video.vo.VideoUploadProgressVO;
 import cn.edu.gpnu.platform.business.support.ReviewNotificationHelper;
+import cn.edu.gpnu.platform.common.api.PageQuery;
 import cn.edu.gpnu.platform.common.api.PageResult;
 import cn.edu.gpnu.platform.common.api.ResultCode;
 import cn.edu.gpnu.platform.common.context.DataScopeContext;
@@ -51,6 +52,7 @@ import cn.edu.gpnu.platform.system.service.DataScopeService;
 import cn.edu.gpnu.platform.system.service.ParamService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.minio.ComposeObjectArgs;
@@ -313,8 +315,9 @@ public class VideoReviewServiceImpl implements VideoReviewService {
 
     @Override
     public PageResult<VideoReviewVO> list(VideoQuery query) {
-        List<VideoReview> records = selectReviews(query);
-        return new PageResult<>(records.size(), toVOList(records));
+        VideoQuery q = query == null ? new VideoQuery() : query;
+        Page<VideoReview> result = reviewMapper.selectPage(PageQuery.of(q.getPage(), q.getSize()), buildListWrapper(q));
+        return new PageResult<>(result.getTotal(), toVOList(result.getRecords()));
     }
 
     @Override
@@ -371,7 +374,7 @@ public class VideoReviewServiceImpl implements VideoReviewService {
     }
 
     @Override
-    public PageResult<VideoReviewTaskVO> myTasks(String status) {
+    public PageResult<VideoReviewTaskVO> myTasks(String status, Integer page, Integer size) {
         Long userId = UserContext.getUserId();
         if (userId == null) {
             throw new BizException(ResultCode.UNAUTHORIZED.getCode(), "未登录");
@@ -382,8 +385,9 @@ public class VideoReviewServiceImpl implements VideoReviewService {
         if (StringUtils.hasText(status)) {
             wrapper.eq(VideoReviewTask::getSubmitted, "SUBMITTED".equalsIgnoreCase(status.trim()) ? 1 : 0);
         }
-        List<VideoReviewTask> records = taskMapper.selectList(wrapper);
-        return new PageResult<>(records.size(), records.stream().map(task -> toTaskVO(task, false)).toList());
+        Page<VideoReviewTask> result = taskMapper.selectPage(PageQuery.of(page, size), wrapper);
+        List<VideoReviewTaskVO> records = result.getRecords().stream().map(task -> toTaskVO(task, false)).toList();
+        return new PageResult<>(result.getTotal(), records);
     }
 
     @Override
@@ -1057,7 +1061,7 @@ public class VideoReviewServiceImpl implements VideoReviewService {
         return value;
     }
 
-    private List<VideoReview> selectReviews(VideoQuery query) {
+    private LambdaQueryWrapper<VideoReview> buildListWrapper(VideoQuery query) {
         VideoQuery q = query == null ? new VideoQuery() : query;
         LambdaQueryWrapper<VideoReview> wrapper = new LambdaQueryWrapper<VideoReview>()
                 .orderByAsc(VideoReview::getAssessmentYear)
@@ -1080,7 +1084,7 @@ public class VideoReviewServiceImpl implements VideoReviewService {
                     .or()
                     .like(VideoReview::getFileMd5, keyword));
         }
-        return reviewMapper.selectList(wrapper);
+        return wrapper;
     }
 
     private List<VideoReviewVO> toVOList(List<VideoReview> records) {

@@ -37,7 +37,7 @@ public interface VideoReviewService {
 
     void assign(Long reviewId, VideoAssignRequest request);
 
-    PageResult<VideoReviewTaskVO> myTasks(String status);
+    PageResult<VideoReviewTaskVO> myTasks(String status, Integer page, Integer size);
 
     VideoReviewTaskVO taskDetail(Long taskId);
 

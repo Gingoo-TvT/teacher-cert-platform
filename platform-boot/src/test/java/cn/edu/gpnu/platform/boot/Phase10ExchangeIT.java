@@ -434,6 +434,78 @@ class Phase10ExchangeIT {
         assertThat(persisted.getStatus()).isEqualTo("IMPORTED");
     }
 
+    /**
+     * Phase 44e-rollout（P1-1 真分页 · variant C：Java 侧手工 operatorId 过滤下推进 wrapper）：
+     * GET /api/exchange/batches 对非全校范围用户（COLLEGE_CLERK/COLLEGE_AUDITOR 的 exchange:import 均为
+     * COLLEGE 域、非 allSchool——见 V8__rbac_seed.sql:150、V20__rbac_regrant.sql:71）只能看到「本人创建」
+     * 的批次（按 operatorId，而非按学院）。真分页改造前是 selectList 全量 + Java
+     * uid.equals(b.getOperatorId()) 后置过滤；若下推 wrapper 时有遗漏，分页拦截器生成的 COUNT/LIMIT 会先于
+     * 范围过滤执行，导致 total 把「同学院其他人」甚至「全校」批次一并计入、造成跨用户数据泄露。
+     * 本测试用两个真实登录的不同 operatorId 用户互相核验：任一方的 total 与分页记录都必须与另一方严格互斥。
+     */
+    @Test
+    void batchListIsScopedToOperatorAndSupportsRealPaginationForNonAllSchoolUser() throws Exception {
+        LoginResult clerk = readyLogin("test_college_clerk");
+        LoginResult auditor = readyLogin("test_college_auditor");
+        long clerkId = userMapper.selectByUsername("test_college_clerk").getId();
+        long auditorId = userMapper.selectByUsername("test_college_auditor").getId();
+
+        long c1 = seedBatch("P10PAGE-C1-" + System.nanoTime(), clerkId, "import");
+        long c2 = seedBatch("P10PAGE-C2-" + System.nanoTime(), clerkId, "import");
+        long c3 = seedBatch("P10PAGE-C3-" + System.nanoTime(), clerkId, "import");
+        long a1 = seedBatch("P10PAGE-A1-" + System.nanoTime(), auditorId, "import");
+        long a2 = seedBatch("P10PAGE-A2-" + System.nanoTime(), auditorId, "import");
+
+        // 学院文员：total 只计本人 3 条；审计员的 2 条既不计入 total，也不出现在任何一页。
+        JsonNode clerkPage1 = json(exchange("/api/exchange/batches?type=import&page=1&size=2",
+                HttpMethod.GET, clerk.accessToken(), null)).at("/data");
+        JsonNode clerkPage2 = json(exchange("/api/exchange/batches?type=import&page=2&size=2",
+                HttpMethod.GET, clerk.accessToken(), null)).at("/data");
+        assertThat(clerkPage1.at("/total").asLong()).isEqualTo(3);
+        assertThat(clerkPage2.at("/total").asLong()).isEqualTo(3);
+        assertThat(clerkPage1.at("/records").size()).isEqualTo(2);
+        assertThat(clerkPage2.at("/records").size()).isEqualTo(1);
+
+        List<Long> clerkIds = new ArrayList<>();
+        for (JsonNode node : clerkPage1.at("/records")) {
+            clerkIds.add(node.at("/id").asLong());
+        }
+        for (JsonNode node : clerkPage2.at("/records")) {
+            clerkIds.add(node.at("/id").asLong());
+        }
+        assertThat(clerkIds).containsExactlyInAnyOrder(c1, c2, c3);
+        assertThat(clerkIds).doesNotContain(a1, a2);
+
+        // 反向核验：审计员只看到自己的 2 条，一条 clerk 的批次也看不到——证明过滤键是 operatorId 本人，
+        // 而非学院或全校范围（两人均为 COLLEGE 域，若误按学院过滤会彼此互相看到对方批次）。
+        JsonNode auditorPage = json(exchange("/api/exchange/batches?type=import&page=1&size=50",
+                HttpMethod.GET, auditor.accessToken(), null)).at("/data");
+        assertThat(auditorPage.at("/total").asLong()).isEqualTo(2);
+        List<Long> auditorIds = new ArrayList<>();
+        for (JsonNode node : auditorPage.at("/records")) {
+            auditorIds.add(node.at("/id").asLong());
+        }
+        assertThat(auditorIds).containsExactlyInAnyOrder(a1, a2);
+        assertThat(auditorIds).doesNotContain(c1, c2, c3);
+    }
+
+    private long seedBatch(String batchNo, long operatorId, String type) {
+        ImportExportBatch batch = new ImportExportBatch();
+        batch.setBatchNo(batchNo);
+        batch.setType(type);
+        batch.setFileName(batchNo + ".xlsx");
+        batch.setOperatorId(operatorId);
+        batch.setOperateTime(LocalDateTime.now());
+        batch.setTotal(1);
+        batch.setSuccessCount(1);
+        batch.setFailCount(0);
+        batch.setStrategy("INSERT_ONLY");
+        batch.setStatus("IMPORTED");
+        batch.setRemark("P10PAGE");
+        batchMapper.insert(batch);
+        return batch.getId();
+    }
+
     private void assertWorkbookHeaderAndTextFormat(byte[] content) throws Exception {
         try (Workbook workbook = new XSSFWorkbook(new ByteArrayInputStream(content))) {
             Row header = workbook.getSheetAt(0).getRow(0);
@@ -702,7 +774,7 @@ class Phase10ExchangeIT {
     private void cleanupGeneratedData() {
         jdbcTemplate.update("DELETE FROM import_record_ref WHERE batch_no LIKE 'IMP-%' OR batch_no LIKE 'EXP-%'");
         jdbcTemplate.update("DELETE FROM import_error_detail WHERE batch_no LIKE 'IMP-%' OR batch_no LIKE 'EXP-%'");
-        jdbcTemplate.update("DELETE FROM import_export_batch WHERE batch_no LIKE 'IMP-%' OR batch_no LIKE 'EXP-%'");
+        jdbcTemplate.update("DELETE FROM import_export_batch WHERE batch_no LIKE 'IMP-%' OR batch_no LIKE 'EXP-%' OR batch_no LIKE 'P10PAGE-%'");
         jdbcTemplate.update("DELETE FROM certificate WHERE student_no LIKE 'P10%' OR student_no = '00123'");
         jdbcTemplate.update("DELETE FROM training_profile WHERE student_id IN (SELECT id FROM student WHERE student_no LIKE 'P10%' OR student_no = '00123')");
         jdbcTemplate.update("DELETE FROM student WHERE student_no LIKE 'P10%' OR student_no = '00123'");

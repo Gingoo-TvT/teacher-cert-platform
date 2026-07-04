@@ -1,5 +1,6 @@
 package cn.edu.gpnu.platform.security.service;
 
+import cn.edu.gpnu.platform.common.api.PageQuery;
 import cn.edu.gpnu.platform.common.api.PageResult;
 import cn.edu.gpnu.platform.common.exception.BizException;
 import cn.edu.gpnu.platform.system.dto.RolePermissionAssignRequest;
@@ -27,6 +28,7 @@ import cn.edu.gpnu.platform.system.vo.RoleVO;
 import cn.edu.gpnu.platform.system.vo.UserVO;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -63,8 +65,18 @@ public class SecurityAdminServiceImpl implements SecurityAdminService {
     @Value("${platform.security.initial-password:ChangeMe123!}")
     private String initialPassword;
 
+    // Phase 44e-contract（P1-1 真分页样例）：由「全表 selectList 后 new PageResult<>(size, records)」改为
+    // MyBatis-Plus Page + selectPage 真分页。@DataScope（SystemSecurityController.listUsers，alias=sys_user）
+    // 设置的线程范围经数据权限拦截器在 selectPage 的 count 与数据两条 SQL 上均生效 → 该页与 total 同为
+    // 「已按数据范围过滤」的结果。
     @Override
-    public PageResult<UserVO> listUsers(String keyword, String status, Long collegeId) {
+    public PageResult<UserVO> listUsers(String keyword, String status, Long collegeId, Integer page, Integer size) {
+        Page<SysUser> result = userMapper.selectPage(PageQuery.of(page, size), buildUserListWrapper(keyword, status, collegeId));
+        List<UserVO> records = result.getRecords().stream().map(this::toUserVO).toList();
+        return new PageResult<>(result.getTotal(), records);
+    }
+
+    private LambdaQueryWrapper<SysUser> buildUserListWrapper(String keyword, String status, Long collegeId) {
         LambdaQueryWrapper<SysUser> wrapper = new LambdaQueryWrapper<SysUser>()
                 .orderByAsc(SysUser::getUsername);
         String normalizedKeyword = trimToNull(keyword);
@@ -82,8 +94,7 @@ public class SecurityAdminServiceImpl implements SecurityAdminService {
         if (collegeId != null) {
             wrapper.eq(SysUser::getCollegeId, collegeId);
         }
-        List<UserVO> records = userMapper.selectList(wrapper).stream().map(this::toUserVO).toList();
-        return new PageResult<>(records.size(), records);
+        return wrapper;
     }
 
     @Override

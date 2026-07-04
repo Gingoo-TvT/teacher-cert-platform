@@ -47,6 +47,8 @@ export interface VideoQuery {
   collegeId?: string | null
   studentId?: string | null
   assessmentYear?: string | null
+  page?: number
+  size?: number
 }
 
 export interface VideoUploadInitPayload {
@@ -187,8 +189,8 @@ export function removeReviewerGroupMember(id: string, memberId: string) {
   return request.delete<unknown, ApiResult<null>>(`/video/reviewer-groups/${id}/members/${memberId}`)
 }
 
-export function listMyVideoTasks(status?: string | null) {
-  return request.get<unknown, ApiResult<PageResult<VideoTask>>>('/video/tasks/my', { params: cleanParams({ status }) })
+export function listMyVideoTasks(status?: string | null, page?: number, size?: number) {
+  return request.get<unknown, ApiResult<PageResult<VideoTask>>>('/video/tasks/my', { params: cleanParams({ status, page, size }) })
 }
 
 export function getVideoTask(id: string) {
@@ -224,9 +226,14 @@ export function playVideoReview(id: string) {
 }
 
 function cleanParams(query: object) {
-  const params: Record<string, string> = {}
+  const params: Record<string, string | number> = {}
   for (const [key, value] of Object.entries(query)) {
-    if (typeof value === 'string' && value.trim()) params[key] = value.trim()
+    if (typeof value === 'string') {
+      const text = value.trim()
+      if (text) params[key] = text
+    } else if (typeof value === 'number' && Number.isFinite(value)) {
+      params[key] = value
+    }
   }
   return params
 }

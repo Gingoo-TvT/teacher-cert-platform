@@ -40,6 +40,9 @@ const keyword = ref('')
 const assessmentYear = ref(yearStore.assessmentYear)
 const statusFilter = ref<string | null>(null)
 const records = ref<Certificate[]>([])
+const certTotal = ref(0)
+const page = ref(1)
+const size = ref(20)
 const statuses = ref<DictItem[]>([])
 const segments = ref<DictItem[]>([])
 const goals = ref<DictItem[]>([])
@@ -64,12 +67,15 @@ const pageDescription = computed(() => isStudentMode.value ? '查看本人证书
 const statusOptions = computed<SelectOption[]>(() => statuses.value.map((item) => ({ label: item.itemValue, value: item.itemCode })))
 const segmentOptions = computed<SelectOption[]>(() => segments.value.map((item) => ({ label: item.itemValue, value: item.itemCode })))
 const goalOptions = computed<SelectOption[]>(() => goals.value.map((item) => ({ label: item.itemValue, value: item.itemCode })))
+// Phase 44e（P1-1 真分页铺开）：total 改用后端真实总数（certTotal，来自 res.data.total），不再是「已抓取数组长度」。
+// 下列按状态的 generated/issued/exported/archived 仍从 records（真分页后为当页）派生——真分页后仅代表当页状态分布，
+// 不再是全表统计；如需全量按状态统计需后端另加聚合查询（现阶段暂不新增，先如实标注局限）。
 const summary = computed(() => {
   const generated = records.value.filter((item) => item.status === 'GENERATED').length
   const issued = records.value.filter((item) => item.status === 'ISSUED').length
   const exported = records.value.filter((item) => item.status === 'EXPORTED').length
   const archived = records.value.filter((item) => item.status === 'ARCHIVED').length
-  return { total: records.value.length, generated, issued, exported, archived }
+  return { total: certTotal.value, generated, issued, exported, archived }
 })
 
 const columns: DataTableColumns<Certificate> = [
@@ -127,14 +133,34 @@ async function loadRecords() {
     const res = await listCertificates({
       keyword: keyword.value,
       assessmentYear: assessmentYear.value,
-      status: statusFilter.value
+      status: statusFilter.value,
+      page: page.value,
+      size: size.value
     })
     records.value = res.data.records
+    certTotal.value = res.data.total
   } catch (error) {
     showError(error, '证书列表加载失败')
   } finally {
     loading.value = false
   }
+}
+
+// 筛选变更（关键词/年度/状态）→ 回到第 1 页再查（真分页下 total/页码需随筛选重置）。
+function search() {
+  page.value = 1
+  void loadRecords()
+}
+
+function onPageChange(next: number) {
+  page.value = next
+  void loadRecords()
+}
+
+function onPageSizeChange(nextSize: number) {
+  size.value = nextSize
+  page.value = 1
+  void loadRecords()
 }
 
 async function loadOptions() {
@@ -218,7 +244,7 @@ function resetFilters() {
   keyword.value = ''
   assessmentYear.value = yearStore.assessmentYear
   statusFilter.value = null
-  void loadRecords()
+  search()
 }
 
 function showError(error: unknown, fallback: string) {
@@ -233,9 +259,9 @@ onMounted(async () => {
 
 watch(
   () => yearStore.assessmentYear,
-  async (year) => {
+  (year) => {
     assessmentYear.value = year
-    if (canView.value) await loadRecords()
+    if (canView.value) search()
   }
 )
 </script>
@@ -254,10 +280,10 @@ watch(
       <n-gi><StatCard label="已归档" :value="summary.archived" tone="neutral" /></n-gi>
     </n-grid>
 
-    <FilterBar v-if="canView && !isStudentMode" :loading="loading" @submit="loadRecords" @reset="resetFilters">
+    <FilterBar v-if="canView && !isStudentMode" :loading="loading" @submit="search" @reset="resetFilters">
       <label class="filter-field">
         <span>关键词</span>
-        <n-input v-model:value="keyword" clearable placeholder="证书编号 / 学号 / 姓名" style="width: 240px" @keyup.enter="loadRecords" />
+        <n-input v-model:value="keyword" clearable placeholder="证书编号 / 学号 / 姓名" style="width: 240px" @keyup.enter="search" />
       </label>
       <label class="filter-field">
         <span>年度</span>
@@ -274,10 +300,15 @@ watch(
       title="证书列表"
       :columns="columns"
       :data="records"
-      :total="records.length"
+      :total="certTotal"
       :loading="loading"
+      remote
+      :page="page"
+      :page-size="size"
       empty-title="暂无证书"
       empty-description="当前筛选条件下没有证书记录。"
+      @update:page="onPageChange"
+      @update:page-size="onPageSizeChange"
       @refresh="loadRecords"
     >
       <template #actions>

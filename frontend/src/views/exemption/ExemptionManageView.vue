@@ -49,6 +49,9 @@ const assessmentYear = ref(yearStore.assessmentYear)
 const statusFilter = ref<string | null>(null)
 const segmentFilter = ref<string | null>(null)
 const records = ref<ExemptionRequest[]>([])
+const total = ref(0)
+const page = ref(1)
+const size = ref(20)
 const segments = ref<DictItem[]>([])
 const subjects = ref<DictItem[]>([])
 const bases = ref<DictItem[]>([])
@@ -77,11 +80,14 @@ const statusOptions: SelectOption[] = [
 const segmentOptions = computed<SelectOption[]>(() =>
   segments.value.map((item) => ({ label: item.itemValue, value: item.itemCode }))
 )
+// Phase 44e-rollout（P1-1 真分页）：records 真分页后仅为当页数据。「申请科次」改绑后端 total ref（全量口径，
+// 不受页大小影响）；passed/removed/pending 三项统计仍按当页 records 计算——只反映当页，非全量口径（与
+// launch-readiness-plan.md 附录同类「列表本地算 summary」备注一致：机械铺开阶段不新增后端聚合接口，暂标注）。
 const statusSummary = computed(() => {
   const passed = records.value.filter((item) => item.finalStatus === 'PASSED').length
   const removed = records.value.filter((item) => item.includedInExam === 0).length
   const pending = records.value.filter((item) => ['FIRST_REVIEW', 'SECOND_REVIEW'].includes(item.finalStatus)).length
-  return { total: records.value.length, passed, removed, pending }
+  return { passed, removed, pending }
 })
 
 const columns: DataTableColumns<ExemptionRequest> = [
@@ -145,14 +151,34 @@ async function loadRecords() {
       keyword: keyword.value,
       status: statusFilter.value,
       assessmentYear: assessmentYear.value,
-      teachingSegment: segmentFilter.value
+      teachingSegment: segmentFilter.value,
+      page: page.value,
+      size: size.value
     })
     records.value = res.data.records
+    total.value = res.data.total
   } catch (error) {
     showError(error, '免考列表加载失败')
   } finally {
     loading.value = false
   }
+}
+
+// 筛选变更（关键词/状态/学段/年度）→ 回到第 1 页再查（真分页下 total/页码需随筛选重置）。
+function search() {
+  page.value = 1
+  void loadRecords()
+}
+
+function onPageChange(next: number) {
+  page.value = next
+  void loadRecords()
+}
+
+function onPageSizeChange(nextSize: number) {
+  size.value = nextSize
+  page.value = 1
+  void loadRecords()
 }
 
 async function loadOptions() {
@@ -235,7 +261,7 @@ function resetFilters() {
   statusFilter.value = null
   segmentFilter.value = null
   void loadSubjects(null)
-  void loadRecords()
+  search()
 }
 
 function handleFilterSegmentChange(value: string | number | null) {
@@ -269,6 +295,7 @@ watch(
   () => yearStore.assessmentYear,
   async (year) => {
     assessmentYear.value = year
+    page.value = 1
     await loadRecords()
   }
 )
@@ -277,16 +304,16 @@ watch(
 <template>
   <PageContainer title="免考管理" description="多科免考申请、佐证上传、二级审核与应考科目展示。">
     <n-grid :cols="4" :x-gap="12" responsive="screen" class="page-section">
-      <n-gi><StatCard label="申请科次" :value="statusSummary.total" /></n-gi>
+      <n-gi><StatCard label="申请科次" :value="total" /></n-gi>
       <n-gi><StatCard label="复审通过" :value="statusSummary.passed" tone="success" /></n-gi>
       <n-gi><StatCard label="已移出应考" :value="statusSummary.removed" tone="info" /></n-gi>
       <n-gi><StatCard label="待审核" :value="statusSummary.pending" tone="warning" /></n-gi>
     </n-grid>
 
-    <FilterBar :loading="loading" @submit="loadRecords" @reset="resetFilters">
+    <FilterBar :loading="loading" @submit="search" @reset="resetFilters">
       <label class="filter-field">
         <span>关键词</span>
-        <n-input v-model:value="keyword" clearable placeholder="科目 / 依据 / 学生" style="width: 220px" @keyup.enter="loadRecords" />
+        <n-input v-model:value="keyword" clearable placeholder="科目 / 依据 / 学生" style="width: 220px" @keyup.enter="search" />
       </label>
       <label class="filter-field">
         <span>年度</span>
@@ -306,10 +333,15 @@ watch(
       title="免考申请列表"
       :columns="columns"
       :data="records"
-      :total="records.length"
+      :total="total"
       :loading="loading"
+      remote
+      :page="page"
+      :page-size="size"
       empty-title="暂无免考申请"
       empty-description="当前筛选条件下没有免考申请记录。"
+      @update:page="onPageChange"
+      @update:page-size="onPageSizeChange"
       @refresh="loadRecords"
     >
       <template #actions>

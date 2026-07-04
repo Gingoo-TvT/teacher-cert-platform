@@ -310,6 +310,47 @@ class Phase9CertificateIT {
         assertThat(studentBRecords.at("/0/studentId").asLong()).isEqualTo(b);
     }
 
+    /**
+     * Phase 44e（P1-1 真分页铺开 · 数据范围 × 分页组合的正确性证明，逐字仿 Phase3StudentIT
+     * .paginatedStudentListIsScopedAndPagedForCollegeUser）：
+     * 学院文员（学院A）对含跨学院同前缀证书列表做真分页——
+     * ① total 为「已按学院范围过滤」的总数（3，学院B 那条不计入，证明分页 count SQL 也走了数据权限拦截器）；
+     * ② 每页条数=请求 size；③ 各页均无学院B 数据；④ 页间记录不重叠（真 LIMIT/OFFSET，非全表包壳）。
+     */
+    @Test
+    void paginatedCertificateListIsScopedAndPagedForCollegeUser() throws Exception {
+        LoginResult academic = readyLogin("test_academic_admin");
+        String prefix = "P9PAGE" + System.nanoTime();
+        String year = "2033";
+        long a1 = seedEligibleStudent(prefix + "A1", COLLEGE_A, year, SENIOR_SEGMENT, SENIOR_SUBJECT_CODE, "语文");
+        long a2 = seedEligibleStudent(prefix + "A2", COLLEGE_A, year, SENIOR_SEGMENT, SENIOR_SUBJECT_CODE, "语文");
+        long a3 = seedEligibleStudent(prefix + "A3", COLLEGE_A, year, SENIOR_SEGMENT, SENIOR_SUBJECT_CODE, "语文");
+        // 学院B 同前缀 1 条：关键词能命中，但学院文员的数据范围应把它排除在 total 与 records 之外。
+        long b1 = seedEligibleStudent(prefix + "B1", COLLEGE_B, year, SENIOR_SEGMENT, SENIOR_SUBJECT_CODE, "语文");
+        generateOk(academic.accessToken(), a1, year);
+        generateOk(academic.accessToken(), a2, year);
+        generateOk(academic.accessToken(), a3, year);
+        generateOk(academic.accessToken(), b1, year);
+
+        LoginResult clerk = readyLogin("test_college_clerk");
+
+        JsonNode page1 = json(exchange("/api/cert?keyword=" + prefix + "&page=1&size=2",
+                HttpMethod.GET, clerk.accessToken(), null)).at("/data");
+        assertThat(page1.at("/total").asLong()).isEqualTo(3);
+        assertThat(page1.at("/records").size()).isEqualTo(2);
+        assertThat(page1.at("/records").toString()).contains(String.valueOf(COLLEGE_A));
+        assertThat(page1.at("/records").toString()).doesNotContain(String.valueOf(COLLEGE_B));
+
+        JsonNode page2 = json(exchange("/api/cert?keyword=" + prefix + "&page=2&size=2",
+                HttpMethod.GET, clerk.accessToken(), null)).at("/data");
+        assertThat(page2.at("/total").asLong()).isEqualTo(3);
+        assertThat(page2.at("/records").size()).isEqualTo(1);
+        assertThat(page2.at("/records").toString()).doesNotContain(String.valueOf(COLLEGE_B));
+
+        assertThat(page1.at("/records/0/id").asLong())
+                .isNotEqualTo(page2.at("/records/0/id").asLong());
+    }
+
     private JsonNode generateOk(String token, long studentId, String year) throws Exception {
         ResponseEntity<String> response = exchange("/api/cert/generate", HttpMethod.POST, token,
                 Map.of("studentId", studentId, "assessmentYear", year));
@@ -631,7 +672,7 @@ class Phase9CertificateIT {
     private void cleanupGeneratedData() {
         jdbcTemplate.update("DELETE FROM audit_log WHERE biz_type = 'cert'");
         jdbcTemplate.update("DELETE FROM certificate WHERE student_id IN (SELECT id FROM student WHERE student_no LIKE 'P9%') OR student_no LIKE 'P9%'");
-        jdbcTemplate.update("DELETE FROM cert_sequence WHERE scope_key LIKE '10588:2026%' OR scope_key LIKE '10588:2027%' OR scope_key LIKE '10588:2028%' OR scope_key LIKE '10588:2029%' OR scope_key LIKE '10588:2030%' OR scope_key LIKE '10588:2031%' OR scope_key LIKE '10588:2032%'");
+        jdbcTemplate.update("DELETE FROM cert_sequence WHERE scope_key LIKE '10588:2026%' OR scope_key LIKE '10588:2027%' OR scope_key LIKE '10588:2028%' OR scope_key LIKE '10588:2029%' OR scope_key LIKE '10588:2030%' OR scope_key LIKE '10588:2031%' OR scope_key LIKE '10588:2032%' OR scope_key LIKE '10588:2033%'");
         jdbcTemplate.update("DELETE FROM video_review WHERE student_id IN (SELECT id FROM student WHERE student_no LIKE 'P9%')");
         jdbcTemplate.update("DELETE FROM ability_test_result WHERE student_id IN (SELECT id FROM student WHERE student_no LIKE 'P9%')");
         jdbcTemplate.update("DELETE FROM process_material WHERE student_id IN (SELECT id FROM student WHERE student_no LIKE 'P9%')");

@@ -57,6 +57,9 @@ const statusFilter = ref<string | null>(null)
 const categoryFilter = ref<string | null>(null)
 const assessmentYear = ref(yearStore.assessmentYear)
 const records = ref<ProcessMaterial[]>([])
+const materialTotal = ref(0)
+const page = ref(1)
+const size = ref(20)
 const categories = ref<DictItem[]>([])
 const reviewing = ref<{ material: ProcessMaterial; stage: 'first' | 'second' } | null>(null)
 const processQualified = ref(false)
@@ -83,12 +86,14 @@ const statusOptions: SelectOption[] = [
 const categoryOptions = computed<SelectOption[]>(() =>
   categories.value.map((item) => ({ label: item.itemValue, value: item.itemCode }))
 )
+// P1-1 真分页 rollout（Phase 44e）：records 现仅为「当页」数据（真分页前是全量），故 passed/pending/rejected
+// 这三项不再能代表「全量筛选结果」的通过/待审/退回统计，只反映当页——StatCard 标签相应加「本页」以免误导；
+// 「材料总数」改用后端 total（materialTotal，selectPage count 结果），不再受当页截断影响。
 const statusSummary = computed(() => {
-  const total = records.value.length
   const passed = records.value.filter((item) => item.status === 'PASSED').length
   const pending = records.value.filter((item) => ['FIRST_REVIEW', 'SECOND_REVIEW'].includes(item.status)).length
   const rejected = records.value.filter((item) => item.status.includes('REJECTED') || item.status === 'FAILED').length
-  return { total, passed, pending, rejected }
+  return { passed, pending, rejected }
 })
 
 const columns: DataTableColumns<ProcessMaterial> = [
@@ -165,14 +170,34 @@ async function loadRecords() {
       keyword: keyword.value,
       status: statusFilter.value,
       category: categoryFilter.value,
-      assessmentYear: assessmentYear.value
+      assessmentYear: assessmentYear.value,
+      page: page.value,
+      size: size.value
     })
     records.value = res.data.records
+    materialTotal.value = res.data.total
   } catch (error) {
     showError(error, '材料列表加载失败')
   } finally {
     loading.value = false
   }
+}
+
+// 筛选变更（关键词/状态/类别/年度）→ 回到第 1 页再查（真分页下 total/页码需随筛选重置）。
+function search() {
+  page.value = 1
+  void loadRecords()
+}
+
+function onPageChange(next: number) {
+  page.value = next
+  void loadRecords()
+}
+
+function onPageSizeChange(nextSize: number) {
+  size.value = nextSize
+  page.value = 1
+  void loadRecords()
 }
 
 async function loadOptions() {
@@ -283,7 +308,7 @@ function resetFilters() {
   statusFilter.value = null
   categoryFilter.value = null
   assessmentYear.value = yearStore.assessmentYear
-  void loadRecords()
+  search()
 }
 
 function dictLabel(items: DictItem[], code?: string | null) {
@@ -302,9 +327,9 @@ onMounted(() => {
 
 watch(
   () => yearStore.assessmentYear,
-  async (year) => {
+  (year) => {
     assessmentYear.value = year
-    await loadRecords()
+    search()
   }
 )
 </script>
@@ -312,10 +337,10 @@ watch(
 <template>
   <PageContainer title="过程性材料" description="四类过程性材料上传、提交与审核；四类均通过即合格。">
     <n-grid :cols="4" :x-gap="12" responsive="screen" class="page-section">
-      <n-gi><StatCard label="材料总数" :value="statusSummary.total" /></n-gi>
-      <n-gi><StatCard label="复审通过" :value="statusSummary.passed" tone="success" /></n-gi>
-      <n-gi><StatCard label="待审核" :value="statusSummary.pending" tone="warning" /></n-gi>
-      <n-gi><StatCard label="退回/不通过" :value="statusSummary.rejected" tone="error" /></n-gi>
+      <n-gi><StatCard label="材料总数" :value="materialTotal" /></n-gi>
+      <n-gi><StatCard label="本页通过" :value="statusSummary.passed" tone="success" /></n-gi>
+      <n-gi><StatCard label="本页待审核" :value="statusSummary.pending" tone="warning" /></n-gi>
+      <n-gi><StatCard label="本页退回/不通过" :value="statusSummary.rejected" tone="error" /></n-gi>
     </n-grid>
 
     <MaterialSelfPanel
@@ -333,10 +358,10 @@ watch(
     />
 
     <template v-else>
-      <FilterBar :loading="loading" @submit="loadRecords" @reset="resetFilters">
+      <FilterBar :loading="loading" @submit="search" @reset="resetFilters">
         <label class="filter-field">
           <span>关键词</span>
-          <n-input v-model:value="keyword" clearable placeholder="文件名 / 类别 / 学生" style="width: 220px" @keyup.enter="loadRecords" />
+          <n-input v-model:value="keyword" clearable placeholder="文件名 / 类别 / 学生" style="width: 220px" @keyup.enter="search" />
         </label>
         <label class="filter-field">
           <span>年度</span>
@@ -356,10 +381,15 @@ watch(
         title="材料列表"
         :columns="columns"
         :data="records"
-        :total="records.length"
+        :total="materialTotal"
         :loading="loading"
+        remote
+        :page="page"
+        :page-size="size"
         empty-title="暂无材料"
         empty-description="当前筛选条件下没有过程性材料。"
+        @update:page="onPageChange"
+        @update:page-size="onPageSizeChange"
         @refresh="loadRecords"
       >
         <template #actions>

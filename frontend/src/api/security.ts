@@ -78,7 +78,15 @@ export interface UserDataScopePayload {
   majorIds: string[]
 }
 
-export function listUsers(query: { keyword?: string | null; status?: string | null; collegeId?: string | null } = {}) {
+export function listUsers(
+  query: {
+    keyword?: string | null
+    status?: string | null
+    collegeId?: string | null
+    page?: number
+    size?: number
+  } = {}
+) {
   return request.get<unknown, ApiResult<PageResult<User>>>('/system/user', { params: cleanParams(query) })
 }
 
@@ -140,7 +148,7 @@ function cleanParams(query: Record<string, unknown>) {
     if (typeof value === 'string') {
       const text = value.trim()
       if (text) params[key] = text
-    } else if (typeof value === 'number') {
+    } else if (typeof value === 'number' && Number.isFinite(value)) {
       params[key] = value
     }
   }

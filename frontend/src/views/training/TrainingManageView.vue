@@ -41,8 +41,10 @@ const keyword = ref('')
 const assessmentYear = ref(yearStore.assessmentYear)
 const statusFilter = ref<string | null>(null)
 const collegeFilter = ref<string | null>(null)
-const segmentFilter = ref<string | null>(null)
 const records = ref<TrainingProfile[]>([])
+const trainingTotal = ref(0)
+const page = ref(1)
+const size = ref(20)
 const colleges = ref<College[]>([])
 const majors = ref<Major[]>([])
 const educationLevels = ref<DictItem[]>([])
@@ -74,13 +76,6 @@ const selfMode = computed(() => canSelfConfirm.value && !canEdit.value && !userS
 const canCreate = computed(() => canEdit.value || canSelfConfirm.value)
 
 const collegeOptions = computed<SelectOption[]>(() => colleges.value.map((item) => ({ label: item.name, value: item.id })))
-const segmentFilterOptions = computed<SelectOption[]>(() => dictOptions(segments.value))
-
-const filteredRecords = computed(() => {
-  const segment = segmentFilter.value
-  if (!segment) return records.value
-  return records.value.filter((row) => row.teachingSegment === segment)
-})
 
 const columns: DataTableColumns<TrainingProfile> = [
   { title: '学号', key: 'studentNo', minWidth: 130, ellipsis: { tooltip: true }, render: (row) => h('span', { class: 'mono' }, row.studentNo || '-') },
@@ -125,14 +120,34 @@ async function loadRecords() {
       keyword: keyword.value,
       status: statusFilter.value,
       collegeId: collegeFilter.value,
-      assessmentYear: assessmentYear.value
+      assessmentYear: assessmentYear.value,
+      page: page.value,
+      size: size.value
     })
     records.value = res.data.records
+    trainingTotal.value = res.data.total
   } catch (error) {
     showError(error, '专业培养列表加载失败')
   } finally {
     loading.value = false
   }
+}
+
+// 筛选变更（关键词/年度/学院/状态）→ 回到第 1 页再查（真分页下 total/页码需随筛选重置）。
+function search() {
+  page.value = 1
+  void loadRecords()
+}
+
+function onPageChange(next: number) {
+  page.value = next
+  void loadRecords()
+}
+
+function onPageSizeChange(nextSize: number) {
+  size.value = nextSize
+  page.value = 1
+  void loadRecords()
 }
 
 async function loadOptions() {
@@ -219,8 +234,7 @@ function resetFilters() {
   assessmentYear.value = yearStore.assessmentYear
   statusFilter.value = null
   collegeFilter.value = null
-  segmentFilter.value = null
-  void loadRecords()
+  search()
 }
 
 function dictOptions(items: DictItem[]): SelectOption[] {
@@ -249,6 +263,7 @@ watch(
   () => yearStore.assessmentYear,
   async (year) => {
     assessmentYear.value = year
+    page.value = 1
     await loadRecords()
   }
 )
@@ -256,10 +271,10 @@ watch(
 
 <template>
   <PageContainer title="专业培养信息" description="专业培养信息维护，培养目标、学段与学科按标准联动。">
-    <FilterBar :loading="loading" @submit="loadRecords" @reset="resetFilters">
+    <FilterBar :loading="loading" @submit="search" @reset="resetFilters">
       <label class="filter-field">
         <span>关键词</span>
-        <n-input v-model:value="keyword" clearable placeholder="学生 / 专业 / 学科" style="width: 220px" @keyup.enter="loadRecords" />
+        <n-input v-model:value="keyword" clearable placeholder="学生 / 专业 / 学科" style="width: 220px" @keyup.enter="search" />
       </label>
       <label class="filter-field">
         <span>年度</span>
@@ -273,20 +288,21 @@ watch(
         <span>状态</span>
         <n-select v-model:value="statusFilter" clearable :options="statusOptions" placeholder="全部状态" style="width: 150px" />
       </label>
-      <label class="filter-field">
-        <span>学段</span>
-        <n-select v-model:value="segmentFilter" clearable :options="segmentFilterOptions" placeholder="全部学段" style="width: 150px" />
-      </label>
     </FilterBar>
 
     <DataPanel
       title="培养信息列表"
       :columns="columns"
-      :data="filteredRecords"
-      :total="filteredRecords.length"
+      :data="records"
+      :total="trainingTotal"
       :loading="loading"
+      remote
+      :page="page"
+      :page-size="size"
       empty-title="暂无培养信息"
       empty-description="当前筛选条件下没有专业培养信息。"
+      @update:page="onPageChange"
+      @update:page-size="onPageSizeChange"
       @refresh="loadRecords"
     >
       <template #actions>

@@ -533,6 +533,86 @@ class Phase7VideoReviewIT {
     }
 
     @Test
+    void reviewListSupportsRealServerSidePaginationScopedToCollege() throws Exception {
+        // P1-1 真分页 rollout（Endpoint A / variant A）：GET /api/video/reviews 改用 selectPage 后，
+        // 分页与 @DataScope(alias="video_review", permission="video:play") 的学院域需同时生效。
+        LoginResult student = readyLogin("test_student");
+        LoginResult studentB = readyLogin("test_student_b");
+        LoginResult auditor = readyLogin("test_college_auditor");
+
+        long a1 = uploadValidatedVideo(student.accessToken(), 9001L, "P7PAGEA1");
+        long a2 = uploadValidatedVideo(student.accessToken(), 9001L, "P7PAGEA2");
+        long a3 = uploadValidatedVideo(student.accessToken(), 9001L, "P7PAGEA3");
+        long b1 = uploadValidatedVideo(studentB.accessToken(), 9002L, "P7PAGEB1");
+
+        JsonNode page1 = json(exchange("/api/video/reviews?keyword=P7PAGE&page=1&size=2",
+                HttpMethod.GET, auditor.accessToken(), null)).at("/data");
+        JsonNode page2 = json(exchange("/api/video/reviews?keyword=P7PAGE&page=2&size=2",
+                HttpMethod.GET, auditor.accessToken(), null)).at("/data");
+
+        // COLLEGE_A 学院负责人：total 只计学院内 3 条（P7PAGEA1..3），跨学院的 b1（COLLEGE_B）被排除。
+        assertThat(page1.at("/total").asLong()).isEqualTo(3);
+        assertThat(page2.at("/total").asLong()).isEqualTo(3);
+        assertThat(page1.at("/records").size()).isEqualTo(2);
+        assertThat(page2.at("/records").size()).isEqualTo(1);
+
+        List<Long> ids = new ArrayList<>();
+        for (JsonNode node : page1.at("/records")) {
+            ids.add(node.at("/id").asLong());
+        }
+        for (JsonNode node : page2.at("/records")) {
+            ids.add(node.at("/id").asLong());
+        }
+        assertThat(ids).containsExactlyInAnyOrder(a1, a2, a3);
+        assertThat(ids).doesNotContain(b1);
+    }
+
+    @Test
+    void myTasksSupportsRealServerSidePaginationScopedToCurrentReviewer() throws Exception {
+        // P1-1 真分页 rollout（Endpoint B / variant B'）：GET /api/video/tasks/my 改用 selectPage 后，
+        // 「本人任务」域仍须是 wrapper 内 eq(reviewerId, currentUserId)，不是查询后按当前用户做 Java 过滤。
+        LoginResult student = readyLogin("test_student");
+        LoginResult auditor = readyLogin("test_college_auditor");
+        LoginResult reviewerA = readyLogin("test_review_teacher");
+        LoginResult reviewerB = readyLogin("test_review_teacher_b");
+
+        long r1 = uploadValidatedVideo(student.accessToken(), 9001L, "P7TASKPAGE1");
+        long r2 = uploadValidatedVideo(student.accessToken(), 9001L, "P7TASKPAGE2");
+        long r3 = uploadValidatedVideo(student.accessToken(), 9001L, "P7TASKPAGE3");
+        assign(auditor.accessToken(), r1, 800000000000003005L, REVIEWER_B_USER_ID);
+        assign(auditor.accessToken(), r2, 800000000000003005L, REVIEWER_B_USER_ID);
+        assign(auditor.accessToken(), r3, 800000000000003005L, REVIEWER_B_USER_ID);
+
+        JsonNode page1 = json(exchange("/api/video/tasks/my?page=1&size=2",
+                HttpMethod.GET, reviewerA.accessToken(), null)).at("/data");
+        JsonNode page2 = json(exchange("/api/video/tasks/my?page=2&size=2",
+                HttpMethod.GET, reviewerA.accessToken(), null)).at("/data");
+
+        assertThat(page1.at("/total").asLong()).isEqualTo(3);
+        assertThat(page2.at("/total").asLong()).isEqualTo(3);
+        assertThat(page1.at("/records").size()).isEqualTo(2);
+        assertThat(page2.at("/records").size()).isEqualTo(1);
+
+        List<Long> reviewIds = new ArrayList<>();
+        for (JsonNode task : page1.at("/records")) {
+            reviewIds.add(task.at("/videoReviewId").asLong());
+        }
+        for (JsonNode task : page2.at("/records")) {
+            reviewIds.add(task.at("/videoReviewId").asLong());
+        }
+        assertThat(reviewIds).containsExactlyInAnyOrder(r1, r2, r3);
+
+        // 同一批 3 条 review 也都指派了 reviewerB；reviewerB 查自己的 my tasks 应只看到 reviewerId=自己的任务行，
+        // 证明「本人任务」域是 wrapper 内 eq(reviewerId, currentUserId)，而非查询后按当前用户过滤。
+        JsonNode reviewerBTasks = json(exchange("/api/video/tasks/my?page=1&size=50",
+                HttpMethod.GET, reviewerB.accessToken(), null)).at("/data");
+        assertThat(reviewerBTasks.at("/total").asLong()).isEqualTo(3);
+        for (JsonNode task : reviewerBTasks.at("/records")) {
+            assertThat(task.at("/reviewerId").asLong()).isEqualTo(REVIEWER_B_USER_ID);
+        }
+    }
+
+    @Test
     void concurrentFinalScoreSubmissionsSettleExactlyOnceWithoutStuckReviewing() throws Exception {
         // Phase 42.3 settle 丢失更新（§7.1）：两评审并发提交末分 → 恰一次结算、review 落定 REVIEW_COMPLETED、不卡 REVIEWING。
         LoginResult student = readyLogin("test_student");

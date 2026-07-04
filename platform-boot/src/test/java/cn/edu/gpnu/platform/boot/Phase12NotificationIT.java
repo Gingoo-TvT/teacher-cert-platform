@@ -201,6 +201,38 @@ class Phase12NotificationIT {
         assertThat(notificationMapper.selectById(ownedByClerk).getReadFlag()).isEqualTo(1);
     }
 
+    /**
+     * Phase 44e-contract（P1-1 真分页 rollout · 变体 B'，见 docs/pagination-rollout-spec.md §2）：本人通知
+     * 列表按 userId 过滤后条数可远超默认页大小，用于证明 selectPage 真分页对『本人范围』同样成立——
+     * ① 页大小生效（records==size，非全表）；② total 为本人名下过滤后真实总数且跨页稳定；
+     * ③ 页间记录不重叠；④ 客户端传超大 size 被钳制（MAX_SIZE=200），不退化为全表。
+     */
+    @Test
+    void noticeListSupportsRealServerSidePagination() throws Exception {
+        LoginResult clerk = readyLogin("test_college_clerk");
+        long userId = clerkUserId();
+        for (int i = 0; i < 25; i++) {
+            seedNotice(userId, "P12分页测试-" + i);
+        }
+
+        JsonNode page1 = json(exchange("/api/notice?page=1&size=10",
+                HttpMethod.GET, clerk.accessToken(), null)).at("/data");
+        long total = page1.at("/total").asLong();
+        assertThat(total).isGreaterThanOrEqualTo(25);              // 旧全表口径 records==total；真分页 records<total
+        assertThat(page1.at("/records").size()).isEqualTo(10);     // 页大小生效
+
+        JsonNode page2 = json(exchange("/api/notice?page=2&size=10",
+                HttpMethod.GET, clerk.accessToken(), null)).at("/data");
+        assertThat(page2.at("/total").asLong()).isEqualTo(total);  // total 跨页稳定
+        assertThat(page2.at("/records").size()).isEqualTo(10);
+        assertThat(page1.at("/records/0/id").asLong())
+                .isNotEqualTo(page2.at("/records/0/id").asLong()); // 页间不重叠
+
+        JsonNode clamped = json(exchange("/api/notice?page=1&size=100000",
+                HttpMethod.GET, clerk.accessToken(), null)).at("/data");
+        assertThat(clamped.at("/records").size()).isLessThanOrEqualTo(200); // size 上限钳制
+    }
+
     private long seedDraftMaterial(long studentId, long collegeId) {
         ProcessMaterial material = new ProcessMaterial();
         material.setStudentId(studentId);

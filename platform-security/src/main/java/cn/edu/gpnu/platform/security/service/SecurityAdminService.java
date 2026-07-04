@@ -14,7 +14,7 @@ import java.util.List;
 
 public interface SecurityAdminService {
 
-    PageResult<UserVO> listUsers(String keyword, String status, Long collegeId);
+    PageResult<UserVO> listUsers(String keyword, String status, Long collegeId, Integer page, Integer size);
 
     Long createUser(UserSaveRequest request);
 

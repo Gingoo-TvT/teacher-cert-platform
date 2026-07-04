@@ -49,6 +49,8 @@ export interface ExemptionQuery {
   assessmentYear?: string | null
   teachingSegment?: string | null
   subject?: string | null
+  page?: number
+  size?: number
 }
 
 export interface ExemptionApplyItem {
@@ -130,9 +132,14 @@ export function getExamSubjects(studentId: string, assessmentYear: string, teach
 }
 
 function cleanParams(query: object) {
-  const params: Record<string, string> = {}
+  const params: Record<string, string | number> = {}
   for (const [key, value] of Object.entries(query)) {
-    if (typeof value === 'string' && value.trim()) params[key] = value.trim()
+    if (typeof value === 'string') {
+      const text = value.trim()
+      if (text) params[key] = text
+    } else if (typeof value === 'number' && Number.isFinite(value)) {
+      params[key] = value
+    }
   }
   return params
 }

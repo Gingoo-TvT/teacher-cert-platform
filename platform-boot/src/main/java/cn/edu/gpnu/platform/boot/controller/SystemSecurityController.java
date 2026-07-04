@@ -44,8 +44,10 @@ public class SystemSecurityController {
     @GetMapping("/user")
     public Result<PageResult<UserVO>> listUsers(@RequestParam(value = "keyword", required = false) String keyword,
                                                 @RequestParam(value = "status", required = false) String status,
-                                                @RequestParam(value = "collegeId", required = false) Long collegeId) {
-        return Result.ok(securityAdminService.listUsers(keyword, status, collegeId));
+                                                @RequestParam(value = "collegeId", required = false) Long collegeId,
+                                                @RequestParam(value = "page", required = false) Integer page,
+                                                @RequestParam(value = "size", required = false) Integer size) {
+        return Result.ok(securityAdminService.listUsers(keyword, status, collegeId, page, size));
     }
 
     @Operation(summary = "新增用户")

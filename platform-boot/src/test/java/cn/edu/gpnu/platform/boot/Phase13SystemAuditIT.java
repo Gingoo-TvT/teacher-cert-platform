@@ -15,9 +15,11 @@ import cn.edu.gpnu.platform.business.video.entity.VideoReview;
 import cn.edu.gpnu.platform.business.video.entity.VideoReviewTask;
 import cn.edu.gpnu.platform.business.video.mapper.VideoReviewMapper;
 import cn.edu.gpnu.platform.business.video.mapper.VideoReviewTaskMapper;
+import cn.edu.gpnu.platform.system.entity.BackupRecord;
 import cn.edu.gpnu.platform.system.entity.SysAuditLog;
 import cn.edu.gpnu.platform.system.entity.SysParam;
 import cn.edu.gpnu.platform.system.entity.SysUser;
+import cn.edu.gpnu.platform.system.mapper.BackupRecordMapper;
 import cn.edu.gpnu.platform.system.mapper.SysAuditLogMapper;
 import cn.edu.gpnu.platform.system.mapper.SysParamMapper;
 import cn.edu.gpnu.platform.system.mapper.SysUserMapper;
@@ -92,6 +94,9 @@ class Phase13SystemAuditIT {
     private SysAuditLogMapper auditLogMapper;
 
     @Autowired
+    private BackupRecordMapper backupRecordMapper;
+
+    @Autowired
     private StudentMapper studentMapper;
 
     @Autowired
@@ -131,6 +136,7 @@ class Phase13SystemAuditIT {
         resetUser("test_academic_admin", true);
         resetUser("test_review_teacher", true);
         resetUser("test_review_teacher_b", true);
+        resetUser("test_sys_admin", true);
         ensureReviewerB();
     }
 
@@ -276,6 +282,52 @@ class Phase13SystemAuditIT {
         assertThat(clamped.at("/records").size()).isLessThanOrEqualTo(200); // size 上限钳制
     }
 
+    /**
+     * Phase 44e-rollout（P1-1 真分页 · variant B：无 @DataScope 的运维列表）：GET /api/system/backup
+     * 由全表 selectList 改为 selectPage。备份记录无学院/学生归属，故无需像 exchange.batches(variant C)/
+     * auditLogs(variant D) 那样验证数据范围隔离；本测试聚焦①页大小生效；②total 跨页稳定且不等于
+     * "当页命中数"（证明不是旧全表口径）；③页间记录不重叠；④status 过滤在真分页下依旧精确生效
+     * （不会因为分页拦截器介入而被漏掉）。system:backup 仅 SYS_ADMIN 角色在 SYSTEM 域拥有
+     * （见 V8__rbac_seed.sql:223/281），故用 test_sys_admin 登录，而非本文件其他测试常用的
+     * test_academic_admin（该账号没有此权限，会 403）。
+     */
+    @Test
+    void backupListSupportsRealServerSidePaginationAndStatusFilter() throws Exception {
+        LoginResult sysAdmin = readyLogin("test_sys_admin");
+        String tag = "P13BACKUP-" + System.nanoTime();
+        for (int i = 0; i < 5; i++) {
+            seedBackup("COMPLETED", tag);
+        }
+        seedBackup("FAILED", tag);
+
+        JsonNode page1 = json(exchange("/api/system/backup?status=COMPLETED&page=1&size=2",
+                HttpMethod.GET, sysAdmin.accessToken(), null)).at("/data");
+        long total = page1.at("/total").asLong();
+        assertThat(total).isGreaterThanOrEqualTo(5);               // 至少本测试种下的 5 条 COMPLETED
+        assertThat(page1.at("/records").size()).isEqualTo(2);      // 页大小生效，非全表
+        for (JsonNode record : page1.at("/records")) {
+            assertThat(record.at("/status").asText()).isEqualTo("COMPLETED");
+        }
+
+        JsonNode page2 = json(exchange("/api/system/backup?status=COMPLETED&page=2&size=2",
+                HttpMethod.GET, sysAdmin.accessToken(), null)).at("/data");
+        assertThat(page2.at("/total").asLong()).isEqualTo(total);  // total 跨页稳定
+        assertThat(page1.at("/records/0/id").asLong())
+                .isNotEqualTo(page2.at("/records/0/id").asLong()); // 页间不重叠
+
+        JsonNode failedOnly = json(exchange("/api/system/backup?status=FAILED&page=1&size=50",
+                HttpMethod.GET, sysAdmin.accessToken(), null)).at("/data");
+        assertThat(failedOnly.at("/total").asLong()).isGreaterThanOrEqualTo(1);
+        for (JsonNode record : failedOnly.at("/records")) {
+            assertThat(record.at("/status").asText()).isEqualTo("FAILED"); // status 过滤在真分页下仍精确
+        }
+
+        JsonNode noMatch = json(exchange("/api/system/backup?status=NO_SUCH_STATUS&page=1&size=10",
+                HttpMethod.GET, sysAdmin.accessToken(), null)).at("/data");
+        assertThat(noMatch.at("/total").asLong()).isEqualTo(0);
+        assertThat(noMatch.at("/records").size()).isEqualTo(0);
+    }
+
     @Test
     void plaintextIdCardRequiresSensitiveExportPermission() throws Exception {
         LoginResult clerk = readyLogin("test_college_clerk");
@@ -299,6 +351,51 @@ class Phase13SystemAuditIT {
 
         assertThat(records.toString()).contains("P13学院A审计");
         assertThat(records.toString()).doesNotContain("P13学院B审计");
+    }
+
+    /**
+     * Phase 44e-rollout（P1-1 真分页 · variant D：手写 @Select mapper + IPage 首参数）：
+     * GET /api/audit/log 原以 LIMIT 500 兜底防止无上限拉全表；rollout 后交给 PaginationInnerInterceptor
+     * 生成 COUNT + LIMIT/OFFSET。selectLogs 是本次 rollout 12 个端点里唯一的手写 SQL（非 MyBatis-Plus
+     * wrapper 自动生成），最需要单独验证"学院范围过滤"与"分页 COUNT/LIMIT"是否同步生效——
+     * 如果范围条件只在数据查询里生效、COUNT 未同步套用同一 WHERE，会出现 total 把其他学院记录一并计入
+     * （即"范围过滤晚于分页"，造成跨学院数据/总数泄露）；如果范围条件两处都生效但分页逻辑本身出错，
+     * 会出现跨页重复或遗漏。本测试用 COLLEGE_A 种 5 条、COLLEGE_B 种 1 条同关键字审计日志，
+     * 学院文员（COLLEGE 域，见 auditQueryRespectsCollegeScopeAndSupportsBusinessRecordCollege 的既有假设）
+     * 分页查询：total 必须精确等于 5（而非 6），且三页记录合计精确覆盖这 5 条、互不重叠。
+     */
+    @Test
+    void auditLogListSupportsRealServerSidePaginationWithinCollegeScope() throws Exception {
+        LoginResult clerk = readyLogin("test_college_clerk");
+        String tag = "P13分页审计" + System.nanoTime();
+        for (int i = 0; i < 5; i++) {
+            long materialId = seedMaterial(COLLEGE_A, "DRAFT", tag + "-A" + i + ".pdf");
+            seedAudit("material", materialId, tag + "-A" + i, null);
+        }
+        long otherMaterialId = seedMaterial(COLLEGE_B, "DRAFT", tag + "-B.pdf");
+        seedAudit("material", otherMaterialId, tag + "-B", COLLEGE_B);
+
+        JsonNode page1 = json(exchange("/api/audit/log?bizType=material&keyword=" + tag + "&page=1&size=2",
+                HttpMethod.GET, clerk.accessToken(), null)).at("/data");
+        assertThat(page1.at("/total").asLong()).isEqualTo(5);        // 精确 5 条，COLLEGE_B 的 1 条未计入 COUNT
+        assertThat(page1.at("/records").size()).isEqualTo(2);        // 页大小生效
+        assertThat(page1.toString()).doesNotContain(tag + "-B");
+
+        JsonNode page2 = json(exchange("/api/audit/log?bizType=material&keyword=" + tag + "&page=2&size=2",
+                HttpMethod.GET, clerk.accessToken(), null)).at("/data");
+        assertThat(page2.at("/total").asLong()).isEqualTo(5);        // total 跨页稳定
+        assertThat(page2.at("/records").size()).isEqualTo(2);
+        assertThat(page2.toString()).doesNotContain(tag + "-B");
+        assertThat(page1.at("/records/0/id").asLong()).isNotEqualTo(page2.at("/records/0/id").asLong());
+        assertThat(page1.at("/records/1/id").asLong()).isNotEqualTo(page2.at("/records/0/id").asLong());
+        assertThat(page1.at("/records/0/id").asLong()).isNotEqualTo(page2.at("/records/1/id").asLong());
+        assertThat(page1.at("/records/1/id").asLong()).isNotEqualTo(page2.at("/records/1/id").asLong());
+
+        JsonNode page3 = json(exchange("/api/audit/log?bizType=material&keyword=" + tag + "&page=3&size=2",
+                HttpMethod.GET, clerk.accessToken(), null)).at("/data");
+        assertThat(page3.at("/total").asLong()).isEqualTo(5);
+        assertThat(page3.at("/records").size()).isEqualTo(1);        // 5 条/每页 2 条 → 第 3 页剩 1 条
+        assertThat(page3.toString()).doesNotContain(tag + "-B");
     }
 
     private long seedMaterial(long collegeId, String status, String fileName) {
@@ -397,6 +494,18 @@ class Phase13SystemAuditIT {
         log.setIp("127.0.0.1");
         auditLogMapper.insert(log);
         return log;
+    }
+
+    private long seedBackup(String status, String remark) {
+        BackupRecord backup = new BackupRecord();
+        backup.setBackupType("mysql");
+        backup.setStatus(status);
+        backup.setScope("P13");
+        backup.setStartedAt(LocalDateTime.now());
+        backup.setFinishedAt(LocalDateTime.now());
+        backup.setRemark(remark);
+        backupRecordMapper.insert(backup);
+        return backup.getId();
     }
 
     private void assertRichAudit(String bizType, long bizId, String operation, String oldStatus, String newStatus,

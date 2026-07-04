@@ -1,7 +1,13 @@
 package cn.edu.gpnu.platform.boot;
 
 import cn.edu.gpnu.platform.PlatformApplication;
+import cn.edu.gpnu.platform.system.entity.SysPermission;
+import cn.edu.gpnu.platform.system.entity.SysRole;
 import cn.edu.gpnu.platform.system.entity.SysUser;
+import cn.edu.gpnu.platform.system.mapper.SysPermissionMapper;
+import cn.edu.gpnu.platform.system.mapper.SysRoleMapper;
+import cn.edu.gpnu.platform.system.mapper.SysRolePermissionMapper;
+import cn.edu.gpnu.platform.system.mapper.SysUserDataScopeMapper;
 import cn.edu.gpnu.platform.system.mapper.SysUserMapper;
 import cn.edu.gpnu.platform.system.mapper.SysUserRoleMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -43,6 +49,17 @@ class Phase2SecurityIT {
     private static final long PHASE2_STUDENT_B_USER_ID = 800000000000003009L;
     private static final long PHASE2_STUDENT_B_ROLE_ID = 800000000000004009L;
 
+    // Phase 44e-contract（P1-1 真分页样例 · GET /api/system/user 分页×范围 IT 夹具）：
+    // V8 种子里 system:user:manage 仅授予 SYS_ADMIN 且 scope_type=SYSTEM（全校范围，见 V8__rbac_seed.sql），
+    // 现有测试账号中没有"学院范围（非全校）system:user:manage"组合可直接复用，故新建一个仅供本测试使用、
+    // 独立 code 的角色 + 用户（不改动任何既有共享角色/账号），验证分页与既有数据范围叠加是否正确。
+    private static final String P44E_ROLE_CODE = "P44E_COLLEGE_USER_ADMIN";
+    private static final String P44E_ADMIN_USERNAME = "test_college_user_admin";
+    private static final String P44E_LISTING_FIXTURE_PREFIX = "P44EU";
+    private static final long P44E_ROLE_PERMISSION_LINK_ID = 900000000000000101L;
+    private static final long P44E_USER_ROLE_LINK_ID = 900000000000000102L;
+    private static final long P44E_USER_DATA_SCOPE_LINK_ID = 900000000000000103L;
+
     @LocalServerPort
     private int port;
 
@@ -57,6 +74,18 @@ class Phase2SecurityIT {
 
     @Autowired
     private SysUserRoleMapper userRoleMapper;
+
+    @Autowired
+    private SysRoleMapper roleMapper;
+
+    @Autowired
+    private SysPermissionMapper permissionMapper;
+
+    @Autowired
+    private SysRolePermissionMapper rolePermissionMapper;
+
+    @Autowired
+    private SysUserDataScopeMapper userDataScopeMapper;
 
     @Autowired
     private PasswordEncoder passwordEncoder;
@@ -175,6 +204,45 @@ class Phase2SecurityIT {
         assertThat(json(locked).at("/msg").asText()).contains("锁定");
     }
 
+    /**
+     * Phase 44e-contract（P1-1 真分页样例 · GET /api/system/user）：验证 SecurityAdminServiceImpl.listUsers
+     * 由「selectList 拼总数」改为 selectPage 真分页后，分页（page/size/total）与既有
+     * {@code @DataScope(alias = "sys_user", permission = "system:user:manage")} 学院数据范围过滤仍正确叠加——
+     * 即 COUNT 与数据两条 SQL 均经数据权限拦截器改写。由于现有测试账号里没有「学院范围（非全校）
+     * system:user:manage」组合，先按既有 upsert 幂等模式建好本测试专用角色 + 用户（见
+     * {@link #ensureCollegeScopedUserManager()}，不改动任何既有共享角色/账号）。
+     */
+    @Test
+    void paginatedUserListIsScopedAndPagedForCollegeUser() throws Exception {
+        userMapper.delete(new LambdaQueryWrapper<SysUser>().likeRight(SysUser::getUsername, P44E_LISTING_FIXTURE_PREFIX));
+        ensureCollegeScopedUserManager();
+
+        String prefix = P44E_LISTING_FIXTURE_PREFIX + System.nanoTime();
+        seedSecurityListingUser(prefix + "A1", "分页甲", PHASE2_COLLEGE_A);
+        seedSecurityListingUser(prefix + "A2", "分页乙", PHASE2_COLLEGE_A);
+        seedSecurityListingUser(prefix + "A3", "分页丙", PHASE2_COLLEGE_A);
+        // 同前缀但学院 B 的第 4 条：关键词能命中，但学院范围管理员的数据范围应把它排除在 total/records 之外。
+        seedSecurityListingUser(prefix + "B1", "分页丁", PHASE2_COLLEGE_B);
+
+        LoginResult scopedInitial = login(P44E_ADMIN_USERNAME, INITIAL_PASSWORD);
+        changePassword(scopedInitial.accessToken(), INITIAL_PASSWORD, CHANGED_PASSWORD);
+        LoginResult scoped = login(P44E_ADMIN_USERNAME, CHANGED_PASSWORD);
+
+        JsonNode page1 = json(exchange("/api/system/user?keyword=" + prefix + "&page=1&size=2",
+                HttpMethod.GET, scoped.accessToken(), null)).at("/data");
+        assertThat(page1.at("/total").asLong()).isEqualTo(3);
+        assertThat(page1.at("/records").size()).isEqualTo(2);
+        assertThat(page1.at("/records").toString()).doesNotContain(String.valueOf(PHASE2_COLLEGE_B));
+
+        JsonNode page2 = json(exchange("/api/system/user?keyword=" + prefix + "&page=2&size=2",
+                HttpMethod.GET, scoped.accessToken(), null)).at("/data");
+        assertThat(page2.at("/total").asLong()).isEqualTo(3);
+        assertThat(page2.at("/records").size()).isEqualTo(1);
+        assertThat(page2.at("/records").toString()).doesNotContain(String.valueOf(PHASE2_COLLEGE_B));
+
+        assertThat(page1.at("/records/0/id").asLong()).isNotEqualTo(page2.at("/records/0/id").asLong());
+    }
+
     private LoginResult login(String username, String password) throws Exception {
         ResponseEntity<String> response = loginRaw(username, password);
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
@@ -281,6 +349,69 @@ class Phase2SecurityIT {
             userMapper.updateById(user);
         }
         userRoleMapper.upsert(PHASE2_STUDENT_B_ROLE_ID, user.getId(), STUDENT_ROLE_ID, 0L);
+    }
+
+    /**
+     * Phase 44e-contract（P1-1 真分页样例 · GET /api/system/user 分页×范围 IT 所需夹具）：新建一个仅供本测试
+     * 使用、独立 code 的角色（不复用/不修改任何既有共享角色如 COLLEGE_CLERK 的权限集，避免影响同库运行的
+     * 其它 IT），赋予其既有 system:user:manage 权限（scope=COLLEGE），绑定新用户 test_college_user_admin
+     * （学院=COLLEGE_A）。全程使用既有 upsert 幂等 mapper 方法（唯一键 on-duplicate-update），可安全跨测试
+     * 重复调用；角色/用户均按"查到即复用、查不到才插入"处理，不产生重复行。
+     */
+    private void ensureCollegeScopedUserManager() {
+        SysRole role = roleMapper.selectOne(new LambdaQueryWrapper<SysRole>()
+                .eq(SysRole::getCode, P44E_ROLE_CODE)
+                .last("LIMIT 1"));
+        if (role == null) {
+            role = new SysRole();
+            role.setCode(P44E_ROLE_CODE);
+            role.setName("Phase44e学院范围用户管理员(测试)");
+            role.setDescription("P1-1 真分页 IT 专用：学院范围 system:user:manage");
+            role.setSort(999);
+            role.setStatus(1);
+            roleMapper.insert(role);
+        }
+        SysPermission permission = permissionMapper.selectOne(new LambdaQueryWrapper<SysPermission>()
+                .eq(SysPermission::getCode, "system:user:manage")
+                .last("LIMIT 1"));
+        assertThat(permission).isNotNull();
+        rolePermissionMapper.upsert(P44E_ROLE_PERMISSION_LINK_ID, role.getId(), permission.getId(), "COLLEGE", 0L);
+
+        SysUser admin = userMapper.selectByUsername(P44E_ADMIN_USERNAME);
+        if (admin == null) {
+            admin = new SysUser();
+            admin.setUsername(P44E_ADMIN_USERNAME);
+        }
+        admin.setPasswordHash(passwordEncoder.encode(INITIAL_PASSWORD));
+        admin.setRealName("学院范围用户管理员(测试)");
+        admin.setStatus("ENABLED");
+        admin.setUserType("STAFF");
+        admin.setCollegeId(PHASE2_COLLEGE_A);
+        admin.setMustChangePwd(1);
+        admin.setFailedLoginCount(0);
+        admin.setLockedUntil(null);
+        admin.setLastLoginAt(null);
+        if (userMapper.selectByUsername(P44E_ADMIN_USERNAME) == null) {
+            userMapper.insert(admin);
+        } else {
+            userMapper.updateById(admin);
+        }
+        userRoleMapper.upsert(P44E_USER_ROLE_LINK_ID, admin.getId(), role.getId(), 0L);
+        userDataScopeMapper.upsert(P44E_USER_DATA_SCOPE_LINK_ID, admin.getId(), PHASE2_COLLEGE_A, null, 0L);
+    }
+
+    // Phase 44e-contract：分页断言用的纯列表夹具（不登录、不需要角色），直接落库供 paginatedUserListIsScopedAndPagedForCollegeUser 查询。
+    private void seedSecurityListingUser(String username, String realName, long collegeId) {
+        SysUser user = new SysUser();
+        user.setUsername(username);
+        user.setPasswordHash(passwordEncoder.encode(INITIAL_PASSWORD));
+        user.setRealName(realName);
+        user.setStatus("ENABLED");
+        user.setUserType("STAFF");
+        user.setCollegeId(collegeId);
+        user.setMustChangePwd(1);
+        user.setFailedLoginCount(0);
+        userMapper.insert(user);
     }
 
     private void cleanupPhase3GeneratedAccounts() {

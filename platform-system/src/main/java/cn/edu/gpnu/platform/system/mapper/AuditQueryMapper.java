@@ -1,9 +1,9 @@
 package cn.edu.gpnu.platform.system.mapper;
 
+import com.baomidou.mybatisplus.core.metadata.IPage;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -141,17 +141,17 @@ public interface AuditQueryMapper {
                  )
                </if>
              ORDER BY l.operate_time DESC, l.id DESC
-             LIMIT 500
             </script>
             """)
-    List<Map<String, Object>> selectLogs(@Param("bizType") String bizType,
-                                         @Param("bizId") Long bizId,
-                                         @Param("operation") String operation,
-                                         @Param("operatorId") Long operatorId,
-                                         @Param("studentId") Long studentId,
-                                         @Param("collegeIds") Set<Long> collegeIds,
-                                         @Param("batchNo") String batchNo,
-                                         @Param("keyword") String keyword,
-                                         @Param("startTime") String startTime,
-                                         @Param("endTime") String endTime);
+    IPage<Map<String, Object>> selectLogs(@Param("page") IPage<Map<String, Object>> page,
+                                          @Param("bizType") String bizType,
+                                          @Param("bizId") Long bizId,
+                                          @Param("operation") String operation,
+                                          @Param("operatorId") Long operatorId,
+                                          @Param("studentId") Long studentId,
+                                          @Param("collegeIds") Set<Long> collegeIds,
+                                          @Param("batchNo") String batchNo,
+                                          @Param("keyword") String keyword,
+                                          @Param("startTime") String startTime,
+                                          @Param("endTime") String endTime);
 }

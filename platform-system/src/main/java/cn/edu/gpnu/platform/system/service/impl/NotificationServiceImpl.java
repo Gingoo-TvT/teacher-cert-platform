@@ -1,5 +1,6 @@
 package cn.edu.gpnu.platform.system.service.impl;
 
+import cn.edu.gpnu.platform.common.api.PageQuery;
 import cn.edu.gpnu.platform.common.api.PageResult;
 import cn.edu.gpnu.platform.common.api.ResultCode;
 import cn.edu.gpnu.platform.common.context.UserContext;
@@ -11,6 +12,7 @@ import cn.edu.gpnu.platform.system.service.NotifyChannel;
 import cn.edu.gpnu.platform.system.vo.NotificationVO;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -62,8 +64,10 @@ public class NotificationServiceImpl implements NotificationService {
         }
     }
 
+    // Phase 44e（P1-1 真分页 rollout · 变体 B'）：本人通知列表，范围过滤（eq userId）本就在 wrapper 里，
+    // 直接套用无 @DataScope 的分页配方即可——selectPage 天然带上 eq(userId)，total/当页都已是「本人」范围内的真实结果。
     @Override
-    public PageResult<NotificationVO> list(Boolean read) {
+    public PageResult<NotificationVO> list(Boolean read, Integer page, Integer size) {
         Long userId = currentUserId();
         LambdaQueryWrapper<Notification> wrapper = new LambdaQueryWrapper<Notification>()
                 .eq(Notification::getUserId, userId)
@@ -72,8 +76,9 @@ public class NotificationServiceImpl implements NotificationService {
         if (read != null) {
             wrapper.eq(Notification::getReadFlag, read ? 1 : 0);
         }
-        List<NotificationVO> records = notificationMapper.selectList(wrapper).stream().map(this::toVO).toList();
-        return new PageResult<>(records.size(), records);
+        Page<Notification> result = notificationMapper.selectPage(PageQuery.of(page, size), wrapper);
+        List<NotificationVO> records = result.getRecords().stream().map(this::toVO).toList();
+        return new PageResult<>(result.getTotal(), records);
     }
 
     @Override

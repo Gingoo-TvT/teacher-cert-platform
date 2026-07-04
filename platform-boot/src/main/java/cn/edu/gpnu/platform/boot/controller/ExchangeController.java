@@ -93,8 +93,10 @@ public class ExchangeController {
     @PreAuthorize("@pms.has('exchange:import') or @pms.has('exchange:export:standard') or @pms.has('exchange:export:full')")
     @GetMapping("/batches")
     public Result<PageResult<BatchVO>> batches(@RequestParam(value = "type", required = false) String type,
-                                               @RequestParam(value = "status", required = false) String status) {
-        return Result.ok(exchangeService.batches(type, status));
+                                               @RequestParam(value = "status", required = false) String status,
+                                               @RequestParam(value = "page", required = false) Integer page,
+                                               @RequestParam(value = "size", required = false) Integer size) {
+        return Result.ok(exchangeService.batches(type, status, page, size));
     }
 
     @Operation(summary = "导出数据")

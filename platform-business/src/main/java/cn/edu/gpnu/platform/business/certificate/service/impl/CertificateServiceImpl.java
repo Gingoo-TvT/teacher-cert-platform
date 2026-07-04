@@ -28,6 +28,7 @@ import cn.edu.gpnu.platform.business.training.support.TrainingStatus;
 import cn.edu.gpnu.platform.business.video.entity.VideoReview;
 import cn.edu.gpnu.platform.business.video.mapper.VideoReviewMapper;
 import cn.edu.gpnu.platform.business.video.support.VideoReviewStatus;
+import cn.edu.gpnu.platform.common.api.PageQuery;
 import cn.edu.gpnu.platform.common.api.PageResult;
 import cn.edu.gpnu.platform.common.api.ResultCode;
 import cn.edu.gpnu.platform.common.context.DataScopeContext;
@@ -42,6 +43,7 @@ import cn.edu.gpnu.platform.system.service.ParamService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -80,10 +82,16 @@ public class CertificateServiceImpl implements CertificateService {
     private final AuditLogService auditLogService;
     private final ObjectMapper objectMapper;
 
+    // Phase 44e（P1-1 真分页铺开）：由「全表 selectList 后 new PageResult<>(size, records)」改为
+    // MyBatis-Plus Page + selectPage 真分页。@DataScope（CertificateController.list，alias=certificate）设置的
+    // 线程范围经数据权限拦截器在 selectPage 的 count 与数据两条 SQL 上均生效 → 该页与 total 同为「已按范围过滤」的结果。
     @Override
     public PageResult<CertificateVO> list(CertificateQuery query) {
-        List<Certificate> records = selectCertificates(query);
-        return new PageResult<>(records.size(), records.stream().map(this::toVO).toList());
+        CertificateQuery q = query == null ? new CertificateQuery() : query;
+        Page<Certificate> result = certificateMapper.selectPage(
+                PageQuery.of(q.getPage(), q.getSize()), buildListWrapper(q));
+        List<CertificateVO> records = result.getRecords().stream().map(this::toVO).toList();
+        return new PageResult<>(result.getTotal(), records);
     }
 
     @Override
@@ -298,8 +306,7 @@ public class CertificateServiceImpl implements CertificateService {
         return toVO(entity);
     }
 
-    private List<Certificate> selectCertificates(CertificateQuery query) {
-        CertificateQuery q = query == null ? new CertificateQuery() : query;
+    private LambdaQueryWrapper<Certificate> buildListWrapper(CertificateQuery q) {
         LambdaQueryWrapper<Certificate> wrapper = new LambdaQueryWrapper<Certificate>()
                 .orderByDesc(Certificate::getCreatedAt)
                 .orderByAsc(Certificate::getStudentId);
@@ -325,7 +332,7 @@ public class CertificateServiceImpl implements CertificateService {
                     .or()
                     .like(Certificate::getTeachingSubjectName, keyword));
         }
-        return certificateMapper.selectList(wrapper);
+        return wrapper;
     }
 
     private CertificatePrecheckVO doPrecheck(Student student, String year) {

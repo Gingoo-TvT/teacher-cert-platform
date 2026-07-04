@@ -244,6 +244,57 @@ class Phase4TrainingIT {
         assertThat(studentRecords.at("/0/studentId").asLong()).isEqualTo(9001L);
     }
 
+    /**
+     * Phase 44e-rollout（P1-1 真分页 · TrainingProfileServiceImpl.list · 数据范围 × 分页组合的正确性证明）：
+     * 逐字参照 Phase3StudentIT.paginatedStudentListIsScopedAndPagedForCollegeUser——
+     * 学院文员（学院A）对含跨学院同 assessmentYear 的培养信息列表做真分页：
+     * ① total 为「已按学院范围过滤」的总数（3，学院B 那条不计入，证明分页 count SQL 也走了数据权限拦截器）；
+     * ② 每页条数=请求 size；③ 各页记录均无学院B 数据；④ 页间记录不重叠（真 LIMIT/OFFSET，非全表包壳）。
+     */
+    @Test
+    void paginatedTrainingListIsScopedAndPagedForCollegeUser() throws Exception {
+        LoginResult academic = readyLogin("test_academic_admin");
+        // assessment_year 列是 VARCHAR(16)：完整 nanoTime()（最多 19 位）拼接前缀会超长触发 400/截断，
+        // 故对 nanoTime 取模到 9 位以内，'P4PAGE'(6 位)+最多 9 位数字 <= 15 位，留有余量。
+        String year = "P4PAGE" + Math.abs(System.nanoTime() % 1_000_000_000L);
+
+        long a1 = createStudent(academic.accessToken(), student(uniqueNo("P4PAGEA1"), "分页甲", "normal_student", COLLEGE_A));
+        long a2 = createStudent(academic.accessToken(), student(uniqueNo("P4PAGEA2"), "分页乙", "normal_student", COLLEGE_A));
+        long a3 = createStudent(academic.accessToken(), student(uniqueNo("P4PAGEA3"), "分页丙", "normal_student", COLLEGE_A));
+        long b1 = createStudent(academic.accessToken(), student(uniqueNo("P4PAGEB1"), "分页乙院", "normal_student", COLLEGE_B));
+
+        save(academic.accessToken(), training(a1, COLLEGE_A, year, "050101", "汉语言文学",
+                "P4_NORMAL_A", "Phase4普通师范试点专业A", "bachelor", "primary_school_teacher",
+                "primary_secondary_school", "primary_school", "ps_chinese"));
+        save(academic.accessToken(), training(a2, COLLEGE_A, year, "050101", "汉语言文学",
+                "P4_NORMAL_A", "Phase4普通师范试点专业A", "bachelor", "primary_school_teacher",
+                "primary_secondary_school", "primary_school", "ps_chinese"));
+        save(academic.accessToken(), training(a3, COLLEGE_A, year, "050101", "汉语言文学",
+                "P4_NORMAL_A", "Phase4普通师范试点专业A", "bachelor", "primary_school_teacher",
+                "primary_secondary_school", "primary_school", "ps_chinese"));
+        // 学院B 同 assessmentYear 1 条：assessmentYear 筛选能命中，但学院文员的数据范围应把它排除在 total 与 records 之外。
+        save(academic.accessToken(), training(b1, COLLEGE_B, year, "070101", "数学与应用数学",
+                "P4_NORMAL_B", "Phase4普通师范试点专业B", "bachelor", "junior_middle_school_teacher",
+                "primary_secondary_school", "junior_middle_school", "jms_math"));
+
+        LoginResult clerk = readyLogin("test_college_clerk");
+
+        JsonNode page1 = json(exchange("/api/training?assessmentYear=" + year + "&page=1&size=2",
+                HttpMethod.GET, clerk.accessToken(), null)).at("/data");
+        assertThat(page1.at("/total").asLong()).isEqualTo(3);
+        assertThat(page1.at("/records").size()).isEqualTo(2);
+        assertThat(page1.at("/records").toString()).doesNotContain(String.valueOf(COLLEGE_B));
+
+        JsonNode page2 = json(exchange("/api/training?assessmentYear=" + year + "&page=2&size=2",
+                HttpMethod.GET, clerk.accessToken(), null)).at("/data");
+        assertThat(page2.at("/total").asLong()).isEqualTo(3);
+        assertThat(page2.at("/records").size()).isEqualTo(1);
+        assertThat(page2.at("/records").toString()).doesNotContain(String.valueOf(COLLEGE_B));
+
+        assertThat(page1.at("/records/0/id").asLong())
+                .isNotEqualTo(page2.at("/records/0/id").asLong());
+    }
+
     @Test
     void vocationalAndOverseasRestrictionsHavePositivePaths() throws Exception {
         LoginResult academic = readyLogin("test_academic_admin");

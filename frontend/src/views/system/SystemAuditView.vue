@@ -39,6 +39,10 @@ const auditTotal = ref(0)
 const backupTotal = ref(0)
 const paramPage = ref(1)
 const paramSize = ref(20)
+const auditPage = ref(1)
+const auditSize = ref(20)
+const backupPage = ref(1)
+const backupSize = ref(20)
 
 const paramQuery = reactive({ group: null as string | null, keyword: '' })
 const auditQuery = reactive({
@@ -55,11 +59,14 @@ const canManageParam = computed(() => userStore.hasPerm('system:param:manage'))
 const canViewAudit = computed(() => userStore.hasPerm('audit:view'))
 const canBackup = computed(() => userStore.hasPerm('system:backup'))
 const hasVisibleSection = computed(() => canManageParam.value || canViewAudit.value || canBackup.value)
+// Phase 44e-rollout：备份/审计改真分页后 backups/audits 数组仅为当页数据，"备份完成" 原先由
+// backups.value.filter(...).length 统计、真分页后会静默退化为「仅当页完成数」而非全量总数。
+// 加一次额外请求换真总数属于本次机械 rollout 之外的范围（增加网络往返且脱离"分页改造"本身），
+// 故与 spec 对 listUsers/backups 等条目的既定处理一致：直接去掉该派生统计卡片，不展示误导性数字。
 const summary = computed(() => ({
   params: paramTotal.value,
   audits: auditTotal.value,
-  backups: backupTotal.value,
-  completedBackups: backups.value.filter((item) => item.status === 'COMPLETED').length
+  backups: backupTotal.value
 }))
 const collegeOptions = computed<SelectOption[]>(() => colleges.value.map((item) => ({ label: item.name, value: item.id })))
 
@@ -171,7 +178,7 @@ async function loadAudits() {
   }
   auditLoading.value = true
   try {
-    const res = await listAuditLogs(auditQuery)
+    const res = await listAuditLogs({ ...auditQuery, page: auditPage.value, size: auditSize.value })
     audits.value = res.data.records
     auditTotal.value = res.data.total
   } catch (error) {
@@ -181,6 +188,23 @@ async function loadAudits() {
   }
 }
 
+// 筛选变更 → 回到第 1 页再查（真分页）。
+function searchAudits() {
+  auditPage.value = 1
+  void loadAudits()
+}
+
+function onAuditPageChange(next: number) {
+  auditPage.value = next
+  void loadAudits()
+}
+
+function onAuditPageSizeChange(nextSize: number) {
+  auditSize.value = nextSize
+  auditPage.value = 1
+  void loadAudits()
+}
+
 async function loadBackups() {
   if (!canBackup.value) {
     backups.value = []
@@ -188,7 +212,7 @@ async function loadBackups() {
   }
   backupLoading.value = true
   try {
-    const res = await listBackups(backupStatus.value)
+    const res = await listBackups(backupStatus.value, backupPage.value, backupSize.value)
     backups.value = res.data.records
     backupTotal.value = res.data.total
   } catch (error) {
@@ -196,6 +220,23 @@ async function loadBackups() {
   } finally {
     backupLoading.value = false
   }
+}
+
+// 筛选变更 → 回到第 1 页再查（真分页）。
+function searchBackups() {
+  backupPage.value = 1
+  void loadBackups()
+}
+
+function onBackupPageChange(next: number) {
+  backupPage.value = next
+  void loadBackups()
+}
+
+function onBackupPageSizeChange(nextSize: number) {
+  backupSize.value = nextSize
+  backupPage.value = 1
+  void loadBackups()
 }
 
 function openParamDrawer(row: SysParam) {
@@ -259,12 +300,12 @@ function resetAuditQuery() {
     studentId: '',
     batchNo: ''
   })
-  void loadAudits()
+  searchAudits()
 }
 
 function resetBackupQuery() {
   backupStatus.value = null
-  void loadBackups()
+  searchBackups()
 }
 
 onMounted(loadVisibleSections)
@@ -282,11 +323,10 @@ onMounted(loadVisibleSections)
 
     <n-empty v-if="!hasVisibleSection" description="当前账号没有可访问的系统治理分区" class="page-section" />
 
-    <n-grid v-if="hasVisibleSection" :cols="4" :x-gap="12" responsive="screen" class="page-section">
+    <n-grid v-if="hasVisibleSection" :cols="3" :x-gap="12" responsive="screen" class="page-section">
       <n-gi v-if="canManageParam"><StatCard label="系统参数" :value="summary.params" /></n-gi>
       <n-gi v-if="canViewAudit"><StatCard label="审计记录" :value="summary.audits" tone="info" /></n-gi>
       <n-gi v-if="canBackup"><StatCard label="备份记录" :value="summary.backups" tone="neutral" /></n-gi>
-      <n-gi v-if="canBackup"><StatCard label="备份完成" :value="summary.completedBackups" tone="success" /></n-gi>
     </n-grid>
 
     <n-tabs v-if="hasVisibleSection" type="line" animated>
@@ -319,14 +359,14 @@ onMounted(loadVisibleSections)
       </n-tab-pane>
 
       <n-tab-pane v-if="canViewAudit" name="audit" tab="审计日志">
-        <FilterBar :loading="auditLoading" @submit="loadAudits" @reset="resetAuditQuery">
+        <FilterBar :loading="auditLoading" @submit="searchAudits" @reset="resetAuditQuery">
           <label class="filter-field">
             <span>业务</span>
-            <n-input v-model:value="auditQuery.bizType" clearable placeholder="业务类型" style="width: 140px" @keyup.enter="loadAudits" />
+            <n-input v-model:value="auditQuery.bizType" clearable placeholder="业务类型" style="width: 140px" @keyup.enter="searchAudits" />
           </label>
           <label class="filter-field">
             <span>操作</span>
-            <n-input v-model:value="auditQuery.operation" clearable placeholder="操作名称" style="width: 140px" @keyup.enter="loadAudits" />
+            <n-input v-model:value="auditQuery.operation" clearable placeholder="操作名称" style="width: 140px" @keyup.enter="searchAudits" />
           </label>
           <label class="filter-field">
             <span>学院</span>
@@ -334,19 +374,19 @@ onMounted(loadVisibleSections)
           </label>
           <label class="filter-field">
             <span>关键词</span>
-            <n-input v-model:value="auditQuery.keyword" clearable placeholder="对象 / 意见 / 关键词" style="width: 220px" @keyup.enter="loadAudits" />
+            <n-input v-model:value="auditQuery.keyword" clearable placeholder="对象 / 意见 / 关键词" style="width: 220px" @keyup.enter="searchAudits" />
           </label>
           <template #more>
             <label class="filter-field">
               <span>学生</span>
               <div class="filter-control">
-                <n-input v-model:value="auditQuery.studentId" clearable placeholder="学生ID（数字）" style="width: 150px" @keyup.enter="loadAudits" />
+                <n-input v-model:value="auditQuery.studentId" clearable placeholder="学生ID（数字）" style="width: 150px" @keyup.enter="searchAudits" />
                 <span class="filter-help">请填写数字编号，用于精确定位学生记录。</span>
               </div>
             </label>
             <label class="filter-field">
               <span>批次</span>
-              <n-input v-model:value="auditQuery.batchNo" clearable placeholder="批次号" style="width: 150px" @keyup.enter="loadAudits" />
+              <n-input v-model:value="auditQuery.batchNo" clearable placeholder="批次号" style="width: 150px" @keyup.enter="searchAudits" />
             </label>
           </template>
         </FilterBar>
@@ -356,14 +396,19 @@ onMounted(loadVisibleSections)
           :data="audits"
           :total="auditTotal"
           :loading="auditLoading"
+          remote
+          :page="auditPage"
+          :page-size="auditSize"
           empty-title="暂无审计日志"
           empty-description="当前筛选条件下没有审计记录。"
+          @update:page="onAuditPageChange"
+          @update:page-size="onAuditPageSizeChange"
           @refresh="loadAudits"
         />
       </n-tab-pane>
 
       <n-tab-pane v-if="canBackup" name="backup" tab="备份记录">
-        <FilterBar :loading="backupLoading" @submit="loadBackups" @reset="resetBackupQuery">
+        <FilterBar :loading="backupLoading" @submit="searchBackups" @reset="resetBackupQuery">
           <label class="filter-field">
             <span>状态</span>
             <n-select
@@ -385,8 +430,13 @@ onMounted(loadVisibleSections)
           :data="backups"
           :total="backupTotal"
           :loading="backupLoading"
+          remote
+          :page="backupPage"
+          :page-size="backupSize"
           empty-title="暂无备份记录"
           empty-description="当前筛选条件下没有备份演练记录。"
+          @update:page="onBackupPageChange"
+          @update:page-size="onBackupPageSizeChange"
           @refresh="loadBackups"
         >
           <template #actions>

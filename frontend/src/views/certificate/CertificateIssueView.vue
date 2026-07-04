@@ -31,6 +31,9 @@ const keyword = ref('')
 const assessmentYear = ref(yearStore.assessmentYear)
 const statusFilter = ref<string | null>('GENERATED')
 const records = ref<Certificate[]>([])
+const certTotal = ref(0)
+const page = ref(1)
+const size = ref(20)
 const statuses = ref<DictItem[]>([])
 const selected = ref<Certificate | null>(null)
 const canIssue = computed(() => userStore.hasPerm('cert:issue'))
@@ -43,6 +46,8 @@ const issueForm = reactive<CertificateIssuePayload>({
 })
 
 const statusOptions = computed<SelectOption[]>(() => statuses.value.map((item) => ({ label: item.itemValue, value: item.itemCode })))
+// Phase 44e-rollout（P1-1 真分页铺开）：records 真分页后仅为当页数据，下列 waiting/issued/exported
+// 仅代表当页状态分布，不再是全表统计（与 CertificateManageView.vue 的既有局限一致，暂不新增全量聚合查询）。
 const summary = computed(() => ({
   waiting: records.value.filter((item) => item.status === 'GENERATED').length,
   issued: records.value.filter((item) => item.status === 'ISSUED').length,
@@ -89,14 +94,34 @@ async function loadRecords() {
     const res = await listCertificates({
       keyword: keyword.value,
       assessmentYear: assessmentYear.value,
-      status: statusFilter.value
+      status: statusFilter.value,
+      page: page.value,
+      size: size.value
     })
     records.value = res.data.records
+    certTotal.value = res.data.total
   } catch (error) {
     showError(error, '签发队列加载失败')
   } finally {
     loading.value = false
   }
+}
+
+// 筛选变更（关键词/年度/状态）→ 回到第 1 页再查（真分页下 total/页码需随筛选重置）。
+function search() {
+  page.value = 1
+  void loadRecords()
+}
+
+function onPageChange(next: number) {
+  page.value = next
+  void loadRecords()
+}
+
+function onPageSizeChange(nextSize: number) {
+  size.value = nextSize
+  page.value = 1
+  void loadRecords()
 }
 
 async function loadOptions() {
@@ -164,7 +189,7 @@ function resetFilters() {
   keyword.value = ''
   assessmentYear.value = yearStore.assessmentYear
   statusFilter.value = 'GENERATED'
-  void loadRecords()
+  search()
 }
 
 function todayText() {
@@ -184,9 +209,9 @@ onMounted(async () => {
 
 watch(
   () => yearStore.assessmentYear,
-  async (year) => {
+  (year) => {
     assessmentYear.value = year
-    if (canViewQueue.value) await loadRecords()
+    if (canViewQueue.value) search()
   }
 )
 </script>
@@ -201,10 +226,10 @@ watch(
       <n-gi><StatCard label="已导出待归档" :value="summary.exported" tone="info" /></n-gi>
     </n-grid>
 
-    <FilterBar v-if="canViewQueue" :loading="loading" @submit="loadRecords" @reset="resetFilters">
+    <FilterBar v-if="canViewQueue" :loading="loading" @submit="search" @reset="resetFilters">
       <label class="filter-field">
         <span>关键词</span>
-        <n-input v-model:value="keyword" clearable placeholder="证书编号 / 学号 / 姓名" style="width: 240px" @keyup.enter="loadRecords" />
+        <n-input v-model:value="keyword" clearable placeholder="证书编号 / 学号 / 姓名" style="width: 240px" @keyup.enter="search" />
       </label>
       <label class="filter-field">
         <span>年度</span>
@@ -221,10 +246,15 @@ watch(
       title="签发队列"
       :columns="columns"
       :data="records"
-      :total="records.length"
+      :total="certTotal"
       :loading="loading"
+      remote
+      :page="page"
+      :page-size="size"
       empty-title="暂无待签发证书"
       empty-description="当前筛选条件下没有证书签发记录。"
+      @update:page="onPageChange"
+      @update:page-size="onPageSizeChange"
       @refresh="loadRecords"
     />
 

@@ -15,7 +15,7 @@ public interface NotificationService {
      */
     void sendBatch(Collection<Long> userIds, String type, String title, String content, String bizType, String bizId);
 
-    PageResult<NotificationVO> list(Boolean read);
+    PageResult<NotificationVO> list(Boolean read, Integer page, Integer size);
 
     long unreadCount();
 

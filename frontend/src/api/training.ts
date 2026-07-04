@@ -64,6 +64,8 @@ export interface TrainingQuery {
   status?: string | null
   collegeId?: string | null
   assessmentYear?: string | null
+  page?: number
+  size?: number
 }
 
 export interface ReviewPayload {
@@ -110,9 +112,14 @@ export function secondReviewTrainingProfile(id: string, payload: ReviewPayload) 
 }
 
 function cleanParams(query: Record<string, unknown>) {
-  const params: Record<string, string> = {}
+  const params: Record<string, string | number> = {}
   for (const [key, value] of Object.entries(query)) {
-    if (typeof value === 'string' && value.trim()) params[key] = value.trim()
+    if (typeof value === 'string') {
+      const text = value.trim()
+      if (text) params[key] = text
+    } else if (typeof value === 'number' && Number.isFinite(value)) {
+      params[key] = value
+    }
   }
   return params
 }

@@ -18,7 +18,7 @@ public interface SystemManagementService {
 
     void rejectAuditDelete(Long id);
 
-    PageResult<BackupRecordVO> backups(String status);
+    PageResult<BackupRecordVO> backups(String status, Integer page, Integer size);
 
     BackupRecordVO triggerBackup(BackupTriggerRequest request);
 }

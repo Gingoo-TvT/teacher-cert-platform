@@ -206,6 +206,45 @@ class Phase5MaterialIT {
         assertThat(studentRecords.at("/0/studentId").asLong()).isEqualTo(9001L);
     }
 
+    /**
+     * Phase 44e（P1-1 真分页 rollout · 材料列表 · 数据范围 × 分页组合的正确性证明）：
+     * 学院文员（学院A）对含跨学院同考核年度材料的列表做真分页——
+     * ① total 为「已按学院范围过滤」的总数（3，学院B 那条不计入，证明分页 count SQL 也走了数据权限拦截器）；
+     * ② 每页条数=请求 size；③ 各页均无学院B 材料；④ 页间记录不重叠（真 LIMIT/OFFSET，非全表包壳）。
+     */
+    @Test
+    void paginatedMaterialListIsScopedAndPagedForCollegeUser() throws Exception {
+        LoginResult studentA = readyLogin("test_student");
+        LoginResult studentB = readyLogin("test_student_b");
+        // assessment_year 列是 VARCHAR(16)：完整 nanoTime()（最多 19 位）拼接前缀会超长触发截断异常，
+        // 故对 nanoTime 取模到 9 位以内，'P5PAGE'(6 位)+最多 9 位数字 <= 15 位，留有余量。
+        String year = "P5PAGE" + Math.abs(System.nanoTime() % 1_000_000_000L);
+        uploadOk(studentA.accessToken(), 9001L, year, MORALITY, "page-a1.pdf");
+        uploadOk(studentA.accessToken(), 9001L, year, COURSE, "page-a2.pdf");
+        uploadOk(studentA.accessToken(), 9001L, year, PRACTICE, "page-a3.pdf");
+        // 学院B 同考核年度 1 条：eq(assessmentYear) 能命中，但学院文员的数据范围应把它排除在 total 与 records 之外。
+        long b1 = uploadOk(studentB.accessToken(), 9002L, year, MORALITY, "page-b1.pdf");
+
+        LoginResult clerk = readyLogin("test_college_clerk");
+
+        JsonNode page1 = json(exchange("/api/material?assessmentYear=" + year + "&page=1&size=2",
+                HttpMethod.GET, clerk.accessToken(), null)).at("/data");
+        assertThat(page1.at("/total").asLong()).isEqualTo(3);
+        assertThat(page1.at("/records").size()).isEqualTo(2);
+        assertThat(page1.at("/records").toString()).doesNotContain(String.valueOf(COLLEGE_B));
+        assertThat(page1.at("/records").toString()).doesNotContain(String.valueOf(b1));
+
+        JsonNode page2 = json(exchange("/api/material?assessmentYear=" + year + "&page=2&size=2",
+                HttpMethod.GET, clerk.accessToken(), null)).at("/data");
+        assertThat(page2.at("/total").asLong()).isEqualTo(3);
+        assertThat(page2.at("/records").size()).isEqualTo(1);
+        assertThat(page2.at("/records").toString()).doesNotContain(String.valueOf(COLLEGE_B));
+        assertThat(page2.at("/records").toString()).doesNotContain(String.valueOf(b1));
+
+        assertThat(page1.at("/records/0/id").asLong())
+                .isNotEqualTo(page2.at("/records/0/id").asLong());
+    }
+
     @Test
     // Phase 43.3 / §7.5 Rule 11：某类别先被判 FAILED（终态、locked），学生为同一类别重传一份新材料并复审通过 →
     // 合格判定取"最新/有效"一份材料（更晚的 PASSED 取代更早的 FAILED）→ 该类别恢复合格。

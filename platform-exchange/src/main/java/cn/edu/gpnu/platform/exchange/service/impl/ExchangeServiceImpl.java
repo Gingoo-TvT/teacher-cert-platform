@@ -21,6 +21,7 @@ import cn.edu.gpnu.platform.business.training.support.TrainingLinkValidator;
 import cn.edu.gpnu.platform.business.training.support.TrainingStatus;
 import cn.edu.gpnu.platform.business.video.entity.VideoReview;
 import cn.edu.gpnu.platform.business.video.mapper.VideoReviewMapper;
+import cn.edu.gpnu.platform.common.api.PageQuery;
 import cn.edu.gpnu.platform.common.api.PageResult;
 import cn.edu.gpnu.platform.common.api.ResultCode;
 import cn.edu.gpnu.platform.common.context.DataScopeContext;
@@ -64,6 +65,7 @@ import cn.edu.gpnu.platform.system.service.ParamService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -334,7 +336,7 @@ public class ExchangeServiceImpl implements ExchangeService {
     }
 
     @Override
-    public PageResult<BatchVO> batches(String type, String status) {
+    public PageResult<BatchVO> batches(String type, String status, Integer page, Integer size) {
         LambdaQueryWrapper<ImportExportBatch> wrapper = new LambdaQueryWrapper<ImportExportBatch>()
                 .orderByDesc(ImportExportBatch::getOperateTime);
         if (StringUtils.hasText(type)) {
@@ -343,16 +345,19 @@ public class ExchangeServiceImpl implements ExchangeService {
         if (StringUtils.hasText(status)) {
             wrapper.eq(ImportExportBatch::getStatus, status.trim());
         }
-        // P0-7：非全校范围只能看到本人创建的批次（批次以 operatorId 归属）
+        // P0-7：非全校范围只能看到本人创建的批次（批次以 operatorId 归属）。Phase 44e-rollout：真分页前，
+        // 原先「selectList 取全量 → Java stream().filter 按 operatorId 过滤」必须下推进 wrapper 的 SQL
+        // WHERE，否则分页拦截器生成的 COUNT/LIMIT 会先于范围过滤执行，造成 total 与他人批次一起被计入、
+        // 跨用户泄露。uid 为 null 时用哨兵 -1L（不会等于任何真实 operatorId）复现原逻辑「必然不匹配」的语义。
         DataScopeContext.Scope scope = dataScopeService.resolve("exchange:import");
         boolean allSchool = scope != null && scope.allSchool();
-        Long uid = UserContext.getUserId();
-        List<ImportExportBatch> list = batchMapper.selectList(wrapper);
         if (!allSchool) {
-            list = list.stream().filter(b -> uid != null && uid.equals(b.getOperatorId())).toList();
+            Long uid = UserContext.getUserId();
+            wrapper.eq(ImportExportBatch::getOperatorId, uid == null ? -1L : uid);
         }
-        List<BatchVO> records = list.stream().map(this::toBatchVO).toList();
-        return new PageResult<>(records.size(), records);
+        Page<ImportExportBatch> result = batchMapper.selectPage(PageQuery.of(page, size), wrapper);
+        List<BatchVO> records = result.getRecords().stream().map(this::toBatchVO).toList();
+        return new PageResult<>(result.getTotal(), records);
     }
 
     @Override
