@@ -1,5 +1,6 @@
 package cn.edu.gpnu.platform.system.service.impl;
 
+import cn.edu.gpnu.platform.common.api.PageQuery;
 import cn.edu.gpnu.platform.common.api.PageResult;
 import cn.edu.gpnu.platform.common.api.ResultCode;
 import cn.edu.gpnu.platform.common.context.DataScopeContext;
@@ -21,6 +22,7 @@ import cn.edu.gpnu.platform.system.vo.AuditLogVO;
 import cn.edu.gpnu.platform.system.vo.BackupRecordVO;
 import cn.edu.gpnu.platform.system.vo.SysParamVO;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import lombok.RequiredArgsConstructor;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
@@ -50,8 +52,11 @@ public class SystemManagementServiceImpl implements SystemManagementService {
     private final AuditLogService auditLogService;
     private final DatabaseBackupService databaseBackupService;
 
+    // Phase 44e-contract（P1-1 真分页样例 · 非数据范围列表）：由全表 selectList 改为 selectPage 真分页。
+    // 本接口无 @DataScope（系统参数为全局参考数据、无行级归属），DataScopeContext 为空、数据权限拦截器
+    // 在此不追加过滤 → total 为「按 group/keyword 过滤后的真实总数」，records 为该页。分页拦截器独立生效。
     @Override
-    public PageResult<SysParamVO> params(String group, String keyword) {
+    public PageResult<SysParamVO> params(String group, String keyword, Integer page, Integer size) {
         LambdaQueryWrapper<SysParam> wrapper = new LambdaQueryWrapper<SysParam>()
                 .orderByAsc(SysParam::getParamGroup)
                 .orderByAsc(SysParam::getParamKey);
@@ -64,8 +69,9 @@ public class SystemManagementServiceImpl implements SystemManagementService {
                     .or()
                     .like(SysParam::getDescription, key));
         }
-        List<SysParamVO> records = paramMapper.selectList(wrapper).stream().map(this::toParamVO).toList();
-        return new PageResult<>(records.size(), records);
+        Page<SysParam> result = paramMapper.selectPage(PageQuery.of(page, size), wrapper);
+        List<SysParamVO> records = result.getRecords().stream().map(this::toParamVO).toList();
+        return new PageResult<>(result.getTotal(), records);
     }
 
     // Phase 44c（§7.3）：参数唯一生产写路径 → 逐出整个 sysParam 缓存（key 含默认值无法精准逐单键，且参数写罕见，allEntries 简单可靠）。

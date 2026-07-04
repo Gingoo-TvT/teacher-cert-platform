@@ -47,6 +47,8 @@ const gradeFilter = ref('')
 const collegeFilter = ref<string | null>(null)
 const records = ref<Student[]>([])
 const studentTotal = ref(0)
+const page = ref(1)
+const size = ref(20)
 const colleges = ref<College[]>([])
 const genders = ref<DictItem[]>([])
 const idCardTypes = ref<DictItem[]>([])
@@ -72,11 +74,6 @@ const genderOptions = computed<SelectOption[]>(() => dictOptions(genders.value))
 const idCardTypeOptions = computed<SelectOption[]>(() => dictOptions(idCardTypes.value))
 const identityTypeOptions = computed<SelectOption[]>(() => dictOptions(identityTypes.value))
 
-const filteredRecords = computed(() => {
-  const grade = gradeFilter.value.trim()
-  if (!grade) return records.value
-  return records.value.filter((row) => [row.grade || '', row.className || ''].some((text) => text.includes(grade)))
-})
 const detailItems = computed(() => {
   const row = selectedStudent.value
   if (!row) return []
@@ -151,7 +148,10 @@ async function loadStudents() {
     const res = await listStudents({
       keyword: keyword.value,
       status: statusFilter.value,
-      collegeId: collegeFilter.value
+      collegeId: collegeFilter.value,
+      grade: gradeFilter.value,
+      page: page.value,
+      size: size.value
     })
     records.value = res.data.records
     studentTotal.value = res.data.total
@@ -160,6 +160,23 @@ async function loadStudents() {
   } finally {
     loading.value = false
   }
+}
+
+// 筛选变更（关键词/状态/学院/年级）→ 回到第 1 页再查（真分页下 total/页码需随筛选重置）。
+function search() {
+  page.value = 1
+  void loadStudents()
+}
+
+function onPageChange(next: number) {
+  page.value = next
+  void loadStudents()
+}
+
+function onPageSizeChange(nextSize: number) {
+  size.value = nextSize
+  page.value = 1
+  void loadStudents()
 }
 
 async function loadOptions() {
@@ -234,7 +251,7 @@ function resetFilters() {
   statusFilter.value = null
   collegeFilter.value = null
   gradeFilter.value = ''
-  void loadStudents()
+  search()
 }
 
 function goImport() {
@@ -266,10 +283,10 @@ onMounted(async () => {
 
 <template>
   <PageContainer title="学生基本信息" description="学生基本信息查询、初审与复审。">
-    <FilterBar :loading="loading" @submit="loadStudents" @reset="resetFilters">
+    <FilterBar :loading="loading" @submit="search" @reset="resetFilters">
       <label class="filter-field">
         <span>关键词</span>
-        <n-input v-model:value="keyword" clearable placeholder="学号 / 姓名" style="width: 220px" @keyup.enter="loadStudents" />
+        <n-input v-model:value="keyword" clearable placeholder="学号 / 姓名" style="width: 220px" @keyup.enter="search" />
       </label>
       <label class="filter-field">
         <span>状态</span>
@@ -281,18 +298,23 @@ onMounted(async () => {
       </label>
       <label class="filter-field">
         <span>年级/班级</span>
-        <n-input v-model:value="gradeFilter" clearable placeholder="如 2022 / 1 班" style="width: 170px" />
+        <n-input v-model:value="gradeFilter" clearable placeholder="如 2022 / 1 班" style="width: 170px" @keyup.enter="search" />
       </label>
     </FilterBar>
 
     <DataPanel
       title="学生列表"
       :columns="columns"
-      :data="filteredRecords"
-      :total="gradeFilter ? filteredRecords.length : studentTotal"
+      :data="records"
+      :total="studentTotal"
       :loading="loading"
+      remote
+      :page="page"
+      :page-size="size"
       empty-title="暂无学生数据"
       empty-description="当前筛选条件下没有学生记录。"
+      @update:page="onPageChange"
+      @update:page-size="onPageSizeChange"
       @refresh="loadStudents"
     >
       <template #actions>

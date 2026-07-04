@@ -14,6 +14,7 @@ import cn.edu.gpnu.platform.business.student.support.StudentStatus;
 import cn.edu.gpnu.platform.business.support.ReviewNotificationHelper;
 import cn.edu.gpnu.platform.business.student.vo.StudentPlainIdCardVO;
 import cn.edu.gpnu.platform.business.student.vo.StudentVO;
+import cn.edu.gpnu.platform.common.api.PageQuery;
 import cn.edu.gpnu.platform.common.api.PageResult;
 import cn.edu.gpnu.platform.common.api.ResultCode;
 import cn.edu.gpnu.platform.common.context.DataScopeContext;
@@ -30,6 +31,7 @@ import cn.edu.gpnu.platform.system.service.ParamService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -60,14 +62,25 @@ public class StudentServiceImpl implements StudentService {
     private final ReviewNotificationHelper notificationHelper;
     private final AuditLogService auditLogService;
 
+    // Phase 44e-contract（P1-1 真分页样例）：由「全表 selectList 后 new PageResult<>(size, records)」改为
+    // MyBatis-Plus Page + selectPage 真分页。@DataScope（StudentController.list，alias=student）设置的线程范围经
+    // 数据权限拦截器在 selectPage 的 count 与数据两条 SQL 上均生效 → 该页与 total 同为「已按学院/本人范围过滤」的结果。
     @Override
-    public PageResult<StudentVO> list(String keyword, String status, Long collegeId, boolean plain) {
-        List<StudentVO> records = listAll(keyword, status, collegeId, plain);
-        return new PageResult<>(records.size(), records);
+    public PageResult<StudentVO> list(String keyword, String status, Long collegeId, String grade,
+                                      boolean plain, Integer page, Integer size) {
+        Page<Student> result = studentMapper.selectPage(
+                PageQuery.of(page, size), buildListWrapper(keyword, status, collegeId, grade));
+        List<StudentVO> records = result.getRecords().stream().map(item -> toVO(item, plain)).toList();
+        return new PageResult<>(result.getTotal(), records);
     }
 
     @Override
     public List<StudentVO> listAll(String keyword, String status, Long collegeId, boolean plain) {
+        return studentMapper.selectList(buildListWrapper(keyword, status, collegeId, null))
+                .stream().map(item -> toVO(item, plain)).toList();
+    }
+
+    private LambdaQueryWrapper<Student> buildListWrapper(String keyword, String status, Long collegeId, String grade) {
         LambdaQueryWrapper<Student> wrapper = new LambdaQueryWrapper<Student>()
                 .orderByAsc(Student::getStudentNo);
         if (StringUtils.hasText(keyword)) {
@@ -80,7 +93,13 @@ public class StudentServiceImpl implements StudentService {
         if (collegeId != null) {
             wrapper.eq(Student::getCollegeId, collegeId);
         }
-        return studentMapper.selectList(wrapper).stream().map(item -> toVO(item, plain)).toList();
+        // 年级/班级筛选原为前端客户端过滤（真分页后客户端只能看到当前页，故必须下推到服务端 SQL，
+        // 与前端旧口径一致：命中年级或班级任一即可）。
+        if (StringUtils.hasText(grade)) {
+            String g = grade.trim();
+            wrapper.and(w -> w.like(Student::getGrade, g).or().like(Student::getClassName, g));
+        }
+        return wrapper;
     }
 
     @Override

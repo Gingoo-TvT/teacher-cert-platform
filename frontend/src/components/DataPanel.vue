@@ -24,6 +24,10 @@ const props = withDefaults(defineProps<{
   showRefresh?: boolean
   pagination?: false | PaginationProps
   rowProps?: (row: DataTableRowData) => Record<string, unknown>
+  // 服务端分页（P1-1 真分页契约）：remote=true 时 n-data-table 不再切片本地 data，
+  // data 为「当前页」、total 为后端总数；翻页/改页大小经 update:page / update:pageSize 上抛父组件重新请求。
+  remote?: boolean
+  page?: number
 }>(), {
   pageSize: 10,
   rowHeight: 48,
@@ -31,11 +35,15 @@ const props = withDefaults(defineProps<{
   striped: true,
   emptyTitle: '暂无数据',
   emptyDescription: '当前筛选条件下没有可展示的记录。',
-  showRefresh: true
+  showRefresh: true,
+  remote: false,
+  page: 1
 })
 
 const emit = defineEmits<{
   refresh: []
+  'update:page': [page: number]
+  'update:pageSize': [size: number]
 }>()
 
 const tableColumns = computed(() => props.columns as DataTableColumns<DataTableRowData>)
@@ -44,13 +52,21 @@ const recordCount = computed(() => props.total ?? props.data.length)
 const effectiveScrollX = computed(() => props.scrollX ?? inferScrollX(props.columns))
 const resolvedPagination = computed(() => {
   if (props.pagination === false) return false
-  return {
+  const base = {
     pageSize: props.pageSize,
     itemCount: recordCount.value,
     showSizePicker: true,
     pageSizes: [10, 20, 50, 100],
     prefix: ({ itemCount }: { itemCount?: number }) => `共 ${itemCount ?? recordCount.value} 条`,
     ...(props.pagination || {})
+  }
+  if (!props.remote) return base
+  // 服务端分页：受控 page + 翻页/改页大小事件上抛。
+  return {
+    ...base,
+    page: props.page,
+    onUpdatePage: (page: number) => emit('update:page', page),
+    onUpdatePageSize: (size: number) => emit('update:pageSize', size)
   }
 })
 
@@ -121,6 +137,7 @@ function numericWidth(value: unknown) {
       :columns="tableColumns"
       :data="tableData"
       :loading="loading"
+      :remote="remote"
       :row-key="rowKey"
       :row-props="rowProps"
       :pagination="resolvedPagination"

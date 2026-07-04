@@ -55,7 +55,9 @@ export interface AuditQuery {
   endTime?: string | null
 }
 
-export function listSystemParams(query: { group?: string | null; keyword?: string | null }) {
+export function listSystemParams(
+  query: { group?: string | null; keyword?: string | null; page?: number; size?: number }
+) {
   return request.get<unknown, ApiResult<PageResult<SysParam>>>('/system/param', { params: cleanParams(query) })
 }
 

@@ -152,10 +152,51 @@ class Phase3StudentIT {
         assertThat(studentData.size()).isEqualTo(1);
         assertThat(studentData.at("/0/id").asLong()).isEqualTo(9001L);
         assertThat(studentData.toString()).doesNotContain("11010119900628002X");
+        // Phase 44e-contract（真分页契约）：SELF 范围 total 亦经数据权限过滤 → 恰 1（本人），非全表条数。
+        assertThat(json(studentList).at("/data/total").asLong()).isEqualTo(1);
 
         ResponseEntity<String> otherDetail = exchange("/api/student/9002", HttpMethod.GET, student.accessToken(), null);
         assertThat(otherDetail.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(json(otherDetail).at("/code").asInt()).isEqualTo(404);
+    }
+
+    /**
+     * Phase 44e-contract（P1-1 真分页样例 · 数据范围 × 分页组合的正确性证明）：
+     * 学院文员（学院A）对含跨学院同前缀数据的学生列表做真分页——
+     * ① total 为「已按学院范围过滤」的总数（3，学院B 那条不计入，证明分页 count SQL 也走了数据权限拦截器）；
+     * ② 每页条数=请求 size；③ 各页均无学院B 数据；④ 页间记录不重叠（真 LIMIT/OFFSET，非全表包壳）。
+     */
+    @Test
+    void paginatedStudentListIsScopedAndPagedForCollegeUser() throws Exception {
+        LoginResult academic = readyLogin("test_academic_admin");
+        String prefix = "P3PAGE" + System.nanoTime();
+        create(academic.accessToken(), student(prefix + "A1", "分页甲", "hm_travel_permit",
+                uniqueTravelPermit("H"), "2001/1/2", COLLEGE_A));
+        create(academic.accessToken(), student(prefix + "A2", "分页乙", "hm_travel_permit",
+                uniqueTravelPermit("J"), "2001/1/2", COLLEGE_A));
+        create(academic.accessToken(), student(prefix + "A3", "分页丙", "hm_travel_permit",
+                uniqueTravelPermit("K"), "2001/1/2", COLLEGE_A));
+        // 学院B 同前缀 1 条：关键词能命中，但学院文员的数据范围应把它排除在 total 与 records 之外。
+        create(academic.accessToken(), student(prefix + "B1", "分页乙院", "hm_travel_permit",
+                uniqueTravelPermit("L"), "2001/1/2", COLLEGE_B));
+
+        LoginResult clerk = readyLogin("test_college_clerk");
+
+        JsonNode page1 = json(exchange("/api/student?keyword=" + prefix + "&page=1&size=2",
+                HttpMethod.GET, clerk.accessToken(), null)).at("/data");
+        assertThat(page1.at("/total").asLong()).isEqualTo(3);
+        assertThat(page1.at("/records").size()).isEqualTo(2);
+        assertThat(page1.at("/records").toString()).contains(String.valueOf(COLLEGE_A));
+        assertThat(page1.at("/records").toString()).doesNotContain(String.valueOf(COLLEGE_B));
+
+        JsonNode page2 = json(exchange("/api/student?keyword=" + prefix + "&page=2&size=2",
+                HttpMethod.GET, clerk.accessToken(), null)).at("/data");
+        assertThat(page2.at("/total").asLong()).isEqualTo(3);
+        assertThat(page2.at("/records").size()).isEqualTo(1);
+        assertThat(page2.at("/records").toString()).doesNotContain(String.valueOf(COLLEGE_B));
+
+        assertThat(page1.at("/records/0/id").asLong())
+                .isNotEqualTo(page2.at("/records/0/id").asLong());
     }
 
     @Test

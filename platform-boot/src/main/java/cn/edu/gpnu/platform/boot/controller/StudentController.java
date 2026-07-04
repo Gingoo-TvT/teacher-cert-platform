@@ -41,8 +41,11 @@ public class StudentController {
     @GetMapping
     public Result<PageResult<StudentVO>> list(@RequestParam(value = "keyword", required = false) String keyword,
                                               @RequestParam(value = "status", required = false) String status,
-                                              @RequestParam(value = "collegeId", required = false) Long collegeId) {
-        return Result.ok(studentService.list(keyword, status, collegeId, false));
+                                              @RequestParam(value = "collegeId", required = false) Long collegeId,
+                                              @RequestParam(value = "grade", required = false) String grade,
+                                              @RequestParam(value = "page", required = false) Integer page,
+                                              @RequestParam(value = "size", required = false) Integer size) {
+        return Result.ok(studentService.list(keyword, status, collegeId, grade, false, page, size));
     }
 
     @Operation(summary = "学生详情")

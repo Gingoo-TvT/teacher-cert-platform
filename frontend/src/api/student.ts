@@ -47,7 +47,16 @@ export interface ReviewPayload {
   comment?: string | null
 }
 
-export function listStudents(query: { keyword?: string; status?: string | null; collegeId?: string | null } = {}) {
+export function listStudents(
+  query: {
+    keyword?: string
+    status?: string | null
+    collegeId?: string | null
+    grade?: string | null
+    page?: number
+    size?: number
+  } = {}
+) {
   return request.get<unknown, ApiResult<PageResult<Student>>>('/student', { params: cleanParams(query) })
 }
 
@@ -88,9 +97,14 @@ export function secondReviewStudent(id: string, payload: ReviewPayload) {
 }
 
 function cleanParams(query: Record<string, unknown>) {
-  const params: Record<string, string> = {}
+  const params: Record<string, string | number> = {}
   for (const [key, value] of Object.entries(query)) {
-    if (typeof value === 'string' && value.trim()) params[key] = value.trim()
+    if (typeof value === 'string') {
+      const text = value.trim()
+      if (text) params[key] = text
+    } else if (typeof value === 'number' && Number.isFinite(value)) {
+      params[key] = value
+    }
   }
   return params
 }

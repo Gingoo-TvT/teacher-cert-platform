@@ -36,8 +36,10 @@ public class SystemAuditController {
     @PreAuthorize("@pms.has('system:param:manage')")
     @GetMapping("/api/system/param")
     public Result<PageResult<SysParamVO>> params(@RequestParam(value = "group", required = false) String group,
-                                                 @RequestParam(value = "keyword", required = false) String keyword) {
-        return Result.ok(systemManagementService.params(group, keyword));
+                                                 @RequestParam(value = "keyword", required = false) String keyword,
+                                                 @RequestParam(value = "page", required = false) Integer page,
+                                                 @RequestParam(value = "size", required = false) Integer size) {
+        return Result.ok(systemManagementService.params(group, keyword, page, size));
     }
 
     @Operation(summary = "更新系统参数")

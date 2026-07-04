@@ -249,6 +249,33 @@ class Phase13SystemAuditIT {
         assertThat(settled.getFinalScore()).isNull();
     }
 
+    /**
+     * Phase 44e-contract（P1-1 真分页样例 · 非数据范围系统列表）：系统参数为种子参考数据、条数远超页大小，
+     * 用于证明 selectPage 真分页——① 页大小生效（records==size，非全表）；② total 为全量且跨页稳定；
+     * ③ 页间记录不重叠；④ 客户端传超大 size 被钳制（MAX_SIZE=200），不退化为全表。
+     */
+    @Test
+    void paramListSupportsRealServerSidePagination() throws Exception {
+        LoginResult academic = readyLogin("test_academic_admin");
+
+        JsonNode page1 = json(exchange("/api/system/param?page=1&size=2",
+                HttpMethod.GET, academic.accessToken(), null)).at("/data");
+        long total = page1.at("/total").asLong();
+        assertThat(total).isGreaterThan(2);                       // 旧全表口径 records==total；真分页 records<total
+        assertThat(page1.at("/records").size()).isEqualTo(2);     // 页大小生效
+
+        JsonNode page2 = json(exchange("/api/system/param?page=2&size=2",
+                HttpMethod.GET, academic.accessToken(), null)).at("/data");
+        assertThat(page2.at("/total").asLong()).isEqualTo(total); // total 跨页稳定
+        assertThat(page2.at("/records").size()).isBetween(1, 2);
+        assertThat(page1.at("/records/0/id").asLong())
+                .isNotEqualTo(page2.at("/records/0/id").asLong()); // 页间不重叠
+
+        JsonNode clamped = json(exchange("/api/system/param?page=1&size=100000",
+                HttpMethod.GET, academic.accessToken(), null)).at("/data");
+        assertThat(clamped.at("/records").size()).isLessThanOrEqualTo(200); // size 上限钳制
+    }
+
     @Test
     void plaintextIdCardRequiresSensitiveExportPermission() throws Exception {
         LoginResult clerk = readyLogin("test_college_clerk");

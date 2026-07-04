@@ -11,7 +11,8 @@ import java.util.List;
 
 public interface StudentService {
 
-    PageResult<StudentVO> list(String keyword, String status, Long collegeId, boolean plain);
+    PageResult<StudentVO> list(String keyword, String status, Long collegeId, String grade,
+                               boolean plain, Integer page, Integer size);
 
     List<StudentVO> listAll(String keyword, String status, Long collegeId, boolean plain);
 

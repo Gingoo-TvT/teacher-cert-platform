@@ -10,7 +10,7 @@ import cn.edu.gpnu.platform.system.vo.SysParamVO;
 
 public interface SystemManagementService {
 
-    PageResult<SysParamVO> params(String group, String keyword);
+    PageResult<SysParamVO> params(String group, String keyword, Integer page, Integer size);
 
     SysParamVO updateParam(Long id, SysParamUpdateRequest request);
 

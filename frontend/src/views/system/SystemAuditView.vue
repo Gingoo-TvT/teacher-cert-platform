@@ -37,6 +37,8 @@ const colleges = ref<College[]>([])
 const paramTotal = ref(0)
 const auditTotal = ref(0)
 const backupTotal = ref(0)
+const paramPage = ref(1)
+const paramSize = ref(20)
 
 const paramQuery = reactive({ group: null as string | null, keyword: '' })
 const auditQuery = reactive({
@@ -135,7 +137,7 @@ async function loadParams() {
   }
   paramLoading.value = true
   try {
-    const res = await listSystemParams(paramQuery)
+    const res = await listSystemParams({ ...paramQuery, page: paramPage.value, size: paramSize.value })
     params.value = res.data.records
     paramTotal.value = res.data.total
   } catch (error) {
@@ -143,6 +145,23 @@ async function loadParams() {
   } finally {
     paramLoading.value = false
   }
+}
+
+// 筛选变更 → 回到第 1 页再查（真分页）。
+function searchParams() {
+  paramPage.value = 1
+  void loadParams()
+}
+
+function onParamPageChange(next: number) {
+  paramPage.value = next
+  void loadParams()
+}
+
+function onParamPageSizeChange(nextSize: number) {
+  paramSize.value = nextSize
+  paramPage.value = 1
+  void loadParams()
 }
 
 async function loadAudits() {
@@ -228,7 +247,7 @@ async function loadColleges() {
 function resetParamQuery() {
   paramQuery.group = null
   paramQuery.keyword = ''
-  void loadParams()
+  searchParams()
 }
 
 function resetAuditQuery() {
@@ -272,14 +291,14 @@ onMounted(loadVisibleSections)
 
     <n-tabs v-if="hasVisibleSection" type="line" animated>
       <n-tab-pane v-if="canManageParam" name="params" tab="系统参数">
-        <FilterBar :loading="paramLoading" @submit="loadParams" @reset="resetParamQuery">
+        <FilterBar :loading="paramLoading" @submit="searchParams" @reset="resetParamQuery">
           <label class="filter-field">
             <span>分组</span>
             <n-select v-model:value="paramQuery.group" clearable placeholder="全部分组" :options="paramGroupOptions" style="width: 150px" />
           </label>
           <label class="filter-field">
             <span>关键词</span>
-            <n-input v-model:value="paramQuery.keyword" clearable placeholder="参数键 / 说明" style="width: 240px" @keyup.enter="loadParams" />
+            <n-input v-model:value="paramQuery.keyword" clearable placeholder="参数键 / 说明" style="width: 240px" @keyup.enter="searchParams" />
           </label>
         </FilterBar>
         <DataPanel
@@ -288,8 +307,13 @@ onMounted(loadVisibleSections)
           :data="params"
           :total="paramTotal"
           :loading="paramLoading"
+          remote
+          :page="paramPage"
+          :page-size="paramSize"
           empty-title="暂无系统参数"
           empty-description="当前筛选条件下没有系统参数记录。"
+          @update:page="onParamPageChange"
+          @update:page-size="onParamPageSizeChange"
           @refresh="loadParams"
         />
       </n-tab-pane>
