@@ -109,6 +109,10 @@ public class ExchangeServiceImpl implements ExchangeService {
     private static final Set<String> EDUCATION_GRADUATE_PREFIXES = Set.of("0401", "0451", "0453");
     private static final TypeReference<List<PreviewPayload>> PREVIEW_LIST_TYPE = new TypeReference<>() {
     };
+    // Phase 44b（§7.3 证书导出内存）：selectCertificates 只喂 export/exportAttachments 两个导出入口
+    // （无其他调用方），故直接在此设置单次导出上限，早于逐条 matchTrainingAndStudent 后过滤即拦截，
+    // 避免筛选条件过宽（或未按学年/学院收窄）时把过大结果集整体驻留堆内存；未超限时行为、返回值不变。
+    private static final int MAX_EXPORT_ROWS = 20000;
 
     private final ImportExportBatchMapper batchMapper;
     private final ImportErrorDetailMapper errorMapper;
@@ -871,6 +875,10 @@ public class ExchangeServiceImpl implements ExchangeService {
                     .like(Certificate::getIdCardNo, keyword));
         }
         List<Certificate> certificates = certificateMapper.selectList(wrapper);
+        if (certificates.size() > MAX_EXPORT_ROWS) {
+            throw new BizException("本次筛选命中 " + certificates.size() + " 条证书记录，超过单次导出上限 "
+                    + MAX_EXPORT_ROWS + " 条，请按学年/学院等条件缩小筛选范围后重试");
+        }
         if (!StringUtils.hasText(q.getInternalMajorCode()) && !StringUtils.hasText(q.getClassName())
                 && !StringUtils.hasText(q.getAuditStatus())) {
             return certificates;

@@ -3,6 +3,7 @@ package cn.edu.gpnu.platform.exchange.support;
 import cn.edu.gpnu.platform.common.exception.BizException;
 import cn.edu.gpnu.platform.exchange.model.ExchangeColumn;
 import cn.edu.gpnu.platform.exchange.model.ExchangeStandardRow;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.CellStyle;
 import org.apache.poi.ss.usermodel.CellType;
@@ -18,6 +19,7 @@ import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.Workbook;
 import org.apache.poi.ss.util.CellRangeAddressList;
+import org.apache.poi.xssf.streaming.SXSSFWorkbook;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -31,6 +33,17 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Phase 44b（§7.3 证书导出内存）：导出/导入回执工作簿的写入统一改为 {@link SXSSFWorkbook} 流式窗口写，
+ * 不再用 {@code XSSFWorkbook} 把整表 DOM 一次性驻留堆内存——大批量导出（数千至数万行）时可显著降低峰值堆占用。
+ * 行访问窗口 {@link #ROW_ACCESS_WINDOW} 仅需大于下拉目录（性别/证件类型/学段学科等字典表，均为几到几十项）的最大行数，
+ * 与实际导出行数无关；{@code applyDropdowns} 对隐藏 sheet 的 {@code getRow} 复用、以及对主表的
+ * {@code addValidationData}（按固定行区间写校验元数据，不依赖行是否已刷盘）在该窗口下行为与原 XSSFWorkbook 完全一致。
+ * 产出仍是标准 OOXML .xlsx 字节流，列结构/样式/取值与既有断言（Phase24AcceptanceIT 等）不变。
+ * POI 5.2.5 的 {@code SXSSFWorkbook#close()} 不清理已刷盘的行缓存临时文件，故显式 {@code dispose()}（见
+ * {@link #disposeQuietly}）避免临时文件泄漏；两处清理都做防御性吞异常，确保不掩盖已生成的字节结果。
+ */
+@Slf4j
 @Component
 public class ExchangeExcelHelper {
 
@@ -38,10 +51,13 @@ public class ExchangeExcelHelper {
     public static final String ERROR_SHEET = "异常数据表";
     public static final String TEXT_FORMAT = "@";
 
+    private static final int ROW_ACCESS_WINDOW = 200;
+
     private final DataFormatter formatter = new DataFormatter();
 
     public byte[] writeStandardWorkbook(List<ExchangeStandardRow> rows, Map<String, List<String>> dropdowns) {
-        try (Workbook workbook = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+        SXSSFWorkbook workbook = newStreamingWorkbook();
+        try {
             CellStyle textStyle = textStyle(workbook);
             CellStyle headerStyle = headerStyle(workbook);
             Sheet sheet = workbook.createSheet(STANDARD_SHEET);
@@ -58,10 +74,14 @@ public class ExchangeExcelHelper {
             }
             applyTextFormat(sheet, textStyle);
             applyDropdowns(workbook, sheet, dropdowns == null ? Map.of() : dropdowns);
-            workbook.write(out);
-            return out.toByteArray();
+            try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+                workbook.write(out);
+                return out.toByteArray();
+            }
         } catch (IOException e) {
             throw new BizException("生成Excel失败");
+        } finally {
+            disposeQuietly(workbook);
         }
     }
 
@@ -82,7 +102,8 @@ public class ExchangeExcelHelper {
     }
 
     public byte[] writeTableWorkbook(String sheetName, List<String> headers, List<List<String>> rows) {
-        try (Workbook workbook = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+        SXSSFWorkbook workbook = newStreamingWorkbook();
+        try {
             CellStyle textStyle = textStyle(workbook);
             CellStyle headerStyle = headerStyle(workbook);
             Sheet sheet = workbook.createSheet(StringUtils.hasText(sheetName) ? sheetName : "导出数据");
@@ -103,10 +124,14 @@ public class ExchangeExcelHelper {
                     cell.setCellValue(values.get(c) == null ? "" : values.get(c));
                 }
             }
-            workbook.write(out);
-            return out.toByteArray();
+            try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+                workbook.write(out);
+                return out.toByteArray();
+            }
         } catch (IOException e) {
             throw new BizException("生成Excel失败");
+        } finally {
+            disposeQuietly(workbook);
         }
     }
 
@@ -248,6 +273,27 @@ public class ExchangeExcelHelper {
 
     private String safe(String value) {
         return value == null ? "" : value;
+    }
+
+    private SXSSFWorkbook newStreamingWorkbook() {
+        SXSSFWorkbook workbook = new SXSSFWorkbook(ROW_ACCESS_WINDOW);
+        workbook.setCompressTempFiles(true);
+        return workbook;
+    }
+
+    private void disposeQuietly(SXSSFWorkbook workbook) {
+        try {
+            if (!workbook.dispose()) {
+                log.warn("导出临时文件清理未完全成功（可能已被清理或文件被占用）");
+            }
+        } catch (Exception e) {
+            log.warn("清理导出临时文件失败", e);
+        }
+        try {
+            workbook.close();
+        } catch (Exception e) {
+            log.warn("关闭导出工作簿失败", e);
+        }
     }
 
     private CellStyle textStyle(Workbook workbook) {
