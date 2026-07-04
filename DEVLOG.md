@@ -15,6 +15,24 @@
 
 ---
 
+## [2026-07-05] Phase 52（种子测试/生产分离）— 测试专用种子抽到 `db/testseed`（R__ 可重复迁移，仅 dev/test 加载）+ V26 生产路径删除；分支 `feature/phase52-seed-separation`，单 commit，未合并；mvn verify 119/119 绿 + scratch schema 证生产干净
+- 做了什么：
+  - 新 Flyway 位置 `platform-boot/src/main/resources/db/testseed/R__testseed.sql`（**可重复**迁移）：把混入 `V8/V9/V10/V12` 的测试专用种子——测试学院 201/202、其 4 专业 + 5 培养目标、测试学生 9001/9002、7 个 `test_*` 账号 + 授权(4002-4008)/数据范围(5001-5002)、免考科目 7 + 免考依据 2 占位——以**相同 id**、`INSERT ... ON DUPLICATE KEY UPDATE`（幂等）重建。
+  - 新增 `db/migration/V26__remove_test_seed_from_prod.sql`（**所有 profile** 执行，按固定 id `DELETE`）：在生产路径清除上述测试行。
+  - 时序：Flyway 先版本化(V1..V26)再可重复(R__)——任何库 V8-V12 插入测试行 → V26 删除 → 仅 dev/test 由 R__ 重插；生产仅 `db/migration` 结束干净。**非破坏**（无需 `flyway clean`，既有 dev 库就地纠正）。
+  - 配置：`application-dev.yml` `flyway.locations` → `classpath:db/migration,classpath:db/testseed`；`application-prod.yml` 显式加 `locations: classpath:db/migration`。IT 默认走 dev profile（`@TestPropertySource` 仅覆盖 JWT，不改 profile/locations）→ 加载 testseed → 照常绿。
+- 关键决策与理由：
+  - **不改 V8-V12**（已应用的版本化迁移，编辑会破坏既有 dev 库 Flyway 校验和）——只**加** V26 + R__。
+  - **`admin` 超管保留在 db/migration**（生产引导账号），`must_change_pwd=1`（V8 原状）；密码硬化属另相、本相不动。
+  - **`CERT_ISSUER` 角色(id 6) 属生产**（V20 已退役 deleted=1）不删；`test_cert_issuer` 授权 4007 因 JOIN `r.deleted=0` 自然不重建（无 IT 依赖、行为中性；已 grep 证 0 处引用）。
+  - **`training_goal_config`(810...2001-2005) 判为生产参考**（按 `training_goal_code` 键的业务规则、不涉测试学院/学生）留 db/migration。免考**字典类型**(V3 的 14/15/16) 留（items 本就"初始置空"）。
+  - **V26 按固定 id 删除、非 `LIKE 'test_%'`**——否则会误删运行期由 IT 创建的 `test_student_b`/`test_review_teacher_b/c/d`/`test_college_user_admin`（out-of-scope、R__ 不重建它们）。这些运行期账号引用测试学院 201/202、学生 9002，靠 R__ 以相同 id 重插保持有效。
+  - `must_change_pwd=1` 与 fresh 库一致；IT 登录助手对 `mustChangePwd` 走改密流程，故 IT 照常。
+- 问题与解决：无阻塞。既有 dev 库首启即应用 V26+R__（日志 "Successfully applied 2 migrations ... repeatable migration testseed"），119 IT 全绿。
+- 与规格的偏差/疑问：无。仅"搬运"既有测试种子、未新增 mock（每角色 mock 属后续阶段）。
+- 测试：`mvn -B -ntp clean verify` **119/119 绿 BUILD SUCCESS**。**生产干净证**：scratch schema `prodcheck` 以 `java -jar --spring.flyway.locations=classpath:db/migration --server.port=0` 全量迁移 V1..V26（日志**无** repeatable testseed 行）→ 断言 `sys_college` 201/202=0、`sys_user` `test_%`=0、测试专业/培养目标/学生/免考科目+依据占位**全 0**；`admin` 存在 must_change_pwd=1 status=ENABLED、7 角色/53 权限/62 真字典项/3 免考字典类型/5 `training_goal_config`/144 区划/89 学科 全在（`sys_college` 总数=0 佐证 201/202 是唯一被 seed 的学院）；用毕 `DROP DATABASE prodcheck`。
+- 下一步：交主 Opus 复核（单 commit、分支 `feature/phase52-seed-separation`，**未 merge**）。§11 种子污染项标 ✅。
+
 ## [2026-07-05] Phase 51（P1-10 收尾：未知路径 404）— 整体冒烟发现未映射路径返回 500，补 NoResourceFoundException→404 处理器；119/119 绿
 - 做了什么：`GlobalExceptionHandler` 补 `@ExceptionHandler(NoResourceFoundException)→404`。Phase 46 只加了 `NoHandlerFoundException`，但 Spring 6.1+/Boot 3.2+ 对「无处理器且无静态资源」的路径抛的是 `org.springframework.web.servlet.resource.NoResourceFoundException`（非 `NoHandlerFoundException`）——未单独处理时落进 500 兜底。新增 `Phase8TestResultIT.unknownApiPathReturnsNotFoundNotServerError` 回归测试（鉴权后 GET 未知路径断言 404）。
 - 关键决策与理由：整体冒烟活体发现 `GET /api/nonexistent` 返回 **500**（应 404）——run 日志确认异常类为 `NoResourceFoundException: No static resource ...`。任意错拼/爬虫/探测路径都误报为服务端 500 会污染监控告警（正是 P1-10 要消除的「客户端错误伪装成服务端故障」）。后端只服务 `/api/**`、不托管 SPA（前端 nginx 独立托管），故未映射路径即「未知 API 路径」，归 404 安全无副作用。

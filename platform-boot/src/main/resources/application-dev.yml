@@ -11,7 +11,10 @@ spring:
       database: 0
   flyway:
     enabled: true
-    locations: classpath:db/migration
+    # Phase 52（种子测试/生产分离）：dev/test 额外加载 db/testseed（R__testseed 重放测试专用种子），
+    # 生产 profile 只加载 db/migration（application-prod.yml），故 V26 删除后生产保持干净。
+    # IT 默认走 dev profile（application.yml active=dev），因此会加载 db/testseed，测试数据照常可用。
+    locations: classpath:db/migration,classpath:db/testseed
     baseline-on-migrate: true
     encoding: UTF-8
 

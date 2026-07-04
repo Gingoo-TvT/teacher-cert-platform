@@ -23,10 +23,13 @@ spring:
     redis:
       password: ${REDIS_PASSWORD}
   # Flyway 生产安全：禁用 clean、允许在已有非空库上 baseline，避免首次部署硬失败
+  # Phase 52（种子测试/生产分离）：显式只加载 db/migration（不含 db/testseed），
+  # 配合 V26 删除，生产不再引入测试专用种子（测试学院 201/202、test_* 账号、免考占位等）。
   flyway:
     enabled: true
     clean-disabled: true
     baseline-on-migrate: true
+    locations: classpath:db/migration
     encoding: UTF-8
 
 logging:
