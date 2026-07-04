@@ -299,11 +299,42 @@ public class CertificateServiceImpl implements CertificateService {
         if (StringUtils.hasText(request.getTrainingGoal())) {
             entity.setTrainingGoal(request.getTrainingGoal().trim());
         }
+        // Phase 48 §7.4（P2）：更正 任教学段 或 证书编号 时，校验 18 位标准证书号内嵌的
+        // 学历码（第10位/idx9）/学段码（第13位/idx12）与更正后的 学历层次/任教学段 一致，否则拒绝——
+        // 与导入端 ExchangeServiceImpl.validateCertificateNo 的段码校验、nextCertNo 的编排同一规则，
+        // 防止更正把「证书编号」与「学段/层次字段」改成互相矛盾。
+        if (StringUtils.hasText(request.getCertNo()) || StringUtils.hasText(request.getTeachingSegment())) {
+            ensureCertNoMatchesSegmentAndLevel(entity);
+        }
         entity.setCorrectionReason(requiredTrim(request.getReason(), "更正原因不能为空"));
         entity.setLocked(1);
         certificateMapper.updateById(entity);
         recordAudit(entity, "correct", oldStatus, entity.getStatus(), entity.getCorrectionReason());
         return toVO(entity);
+    }
+
+    /**
+     * 校验 18 位标准证书号内嵌段码与证书 学历层次/任教学段 一致：学历码在第 10 位（idx 9）、学段码在第 13 位（idx 12），
+     * 与 nextCertNo 的编排、导入端 ExchangeServiceImpl.validateCertificateNo 的校验同一规则。非 18 位历史/外部编号
+     * 无法映射，跳过校验（与 reserveImportedSequence 对历史/外部编号的取舍一致）。
+     */
+    private void ensureCertNoMatchesSegmentAndLevel(Certificate entity) {
+        String certNo = entity.getCertNo();
+        if (certNo == null || !certNo.matches("^\\d{18}$")) {
+            return;
+        }
+        if (StringUtils.hasText(entity.getEducationLevel())) {
+            String levelCode = certCode("education_level", entity.getEducationLevel(), "certLevelCode", "学历层次证书码未配置");
+            if (!certNo.substring(9, 10).equals(levelCode)) {
+                throw new BizException("证书编号内嵌学历码与学历层次不一致");
+            }
+        }
+        if (StringUtils.hasText(entity.getTeachingSegment())) {
+            String segmentCode = certCode("teaching_segment", entity.getTeachingSegment(), "certSegmentCode", "任教学段证书码未配置");
+            if (!certNo.substring(12, 13).equals(segmentCode)) {
+                throw new BizException("证书编号内嵌学段码与任教学段不一致");
+            }
+        }
     }
 
     private LambdaQueryWrapper<Certificate> buildListWrapper(CertificateQuery q) {

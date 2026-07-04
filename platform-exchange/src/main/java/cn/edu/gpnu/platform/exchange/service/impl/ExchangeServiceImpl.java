@@ -474,6 +474,17 @@ public class ExchangeServiceImpl implements ExchangeService {
         }
         boolean certExisting = certificate != null;
         ensureCanUpdateExisting(certificate, student.getCollegeId(), "现有证书");
+        // Phase 48 §7.4：导入不得静默改写终态证书。与 CertificateServiceImpl.correct() 的终态守卫一致
+        //（VOIDED/REISSUED/ARCHIVED 不可更正）——否则导入经 certificateByNo/certificateByStudentYear 命中
+        // 已作废/已重开/已归档证书后会覆盖其快照与状态（数据完整性漏洞）。抛 BizException 由 confirmImport
+        // 循环回滚本行 REQUIRES_NEW 事务并计入逐行错误，被命中证书保持不变。
+        if (certExisting) {
+            CertificateStatus certStatus = CertificateStatus.of(certificate.getStatus());
+            if (certStatus == CertificateStatus.VOIDED || certStatus == CertificateStatus.REISSUED
+                    || certStatus == CertificateStatus.ARCHIVED) {
+                throw new BizException("证书" + certStatus.label() + "，不可通过导入修改");
+            }
+        }
         if (!certExisting) {
             certificate = new Certificate();
             certificate.setStudentId(student.getId());

@@ -15,6 +15,19 @@
 
 ---
 
+## [2026-07-05] Phase 48（§7.4 剩余证书完整性两项）— 证书导入静默篡改终态（VOIDED/REISSUED/ARCHIVED）证书阻断（P1）+ correct() 校验 cert_no 内嵌学历/学段码一致（P2）；117/117 绿（原 115 + 新增 `Phase48CertImportGuardIT` 2）
+- 做了什么：
+  - **Item 1（P1 · 数据完整性漏洞）**：`ExchangeServiceImpl.importOne` 在解析既有证书（`certificateByNo` / `certificateByStudentYear`，后者 `:1298` 无状态过滤）后，仅做学院权限校验 `ensureCanUpdateExisting`、**无状态守卫**，直接 `applyCertificate`+`certificateMapper.updateById` 覆盖——会静默改写**已作废/已重开/已归档**的终态证书（cert_no/issuer/validUntil/快照/隐式回写状态），与 `CertificateServiceImpl.correct()` 的终态守卫（`status==VOIDED||REISSUED||ARCHIVED → 抛「当前状态不可更正」`）**直接矛盾**。修复：在 `ensureCanUpdateExisting` 之后、`applyCertificate` 之前加**镜像 correct() 的终态守卫**——命中既有证书且状态为 `VOIDED/REISSUED/ARCHIVED` 时抛 `BizException("证书"+label+"，不可通过导入修改")`。抛出即由 `confirmImport` 逐行循环捕获→回滚该行 `REQUIRES_NEW` 事务（学生/培养/证书整行原子回滚，被命中证书**分毫不动**）→计入逐行错误（`failCount++` + `import_error_detail`），与导入既有的逐行错误上报语义完全一致。这是**全库唯一**未加状态守卫的证书更新路径（`grep certificateMapper.update*` 核验：其余 issue/markExported/archive/void/reissue/correct 均已有状态守卫）。
+  - **Item 2（P2 · 判定为「已包含」并实现）**：`correct()` 允许更正 `teachingSegment` 与 `certNo`，但不校验更正后二者与 18 位标准证书号内嵌段码是否自洽——可把「编号」与「学段/层次字段」改成互相矛盾（如学段改高中、编号第 13 位仍是初中码 3）。新增私有 `ensureCertNoMatchesSegmentAndLevel(entity)`：仅当本次更正**触及** `certNo` 或 `teachingSegment` 时触发，校验 18 位标准号内嵌 学历码（第 10 位/idx9）== `certCode(education_level, …)`、学段码（第 13 位/idx12）== `certCode(teaching_segment, …)`，不一致抛 `BizException`；非 18 位历史/外部号无法映射则跳过（与 `reserveImportedSequence` 对历史号的取舍一致）。**规则与编排复用既有真源**——与 `nextCertNo` 的编号编排、导入端 `validateCertificateNo:637` 的段码校验**同一规则**、复用同一 `certCode(...)` 字典查询助手，不引入新映射、不重新生成 cert_no（故「已包含」而非「需重排号→推迟」）。
+- 关键决策与理由：
+  - **守卫集与 correct() 严格对齐（VOIDED/REISSUED/ARCHIVED）**：任务要求「两路径一致」。correct() 放行 `EXPORTED`（内容更正非流转），故导入亦不拦 `EXPORTED`——刻意**不**扩大守卫集，避免两路径再度分叉。措辞 `"证书"+status.label()+"，不可通过导入修改"`（label 已含「已」，如「证书已作废，不可通过导入修改」）。
+  - **Item 2 用「仅触及时校验」而非「每次 correct 都校验」**：generate/import 两条建号路径均保证在库证书号 18 位且段码自洽（import `validateCertificateNo` 强制、generate `nextCertNo` 编排），故「更正 segment/certNo 才校验」既完整堵住本相引入不自洽的唯一入口，又**不会误伤**「只改 validUntil/学科名」这类与段码无关的更正（现存 `Phase9CertificateIT.lockedCertificate...` 正是只改学科+有效期，触发条件为假、零影响）。
+  - **诚实性锚点＝复现→阻断 IT**：`Phase48CertImportGuardIT.importDoesNotSilentlyOverwriteVoidedCertificate` 端到端（真 Tomcat+MySQL，HTTP prevalidate→confirm→/api/cert/void）——导入建 ISSUED 证 →（正例）OVERWRITE 再导入成功更新签发人（证明非终态无误伤）→ 作废 →（阻断）换号命中 `certificateByStudentYear` 的 OVERWRITE 再导入：`successCount=0/failCount=1`、逐行错误含「不可通过导入修改」、作废证书 状态/编号/签发人/有效期 逐字段未变、且未凭空产出攻击号命名的新证书。`correctRejectsSegmentInconsistentWithEmbeddedCertNoCode`：只改学段不改号→拒（「学段码与任教学段不一致」）+ 证书不变；学段与号同时改到自洽（高中+第 13 位=4）→通过落库。
+- 问题与解决：新 IT 首跑 2 例齐挂在 `prevalidate successCount==1` 断言——`V-04姓名格式异常`：行 `name` 初设 "Phase48导入守卫"（含拉丁+数字）被 `NameValidator` 拒；改纯中文 "证书导入守卫"（同 Phase43 用纯中文名 "往返测试学生" 的既有约束）后放行。守卫逻辑本身首次即正确、无需返工。
+- 与规格的偏差/疑问：无。**无迁移**（纯代码，库 max 仍 V25）。无前端改动（后端行为收紧，接口契约不变）。Item 2 由 P2「按情况」升为「已实现」并附证，理由如上（包含度足够、复用既有规则、零风险重排号）。
+- 测试：`mvn -B -ntp clean verify` **BUILD SUCCESS，117/117 绿**（原 115 + `Phase48CertImportGuardIT` 2；先按 §0 精杀 :8080，docker tcp-mysql(healthy)/tcp-redis/tcp-minio 均在）。既有 `Phase9CertificateIT` 8/8、`Phase10ExchangeIT` 8/8、`Phase43CertRoundTripIT` 2/2 全绿——证守卫与 Item 2 未破坏既有导入/更正/往返语义。
+- 下一步：交主 Opus 复核合并（单 commit、分支 `feature/phase48-cert-import-guard`，未 merge）；§7.4 至此两项收尾，§11 剩余 P1（P1-8 初始密码 / 种子污染清理 / P1-4 异步导入 / P1-2 视频上传）继续分发。
+
 ## [2026-07-05] Phase 47（P1-9 定时清理）— 全库首个清理调度层：audit_log/notification 保留期分批物理清理 + MinIO 未完成分片 abort（生命周期规则）+ 孤儿 file_object 扫描（仅报告）；prod 门禁、115/115 绿
 - 做了什么：
   - **调度层门禁（复用 P0-6 备份同款约定）**：新增 `CleanupScheduleConfig`（platform-boot），`@EnableScheduling + @ConditionalOnProperty(prefix="platform.cleanup.schedule", name="enabled", havingValue="true")`——与 `BackupScheduleConfig` 完全同款：dev/测试/未配置环境本 bean 不注册、`@Scheduled` 不触发（不扰动 IT），仅 `application-prod.yml` 显式置 true 生效。三作业 cron 各自可配、错峰于备份(03:00)之后（03:30 / 03:45 / 04:00）。放 boot 因三作业跨模块（system+file+boot），boot 是唯一同时可见三者的组合根。
