@@ -72,7 +72,7 @@ public class SystemAuditController {
         return Result.ok(systemManagementService.backups(status));
     }
 
-    @Operation(summary = "触发备份记录占位")
+    @Operation(summary = "触发数据库逻辑备份（JDBC 导出→gzip→MinIO）")
     @PreAuthorize("@pms.has('system:backup')")
     @AuditLog(bizType = "backup", operation = "trigger")
     @PostMapping("/api/system/backup/trigger")

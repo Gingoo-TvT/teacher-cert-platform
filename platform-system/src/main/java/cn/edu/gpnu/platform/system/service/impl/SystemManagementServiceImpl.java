@@ -46,6 +46,7 @@ public class SystemManagementServiceImpl implements SystemManagementService {
     private final BackupRecordMapper backupRecordMapper;
     private final DataScopeService dataScopeService;
     private final AuditLogService auditLogService;
+    private final DatabaseBackupService databaseBackupService;
 
     @Override
     public PageResult<SysParamVO> params(String group, String keyword) {
@@ -129,20 +130,18 @@ public class SystemManagementServiceImpl implements SystemManagementService {
         return new PageResult<>(records.size(), records);
     }
 
+    /**
+     * Phase 41.2（P0-6 真备份）：不再伪造 COMPLETED，委托 {@link DatabaseBackupService} 执行真实的
+     * JDBC 逻辑导出 → gzip → 上传 MinIO，记录关联真实产物（storageUri/byteSize/checksum/表数/行数）与
+     * RUNNING→COMPLETED/FAILED 状态流。非事务方法：RUNNING/终态由 executor 内 TransactionTemplate 各自独立提交。
+     */
     @Override
-    @Transactional(rollbackFor = Exception.class)
     public BackupRecordVO triggerBackup(BackupTriggerRequest request) {
-        BackupRecord entity = new BackupRecord();
-        entity.setBackupType(requiredTrim(request.getBackupType(), "备份类型不能为空").toLowerCase(Locale.ROOT));
-        entity.setScope(trimToNull(request.getScope()));
-        entity.setRemark(trimToNull(request.getRemark()));
-        entity.setStatus("COMPLETED");
-        entity.setStartedAt(LocalDateTime.now());
-        entity.setFinishedAt(LocalDateTime.now());
-        entity.setOperatorId(UserContext.getUserIdOrSystem());
-        entity.setStorageUri("manual://docs/备份与恢复手册.md#" + entity.getBackupType());
-        backupRecordMapper.insert(entity);
-        return toBackupVO(entity);
+        String type = requiredTrim(request.getBackupType(), "备份类型不能为空").toLowerCase(Locale.ROOT);
+        BackupRecord record = databaseBackupService.backup(
+                type, trimToNull(request.getScope()), trimToNull(request.getRemark()),
+                UserContext.getUserIdOrSystem());
+        return toBackupVO(record);
     }
 
     private Set<Long> auditCollegeScope(AuditLogQuery query) {
@@ -266,6 +265,10 @@ public class SystemManagementServiceImpl implements SystemManagementService {
         vo.setOperatorId(entity.getOperatorId());
         vo.setRemark(entity.getRemark());
         vo.setErrorMessage(entity.getErrorMessage());
+        vo.setByteSize(entity.getByteSize());
+        vo.setChecksum(entity.getChecksum());
+        vo.setTableCount(entity.getTableCount());
+        vo.setRowCount(entity.getRowCount());
         return vo;
     }
 

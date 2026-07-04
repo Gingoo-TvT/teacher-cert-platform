@@ -28,6 +28,12 @@
             <groupId>cn.idev.excel</groupId>
             <artifactId>fastexcel</artifactId>
         </dependency>
+        <!-- Phase 41.2（P0-6 真备份）：JDBC 逻辑导出后 gzip 上传 MinIO 备份前缀。
+             仅用 MinioClient 类型；MinioClient bean 由 platform-file 的 MinioConfig 在 boot 上下文统一提供。 -->
+        <dependency>
+            <groupId>io.minio</groupId>
+            <artifactId>minio</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.springframework</groupId>
             <artifactId>spring-web</artifactId>

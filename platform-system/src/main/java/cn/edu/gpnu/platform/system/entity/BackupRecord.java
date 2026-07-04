@@ -21,4 +21,10 @@ public class BackupRecord extends BaseEntity {
     private Long operatorId;
     private String remark;
     private String errorMessage;
+
+    /** Phase 41.2（P0-6）：真实产物元数据。 */
+    private Long byteSize;
+    private String checksum;
+    private Integer tableCount;
+    private Long rowCount;
 }

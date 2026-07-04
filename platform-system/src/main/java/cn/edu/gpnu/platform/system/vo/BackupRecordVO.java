@@ -15,4 +15,8 @@ public class BackupRecordVO {
     private Long operatorId;
     private String remark;
     private String errorMessage;
+    private Long byteSize;
+    private String checksum;
+    private Integer tableCount;
+    private Long rowCount;
 }
