@@ -11,6 +11,9 @@ import cn.edu.gpnu.platform.business.video.mapper.VideoReviewMapper;
 import cn.edu.gpnu.platform.business.video.mapper.VideoReviewTaskMapper;
 import cn.edu.gpnu.platform.business.video.mapper.VideoUploadChunkMapper;
 import cn.edu.gpnu.platform.business.video.mapper.VideoUploadSessionMapper;
+import cn.edu.gpnu.platform.file.config.MinioProperties;
+import cn.edu.gpnu.platform.file.entity.FileObject;
+import cn.edu.gpnu.platform.file.mapper.FileObjectMapper;
 import cn.edu.gpnu.platform.system.entity.SysAuditLog;
 import cn.edu.gpnu.platform.system.entity.SysParam;
 import cn.edu.gpnu.platform.system.mapper.SysAuditLogMapper;
@@ -22,6 +25,10 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.minio.GetObjectArgs;
+import io.minio.MinioClient;
+import io.minio.StatObjectArgs;
+import io.minio.StatObjectResponse;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -42,6 +49,7 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 
+import java.io.InputStream;
 import java.security.MessageDigest;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -124,6 +132,15 @@ class Phase7VideoReviewIT {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private MinioClient minioClient;
+
+    @Autowired
+    private MinioProperties minioProperties;
+
+    @Autowired
+    private FileObjectMapper fileObjectMapper;
 
     @BeforeEach
     @AfterEach
@@ -710,6 +727,55 @@ class Phase7VideoReviewIT {
         assertThat(session.getStatus()).isEqualTo("MERGED");
     }
 
+    @Test
+    void largeMultipartUploadTakesServerSideComposeFastPath() throws Exception {
+        // P1-2 阶段1：分片 ≥5MiB 时 merge 走 MinIO 服务端 composeObject（字节不经应用逐片拉回），非流式回退慢路径。
+        // 证据链：① 合并对象字节 == 原始拼接内容（合并正确）；② 恰一个 teaching-video file_object；
+        // ③ 合并对象 content-type 仍为 video/mp4（分片以 octet-stream 存储，快路径显式回填、不退化）；
+        // ④ 对象 ETag 形如 <hex>-<partCount>（S3/MinIO 多部件合并语义）——流式回退的单次 putObject 得纯 MD5（无 '-'），
+        //    以此在活体 MinIO 上判别「确实走了服务端合并快路径」而非回退。
+        LoginResult studentLogin = readyLogin("test_student");
+        String year = "P7-COMPOSE";
+        int partSize = 5 * 1024 * 1024;                      // 恰 MinIO 部件下限 MIN_MULTIPART_SIZE(=5MiB)
+        byte[] content = filledMp4Payload(partSize + 4096);  // 2 片：首片 5MiB(≥下限)、末片 4096B(<下限，允许)
+        String hash = md5(content);
+
+        JsonNode init = initUpload(studentLogin.accessToken(), 9001L, year, "lesson-" + year + ".mp4",
+                "video/mp4", content.length, partSize, hash, 900);
+        String uploadId = init.at("/uploadId").asText();
+        uploadAll(studentLogin.accessToken(), uploadId, content, partSize); // index0=5MiB, index1=4096B
+
+        JsonNode merged = merge(studentLogin.accessToken(), uploadId, 900);
+        assertThat(merged.at("/status").asText()).isEqualTo("WAIT_REVIEW");
+        assertThat(merged.at("/formatCheck").asText()).isEqualTo("PASS");
+
+        // ② 恰一个 teaching-video file_object（并发/回退各变体均以此为核心不变式）
+        Integer fileObjectCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM file_object WHERE biz_type = 'teaching-video'", Integer.class);
+        assertThat(fileObjectCount).isEqualTo(1);
+
+        VideoReview review = reviewMapper.selectOne(new LambdaQueryWrapper<VideoReview>()
+                .eq(VideoReview::getStudentId, 9001L)
+                .eq(VideoReview::getAssessmentYear, year)
+                .last("LIMIT 1"));
+        assertThat(review).isNotNull();
+        FileObject fileObject = fileObjectMapper.selectById(review.getVideoFileId());
+        assertThat(fileObject).isNotNull();
+
+        String bucket = minioProperties.getBucket();
+        StatObjectResponse stat = minioClient.statObject(StatObjectArgs.builder()
+                .bucket(bucket).object(fileObject.getObjectKey()).build());
+        assertThat(stat.size()).isEqualTo((long) content.length);   // 合并大小 == 两片之和
+        assertThat(stat.contentType()).isEqualTo("video/mp4");      // ③ 快路径亦保留视频 content-type
+        assertThat(stat.etag()).contains("-");                      // ④ 多部件合并 ETag ⇒ 走服务端 compose 快路径
+
+        // ① 字节级正确：下载合并对象与原始拼接内容逐字节一致
+        try (InputStream in = minioClient.getObject(GetObjectArgs.builder()
+                .bucket(bucket).object(fileObject.getObjectKey()).build())) {
+            assertThat(in.readAllBytes()).isEqualTo(content);
+        }
+    }
+
     private int scoreRaw(String token, long taskId, int score, String conclusion) throws Exception {
         ResponseEntity<String> response = exchange("/api/video/tasks/" + taskId + "/score", HttpMethod.POST,
                 token, scoreBody(score, conclusion));
@@ -1097,6 +1163,17 @@ class Phase7VideoReviewIT {
 
     private byte[] mp4(String text) {
         return ("....ftypmp42" + text + "-mdat").getBytes(java.nio.charset.StandardCharsets.UTF_8);
+    }
+
+    /** 生成指定大小的确定性字节载荷（首部带 ftypmp42 特征；服务端校验只看扩展名/contentType，不解析真实 mp4 结构）。 */
+    private byte[] filledMp4Payload(int size) {
+        byte[] out = new byte[size];
+        for (int i = 0; i < size; i++) {
+            out[i] = (byte) ((i * 31 + 7) & 0xff);
+        }
+        byte[] head = "ftypmp42".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        System.arraycopy(head, 0, out, 0, Math.min(head.length, size));
+        return out;
     }
 
     private byte[] slice(byte[] input, int offset, int length) {

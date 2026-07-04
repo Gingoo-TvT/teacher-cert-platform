@@ -59,6 +59,7 @@ import io.minio.ComposeObjectArgs;
 import io.minio.ComposeSource;
 import io.minio.GetObjectArgs;
 import io.minio.MinioClient;
+import io.minio.ObjectWriteArgs;
 import io.minio.PutObjectArgs;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -89,6 +90,10 @@ public class VideoReviewServiceImpl implements VideoReviewService {
     private static final String VIDEO_BIZ_TYPE = "teaching-video";
     private static final String CHUNK_BIZ_TYPE = "video-chunk";
     private static final long DEFAULT_MAX_VIDEO_SIZE = 2_147_483_648L;
+    // MinIO/S3 服务端合并（composeObject→multipart UploadPartCopy）要求：除最后一片外每一源片 ≥5MiB
+    // （io.minio.ObjectWriteArgs.MIN_MULTIPART_SIZE）。前端分片 8MiB（VIDEO_UPLOAD_CHUNK_SIZE）即满足此下限，
+    // 令多分片上传走服务端合并快路径；小于此阈值的分片（末片/单分片场景）回退流式拼接。此常量即与 SDK 下限锁步。
+    private static final long MIN_COMPOSE_PART_SIZE = ObjectWriteArgs.MIN_MULTIPART_SIZE;
     private static final int DEFAULT_DURATION_TARGET = 900;
     private static final int DEFAULT_DURATION_TOLERANCE = 60;
     private static final int DEFAULT_PASS_LINE = 60;
@@ -243,19 +248,11 @@ public class VideoReviewServiceImpl implements VideoReviewService {
             List<VideoUploadChunk> sortedChunks = chunks.stream()
                     .sorted(Comparator.comparing(VideoUploadChunk::getChunkIndex))
                     .toList();
-            try {
-                List<ComposeSource> sources = sortedChunks.stream()
-                        .map(chunk -> ComposeSource.builder()
-                                .bucket(minioProperties.getBucket())
-                                .object(chunk.getObjectKey())
-                                .build())
-                        .toList();
-                minioClient.composeObject(ComposeObjectArgs.builder()
-                        .bucket(minioProperties.getBucket())
-                        .object(objectKey)
-                        .sources(sources)
-                        .build());
-            } catch (Exception e) {
+            // 正常路径（前端 8MiB 分片 → 除末片外每片 ≥5MiB）：走 MinIO 服务端 composeObject 合并，字节不经应用；
+            // 仅当服务端合并前提不满足（单分片、或末片以外存在 <5MiB 分片）才回退流式拼接（逐片经应用拉回重传的慢路径）。
+            if (canServerSideCompose(sortedChunks)) {
+                composeServerSide(sortedChunks, objectKey);
+            } else {
                 streamComposeForSmallChunks(sortedChunks, objectKey, session.getFileSize());
             }
             // MinIO 合并已在事务外完成；元数据落库（文件对象 + 评审 + 会话状态）单独短事务（P0-11）
@@ -806,6 +803,48 @@ public class VideoReviewServiceImpl implements VideoReviewService {
         file.setUploadTime(LocalDateTime.now());
         fileObjectMapper.insert(file);
         return file;
+    }
+
+    /**
+     * 是否满足 MinIO 服务端合并前提：多分片且除最后一片外每片均 ≥{@link #MIN_COMPOSE_PART_SIZE}（5MiB）。
+     * 满足→走 {@link #composeServerSide}（composeObject 快路径）；否则（单分片，或末片以外存在小片）回退
+     * {@link #streamComposeForSmallChunks}。判据与 io.minio composeObject 的部件下限校验对齐——单分片与最后一片
+     * 不受 5MiB 下限约束，故此处仅校验「非末片」分片的大小。
+     */
+    private boolean canServerSideCompose(List<VideoUploadChunk> sortedChunks) {
+        if (sortedChunks.size() < 2) {
+            return false;
+        }
+        for (int i = 0; i < sortedChunks.size() - 1; i++) {
+            Long size = sortedChunks.get(i).getChunkSize();
+            if (size == null || size < MIN_COMPOSE_PART_SIZE) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * 快路径：MinIO 服务端合并（composeObject → 服务端 UploadPartCopy 拼接各分片），字节不经应用服务器。
+     * 显式指定 content-type=video/mp4——分片以 application/octet-stream 存储，合并对象须回到视频类型供后续鉴权播放。
+     */
+    private void composeServerSide(List<VideoUploadChunk> sortedChunks, String objectKey) {
+        List<ComposeSource> sources = sortedChunks.stream()
+                .map(chunk -> ComposeSource.builder()
+                        .bucket(minioProperties.getBucket())
+                        .object(chunk.getObjectKey())
+                        .build())
+                .toList();
+        try {
+            minioClient.composeObject(ComposeObjectArgs.builder()
+                    .bucket(minioProperties.getBucket())
+                    .object(objectKey)
+                    .sources(sources)
+                    .headers(Map.of("Content-Type", "video/mp4"))
+                    .build());
+        } catch (Exception e) {
+            throw new BizException("视频合并失败: " + e.getMessage());
+        }
     }
 
     private void streamComposeForSmallChunks(List<VideoUploadChunk> chunks, String objectKey, long fileSize) {

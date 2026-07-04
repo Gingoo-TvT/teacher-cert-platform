@@ -13,6 +13,7 @@ import {
   mergeVideoUpload,
   playVideoReview,
   uploadVideoChunk,
+  VIDEO_UPLOAD_CHUNK_SIZE,
   type VideoReview
 } from '@/api/video'
 
@@ -41,7 +42,7 @@ const uploadForm = reactive({
   studentId: userStore.currentUser?.studentId || '',
   assessmentYear: yearStore.assessmentYear,
   durationSeconds: 900,
-  chunkSize: 512 * 1024
+  chunkSize: VIDEO_UPLOAD_CHUNK_SIZE
 })
 
 const currentReview = computed(() => reviews.value[0] || null)

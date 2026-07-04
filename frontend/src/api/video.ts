@@ -2,6 +2,12 @@ import request from '@/api/request'
 import type { ApiResult } from '@/api/dict'
 import type { PageResult } from '@/api/security'
 
+/**
+ * 视频分片大小：8 MiB。≥ MinIO 服务端合并 composeObject 要求的 5 MiB 部件下限，
+ * 使多分片上传走服务端合并快路径（P1-2 阶段1），避免逐片经应用拉回重传的慢路径。
+ */
+export const VIDEO_UPLOAD_CHUNK_SIZE = 8 * 1024 * 1024
+
 export interface VideoTask {
   id: string
   videoReviewId: string

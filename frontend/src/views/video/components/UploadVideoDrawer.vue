@@ -8,6 +8,7 @@ import {
   initVideoUpload,
   mergeVideoUpload,
   uploadVideoChunk,
+  VIDEO_UPLOAD_CHUNK_SIZE,
   type VideoReview
 } from '@/api/video'
 
@@ -34,7 +35,7 @@ const uploadForm = reactive({
   studentId: '',
   assessmentYear: yearStore.assessmentYear,
   durationSeconds: 900,
-  chunkSize: 512 * 1024
+  chunkSize: VIDEO_UPLOAD_CHUNK_SIZE
 })
 
 const durationText = computed(() => `${formatVideoDuration(uploadForm.durationSeconds)} (${uploadForm.durationSeconds}s)`)
