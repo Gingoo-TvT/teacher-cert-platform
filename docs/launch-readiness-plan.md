@@ -276,6 +276,12 @@
 
 > **合并状态（截至 2026-07-04）**：Phase 37a–39、40、41、41.2、42.1–42.4、43.1–43.4、44a–44f 的**全部特性分支均已 ff-merge 入 main**（`git remote -v` 空、本地私有仓库、从未 push）。main 为线性历史，`git log` 即证。下列个别条目正文/结尾仍保留的「未合并入 main / 未 checkout main / 未 merge / 待人工复核」等字样，是各相**撰写当时**的分支瞬时状态历史留痕，现均已合并——以本 banner 为准。
 
+### Phase 45（本地/dev 启动崩溃修复 = 用户报告「点开是 500」的根因，Phase 45 —— 分支 `feature/phase45-dev-startup-jwt`，单 commit，已 ff-merge 入 main，mvn verify 114/114 绿 + 活体不带 JWT_SECRET 起栈成功）
+- ✅ **根因**：base `application.yml` 为 `secret: ${JWT_SECRET:}`（空默认、全 profile；prod 正确取舍——密钥不硬编码进包）但 dev 无覆盖 → 未注入 `JWT_SECRET` 时 `JwtService.init` 抛 `BizException("JWT密钥未配置")` → 后端启动失败、未起在 :8080 → 前端 Vite dev 把 `/api/*` 代理到空端口 → 浏览器 500。**与本会话已合并的分页/44f 无关**（活体逐一验证 7 端点均 200 code=0，含 `/api/audit/log` 4.2 万行真分页、`/api/system/user` total=17）。
+- ✅ **修法**：① `application-dev.yml` 加 `platform.security.jwt.secret: ${JWT_SECRET:<dev 默认>}`（dev 专用、明确标注勿用于生产），dev「直接起栈」开箱即用。② `JwtService` 的 base64 回退 `catch` 补 `io.jsonwebtoken.io.DecodingException`（jjwt 对非 base64 串抛此异常、非 `IllegalArgumentException` 子类，原未捕获 → 任何可读口令型 `JWT_SECRET` 都崩溃启动）——现 `JWT_SECRET` 接受任意 ≥32 字节串。
+- ✅ **prod 安全不削弱**：prod active=prod 不加载 dev 文件 + base 空默认 → 仍强制注入 `JWT_SECRET`。⚠️ **运维提示**：默认 active=dev（既有设计），生产部署务必设 `SPRING_PROFILES_ACTIVE=prod`，否则会用 dev 非密默认（DB root/JWT/MinIO）。
+- ✅ **验证**：`mvn verify` 114/114 绿（ITs 经 `@SpringBootTest properties` 覆盖密钥、不受影响）；活体重建 jar **不带** `JWT_SECRET` 起栈 → health=UP + captcha/login/鉴权调用 200。已 ff-merge 入 main。
+
 ### Phase 37a-part1 ✅ 已完成并合并（`72beeaf`，mvn verify 83/83 绿 + 前端 build 绿）
 - ✅ **P0-1 文件预签名 IDOR** — 删除无属主校验的 `GET /file/{id}/url`（无任何调用方，合法访问走带范围校验的业务端点）。**活体：** 学院B学生带 token 请求 → `data=None` 拿不到下载 URL（原可下载出学院A学生材料字节）。
 - ✅ **P1 会话不可撤销** — 新增 `TokenRevocationService`（Redis 记撤销时点），登出/改密/管理员重置密码后使旧 token 立即失效；filter + refresh 均校验。**活体：** 登出后旧 token `/auth/me`→401（原 200），改密后旧 token→401，重新登录正常。

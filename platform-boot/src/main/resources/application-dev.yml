@@ -32,3 +32,13 @@ minio:
   access-key: minioadmin
   secret-key: minioadmin123
   bucket: teacher-cert
+
+# 安全（platform-security）—— 仅 dev 的 JWT 密钥默认值，保证本地/开发「直接 java -jar / mvn 起栈」开箱即用。
+# base application.yml 为 `secret: ${JWT_SECRET:}`（空默认、全 profile）；未注入 JWT_SECRET 时 JwtService.init
+# 会抛错拒绝启动（这是生产的正确行为：密钥必须显式注入、不硬编码进包）。dev profile 在此提供一个明确标注
+# 「仅供本地、切勿用于生产」的默认值：若设置了环境变量 JWT_SECRET 则优先用它，否则用该默认值。
+# 生产走 application-prod.yml（active=prod，不加载本文件）+ base 空默认 → 仍强制注入 JWT_SECRET，安全不削弱。
+platform:
+  security:
+    jwt:
+      secret: ${JWT_SECRET:dev-only-insecure-jwt-secret-do-not-use-in-production-0123456789}

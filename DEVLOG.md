@@ -15,6 +15,18 @@
 
 ---
 
+## [2026-07-04] Phase 45（修复本地/dev 启动崩溃 = 用户「点开是 500」的根因）— dev 提供 JWT_SECRET 默认值 + JwtService 非 Base64 密钥回退修复；114/114 绿 + 活体不带 JWT_SECRET 起栈成功
+- 做了什么：
+  - `application-dev.yml` 新增 `platform.security.jwt.secret: ${JWT_SECRET:<dev 默认>}`——dev profile 专用、明确标注「仅本地、勿用于生产」的默认密钥，使「直接 `java -jar` / `mvn` 起栈」在未设置 `JWT_SECRET` 环境变量时也能启动。
+  - `JwtService.init` 的 base64 解码回退 `catch (IllegalArgumentException)` 扩为 `catch (IllegalArgumentException | DecodingException)`——jjwt 的 `Decoders.BASE64.decode` 对非 Base64 串抛 `io.jsonwebtoken.io.DecodingException`（非 `IllegalArgumentException` 子类），原来未捕获 → 任何非 Base64 的 `JWT_SECRET`（人类可读口令、含 '-' 等）都会以晦涩的 base64 错误崩溃启动。
+- 根因（用户「点开是 500」）：base `application.yml` 为 `secret: ${JWT_SECRET:}`（空默认、全 profile；这是生产的正确取舍——密钥必须显式注入、不硬编码进包）。但 dev 无覆盖 → 未注入 `JWT_SECRET` 时 `JwtService.init` 抛 `BizException("JWT密钥未配置")`，Spring 上下文启动失败 → **后端根本没起在 :8080**。前端 Vite dev（3 个 node 进程在跑）把 `/api/*` 代理到没人监听的 :8080 → 浏览器收到 500。**并非本会话合并的分页/44f 代码有 bug**——活体逐一验证 7 个已合并端点（`/api/system/user`、`/api/notice`、`/api/exchange/batches`、`/api/audit/log`〔4.2 万行真分页〕、`/api/system/backup`、`/api/stats/certificate`、`/api/notice/unread-count`）均 200 code=0。
+- 关键决策与理由：
+  - dev 给默认、prod 仍强制注入：prod 走 `application-prod.yml`（active=prod，不加载 dev 文件）+ base 空默认 → 仍要求 `JWT_SECRET`，安全不削弱。dev 早已用非密默认（root/root123、minioadmin123），JWT dev 默认与之一致。
+  - 顺带修 JwtService 回退 bug：让 `JWT_SECRET` 接受任意 ≥32 字节字符串（含人类可读口令），消除「生产运维设置可读密钥即崩溃」的陷阱。
+- 与规格的偏差/疑问：无。**遗留运维提示**：默认 active profile 为 dev（`application.yml`）——生产部署务必显式 `SPRING_PROFILES_ACTIVE=prod`，否则会用 dev 非密默认（既有设计，非本相引入；已在 §11 记提示）。
+- 测试：`mvn -B -ntp clean verify` BUILD SUCCESS **114/114 绿**（ITs 经 `@SpringBootTest(properties=...)` 覆盖密钥、不受 dev 默认影响；ITs 用的 64 hex 是合法 base64、不触发回退分支）。**活体证据**：重建 jar 后**不带** `JWT_SECRET` 起栈 → `health`=UP（原崩溃）；captcha→login(`test_sys_admin`)→携带 JWT 调 `/api/system/user` 返回 200/total=17（JWT 用 UTF-8 派生 key 签发+解析均 OK）。
+- 下一步：分发 §11 剩余 P1（CORS/定时清理/异常码/初始密码/双提交裸 500/异步导入等）给 opus/sonnet；全部完成后整体冒烟。
+
 ## [2026-07-04] Phase 44f（修复 44a 引入的通知批量插入锁等待）— `InAppNotifyChannel.sendBatch`：`Db.saveBatch`（另开 SqlSession）→ 同事务逐行 insert；根治 44e-rollout 诚实标注遗留的 `Lock wait timeout`；连续 2 次全量 114/114 绿
 - 做了什么：`platform-system` `InAppNotifyChannel.sendBatch` 由 `Db.saveBatch(notifications)` 改为在当前事务/连接内 `for` 循环 `notificationMapper.insert(n)`（逐行走标准 insert 的 `ASSIGN_ID` 主键 + `AuditMetaObjectHandler` 审计自动填充，字段构造与 `send()` 完全一致）；删去 `Db`/`ArrayList` 两个不再使用的 import。仅此一文件、一方法体改动，无迁移（库 max 仍 V25）、无前端、无接口签名变化。
 - 关键决策与理由：

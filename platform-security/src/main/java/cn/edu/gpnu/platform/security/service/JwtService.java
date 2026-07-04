@@ -7,6 +7,7 @@ import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.io.Decoders;
+import io.jsonwebtoken.io.DecodingException;
 import io.jsonwebtoken.security.Keys;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
@@ -35,7 +36,10 @@ public class JwtService {
         byte[] bytes;
         try {
             bytes = Decoders.BASE64.decode(secret);
-        } catch (IllegalArgumentException ignored) {
+        } catch (IllegalArgumentException | DecodingException ignored) {
+            // 非 Base64（如人类可读口令、含 '-' 等非 Base64 字符）→ 按原始 UTF-8 字节使用。
+            // jjwt 的 Decoders.BASE64 抛 io.jsonwebtoken.io.DecodingException（非 IllegalArgumentException 子类），
+            // 若不一并捕获，任何非 Base64 的 JWT_SECRET 都会以晦涩的 base64 报错崩溃启动。
             bytes = secret.getBytes(StandardCharsets.UTF_8);
         }
         if (bytes.length < 32) {
