@@ -18,10 +18,6 @@ import cn.edu.gpnu.platform.business.training.entity.TrainingProfile;
 import cn.edu.gpnu.platform.business.training.mapper.TrainingProfileMapper;
 import cn.edu.gpnu.platform.business.training.support.MajorCodeValidator;
 import cn.edu.gpnu.platform.business.training.support.TrainingLinkValidator;
-import cn.edu.gpnu.platform.business.video.entity.VideoReview;
-import cn.edu.gpnu.platform.business.video.entity.VideoReviewTask;
-import cn.edu.gpnu.platform.business.video.mapper.VideoReviewMapper;
-import cn.edu.gpnu.platform.business.video.mapper.VideoReviewTaskMapper;
 import cn.edu.gpnu.platform.business.video.support.VideoReviewStatus;
 import cn.edu.gpnu.platform.common.api.ResultCode;
 import cn.edu.gpnu.platform.common.context.DataScopeContext;
@@ -30,6 +26,7 @@ import cn.edu.gpnu.platform.exchange.entity.ImportExportBatch;
 import cn.edu.gpnu.platform.exchange.mapper.ImportExportBatchMapper;
 import cn.edu.gpnu.platform.exchange.support.ExchangeExcelHelper;
 import cn.edu.gpnu.platform.statistics.dto.StatsQuery;
+import cn.edu.gpnu.platform.statistics.mapper.StatsAggregationMapper;
 import cn.edu.gpnu.platform.statistics.service.StatsService;
 import cn.edu.gpnu.platform.statistics.vo.StatsDetailVO;
 import cn.edu.gpnu.platform.statistics.vo.StatsExportFile;
@@ -73,11 +70,11 @@ public class StatsServiceImpl implements StatsService {
     private final TrainingProfileMapper trainingProfileMapper;
     private final ProcessMaterialMapper materialMapper;
     private final ExemptionRequestMapper exemptionMapper;
-    private final VideoReviewMapper videoReviewMapper;
-    private final VideoReviewTaskMapper videoReviewTaskMapper;
     private final CertificateMapper certificateMapper;
     private final ImportExportBatchMapper batchMapper;
     private final SysCollegeMapper collegeMapper;
+    // Phase 44d（P1-3）：把证书/视频/交叉/免考四类聚合下推到 SQL，见各 *Report 方法。
+    private final StatsAggregationMapper aggregationMapper;
     private final DictService dictService;
     private final DataScopeService dataScopeService;
     private final ParamService paramService;
@@ -203,115 +200,144 @@ public class StatsServiceImpl implements StatsService {
         return report;
     }
 
+    // Phase 44d（P1-3）：免考科目×复审状态分组、总数/通过数下推到 SQL；明细改有界 LIMIT 200。
+    // 数据范围经 scopedStudents() 以 student_id IN (scopedIds) 下发，与原 Java 聚合一致。
     private StatsReportVO exemptionReport(StatsScope scope, StatsQuery query, String year) {
         List<Student> students = scopedStudents(scope, query, year);
         Map<Long, Student> studentMap = byId(students);
-        List<ExemptionRequest> records = exemptionFor(studentMap.keySet(), year);
+        Map<Long, String> colleges = collegeNames();
         StatsReportVO report = baseReport("exemptions", "免考统计", year);
-        addMetric(report, "免考申请科目数", records.size(), "科");
-        addMetric(report, "复审通过科目数", records.stream().filter(item -> "PASSED".equals(item.getFinalStatus())).count(), "科");
-        Map<String, Long> grouped = records.stream().collect(Collectors.groupingBy(
-                item -> key(labelOrCode(item.getSubjectLabel(), item.getSubject()), item.getFinalStatus()),
-                LinkedHashMap::new,
-                Collectors.counting()));
-        grouped.forEach((key, count) -> {
-            String[] parts = splitKey(key);
-            report.getRows().add(row("subject", parts[0], parts[1], reviewStatusLabel(parts[1]), count));
-        });
-        records.stream().limit(200).forEach(item -> {
+        List<Map<String, Object>> aggregates = studentMap.isEmpty()
+                ? List.of()
+                : aggregationMapper.aggregateExemptionSubject(studentMap.keySet(), year);
+        long totalSubjects = 0;
+        long passedSubjects = 0;
+        for (Map<String, Object> aggregate : aggregates) {
+            long count = asLong(aggregate.get("cnt"));
+            String label = asString(aggregate.get("dimensionLabel"));
+            String finalStatus = asString(aggregate.get("finalStatus"));
+            totalSubjects += count;
+            if ("PASSED".equals(finalStatus)) {
+                passedSubjects += count;
+            }
+            report.getRows().add(row("subject", label, finalStatus, reviewStatusLabel(finalStatus), count));
+        }
+        addMetric(report, "免考申请科目数", totalSubjects, "科");
+        addMetric(report, "复审通过科目数", passedSubjects, "科");
+        for (ExemptionRequest item : exemptionDetails(studentMap.keySet(), year)) {
             Student student = studentMap.get(item.getStudentId());
-            StatsDetailVO detail = studentDetail(student, collegeNames());
+            StatsDetailVO detail = studentDetail(student, colleges);
             detail.setFieldName(labelOrCode(item.getSubjectLabel(), item.getSubject()));
             detail.setErrorReason(reviewStatusLabel(item.getFinalStatus()));
             detail.getValues().put("依据", safe(item.getBasisLabel()));
             report.getDetails().add(detail);
-        });
-        return report;
-    }
-
-    private StatsReportVO videoReport(StatsScope scope, StatsQuery query, String year) {
-        List<Student> students = scopedStudents(scope, query, year);
-        Map<Long, Student> studentMap = byId(students);
-        List<VideoReview> reviews = videoReviewsFor(studentMap.keySet(), year);
-        StatsReportVO report = baseReport("videos", "视频评审进度统计", year);
-        addMetric(report, "应传人数", students.size(), "人");
-        addMetric(report, "已上传人数", reviews.stream().filter(item -> item.getVideoFileId() != null).count(), "人");
-        addMetric(report, "需复评", reviews.stream().filter(item -> VideoReviewStatus.NEED_REVIEW.name().equals(item.getStatus())).count(), "人");
-        Map<String, Long> grouped = reviews.stream().collect(Collectors.groupingBy(VideoReview::getStatus, LinkedHashMap::new, Collectors.counting()));
-        long notUploaded = Math.max(0, students.size() - reviews.size());
-        report.getRows().add(row("video", "上传评审", VideoReviewStatus.WAIT_UPLOAD.name(), "未上传", notUploaded));
-        grouped.forEach((status, count) -> report.getRows().add(row("video", "上传评审", status, videoStatusLabel(status), count)));
-        List<Long> reviewIds = reviews.stream().map(VideoReview::getId).toList();
-        if (!reviewIds.isEmpty()) {
-            List<VideoReviewTask> tasks = videoReviewTaskMapper.selectList(new LambdaQueryWrapper<VideoReviewTask>()
-                    .in(VideoReviewTask::getVideoReviewId, reviewIds));
-            Map<Long, VideoReview> reviewMap = reviews.stream().collect(Collectors.toMap(VideoReview::getId, Function.identity()));
-            tasks.stream().limit(200).forEach(task -> {
-                VideoReview review = reviewMap.get(task.getVideoReviewId());
-                Student student = review == null ? null : studentMap.get(review.getStudentId());
-                StatsDetailVO detail = studentDetail(student, collegeNames());
-                detail.setFieldName("评审教师任务");
-                detail.setErrorReason(task.getSubmitted() != null && task.getSubmitted() == 1 ? "已评审" : "待评审");
-                detail.getValues().put("reviewerId", String.valueOf(task.getReviewerId()));
-                detail.getValues().put("score", task.getScore() == null ? "" : String.valueOf(task.getScore()));
-                report.getDetails().add(detail);
-            });
         }
         return report;
     }
 
+    // Phase 44d（P1-3）：视频评审状态计数、已上传数下推到 SQL；评审任务明细经父表 video_review 的
+    // student_id 子查询 + LIMIT 200（数据范围随父表 student_id IN scopedIds 一并生效）。
+    private StatsReportVO videoReport(StatsScope scope, StatsQuery query, String year) {
+        List<Student> students = scopedStudents(scope, query, year);
+        Map<Long, Student> studentMap = byId(students);
+        Map<Long, String> colleges = collegeNames();
+        StatsReportVO report = baseReport("videos", "视频评审进度统计", year);
+        Map<String, Long> grouped = new LinkedHashMap<>();
+        long totalReviews = 0;
+        long uploaded = 0;
+        if (!studentMap.isEmpty()) {
+            for (Map<String, Object> aggregate : aggregationMapper.countVideosByStatus(studentMap.keySet(), year)) {
+                long count = asLong(aggregate.get("cnt"));
+                grouped.merge(asString(aggregate.get("status")), count, Long::sum);
+                totalReviews += count;
+            }
+            uploaded = aggregationMapper.countUploadedVideos(studentMap.keySet(), year);
+        }
+        addMetric(report, "应传人数", students.size(), "人");
+        addMetric(report, "已上传人数", uploaded, "人");
+        addMetric(report, "需复评", grouped.getOrDefault(VideoReviewStatus.NEED_REVIEW.name(), 0L), "人");
+        long notUploaded = Math.max(0, students.size() - totalReviews);
+        report.getRows().add(row("video", "上传评审", VideoReviewStatus.WAIT_UPLOAD.name(), "未上传", notUploaded));
+        grouped.forEach((status, count) -> report.getRows().add(row("video", "上传评审", status, videoStatusLabel(status), count)));
+        if (!studentMap.isEmpty()) {
+            for (Map<String, Object> task : aggregationMapper.selectVideoTaskDetails(studentMap.keySet(), year)) {
+                Student student = studentMap.get(asLongOrNull(task.get("studentId")));
+                StatsDetailVO detail = studentDetail(student, colleges);
+                detail.setFieldName("评审教师任务");
+                Long submitted = asLongOrNull(task.get("submitted"));
+                detail.setErrorReason(submitted != null && submitted == 1 ? "已评审" : "待评审");
+                detail.getValues().put("reviewerId", String.valueOf(task.get("reviewerId")));
+                Object score = task.get("score");
+                detail.getValues().put("score", score == null ? "" : String.valueOf(score));
+                report.getDetails().add(detail);
+            }
+        }
+        return report;
+    }
+
+    // Phase 44d（P1-3）：证书状态计数、总数、已生成学生数（去重非 VOIDED）下推到 SQL；明细改有界 LIMIT 200。
     private StatsReportVO certificateReport(StatsScope scope, StatsQuery query, String year) {
         List<Student> students = scopedStudents(scope, query, year);
         Map<Long, Student> studentMap = byId(students);
-        List<Certificate> certificates = certificatesFor(studentMap.keySet(), year);
+        Map<Long, String> colleges = collegeNames();
         StatsReportVO report = baseReport("certificates", "证书生成统计", year);
+        Map<String, Long> grouped = new LinkedHashMap<>();
+        long totalCertificates = 0;
+        long generatedStudents = 0;
+        if (!studentMap.isEmpty()) {
+            for (Map<String, Object> aggregate : aggregationMapper.countCertificatesByStatus(studentMap.keySet(), year)) {
+                long count = asLong(aggregate.get("cnt"));
+                grouped.merge(asString(aggregate.get("status")), count, Long::sum);
+                totalCertificates += count;
+            }
+            generatedStudents = aggregationMapper.countGeneratedCertificateStudents(studentMap.keySet(), year);
+        }
         addMetric(report, "应生成学生数", students.size(), "人");
-        addMetric(report, "证书记录数", certificates.size(), "张");
-        Map<String, Long> grouped = certificates.stream().collect(Collectors.groupingBy(
-                Certificate::getStatus, LinkedHashMap::new, Collectors.counting()));
-        long generatedStudents = certificates.stream()
-                .filter(item -> !"VOIDED".equals(item.getStatus()))
-                .map(Certificate::getStudentId)
-                .distinct()
-                .count();
+        addMetric(report, "证书记录数", totalCertificates, "张");
         report.getRows().add(row("certificate", "证书状态", CertificateStatus.WAIT_GENERATE.name(),
                 CertificateStatus.WAIT_GENERATE.label(), Math.max(0, students.size() - generatedStudents)));
         for (CertificateStatus status : CertificateStatus.values()) {
             report.getRows().add(row("certificate", "证书状态", status.name(), status.label(),
                     grouped.getOrDefault(status.name(), 0L)));
         }
-        certificates.stream().limit(200).forEach(cert -> {
+        for (Certificate cert : certificateDetails(studentMap.keySet(), year)) {
             Student student = studentMap.get(cert.getStudentId());
-            StatsDetailVO detail = studentDetail(student, collegeNames());
+            StatsDetailVO detail = studentDetail(student, colleges);
             detail.setFieldName("证书状态");
             detail.setErrorReason(certStatusLabel(cert.getStatus()));
             detail.getValues().put("证书编号", safe(cert.getCertNo()));
             detail.getValues().put("签发日期", safe(cert.getIssueDate()));
             detail.getValues().put("有效期", safe(cert.getValidUntil()));
             report.getDetails().add(detail);
-        });
+        }
         return report;
     }
 
+    // Phase 44d（P1-3）：任教学段/学科 × 身份类型 × 学历层次 交叉分组下推到 SQL（JOIN student 取身份类型）；
+    // 分组键 COALESCE(...,'') 与 Java safe(null->"") 对齐，保证 byte-identical；本报表无明细。
     private StatsReportVO crossReport(StatsScope scope, StatsQuery query, String year) {
         List<Student> students = scopedStudents(scope, query, year);
         Map<Long, Student> studentMap = byId(students);
-        List<TrainingProfile> trainings = trainingsFor(studentMap.keySet(), year);
         StatsReportVO report = baseReport("cross", "任教学段/学科交叉统计", year);
-        addMetric(report, "培养信息记录数", trainings.size(), "条");
-        Map<String, Long> grouped = trainings.stream().collect(Collectors.groupingBy(item -> {
-            Student student = studentMap.get(item.getStudentId());
-            return key(item.getTeachingSegment(), item.getTeachingSubjectName(), student == null ? "" : student.getIdentityType(), item.getEducationLevel());
-        }, LinkedHashMap::new, Collectors.counting()));
-        grouped.forEach((key, count) -> {
-            String[] parts = splitKey(key);
-            StatsRowVO row = row("segmentSubject", safe(parts, 0) + "/" + safe(parts, 1), safe(parts, 2), safe(parts, 3), count);
-            row.getValues().put("任教学段", safe(parts, 0));
-            row.getValues().put("任教学科", safe(parts, 1));
-            row.getValues().put("身份类型", safe(parts, 2));
-            row.getValues().put("学历层次", safe(parts, 3));
+        List<Map<String, Object>> aggregates = studentMap.isEmpty()
+                ? List.of()
+                : aggregationMapper.aggregateTrainingCross(studentMap.keySet(), year);
+        long totalTrainings = 0;
+        for (Map<String, Object> aggregate : aggregates) {
+            long count = asLong(aggregate.get("cnt"));
+            totalTrainings += count;
+            String segment = asString(aggregate.get("teachingSegment"));
+            String subjectName = asString(aggregate.get("teachingSubjectName"));
+            String identityType = asString(aggregate.get("identityType"));
+            String educationLevel = asString(aggregate.get("educationLevel"));
+            StatsRowVO row = row("segmentSubject", safe(segment) + "/" + safe(subjectName), safe(identityType), safe(educationLevel), count);
+            row.getValues().put("任教学段", safe(segment));
+            row.getValues().put("任教学科", safe(subjectName));
+            row.getValues().put("身份类型", safe(identityType));
+            row.getValues().put("学历层次", safe(educationLevel));
             report.getRows().add(row);
-        });
+        }
+        addMetric(report, "培养信息记录数", totalTrainings, "条");
         return report;
     }
 
@@ -501,22 +527,41 @@ public class StatsServiceImpl implements StatsService {
                 .eq(ProcessMaterial::getAssessmentYear, year));
     }
 
-    private List<ExemptionRequest> exemptionFor(Set<Long> studentIds, String year) {
+    // Phase 44d（P1-3）：免考明细有界查询（LIMIT 200 + ORDER BY id 确定序）；聚合行改由 SQL 计数，明细不再全量回内存。
+    private List<ExemptionRequest> exemptionDetails(Set<Long> studentIds, String year) {
         if (studentIds.isEmpty()) {
             return List.of();
         }
         return exemptionMapper.selectList(new LambdaQueryWrapper<ExemptionRequest>()
                 .in(ExemptionRequest::getStudentId, studentIds)
-                .eq(ExemptionRequest::getAssessmentYear, year));
+                .eq(ExemptionRequest::getAssessmentYear, year)
+                .orderByAsc(ExemptionRequest::getId)
+                .last("LIMIT 200"));
     }
 
-    private List<VideoReview> videoReviewsFor(Set<Long> studentIds, String year) {
+    // Phase 44d（P1-3）：证书明细有界查询（LIMIT 200 + ORDER BY id 确定序）。
+    private List<Certificate> certificateDetails(Set<Long> studentIds, String year) {
         if (studentIds.isEmpty()) {
             return List.of();
         }
-        return videoReviewMapper.selectList(new LambdaQueryWrapper<VideoReview>()
-                .in(VideoReview::getStudentId, studentIds)
-                .eq(VideoReview::getAssessmentYear, year));
+        return certificateMapper.selectList(new LambdaQueryWrapper<Certificate>()
+                .in(Certificate::getStudentId, studentIds)
+                .eq(Certificate::getAssessmentYear, year)
+                .orderByAsc(Certificate::getId)
+                .last("LIMIT 200"));
+    }
+
+    // Phase 44d（P1-3）：SQL 聚合返回 List<Map>，COUNT/键值的空安全转换。
+    private long asLong(Object value) {
+        return value == null ? 0L : ((Number) value).longValue();
+    }
+
+    private Long asLongOrNull(Object value) {
+        return value == null ? null : ((Number) value).longValue();
+    }
+
+    private String asString(Object value) {
+        return value == null ? null : String.valueOf(value);
     }
 
     private List<Certificate> certificatesFor(Set<Long> studentIds, String year) {

@@ -3,10 +3,16 @@ package cn.edu.gpnu.platform.boot;
 import cn.edu.gpnu.platform.PlatformApplication;
 import cn.edu.gpnu.platform.business.certificate.entity.Certificate;
 import cn.edu.gpnu.platform.business.certificate.mapper.CertificateMapper;
+import cn.edu.gpnu.platform.business.exemption.entity.ExemptionRequest;
+import cn.edu.gpnu.platform.business.exemption.mapper.ExemptionRequestMapper;
 import cn.edu.gpnu.platform.business.material.entity.ProcessMaterial;
 import cn.edu.gpnu.platform.business.material.mapper.ProcessMaterialMapper;
 import cn.edu.gpnu.platform.business.student.entity.Student;
 import cn.edu.gpnu.platform.business.student.mapper.StudentMapper;
+import cn.edu.gpnu.platform.business.training.entity.TrainingProfile;
+import cn.edu.gpnu.platform.business.training.mapper.TrainingProfileMapper;
+import cn.edu.gpnu.platform.business.video.entity.VideoReview;
+import cn.edu.gpnu.platform.business.video.mapper.VideoReviewMapper;
 import cn.edu.gpnu.platform.system.entity.SysUser;
 import cn.edu.gpnu.platform.system.mapper.SysUserMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -82,6 +88,15 @@ class Phase11StatsIT {
 
     @Autowired
     private CertificateMapper certificateMapper;
+
+    @Autowired
+    private ExemptionRequestMapper exemptionMapper;
+
+    @Autowired
+    private VideoReviewMapper videoReviewMapper;
+
+    @Autowired
+    private TrainingProfileMapper trainingMapper;
 
     @Autowired
     private PasswordEncoder passwordEncoder;
@@ -174,6 +189,105 @@ class Phase11StatsIT {
         assertThat(report.at("/details").toString()).contains("203610588344400001")
                 .contains("203610588344400002")
                 .contains("203610588344400003");
+    }
+
+    // Phase 44d（P1-3）：证书聚合下推 SQL 后，学院用户仅见本学院数据（证明数据范围随下推保留）。
+    @Test
+    void collegeCertificateStatsExcludeOtherCollegeData() throws Exception {
+        String className = "Phase11证书范围班";
+        long collegeAStudent = seedStudent("P11CSC-A", COLLEGE_A, className);
+        long collegeBStudent = seedStudent("P11CSC-B", COLLEGE_B, className);
+        insertCertificate(collegeAStudent, "P11CSC-A", COLLEGE_A, "203610588344401001", "GENERATED");
+        insertCertificate(collegeBStudent, "P11CSC-B", COLLEGE_B, "203610588344401002", "ISSUED");
+
+        LoginResult clerk = readyLogin("test_college_clerk");
+        JsonNode scoped = json(exchange("/api/stats/certificates?assessmentYear=" + YEAR + "&className=" + className,
+                HttpMethod.GET, clerk.accessToken(), null)).at("/data");
+
+        assertThat(rowCount(scoped, "certificate", "GENERATED")).isEqualTo(1);
+        assertThat(rowCount(scoped, "certificate", "ISSUED")).isEqualTo(0);
+        assertThat(metric(scoped, "应生成学生数")).isEqualTo("1");
+        assertThat(metric(scoped, "证书记录数")).isEqualTo("1");
+        assertThat(scoped.at("/details").toString())
+                .contains("203610588344401001")
+                .doesNotContain("203610588344401002");
+    }
+
+    // Phase 44d（P1-3）：免考聚合下推 SQL：SCHOOL 口径分组对账；COLLEGE 口径仅本学院。
+    @Test
+    void exemptionStatsReconcileWithSqlGroupingAndCollegeScope() throws Exception {
+        String className = "Phase11免考班";
+        long collegeAStudent = seedStudent("P11EXM-A", COLLEGE_A, className);
+        long collegeBStudent = seedStudent("P11EXM-B", COLLEGE_B, className);
+        insertExemption(collegeAStudent, COLLEGE_A, "chinese", "语文", "PASSED");
+        insertExemption(collegeAStudent, COLLEGE_A, "math", "数学", "SECOND_REVIEW");
+        insertExemption(collegeBStudent, COLLEGE_B, "chinese", "语文", "PASSED");
+
+        LoginResult academic = readyLogin("test_academic_admin");
+        JsonNode all = json(exchange("/api/stats/exemptions?assessmentYear=" + YEAR + "&className=" + className,
+                HttpMethod.GET, academic.accessToken(), null)).at("/data");
+        assertThat(metric(all, "免考申请科目数")).isEqualTo("3");
+        assertThat(metric(all, "复审通过科目数")).isEqualTo("2");
+        assertThat(subjectRowCount(all, "语文", "PASSED")).isEqualTo(2);
+        assertThat(subjectRowCount(all, "数学", "SECOND_REVIEW")).isEqualTo(1);
+
+        LoginResult clerk = readyLogin("test_college_clerk");
+        JsonNode scoped = json(exchange("/api/stats/exemptions?assessmentYear=" + YEAR + "&className=" + className,
+                HttpMethod.GET, clerk.accessToken(), null)).at("/data");
+        assertThat(metric(scoped, "免考申请科目数")).isEqualTo("2");
+        assertThat(metric(scoped, "复审通过科目数")).isEqualTo("1");
+        assertThat(subjectRowCount(scoped, "语文", "PASSED")).isEqualTo(1);
+        assertThat(scoped.at("/details").toString()).contains("P11EXM-A").doesNotContain("P11EXM-B");
+    }
+
+    // Phase 44d（P1-3）：视频聚合下推 SQL：SCHOOL 口径状态分组/已上传对账；COLLEGE 口径仅本学院。
+    @Test
+    void videoStatsReconcileWithSqlGroupingAndCollegeScope() throws Exception {
+        String className = "Phase11视频班";
+        long collegeAStudent = seedStudent("P11VID-A", COLLEGE_A, className);
+        long collegeBStudent = seedStudent("P11VID-B", COLLEGE_B, className);
+        insertVideoReview(collegeAStudent, COLLEGE_A, "REVIEW_COMPLETED", 111L);
+        insertVideoReview(collegeBStudent, COLLEGE_B, "NEED_REVIEW", 222L);
+
+        LoginResult academic = readyLogin("test_academic_admin");
+        JsonNode all = json(exchange("/api/stats/videos?assessmentYear=" + YEAR + "&className=" + className,
+                HttpMethod.GET, academic.accessToken(), null)).at("/data");
+        assertThat(metric(all, "应传人数")).isEqualTo("2");
+        assertThat(metric(all, "已上传人数")).isEqualTo("2");
+        assertThat(metric(all, "需复评")).isEqualTo("1");
+        assertThat(rowCount(all, "video", "REVIEW_COMPLETED")).isEqualTo(1);
+        assertThat(rowCount(all, "video", "NEED_REVIEW")).isEqualTo(1);
+
+        LoginResult clerk = readyLogin("test_college_clerk");
+        JsonNode scoped = json(exchange("/api/stats/videos?assessmentYear=" + YEAR + "&className=" + className,
+                HttpMethod.GET, clerk.accessToken(), null)).at("/data");
+        assertThat(metric(scoped, "应传人数")).isEqualTo("1");
+        assertThat(metric(scoped, "已上传人数")).isEqualTo("1");
+        assertThat(metric(scoped, "需复评")).isEqualTo("0");
+        assertThat(rowCount(scoped, "video", "REVIEW_COMPLETED")).isEqualTo(1);
+        assertThat(rowCount(scoped, "video", "NEED_REVIEW")).isEqualTo(0);
+    }
+
+    // Phase 44d（P1-3）：交叉聚合下推 SQL（JOIN student 取身份类型）：SCHOOL 分组对账；COLLEGE 仅本学院（证明 JOIN 未泄漏范围）。
+    @Test
+    void crossStatsReconcileWithSqlGroupingAndCollegeScope() throws Exception {
+        String className = "Phase11交叉班";
+        long collegeAStudent = seedStudent("P11CRS-A", COLLEGE_A, className);
+        long collegeBStudent = seedStudent("P11CRS-B", COLLEGE_B, className);
+        insertTraining(collegeAStudent, COLLEGE_A, "senior_middle_school", "语文", "bachelor");
+        insertTraining(collegeBStudent, COLLEGE_B, "senior_middle_school", "语文", "bachelor");
+
+        LoginResult academic = readyLogin("test_academic_admin");
+        JsonNode all = json(exchange("/api/stats/cross?assessmentYear=" + YEAR + "&className=" + className,
+                HttpMethod.GET, academic.accessToken(), null)).at("/data");
+        assertThat(metric(all, "培养信息记录数")).isEqualTo("2");
+        assertThat(segmentSubjectRowCount(all, "senior_middle_school/语文", "normal_student")).isEqualTo(2);
+
+        LoginResult clerk = readyLogin("test_college_clerk");
+        JsonNode scoped = json(exchange("/api/stats/cross?assessmentYear=" + YEAR + "&className=" + className,
+                HttpMethod.GET, clerk.accessToken(), null)).at("/data");
+        assertThat(metric(scoped, "培养信息记录数")).isEqualTo("1");
+        assertThat(segmentSubjectRowCount(scoped, "senior_middle_school/语文", "normal_student")).isEqualTo(1);
     }
 
     @Test
@@ -282,6 +396,49 @@ class Phase11StatsIT {
         certificateMapper.insert(certificate);
     }
 
+    private void insertExemption(long studentId, long collegeId, String subject, String subjectLabel, String finalStatus) {
+        ExemptionRequest exemption = new ExemptionRequest();
+        exemption.setStudentId(studentId);
+        exemption.setCollegeId(collegeId);
+        exemption.setAssessmentYear(YEAR);
+        exemption.setTeachingSegment("senior_middle_school");
+        exemption.setSubject(subject);
+        exemption.setSubjectLabel(subjectLabel);
+        exemption.setBasis("national_college_english_test");
+        exemption.setBasisLabel("全国大学英语等级考试");
+        exemption.setFinalStatus(finalStatus);
+        exemptionMapper.insert(exemption);
+    }
+
+    private void insertVideoReview(long studentId, long collegeId, String status, Long videoFileId) {
+        VideoReview review = new VideoReview();
+        review.setStudentId(studentId);
+        review.setCollegeId(collegeId);
+        review.setAssessmentYear(YEAR);
+        review.setStatus(status);
+        review.setVideoFileId(videoFileId);
+        videoReviewMapper.insert(review);
+    }
+
+    private void insertTraining(long studentId, long collegeId, String segment, String subjectName, String educationLevel) {
+        TrainingProfile training = new TrainingProfile();
+        training.setStudentId(studentId);
+        training.setCollegeId(collegeId);
+        training.setAssessmentYear(YEAR);
+        training.setSecondDisciplineCode("0401");
+        training.setSecondDisciplineName("教育学");
+        training.setEducationLevel(educationLevel);
+        training.setTrainingGoal("senior_middle_school_teacher");
+        training.setInternshipOrgMode("centralized");
+        training.setInternshipLocation("school");
+        training.setTeachingSegment(segment);
+        training.setTeachingSubjectId(1L);
+        training.setTeachingSubjectCode("sms_chinese");
+        training.setTeachingSubjectName(subjectName);
+        training.setInterviewOrgMode("centralized");
+        trainingMapper.insert(training);
+    }
+
     private long rowCount(JsonNode report, String dimension, String status) {
         for (JsonNode row : report.at("/rows")) {
             if (dimension.equals(row.at("/dimension").asText()) && status.equals(row.at("/status").asText())) {
@@ -296,6 +453,28 @@ class Phase11StatsIT {
             if ("category".equals(row.at("/dimension").asText())
                     && status.equals(row.at("/status").asText())
                     && category.equals(row.at("/values/材料类别").asText())) {
+                return row.at("/count").asLong();
+            }
+        }
+        return 0L;
+    }
+
+    private long subjectRowCount(JsonNode report, String label, String status) {
+        for (JsonNode row : report.at("/rows")) {
+            if ("subject".equals(row.at("/dimension").asText())
+                    && label.equals(row.at("/dimensionLabel").asText())
+                    && status.equals(row.at("/status").asText())) {
+                return row.at("/count").asLong();
+            }
+        }
+        return 0L;
+    }
+
+    private long segmentSubjectRowCount(JsonNode report, String label, String identity) {
+        for (JsonNode row : report.at("/rows")) {
+            if ("segmentSubject".equals(row.at("/dimension").asText())
+                    && label.equals(row.at("/dimensionLabel").asText())
+                    && identity.equals(row.at("/status").asText())) {
                 return row.at("/count").asLong();
             }
         }
@@ -416,6 +595,9 @@ class Phase11StatsIT {
         jdbcTemplate.update("DELETE FROM audit_log WHERE biz_type = 'stats'");
         jdbcTemplate.update("DELETE FROM certificate WHERE student_id IN (SELECT id FROM student WHERE student_no LIKE 'P11%') OR student_no LIKE 'P11%'");
         jdbcTemplate.update("DELETE FROM process_material WHERE student_id IN (SELECT id FROM student WHERE student_no LIKE 'P11%')");
+        jdbcTemplate.update("DELETE FROM exemption_request WHERE student_id IN (SELECT id FROM student WHERE student_no LIKE 'P11%')");
+        jdbcTemplate.update("DELETE FROM video_review WHERE student_id IN (SELECT id FROM student WHERE student_no LIKE 'P11%')");
+        jdbcTemplate.update("DELETE FROM training_profile WHERE student_id IN (SELECT id FROM student WHERE student_no LIKE 'P11%')");
         jdbcTemplate.update("DELETE FROM student WHERE student_no LIKE 'P11%'");
     }
 
