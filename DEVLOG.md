@@ -15,6 +15,21 @@
 
 ---
 
+## [2026-07-05] Phase 47（P1-9 定时清理）— 全库首个清理调度层：audit_log/notification 保留期分批物理清理 + MinIO 未完成分片 abort（生命周期规则）+ 孤儿 file_object 扫描（仅报告）；prod 门禁、115/115 绿
+- 做了什么：
+  - **调度层门禁（复用 P0-6 备份同款约定）**：新增 `CleanupScheduleConfig`（platform-boot），`@EnableScheduling + @ConditionalOnProperty(prefix="platform.cleanup.schedule", name="enabled", havingValue="true")`——与 `BackupScheduleConfig` 完全同款：dev/测试/未配置环境本 bean 不注册、`@Scheduled` 不触发（不扰动 IT），仅 `application-prod.yml` 显式置 true 生效。三作业 cron 各自可配、错峰于备份(03:00)之后（03:30 / 03:45 / 04:00）。放 boot 因三作业跨模块（system+file+boot），boot 是唯一同时可见三者的组合根。
+  - **① 保留期清理**：`RetentionCleanupService`（platform-system，无接口具体服务，仿 `DatabaseBackupService`）`pruneAuditLog()`/`pruneNotification()`。保留窗口经 `ParamService` 读 sys_param（`cleanup.auditLog.retentionDays` 默认 180、`cleanup.notification.retentionDays` 默认 90，可覆盖），**分批 LIMIT 物理删除**（`cleanup.prune.batchSize` 默认 1000、循环至删尽或触 `cleanup.prune.maxBatches` 默认 500 上限）避免大清理长时间锁表。两个 mapper 各加一条 `@Delete ... LIMIT` 原生 SQL：audit_log 追加写、无逻辑删除列即真删；**notification 有 `@TableLogic`，刻意走原生 SQL 绕开软删（UPDATE deleted=1）做真物理删除以回收空间**。非正保留期回退默认（防误配清空整表）。
+  - **② MinIO 未完成分片 abort**：`FileMaintenanceService`（platform-file）。**诚实核验**：本仓库 minio 8.5.12 的高层 `MinioClient` 已<em>不再</em>暴露 `listIncompleteUploads`/`removeIncompleteUpload`（7.x 后移除，javap 核验 public 方法确无）——故按任务书授权的第二方案「加桶生命周期规则」：幂等 `ensureAbortIncompleteMultipartLifecycle(days)` 用真实 API（`LifecycleConfiguration`/`LifecycleRule`/`AbortIncompleteMultipartUpload`/`setBucketLifecycle`）确保「初始化超 N 天(`cleanup.minio.abortIncompleteDays` 默认 7)未完成的分片上传由 MinIO 服务端自动 abort」的规则存在（保留桶上其它既有规则，仅认我们这条 id）。实际 abort 由服务端按规则执行、非应用侧遍历。MinIO 不可达吞异常仅告警、返回 false。
+  - **③ 孤儿 file_object 扫描（仅报告不删）**：`FileObjectScanMapper`（platform-boot，boot 聚合全部迁移/表结构、天然知跨表引用）。`countOrphans` + `sampleOrphanIds`：`NOT EXISTS` 覆盖全部 5 处业务引用列（对 V11–V17 迁移与各实体 fileId 字段逐一核验：`process_material.file_id`、`exemption_material.file_id`、`video_upload_session.file_id`、`video_review.video_file_id`、`import_export_batch.error_report_file_id`）。保守：跳过逻辑已删行、跳过 grace 窗口内新上传（`cleanup.orphan.graceHours` 默认 24，避免误报在途上传）、业务侧不过滤 deleted（宁少报不误伤）。**只 log 统计+样例 id，绝不自动删对象/行**，交运维人工核查。
+- 关键决策与理由：
+  - **MinIO 用生命周期规则而非自研遍历**：8.5.x SDK 无列举/删除未完成分片的高层 API，官方/S3 推荐即 `AbortIncompleteMultipartUpload` 生命周期由服务端强制执行——比应用侧定时遍历更省、更可靠。**未伪造**任何「已 abort N 个分片」的结果，作业只保证「规则已就位」。
+  - **孤儿只报告**：自动删文件/行风险过高（在途上传、被软删业务行历史引用、未覆盖到的引用路径皆可能误删），P1-9 明确「report only for ops」。
+  - **保留期是物理删、且分批**：任务要求物理删过期运营行以真正回收空间；LIMIT 分批循环是「大清理不锁表」的关键手段。
+- 问题与解决：无。`@Select` 复用 `NOT EXISTS` 谓词用 `static final String` 编译期常量拼接（注解值合法）。
+- 与规格的偏差/疑问：无。**无迁移**（纯代码+配置，库 max 仍 V25；audit_log 已有 `idx_audit_time(operate_time)` 支撑保留查询）。⚠️ 运维提示：清理仅在 `SPRING_PROFILES_ACTIVE=prod` 且 `platform.cleanup.schedule.enabled=true` 时启用。
+- 测试：`mvn -B -ntp clean verify` **BUILD SUCCESS 115/115 绿**（原 114 + 新增 `Phase47CleanupIT`）。新 IT 直接调 `RetentionCleanupService`（不靠调度器）：插过期(now-500d)+近期(now-1d)标记行入 audit_log/notification，断言过期行物理删除、近期行保留、`file_object`/`sys_user` 行数不变；finally 按高位 id 自清理。日志实证：audit_log 保留 180 天删 1 行、notification 保留 90 天删 1 行（仅命中测试标记、无真实存量被误删，dev 库仅 ~3 周龄）。
+- 下一步：交主 Opus 复核合并；继续 §11 剩余 P1（P1-8 初始密码 / 种子污染清理 / P1-4 异步导入 / §7.4 两项 / P1-2 视频上传）。
+
 ## [2026-07-05] Phase 46（P1-10 异常状态码契约 + P1-7 CORS 部署配置）— 未知故障→500/客户端错误→4xx + 前端拦截器兼容；CORS 白名单 env 化；114/114 绿 + 前端 build 绿
 - 做了什么：
   - **P1-10**：`GlobalExceptionHandler` 兜底 `handle(Exception)` 加 `@ResponseStatus(500)`——此前无注解默认 200，未知故障对 APM/网关/告警「隐形」（HTTP 全绿）。同时补 `HttpRequestMethodNotSupportedException→405`、`NoHandlerFoundException→404` 两个客户端错误处理器（否则错方法/错路径会一并落进 500 兜底、被误报为服务端故障）。已知可恢复类（`BizException`/参数校验/数据完整性冲突）仍 200+业务码。前端 `request.ts` 错误分支补「非 2xx 但响应体是统一 `Result`（code≠0）→ 提取 `data.msg`」，与成功分支一致，保证状态码改变后友好提示不丢失、且不与既有 401-refresh 分支冲突（401 先返回）。

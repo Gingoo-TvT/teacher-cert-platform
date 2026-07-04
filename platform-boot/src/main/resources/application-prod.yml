@@ -42,3 +42,12 @@ platform:
       cron: "0 0 3 * * *"   # 每日 03:00 低峰全量备份
     # bucket: teacher-cert-backup   # 可选：独立备份桶（不设则复用 minio.bucket）
     prefix: db-backup/
+  # Phase 47（P1-9 定时清理）：仅生产开启（dev/测试默认关闭、不触发）。错峰于备份(03:00)之后。
+  # 保留期/阈值可经 sys_param 覆盖（cleanup.auditLog.retentionDays 默认180 / cleanup.notification.retentionDays 默认90
+  # / cleanup.prune.batchSize 默认1000 / cleanup.minio.abortIncompleteDays 默认7 / cleanup.orphan.graceHours 默认24）。
+  cleanup:
+    schedule:
+      enabled: true
+      retention-cron: "0 30 3 * * *"   # audit_log/notification 保留期物理清理
+      minio-cron: "0 45 3 * * *"       # 确保 MinIO 未完成分片 abort 生命周期规则
+      orphan-cron: "0 0 4 * * *"       # 孤儿 file_object 扫描（仅报告、不删除）
