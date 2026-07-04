@@ -109,11 +109,17 @@ export function downloadTemplate(query: ExchangeQuery = {}) {
   })
 }
 
+// 批量校验/导入/大导出（万行级）单独放宽超时（P1-4）：全局默认 30s 不足以等整份处理完成，
+// 客户端会先超时报错并诱发「疑似失败的重复提交」。导入重复提交由后端幂等原子认领兜底
+//（Phase 42.2 confirmImport PREVALIDATED→IMPORTING），此处放宽到 5 分钟仅为消除误报超时。
+const BULK_OP_TIMEOUT_MS = 5 * 60 * 1000
+
 export function prevalidateExchange(file: File) {
   const form = new FormData()
   form.append('file', file)
   return request.post<unknown, ApiResult<PrevalidateResult>>('/exchange/prevalidate', form, {
-    headers: { 'Content-Type': 'multipart/form-data' }
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: BULK_OP_TIMEOUT_MS
   })
 }
 
@@ -124,7 +130,7 @@ export function downloadErrorReport(batchId: string) {
 }
 
 export function confirmExchangeImport(batchId: string, strategy: string) {
-  return request.post<unknown, ApiResult<ImportResult>>(`/exchange/import/${batchId}/confirm`, { strategy })
+  return request.post<unknown, ApiResult<ImportResult>>(`/exchange/import/${batchId}/confirm`, { strategy }, { timeout: BULK_OP_TIMEOUT_MS })
 }
 
 export function rollbackExchangeImport(batchId: string) {
@@ -144,13 +150,15 @@ export function listExchangeBatches(
 
 export function exportExchange(type: string, query: ExchangeQuery = {}) {
   return request.post<unknown, Blob>(`/exchange/export/${type}`, cleanParams(query), {
-    responseType: 'blob'
+    responseType: 'blob',
+    timeout: BULK_OP_TIMEOUT_MS
   })
 }
 
 export function exportExchangeAttachments(query: ExchangeQuery = {}) {
   return request.post<unknown, Blob>('/exchange/export/attachments', cleanParams(query), {
-    responseType: 'blob'
+    responseType: 'blob',
+    timeout: BULK_OP_TIMEOUT_MS
   })
 }
 

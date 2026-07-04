@@ -15,6 +15,13 @@
 
 ---
 
+## [2026-07-05] Phase 50（P1-4 批量导入/导出客户端超时）— 前端 bulk op 单独放宽超时至 5 分钟；幂等防重已由 Phase 42.2 兜底
+- 做了什么：`frontend/src/api/exchange.ts` 为「万行级」批量操作（`prevalidateExchange` 校验、`confirmExchangeImport` 导入、`exportExchange`/`exportExchangeAttachments` 大导出）加 `timeout: 5*60*1000`（新增常量 `BULK_OP_TIMEOUT_MS`），覆盖全局默认 30s。
+- 关键决策与理由：P1-4 原述「导入同步逐行 vs 前端 30s 全局超时 → 客户端先超时、疑似失败重复提交」。**「幂等防重」这半早已闭环**——Phase 42.2 `confirmImport` 的 `PREVALIDATED→IMPORTING` 原子认领已防重复导入；故本相只需消除「客户端先超时误报」这半：对确会长耗时的 bulk 请求放宽超时即可，无需改成异步轮询（更大的契约改造，非必要）。放宽到 5 分钟足以覆盖万行处理，超时仍触发也有后端幂等兜底、不会重复导入。
+- 与规格的偏差/疑问：无。纯前端、后端零改动（后端字节与已验证绿的 dc0911b 一致，无需重跑 mvn verify）。导出侧一并放宽（同类超时风险）。异步轮询方案（返回批次号轮询）未采用，理由见上。
+- 测试：前端 `npm run type-check` 干净 + `npm run build` 成功（仅既有 echarts/naive chunk 警告）。
+- 下一步：§11 剩余项（P1-8 初始密码=需凭据下发的产品决策 / 种子污染=测试-生产种子分离改造 / P1-2 阶段2 直传 / DataScope 授权缓存）均为「需决策或较大/刻意推迟」，随整体冒烟一并向用户汇报建议。
+
 ## [2026-07-05] Phase 49（P1-2 阶段1）— 视频上传「必然降级慢路径」修复：分片 512KB→8MiB + merge 按分片大小显式路由走 MinIO 服务端 composeObject（字节不经应用）；118/118 绿 + 前端 type-check/build 绿
 - 做了什么：
   - **根因（§4 阶段1 / P1-2）**：前端分片 **512KB** < MinIO 服务端合并部件下限 **5MiB**（`io.minio.ObjectWriteArgs.MIN_MULTIPART_SIZE`）。旧 `merge()`（`VideoReviewServiceImpl`）为「先试 `composeObject`、`catch (Exception)` 一律回退 `streamComposeForSmallChunks`」——`composeObject` 的客户端部件下限校验对 512KB 非末片分片**必抛** `IllegalArgumentException` → **每一次多分片上传都落到慢路径**：`streamComposeForSmallChunks` 经 `concatenatedChunkStream` 对**每个分片** `minioClient.getObject` 拉回应用、再 `putObject` 整体重传——字节**两次穿过应用服务器**，吞吐被腰斩。
