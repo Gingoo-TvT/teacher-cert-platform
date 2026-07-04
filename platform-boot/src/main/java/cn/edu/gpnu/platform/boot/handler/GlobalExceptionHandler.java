@@ -4,6 +4,7 @@ import cn.edu.gpnu.platform.common.api.Result;
 import cn.edu.gpnu.platform.common.api.ResultCode;
 import cn.edu.gpnu.platform.common.exception.BizException;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.validation.FieldError;
@@ -40,6 +41,17 @@ public class GlobalExceptionHandler {
     public Result<Void> handleAccessDenied(AccessDeniedException e) {
         log.warn("权限异常: {}", e.getMessage());
         return Result.fail(ResultCode.FORBIDDEN);
+    }
+
+    /**
+     * 数据完整性异常兜底（如唯一键冲突 DuplicateKeyException）：转友好业务提示而非裸 500。
+     * 本库多数唯一键不含 deleted，软删后同码重建等场景可能绕过服务层预检直接撞库（见字典编码 Phase43.4）；
+     * 各服务层已知场景应自行 catch 转更精确的提示，这里仅作最后一道防线。
+     */
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public Result<Void> handleDataIntegrityViolation(DataIntegrityViolationException e) {
+        log.warn("数据完整性异常: {}", e.getMessage());
+        return Result.fail(ResultCode.BIZ_ERROR.getCode(), "数据已存在或不满足唯一性约束，请刷新后重试");
     }
 
     /** 兜底 */

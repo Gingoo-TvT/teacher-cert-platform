@@ -5,6 +5,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
+import java.time.DateTimeException;
+import java.time.LocalDate;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -35,9 +37,13 @@ public class BirthDateValidator {
         if (!matcher.matches()) {
             throw new BizException("出生日期格式异常");
         }
+        int year = Integer.parseInt(matcher.group(1));
         int month = Integer.parseInt(matcher.group(2));
         int day = Integer.parseInt(matcher.group(3));
-        if (month < 1 || month > 12 || day < 1 || day > 31) {
+        try {
+            // 用 LocalDate 的日历规则做严格校验（含闰年 2 月 29 日、大小月），拒绝 2023-02-30 这类看似合法实非法的日期。
+            LocalDate.of(year, month, day);
+        } catch (DateTimeException e) {
             throw new BizException("出生日期格式异常");
         }
         return matcher.group(1) + "%02d".formatted(month) + "%02d".formatted(day);

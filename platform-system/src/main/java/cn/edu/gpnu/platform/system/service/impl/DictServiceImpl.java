@@ -201,23 +201,14 @@ public class DictServiceImpl implements DictService {
     }
 
     private boolean existsTypeCode(String typeCode, Long excludeId) {
-        LambdaQueryWrapper<SysDictType> wrapper = new LambdaQueryWrapper<SysDictType>()
-                .eq(SysDictType::getTypeCode, typeCode);
-        if (excludeId != null) {
-            wrapper.ne(SysDictType::getId, excludeId);
-        }
-        return dictTypeMapper.selectCount(wrapper) > 0;
+        // 唯一键 uk_sys_dict_type_code 不含 deleted：必须含软删行一并检查（对齐 OrganizationServiceImpl
+        // 的 countByCodeIncludingDeleted 做法），否则软删后同码重建会绕过本检查、直接撞库裸抛 DuplicateKeyException（Phase43.4）。
+        return dictTypeMapper.countByTypeCodeIncludingDeleted(typeCode, excludeId) > 0;
     }
 
     private boolean existsItem(String typeCode, String itemCode, String yearVersion, Long excludeId) {
-        LambdaQueryWrapper<SysDictItem> wrapper = new LambdaQueryWrapper<SysDictItem>()
-                .eq(SysDictItem::getTypeCode, typeCode)
-                .eq(SysDictItem::getItemCode, itemCode)
-                .eq(SysDictItem::getYearVersion, yearVersion);
-        if (excludeId != null) {
-            wrapper.ne(SysDictItem::getId, excludeId);
-        }
-        return dictItemMapper.selectCount(wrapper) > 0;
+        // 唯一键 uk_sys_dict_item_type_code_year 不含 deleted，同上（Phase43.4）。
+        return dictItemMapper.countByItemIncludingDeleted(typeCode, itemCode, yearVersion, excludeId) > 0;
     }
 
     private Long countItems(String typeCode) {

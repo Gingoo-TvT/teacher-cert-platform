@@ -29,6 +29,6 @@ public enum TrainingStatus {
         return Arrays.stream(values())
                 .filter(item -> item.name().equals(value))
                 .findFirst()
-                .orElse(DRAFT);
+                .orElseThrow(() -> new cn.edu.gpnu.platform.common.exception.BizException("未知培养状态: " + value));
     }
 }

@@ -29,6 +29,6 @@ public enum StudentStatus {
         return Arrays.stream(values())
                 .filter(item -> item.name().equals(value))
                 .findFirst()
-                .orElse(DRAFT);
+                .orElseThrow(() -> new cn.edu.gpnu.platform.common.exception.BizException("未知学生状态: " + value));
     }
 }

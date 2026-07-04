@@ -86,6 +86,9 @@ class Phase3StudentIT {
                 "11010119900628002", "1990/6/28", COLLEGE_A), "证件类型与号码不匹配");
         assertCreateFails(academic.accessToken(), student("P3BADBIRTH", "张三", "resident_id_card",
                 "11010119900628003X", "1990/7/1", COLLEGE_A), "出生日期与证件号码不一致");
+        // Phase43.4: BirthDateValidator 严格校验——2023-02-30 这类日历上不存在的日期必须被拒绝（此前只检查月1-12/日1-31会误放行）。
+        assertCreateFails(academic.accessToken(), student("P3BADCALENDAR", "张三", "resident_id_card",
+                "11010119900628005X", "2023/02/30", COLLEGE_A), "出生日期格式异常");
         assertCreateFails(academic.accessToken(), student("P3BADHM", "张三", "hm_travel_permit",
                 "123456789", "1990/7/1", COLLEGE_A), "证件类型与号码不匹配");
         assertCreateFails(academic.accessToken(), student("P3BADTW", "张三", "tw_travel_permit_5y",
