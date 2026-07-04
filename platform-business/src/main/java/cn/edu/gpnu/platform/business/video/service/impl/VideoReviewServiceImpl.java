@@ -314,7 +314,7 @@ public class VideoReviewServiceImpl implements VideoReviewService {
     @Override
     public PageResult<VideoReviewVO> list(VideoQuery query) {
         List<VideoReview> records = selectReviews(query);
-        return new PageResult<>(records.size(), records.stream().map(this::toVO).toList());
+        return new PageResult<>(records.size(), toVOList(records));
     }
 
     @Override
@@ -1083,8 +1083,50 @@ public class VideoReviewServiceImpl implements VideoReviewService {
         return reviewMapper.selectList(wrapper);
     }
 
+    private List<VideoReviewVO> toVOList(List<VideoReview> records) {
+        if (records.isEmpty()) {
+            return List.of();
+        }
+        Set<Long> reviewIds = records.stream().map(VideoReview::getId).collect(Collectors.toCollection(LinkedHashSet::new));
+        Set<Long> studentIds = records.stream().map(VideoReview::getStudentId).collect(Collectors.toCollection(LinkedHashSet::new));
+        Map<Long, Student> students = studentMapper.selectBatchIds(studentIds).stream()
+                .collect(Collectors.toMap(Student::getId, item -> item));
+        Map<Long, List<VideoReviewTask>> tasksByReview = taskMapper.selectList(new LambdaQueryWrapper<VideoReviewTask>()
+                        .in(VideoReviewTask::getVideoReviewId, reviewIds)
+                        .orderByAsc(VideoReviewTask::getCreatedAt))
+                .stream()
+                .collect(Collectors.groupingBy(VideoReviewTask::getVideoReviewId, LinkedHashMap::new, Collectors.toList()));
+        Map<Long, SysUser> reviewers = reviewerMap(tasksByReview.values().stream().flatMap(List::stream).toList());
+        return records.stream()
+                .map(entity -> toVO(entity, students.get(entity.getStudentId()),
+                        tasksByReview.getOrDefault(entity.getId(), List.of()), reviewers))
+                .toList();
+    }
+
+    private List<VideoReviewTask> tasksForReview(Long reviewId) {
+        return taskMapper.selectList(new LambdaQueryWrapper<VideoReviewTask>()
+                .eq(VideoReviewTask::getVideoReviewId, reviewId)
+                .orderByAsc(VideoReviewTask::getCreatedAt));
+    }
+
+    private Map<Long, SysUser> reviewerMap(List<VideoReviewTask> tasks) {
+        Set<Long> ids = tasks.stream().map(VideoReviewTask::getReviewerId)
+                .filter(id -> id != null)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        return userMapper.selectBatchIds(ids).stream().collect(Collectors.toMap(SysUser::getId, item -> item));
+    }
+
     private VideoReviewVO toVO(VideoReview entity) {
         Student student = studentMapper.selectById(entity.getStudentId());
+        List<VideoReviewTask> tasks = tasksForReview(entity.getId());
+        Map<Long, SysUser> reviewers = reviewerMap(tasks);
+        return toVO(entity, student, tasks, reviewers);
+    }
+
+    private VideoReviewVO toVO(VideoReview entity, Student student, List<VideoReviewTask> tasks, Map<Long, SysUser> reviewers) {
         VideoReviewVO vo = new VideoReviewVO();
         vo.setId(entity.getId());
         vo.setStudentId(entity.getStudentId());
@@ -1107,14 +1149,11 @@ public class VideoReviewServiceImpl implements VideoReviewService {
         vo.setConfirmedBy(entity.getConfirmedBy());
         vo.setConfirmedAt(entity.getConfirmedAt());
         vo.setLocked(entity.getLocked());
-        List<VideoReviewTask> tasks = taskMapper.selectList(new LambdaQueryWrapper<VideoReviewTask>()
-                .eq(VideoReviewTask::getVideoReviewId, entity.getId())
-                .orderByAsc(VideoReviewTask::getCreatedAt));
         boolean managementView = canViewSubmittedTasks(entity);
         Long currentUserId = UserContext.getUserId();
         vo.setTasks(tasks.stream()
                 .filter(task -> managementView || (currentUserId != null && currentUserId.equals(task.getReviewerId())))
-                .map(task -> toTaskVO(task, managementView))
+                .map(task -> toTaskVO(task, managementView, reviewers.get(task.getReviewerId())))
                 .toList());
         return vo;
     }
@@ -1134,6 +1173,10 @@ public class VideoReviewServiceImpl implements VideoReviewService {
 
     private VideoReviewTaskVO toTaskVO(VideoReviewTask task, boolean revealScore) {
         SysUser reviewer = userMapper.selectById(task.getReviewerId());
+        return toTaskVO(task, revealScore, reviewer);
+    }
+
+    private VideoReviewTaskVO toTaskVO(VideoReviewTask task, boolean revealScore, SysUser reviewer) {
         boolean owner = UserContext.getUserId() != null && UserContext.getUserId().equals(task.getReviewerId());
         boolean reveal = revealScore || owner;
         VideoReviewTaskVO vo = new VideoReviewTaskVO();

@@ -17,6 +17,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import java.time.format.DateTimeFormatter;
+import java.util.Collection;
 import java.util.List;
 
 @Slf4j
@@ -38,6 +39,25 @@ public class NotificationServiceImpl implements NotificationService {
                         trim(content, 1000), trim(bizType, 64), trim(bizId, 64));
             } catch (Exception e) {
                 log.warn("通知通道发送失败: channel={}, userId={}, title={}", channel.channel(), userId, title, e);
+            }
+        }
+    }
+
+    @Override
+    public void sendBatch(Collection<Long> userIds, String type, String title, String content, String bizType, String bizId) {
+        if (userIds == null || userIds.isEmpty() || !StringUtils.hasText(title)) {
+            return;
+        }
+        List<Long> validIds = userIds.stream().filter(id -> id != null && id > 0).toList();
+        if (validIds.isEmpty()) {
+            return;
+        }
+        for (NotifyChannel channel : channels) {
+            try {
+                channel.sendBatch(validIds, safe(type, "SYSTEM", 64), safe(title, "通知", 128),
+                        trim(content, 1000), trim(bizType, 64), trim(bizId, 64));
+            } catch (Exception e) {
+                log.warn("通知通道批量发送失败: channel={}, count={}, title={}", channel.channel(), validIds.size(), title, e);
             }
         }
     }

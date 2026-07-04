@@ -35,6 +35,9 @@ import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -56,7 +59,7 @@ public class TrainingProfileServiceImpl implements TrainingProfileService {
     @Override
     public PageResult<TrainingProfileVO> list(String keyword, String status, Long collegeId, String assessmentYear) {
         List<TrainingProfile> records = listProfiles(keyword, status, collegeId, assessmentYear);
-        return new PageResult<>(records.size(), records.stream().map(this::toVO).toList());
+        return new PageResult<>(records.size(), toVOs(records));
     }
 
     @Override
@@ -339,8 +342,22 @@ public class TrainingProfileServiceImpl implements TrainingProfileService {
         return "SECOND_REVIEW".equalsIgnoreCase(target) ? TrainingStatus.SECOND_REVIEW.name() : TrainingStatus.FIRST_REVIEW.name();
     }
 
+    private List<TrainingProfileVO> toVOs(List<TrainingProfile> records) {
+        if (records.isEmpty()) {
+            return List.of();
+        }
+        Set<Long> studentIds = records.stream().map(TrainingProfile::getStudentId).collect(Collectors.toSet());
+        Map<Long, Student> students = studentMapper.selectBatchIds(studentIds).stream()
+                .collect(Collectors.toMap(Student::getId, item -> item));
+        return records.stream().map(entity -> toVO(entity, students.get(entity.getStudentId()))).toList();
+    }
+
     private TrainingProfileVO toVO(TrainingProfile entity) {
         Student student = studentMapper.selectById(entity.getStudentId());
+        return toVO(entity, student);
+    }
+
+    private TrainingProfileVO toVO(TrainingProfile entity, Student student) {
         TrainingProfileVO vo = new TrainingProfileVO();
         vo.setId(entity.getId());
         vo.setStudentId(entity.getStudentId());

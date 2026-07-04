@@ -62,7 +62,7 @@ public class AbilityTestResultServiceImpl implements AbilityTestResultService {
     @Override
     public PageResult<AbilityTestResultVO> list(AbilityTestQuery query) {
         List<AbilityTestResult> records = selectResults(query);
-        return new PageResult<>(records.size(), records.stream().map(this::toVO).toList());
+        return new PageResult<>(records.size(), toVOs(records));
     }
 
     @Override
@@ -223,14 +223,29 @@ public class AbilityTestResultServiceImpl implements AbilityTestResultService {
                 .toList();
     }
 
+    private List<AbilityTestResultVO> toVOs(List<AbilityTestResult> records) {
+        if (records.isEmpty()) {
+            return List.of();
+        }
+        Set<Long> studentIds = records.stream().map(AbilityTestResult::getStudentId).collect(Collectors.toSet());
+        Map<Long, Student> students = studentMapper.selectBatchIds(studentIds).stream()
+                .collect(Collectors.toMap(Student::getId, item -> item));
+        Map<String, String> examOrgModeLabels = dictLabels("exam_org_mode");
+        return records.stream().map(entity -> toVO(entity, students.get(entity.getStudentId()), examOrgModeLabels)).toList();
+    }
+
     private AbilityTestResultVO toVO(AbilityTestResult entity) {
         Student student = studentMapper.selectById(entity.getStudentId());
+        return toVO(entity, student, dictLabels("exam_org_mode"));
+    }
+
+    private AbilityTestResultVO toVO(AbilityTestResult entity, Student student, Map<String, String> examOrgModeLabels) {
         AbilityTestResultVO vo = emptyVO(student, entity.getAssessmentYear(), null);
         vo.setId(entity.getId());
         vo.setStudentId(entity.getStudentId());
         vo.setCollegeId(entity.getCollegeId());
         vo.setExamOrgMode(entity.getExamOrgMode());
-        vo.setExamOrgModeLabel(dictLabels("exam_org_mode").getOrDefault(entity.getExamOrgMode(), entity.getExamOrgMode()));
+        vo.setExamOrgModeLabel(examOrgModeLabels.getOrDefault(entity.getExamOrgMode(), entity.getExamOrgMode()));
         vo.setExamSubjects(readSubjects(entity.getExamSubjects()));
         vo.setScore(entity.getScore());
         AbilityTestConclusion conclusion = AbilityTestConclusion.of(entity.getConclusion());

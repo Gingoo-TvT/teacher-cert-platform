@@ -71,10 +71,8 @@ public class ReviewNotificationHelper {
 
     public void notifyVideoAssigned(List<Long> reviewerIds, Long studentId, String bizType, Long bizId) {
         try {
-            for (Long reviewerId : distinct(reviewerIds)) {
-                notificationService.send(reviewerId, "VIDEO_ASSIGN", "视频评审提醒",
-                        content("教学能力视频", studentId, "已分配评审任务"), bizType, String.valueOf(bizId));
-            }
+            notificationService.sendBatch(distinct(reviewerIds), "VIDEO_ASSIGN", "视频评审提醒",
+                    content("教学能力视频", studentId, "已分配评审任务"), bizType, String.valueOf(bizId));
         } catch (Exception e) {
             log.warn("视频评审分配通知生成失败: bizType={}, bizId={}", bizType, bizId, e);
         }
@@ -99,9 +97,8 @@ public class ReviewNotificationHelper {
 
     private void notifyRole(String roleCode, Long collegeId, String title, String content, String bizType, Long bizId) {
         List<SysUser> users = userMapper.selectEnabledByRoleAndCollege(roleCode, collegeId);
-        for (SysUser user : users) {
-            notificationService.send(user.getId(), "REVIEW_TODO", title, content, bizType, String.valueOf(bizId));
-        }
+        List<Long> userIds = users.stream().map(SysUser::getId).toList();
+        notificationService.sendBatch(userIds, "REVIEW_TODO", title, content, bizType, String.valueOf(bizId));
     }
 
     private Set<Long> distinct(List<Long> userIds) {

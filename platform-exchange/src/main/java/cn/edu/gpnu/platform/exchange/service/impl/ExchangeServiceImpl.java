@@ -362,9 +362,12 @@ public class ExchangeServiceImpl implements ExchangeService {
         }
         boolean sensitive = UserContext.hasPermission("exchange:export:sensitive");
         List<Certificate> certificates = selectCertificates(query);
+        Set<Long> studentIds = certificates.stream().map(Certificate::getStudentId).collect(Collectors.toCollection(LinkedHashSet::new));
+        Map<Long, Student> students = studentsByIds(studentIds);
+        Map<Long, List<TrainingProfile>> trainingByStudent = trainingByStudentIds(studentIds);
         List<ExchangeStandardRow> rows = new ArrayList<>();
         for (int i = 0; i < certificates.size(); i++) {
-            rows.add(rowFromCertificate(certificates.get(i), i + 1, sensitive));
+            rows.add(rowFromCertificate(certificates.get(i), i + 1, sensitive, students, trainingByStudent));
         }
         byte[] content;
         String fileName;
@@ -372,10 +375,13 @@ public class ExchangeServiceImpl implements ExchangeService {
             content = excelHelper.writeStandardWorkbook(rows, null);
             fileName = "标准上报表.xlsx";
         } else if (exportType == ExchangeExportType.CERT_SUMMARY) {
-            content = excelHelper.writeTableWorkbook("证书获得者汇总表", certSummaryHeaders(), certSummaryRows(certificates, sensitive));
+            content = excelHelper.writeTableWorkbook("证书获得者汇总表", certSummaryHeaders(), certSummaryRows(certificates, sensitive, students));
             fileName = "证书获得者汇总表.xlsx";
         } else {
-            content = excelHelper.writeTableWorkbook("完整审核表", fullReviewHeaders(), fullReviewRows(certificates, rows));
+            Map<Long, List<VideoReview>> videosByStudent = videosByStudentIds(studentIds);
+            Map<Long, List<ProcessMaterial>> materialsByStudent = materialsByStudentIds(studentIds);
+            content = excelHelper.writeTableWorkbook("完整审核表", fullReviewHeaders(),
+                    fullReviewRows(certificates, rows, students, trainingByStudent, videosByStudent, materialsByStudent));
             fileName = "完整审核表.xlsx";
         }
         recordExportBatch("export", exportType.name(), query, certificates.size(), certificates.size(), 0, fileName);
@@ -887,9 +893,10 @@ public class ExchangeServiceImpl implements ExchangeService {
                 || (student != null && q.getClassName().trim().equals(student.getClassName()));
     }
 
-    private ExchangeStandardRow rowFromCertificate(Certificate cert, int sequence, boolean sensitive) {
-        Student student = studentMapper.selectById(cert.getStudentId());
-        TrainingProfile training = trainingByStudentYear(cert.getStudentId(), cert.getAssessmentYear());
+    private ExchangeStandardRow rowFromCertificate(Certificate cert, int sequence, boolean sensitive,
+            Map<Long, Student> students, Map<Long, List<TrainingProfile>> trainingByStudent) {
+        Student student = students.get(cert.getStudentId());
+        TrainingProfile training = trainingFor(trainingByStudent, cert.getStudentId(), cert.getAssessmentYear());
         ExchangeStandardRow row = new ExchangeStandardRow();
         row.setSequenceNo(String.valueOf(sequence));
         row.setSchoolCode(paramService.getString("cert.school.code", DEFAULT_SCHOOL_CODE));
@@ -944,18 +951,20 @@ public class ExchangeServiceImpl implements ExchangeService {
         return headers;
     }
 
-    private List<List<String>> fullReviewRows(List<Certificate> certificates, List<ExchangeStandardRow> standardRows) {
+    private List<List<String>> fullReviewRows(List<Certificate> certificates, List<ExchangeStandardRow> standardRows,
+            Map<Long, Student> students, Map<Long, List<TrainingProfile>> trainingByStudent,
+            Map<Long, List<VideoReview>> videosByStudent, Map<Long, List<ProcessMaterial>> materialsByStudent) {
         List<List<String>> rows = new ArrayList<>();
         for (int i = 0; i < certificates.size(); i++) {
             Certificate cert = certificates.get(i);
             ExchangeStandardRow standard = standardRows.get(i);
             List<String> values = ExchangeColumn.ALL.stream().map(col -> nvl(col.value(standard))).collect(Collectors.toCollection(ArrayList::new));
-            Student student = studentMapper.selectById(cert.getStudentId());
-            TrainingProfile training = trainingByStudentYear(cert.getStudentId(), cert.getAssessmentYear());
-            VideoReview video = videoByStudentYear(cert.getStudentId(), cert.getAssessmentYear());
+            Student student = students.get(cert.getStudentId());
+            TrainingProfile training = trainingFor(trainingByStudent, cert.getStudentId(), cert.getAssessmentYear());
+            VideoReview video = videoFor(videosByStudent, cert.getStudentId(), cert.getAssessmentYear());
             values.add(student == null ? "" : student.getStatus());
             values.add(training == null ? "" : training.getStatus());
-            values.add(materialSummary(cert.getStudentId(), cert.getAssessmentYear()));
+            values.add(materialSummaryFor(materialsByStudent, cert.getStudentId(), cert.getAssessmentYear()));
             values.add(video == null || video.getFinalScore() == null ? "" : String.valueOf(video.getFinalScore()));
             values.add(video == null ? "" : nvl(video.getFinalConclusion()));
             values.add(nvl(cert.getStatus()));
@@ -969,10 +978,10 @@ public class ExchangeServiceImpl implements ExchangeService {
                 "任教学科", "证书编号", "签发人", "签发日期", "有效期限", "证书状态");
     }
 
-    private List<List<String>> certSummaryRows(List<Certificate> certificates, boolean sensitive) {
+    private List<List<String>> certSummaryRows(List<Certificate> certificates, boolean sensitive, Map<Long, Student> students) {
         List<List<String>> rows = new ArrayList<>();
         for (Certificate cert : certificates) {
-            Student student = studentMapper.selectById(cert.getStudentId());
+            Student student = students.get(cert.getStudentId());
             rows.add(List.of(
                     nvl(cert.getStudentNo()),
                     nvl(cert.getStudentName()),
@@ -1000,6 +1009,7 @@ public class ExchangeServiceImpl implements ExchangeService {
         if (studentIds.isEmpty()) {
             return List.of();
         }
+        Map<Long, Student> students = studentsByIds(studentIds);
         LambdaQueryWrapper<ProcessMaterial> materialWrapper = new LambdaQueryWrapper<ProcessMaterial>()
                 .in(ProcessMaterial::getStudentId, studentIds)
                 .orderByAsc(ProcessMaterial::getStudentId)
@@ -1009,7 +1019,7 @@ public class ExchangeServiceImpl implements ExchangeService {
         }
         List<List<String>> rows = new ArrayList<>();
         for (ProcessMaterial material : materialMapper.selectList(materialWrapper)) {
-            Student student = studentMapper.selectById(material.getStudentId());
+            Student student = students.get(material.getStudentId());
             String link = "";
             if (material.getFileId() != null && material.getFileId() > 0) {
                 try {
@@ -1030,7 +1040,7 @@ public class ExchangeServiceImpl implements ExchangeService {
             ));
         }
         for (VideoReview video : videoReviewRows(studentIds, query)) {
-            Student student = studentMapper.selectById(video.getStudentId());
+            Student student = students.get(video.getStudentId());
             rows.add(List.of(
                     student == null ? "" : nvl(student.getStudentNo()),
                     student == null ? "" : nvl(student.getName()),
@@ -1286,19 +1296,62 @@ public class ExchangeServiceImpl implements ExchangeService {
                 .last("LIMIT 1"));
     }
 
-    private VideoReview videoByStudentYear(Long studentId, String year) {
-        return videoReviewMapper.selectOne(new LambdaQueryWrapper<VideoReview>()
-                .eq(VideoReview::getStudentId, studentId)
-                .eq(VideoReview::getAssessmentYear, year)
-                .last("LIMIT 1"));
+    // Phase 44a：以下为 rowFromCertificate/fullReviewRows/certSummaryRows/attachmentRows 的批量查询版本，
+    // 用 .in(studentIds) 一次性取回后按 studentId 分组，行内再按 assessmentYear 过滤，
+    // 替代原先逐证书 selectOne/selectById 的 N+1 查询；语义与旧的单行查询完全一致（至多一条命中）。
+    private Map<Long, Student> studentsByIds(Set<Long> ids) {
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        return studentMapper.selectBatchIds(ids).stream().collect(Collectors.toMap(Student::getId, item -> item));
     }
 
-    private String materialSummary(Long studentId, String year) {
-        return materialMapper.selectList(new LambdaQueryWrapper<ProcessMaterial>()
-                        .eq(ProcessMaterial::getStudentId, studentId)
-                        .eq(ProcessMaterial::getAssessmentYear, year)
-                        .orderByAsc(ProcessMaterial::getCategory))
+    private Map<Long, List<TrainingProfile>> trainingByStudentIds(Set<Long> studentIds) {
+        if (studentIds.isEmpty()) {
+            return Map.of();
+        }
+        return trainingProfileMapper.selectList(new LambdaQueryWrapper<TrainingProfile>()
+                        .in(TrainingProfile::getStudentId, studentIds))
                 .stream()
+                .collect(Collectors.groupingBy(TrainingProfile::getStudentId));
+    }
+
+    private TrainingProfile trainingFor(Map<Long, List<TrainingProfile>> trainingByStudent, Long studentId, String year) {
+        return trainingByStudent.getOrDefault(studentId, List.of()).stream()
+                .filter(item -> Objects.equals(item.getAssessmentYear(), year))
+                .findFirst().orElse(null);
+    }
+
+    private Map<Long, List<VideoReview>> videosByStudentIds(Set<Long> studentIds) {
+        if (studentIds.isEmpty()) {
+            return Map.of();
+        }
+        return videoReviewMapper.selectList(new LambdaQueryWrapper<VideoReview>()
+                        .in(VideoReview::getStudentId, studentIds))
+                .stream()
+                .collect(Collectors.groupingBy(VideoReview::getStudentId));
+    }
+
+    private VideoReview videoFor(Map<Long, List<VideoReview>> videosByStudent, Long studentId, String year) {
+        return videosByStudent.getOrDefault(studentId, List.of()).stream()
+                .filter(item -> Objects.equals(item.getAssessmentYear(), year))
+                .findFirst().orElse(null);
+    }
+
+    private Map<Long, List<ProcessMaterial>> materialsByStudentIds(Set<Long> studentIds) {
+        if (studentIds.isEmpty()) {
+            return Map.of();
+        }
+        return materialMapper.selectList(new LambdaQueryWrapper<ProcessMaterial>()
+                        .in(ProcessMaterial::getStudentId, studentIds))
+                .stream()
+                .collect(Collectors.groupingBy(ProcessMaterial::getStudentId));
+    }
+
+    private String materialSummaryFor(Map<Long, List<ProcessMaterial>> materialsByStudent, Long studentId, String year) {
+        return materialsByStudent.getOrDefault(studentId, List.of()).stream()
+                .filter(item -> Objects.equals(item.getAssessmentYear(), year))
+                .sorted(Comparator.comparing(ProcessMaterial::getCategory))
                 .map(item -> item.getCategory() + ":" + item.getStatus())
                 .collect(Collectors.joining(";"));
     }
