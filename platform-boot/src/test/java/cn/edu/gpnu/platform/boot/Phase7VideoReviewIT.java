@@ -53,9 +53,12 @@ import java.io.InputStream;
 import java.security.MessageDigest;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
@@ -588,22 +591,26 @@ class Phase7VideoReviewIT {
     void myTasksSupportsRealServerSidePaginationScopedToCurrentReviewer() throws Exception {
         // P1-1 真分页 rollout（Endpoint B / variant B'）：GET /api/video/tasks/my 改用 selectPage 后，
         // 「本人任务」域仍须是 wrapper 内 eq(reviewerId, currentUserId)，不是查询后按当前用户做 Java 过滤。
+        // WS-1（审计#2）：/api/video/tasks/my 无年度/关键字过滤，无法在服务端排除常驻 demo 任务；而 demo 恰好把 3 条待办
+        // 挂在共享种子账号 test_review_teacher(3005) 名下（会把其 total 撑成 6）。故改用两个「测试专属、demo 从不指派」的
+        // 评审教师 B(3010)/C(3011) 作夹具——任务集完全由本测试掌控，可精确断言 total==3：既不放宽阈值，又保住
+        // 「真分页 + 本人任务域按 reviewerId 隔离」的被测语义。
         LoginResult student = readyLogin("test_student");
         LoginResult auditor = readyLogin("test_college_auditor");
-        LoginResult reviewerA = readyLogin("test_review_teacher");
         LoginResult reviewerB = readyLogin("test_review_teacher_b");
+        LoginResult reviewerC = readyLogin("test_review_teacher_c");
 
         long r1 = uploadValidatedVideo(student.accessToken(), 9001L, "P7TASKPAGE1");
         long r2 = uploadValidatedVideo(student.accessToken(), 9001L, "P7TASKPAGE2");
         long r3 = uploadValidatedVideo(student.accessToken(), 9001L, "P7TASKPAGE3");
-        assign(auditor.accessToken(), r1, 800000000000003005L, REVIEWER_B_USER_ID);
-        assign(auditor.accessToken(), r2, 800000000000003005L, REVIEWER_B_USER_ID);
-        assign(auditor.accessToken(), r3, 800000000000003005L, REVIEWER_B_USER_ID);
+        assign(auditor.accessToken(), r1, REVIEWER_B_USER_ID, REVIEWER_C_USER_ID);
+        assign(auditor.accessToken(), r2, REVIEWER_B_USER_ID, REVIEWER_C_USER_ID);
+        assign(auditor.accessToken(), r3, REVIEWER_B_USER_ID, REVIEWER_C_USER_ID);
 
         JsonNode page1 = json(exchange("/api/video/tasks/my?page=1&size=2",
-                HttpMethod.GET, reviewerA.accessToken(), null)).at("/data");
+                HttpMethod.GET, reviewerB.accessToken(), null)).at("/data");
         JsonNode page2 = json(exchange("/api/video/tasks/my?page=2&size=2",
-                HttpMethod.GET, reviewerA.accessToken(), null)).at("/data");
+                HttpMethod.GET, reviewerB.accessToken(), null)).at("/data");
 
         assertThat(page1.at("/total").asLong()).isEqualTo(3);
         assertThat(page2.at("/total").asLong()).isEqualTo(3);
@@ -619,13 +626,13 @@ class Phase7VideoReviewIT {
         }
         assertThat(reviewIds).containsExactlyInAnyOrder(r1, r2, r3);
 
-        // 同一批 3 条 review 也都指派了 reviewerB；reviewerB 查自己的 my tasks 应只看到 reviewerId=自己的任务行，
+        // 同一批 3 条 review 也都指派了 reviewerC；reviewerC 查自己的 my tasks 应只看到 reviewerId=自己的任务行，
         // 证明「本人任务」域是 wrapper 内 eq(reviewerId, currentUserId)，而非查询后按当前用户过滤。
-        JsonNode reviewerBTasks = json(exchange("/api/video/tasks/my?page=1&size=50",
-                HttpMethod.GET, reviewerB.accessToken(), null)).at("/data");
-        assertThat(reviewerBTasks.at("/total").asLong()).isEqualTo(3);
-        for (JsonNode task : reviewerBTasks.at("/records")) {
-            assertThat(task.at("/reviewerId").asLong()).isEqualTo(REVIEWER_B_USER_ID);
+        JsonNode reviewerCTasks = json(exchange("/api/video/tasks/my?page=1&size=50",
+                HttpMethod.GET, reviewerC.accessToken(), null)).at("/data");
+        assertThat(reviewerCTasks.at("/total").asLong()).isEqualTo(3);
+        for (JsonNode task : reviewerCTasks.at("/records")) {
+            assertThat(task.at("/reviewerId").asLong()).isEqualTo(REVIEWER_C_USER_ID);
         }
     }
 
@@ -679,6 +686,7 @@ class Phase7VideoReviewIT {
     void concurrentMergeProducesExactlyOneFileObject() throws Exception {
         // Phase 42.3 merge 幂等（§7.1）：并发/重试合并同一会话 → 恰一个 teaching-video file_object，不产生重复行 + 孤儿。
         LoginResult student = readyLogin("test_student");
+        Set<Long> preExistingVideoFiles = teachingVideoFileObjectIds();
         String year = "P7-RACE-MERGE";
         byte[] content = mp4(year);
         String hash = md5(content);
@@ -709,10 +717,12 @@ class Phase7VideoReviewIT {
         // 至少一个成功；失败者（若命中合并中）为幂等拒绝 code=1000，绝不产生第二个文件对象
         assertThat(codes).contains(0);
         assertThat(codes).allMatch(code -> code == 0 || code == 1000);
-        // 核心不变式：恰一个 teaching-video file_object（改前重复合并会产生 2 个 + MinIO 孤儿）
-        Integer fileObjectCount = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM file_object WHERE biz_type = 'teaching-video'", Integer.class);
-        assertThat(fileObjectCount).isEqualTo(1);
+        // 核心不变式：本次合并恰新增一个 teaching-video file_object（改前重复合并会新增 2 个 + MinIO 孤儿）。
+        // WS-1（审计#2）：由「全表 COUNT==1」改为「合并前后快照做差==1」，对共享库常驻的 demo teaching-video
+        // file_object 健壮（demo 常驻是本 WS 目标态），仍精确校验「不产生重复行/孤儿」原语义。
+        Set<Long> newVideoFiles = teachingVideoFileObjectIds();
+        newVideoFiles.removeAll(preExistingVideoFiles);
+        assertThat(newVideoFiles).hasSize(1);
         VideoReview review = reviewMapper.selectOne(new LambdaQueryWrapper<VideoReview>()
                 .eq(VideoReview::getStudentId, 9001L)
                 .eq(VideoReview::getAssessmentYear, year)
@@ -735,6 +745,7 @@ class Phase7VideoReviewIT {
         // ④ 对象 ETag 形如 <hex>-<partCount>（S3/MinIO 多部件合并语义）——流式回退的单次 putObject 得纯 MD5（无 '-'），
         //    以此在活体 MinIO 上判别「确实走了服务端合并快路径」而非回退。
         LoginResult studentLogin = readyLogin("test_student");
+        Set<Long> preExistingVideoFiles = teachingVideoFileObjectIds();
         String year = "P7-COMPOSE";
         int partSize = 5 * 1024 * 1024;                      // 恰 MinIO 部件下限 MIN_MULTIPART_SIZE(=5MiB)
         byte[] content = filledMp4Payload(partSize + 4096);  // 2 片：首片 5MiB(≥下限)、末片 4096B(<下限，允许)
@@ -749,10 +760,10 @@ class Phase7VideoReviewIT {
         assertThat(merged.at("/status").asText()).isEqualTo("WAIT_REVIEW");
         assertThat(merged.at("/formatCheck").asText()).isEqualTo("PASS");
 
-        // ② 恰一个 teaching-video file_object（并发/回退各变体均以此为核心不变式）
-        Integer fileObjectCount = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM file_object WHERE biz_type = 'teaching-video'", Integer.class);
-        assertThat(fileObjectCount).isEqualTo(1);
+        // ② 本次合并恰新增一个 teaching-video file_object（WS-1：合并前后快照做差，对常驻 demo file_object 健壮）
+        Set<Long> newVideoFiles = teachingVideoFileObjectIds();
+        newVideoFiles.removeAll(preExistingVideoFiles);
+        assertThat(newVideoFiles).hasSize(1);
 
         VideoReview review = reviewMapper.selectOne(new LambdaQueryWrapper<VideoReview>()
                 .eq(VideoReview::getStudentId, 9001L)
@@ -1154,11 +1165,29 @@ class Phase7VideoReviewIT {
     private void cleanupGeneratedData() {
         jdbcTemplate.update("DELETE FROM reviewer_group_member WHERE group_id IN (SELECT id FROM reviewer_group WHERE name LIKE 'WP-D%')");
         jdbcTemplate.update("DELETE FROM reviewer_group WHERE name LIKE 'WP-D%'");
+        // WS-1（审计#2）：先收集本测试（P7% 年度）自建 teaching-video file_object 的 id，稍后只删这些——保留 demo
+        // 常驻的 teaching-video file_object（demo video_review 经 video_file_id 引用它，全表删会毁掉 demo 视频可播放性，
+        // 与「WS-1 落地后 demo 可常驻共享库」的目标冲突）。
+        List<Long> ownVideoFileIds = jdbcTemplate.queryForList(
+                "SELECT file_id FROM video_upload_session WHERE assessment_year LIKE 'P7%' AND file_id IS NOT NULL "
+                        + "UNION SELECT video_file_id FROM video_review WHERE assessment_year LIKE 'P7%' AND video_file_id IS NOT NULL",
+                Long.class);
         jdbcTemplate.update("DELETE FROM video_review_task WHERE video_review_id IN (SELECT id FROM video_review WHERE assessment_year LIKE 'P7%')");
         jdbcTemplate.update("DELETE FROM video_review WHERE assessment_year LIKE 'P7%'");
         jdbcTemplate.update("DELETE FROM video_upload_chunk WHERE upload_id IN (SELECT upload_id FROM video_upload_session WHERE assessment_year LIKE 'P7%')");
         jdbcTemplate.update("DELETE FROM video_upload_session WHERE assessment_year LIKE 'P7%'");
-        jdbcTemplate.update("DELETE FROM file_object WHERE biz_type = 'teaching-video'");
+        if (!ownVideoFileIds.isEmpty()) {
+            String placeholders = String.join(",", Collections.nCopies(ownVideoFileIds.size(), "?"));
+            jdbcTemplate.update("DELETE FROM file_object WHERE biz_type = 'teaching-video' AND id IN (" + placeholders + ")",
+                    ownVideoFileIds.toArray());
+        }
+    }
+
+    // WS-1：当前所有 teaching-video file_object 的 id 快照；两处「恰一个文件对象」不变式改为「合并前后做差==1」，
+    // 对共享库常驻的 demo teaching-video file_object 健壮（demo 常驻是本 WS 的目标状态）。
+    private Set<Long> teachingVideoFileObjectIds() {
+        return new HashSet<>(jdbcTemplate.queryForList(
+                "SELECT id FROM file_object WHERE biz_type = 'teaching-video'", Long.class));
     }
 
     private byte[] mp4(String text) {

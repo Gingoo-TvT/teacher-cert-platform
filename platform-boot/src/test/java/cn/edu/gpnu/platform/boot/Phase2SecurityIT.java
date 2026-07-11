@@ -30,6 +30,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.TestPropertySource;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -142,9 +144,12 @@ class Phase2SecurityIT {
                 .doesNotContain("material:secondReview", "student:edit", "exchange:import", "video:assign", "test:edit");
         ResponseEntity<String> clerkStudents = exchange("/api/phase2/probe/students", HttpMethod.GET, changedClerk.accessToken(), null);
         assertThat(clerkStudents.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(json(clerkStudents).at("/data").size()).isEqualTo(1);
-        assertThat(json(clerkStudents).at("/data/0/collegeId").asLong()).isEqualTo(PHASE2_COLLEGE_A);
-        assertThat(json(clerkStudents).at("/data").toString()).doesNotContain(String.valueOf(PHASE2_COLLEGE_B));
+        // WS-1（审计#2）：按「本测试已知夹具」断言学院数据范围，而非全局条数——对共享库常驻的 demo 学生（同属学院A、
+        // 合法在范围内）健壮，但不弱化被测的越权隔离语义。学院文员（学院A）数据范围 = 只见学院A、绝不见学院B：
+        // ① 返回记录全部属学院A（无学院B泄漏）；② 含本测试学院A种子学生(9001)；③ 不含学院B种子学生(9002)。
+        JsonNode clerkData = json(clerkStudents).at("/data");
+        assertThat(collegeIdsOf(clerkData)).isNotEmpty().containsOnly(PHASE2_COLLEGE_A);
+        assertThat(studentIdsOf(clerkData)).contains(9001L).doesNotContain(9002L);
 
         LoginResult auditor = login("test_college_auditor", INITIAL_PASSWORD);
         changePassword(auditor.accessToken(), INITIAL_PASSWORD, CHANGED_PASSWORD);
@@ -166,8 +171,11 @@ class Phase2SecurityIT {
         LoginResult changedAcademic = login("test_academic_admin", CHANGED_PASSWORD);
         allSchool = exchange("/api/phase2/probe/students", HttpMethod.GET, changedAcademic.accessToken(), null);
         assertThat(allSchool.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(json(allSchool).at("/data").size()).isEqualTo(2);
-        assertThat(json(allSchool).at("/data").toString()).contains(String.valueOf(PHASE2_COLLEGE_B));
+        // WS-1（审计#2）：全校范围（教务处管理员）跨学院可见——按成员资格断言，而非全局条数（对常驻 demo 学生健壮）。
+        // 语义 = 跨学院可见：既含学院A种子学生(9001) 又含学院B种子学生(9002)、且结果里出现学院B（与学院文员看不到B 成对照）。
+        JsonNode schoolData = json(allSchool).at("/data");
+        assertThat(studentIdsOf(schoolData)).contains(9001L, 9002L);
+        assertThat(collegeIdsOf(schoolData)).contains(PHASE2_COLLEGE_B);
 
         LoginResult sysAdmin = login("test_sys_admin", INITIAL_PASSWORD);
         assertThat(sysAdmin.permissions().toString())
@@ -420,6 +428,19 @@ class Phase2SecurityIT {
                 .and(w -> w.likeRight(SysUser::getUsername, "P3")
                         .or()
                         .likeRight(SysUser::getUsername, "00P3")));
+    }
+
+    // WS-1：从 probe 返回的 /data 数组抽取 studentId / collegeId，供「按自身范围成员资格」断言（替代脆弱的全局条数）。
+    private List<Long> studentIdsOf(JsonNode dataArray) {
+        List<Long> ids = new ArrayList<>();
+        dataArray.forEach(node -> ids.add(node.at("/studentId").asLong()));
+        return ids;
+    }
+
+    private List<Long> collegeIdsOf(JsonNode dataArray) {
+        List<Long> ids = new ArrayList<>();
+        dataArray.forEach(node -> ids.add(node.at("/collegeId").asLong()));
+        return ids;
     }
 
     private record LoginResult(String accessToken, String refreshToken, boolean mustChangePwd, String permissions) {

@@ -15,6 +15,25 @@
 
 ---
 
+## [2026-07-12] WS-1 恢复 `mvn verify` 绿：IT 计数按自身 fixture 隔离（审计 #2 High）— 分支 `feature/ws01-verify-green-it-isolation`，单 commit，待主控复核合并；**demo 驻留库 & 全新库各连跑两次 `mvn -B -ntp clean verify` 均 119/119 绿**
+- 做了什么（仅测试类，无迁移、未动生产码/API）：
+  - **Phase2SecurityIT**（`/api/phase2/probe/students` 查 `sys_user` STUDENT × `@DataScope`）：两处**全局条数**断言 → **按本测试已知夹具的成员资格**断言。① 学院文员（学院A，COLLEGE 范围）原 `data.size()==1` → 「返回记录 collegeId **全部==学院A**（无学院B泄漏）+ 含种子学生 9001 + 不含学院B学生 9002」；② 教务处管理员（全校范围）原 `data.size()==2` → 「含 9001 且含 9002（跨学院）+ 结果出现学院B」。新增 `studentIdsOf/collegeIdsOf` 助手。demo 的学院A学生 `demo_student`(9101) 落在文员/管理员范围内属**合法**，不再撑翻断言，越权隔离语义（A 见不到 B、全校跨学院可见）**原样保留**。
+  - **Phase7VideoReviewIT**（3 处 + cleanup）：① `myTasks…`（`GET /api/video/tasks/my` 无年度/关键字过滤、无法服务端排除 demo）——demo 把 3 条待办挂在共享种子 `test_review_teacher`(3005)、其 total 被撑成 6 → 改用两个**测试专属、demo 从不指派**的评审教师 B(3010)/C(3011) 作夹具，任务集全由本测试掌控，`total==3` 精确（分页 records 2/1、跨页不重叠、`containsExactlyInAnyOrder(r1,r2,r3)`、按 reviewerId 隔离 全保留，**非放宽阈值**）；② `concurrentMerge…`/`largeMultipart…` 原 `SELECT COUNT(*) FROM file_object WHERE biz_type='teaching-video' ==1`（靠 cleanup 清空全表才成立）→ 改为**合并前后快照做差 `==1`**（`teachingVideoFileObjectIds()`），对常驻 demo 视频文件对象健壮、仍精确校验「一次合并恰新增一个、不产生重复行/孤儿」；③ **cleanup 不再毁 demo**——原 `DELETE FROM file_object WHERE biz_type='teaching-video'` 会连 demo 的 3 个 teaching-video file_object 一并删（demo `video_review.video_file_id` 引用它 → 删后 demo 视频不可播），改为只删**本测试 P7% 会话/评审引用的** file_id（先收集再删）。
+- 关键决策与理由：
+  - **红线：按自身范围断言、不弱化被测语义**。全部改动为「只统计本测试夹具」或「快照做差」，**未放宽任何阈值、未改大期望数**；越权/数据范围/真分页/幂等结算含义逐条保留。
+  - `myTasks` 无过滤维度，无法像 Phase4/5/6/8/9 分页那样用唯一 assessmentYear 服务端隔离 → 选「换用 demo 不触碰的测试专属评审教师」而非「给生产查询加参数」（不为测试改动生产 API 面）。file_object 计数用快照做差而非按 objectKey 前缀：merge 产出的 objectKey 是随机 UUID（`teaching-video/<uuid>.mp4`）无年度可匹配，快照做差最忠实还原「表本为空、恰新增 1」的原不变式且对任意残留健壮。
+  - **全库自查（审计外同类 IT）**：逐一核实其余 18 个 IT——绝大多数已用**每测试唯一 assessmentYear**（`P4-*/P5-*/P6-*/P8-*/P12-*/P13-*/2027–2036`）或唯一 studentNo 前缀 + nanoTime、或 `>=`/成员资格/按 bizId 作用域断言，对 demo（年度 `2026`、学生 9101-9108）天然健壮；`Phase11StatsIT` 用年度 `2036`、`Phase14E2EIT` 虽用 `2026` 但导出按 `keyword=STUDENT_NO`、断言均对象作用域、`Phase12NotificationIT` 未读数针对 demo 不触碰的 `test_academic_admin`(3006) 且分页用 `>=`、`Phase9` 证书序列走独立 `cert_sequence` 表（demo 不写）且段码不同——均无需改。**经 demo 驻留库实跑双次确认：仅 Phase2/Phase7 两文件需改**。
+- 问题与解决（环境层面，非本 WS 代码）：
+  - Bash 走 auto-mode 分类器（`claude-opus-4-8`）审批、该模型间歇不可用 → 命令被 fail-closed 拦；用户在 `/permissions` 放行 Bash 后恢复（另写 `.claude/settings.local.json`：allow Bash、**deny 一切删除 / `git push`** 作硬护栏；该文件被全局 gitignore、不入库）。
+  - `tcp-mysql` 首启撞用户 Hadoop 容器 `hdp11` 占用的 3306 → 半连接（端口暴露未发布、宿主连不上 3306）致 Flyway `Communications link failure`、全 20 IT 上下文加载失败（**与本 WS 断言无关**）；用户授权停 `hdp11` 后以其**权威 compose 规格** `docker compose -f docker-compose.dev.yml up -d --force-recreate mysql`（复用 `mysql-data` 卷、数据不丢）修复端口发布。
+- 与规格的偏差/疑问：无。
+- 测试（诚实、双库各双跑，:8080 每次跑前按精确 PID 核 = 全程 FREE、门禁串行）：
+  - **② 全新库（无 demo）**：`mvn -B -ntp clean verify` **连跑两次均 `Tests run: 119, Failures: 0, Errors: 0` BUILD SUCCESS**（Phase2 3/3、Phase7 16/16）。
+  - **① demo 驻留库**（先 `demo-data.sql` 装载：`demo_student`(9101,学院A) 1、`video_review_task`@3005 3、teaching-video `file_object` 3、demo 学生 8、证书 3 …在库）：**连跑两次均 119/119 绿**（Phase2 3/3、Phase7 16/16；改前此库 Phase2 clerk 1→2、academic 2→3、Phase7 myTasks 3→6 会红）。
+  - **落地收益证（demo 与门禁共存）**：demo 驻留库跑完 verify 后复查 `file_object WHERE biz_type='teaching-video'` **仍 = 3**（改前会被 cleanup 清 0）、demo video_review/task/学生均在 → **demo 数据自此可常驻共享 dev 库**（一边带 demo 手测、一边 `mvn verify` 门禁可信）。
+- Stretch/长期（诚实标注：未做）：口令漂移根治（`readyLogin` 首登改密改用运行期一次性账号 / 套件收尾复位种子口令哈希）与 verify 转 Testcontainers/每次独立 schema **均未在本 WS 做**，另行立项、不阻塞。
+- 下一步：交主控复核合并（**未 merge / 未 push**）。
+
 ## [2026-07-05] Phase 53（各角色 demo/mock 数据，含视频）— 门禁式 `DemoDataInitializer`（`platform.demo.enabled=true` 才装载）+ `db/demo/demo-data.sql` + 三微型样例文件；分支 `feature/phase53-demo-mock-data`，单 commit，未合并；mvn verify 119/119 绿（demo OFF）+ 活体 demo-on/幂等重跑证
 - 做了什么：
   - 新增门禁组件 `platform-boot/.../config/DemoDataInitializer.java`：`@Component + @ConditionalOnProperty(prefix="platform.demo", name="enabled", havingValue="true")`（与 `CleanupScheduleConfig` 同款门禁，默认缺省 = 不注册），实现 `ApplicationRunner`——上下文刷新后（Flyway+testseed 已装、MinIO bucket 已确保）幂等 ①上传样例文件到 MinIO（`statObject` 探测、已存在跳过）②执行 `db/demo/demo-data.sql`（`ResourceDatabasePopulator`）。

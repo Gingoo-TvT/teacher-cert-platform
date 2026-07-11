@@ -324,6 +324,12 @@
 - ✅ **视频真实性（诚实）**：本无头环境**无 ffmpeg / 无 H.264 编码器**，无法生成「真正可播放」的帧；`sample-video.mp4` 为**结构合法的 MP4 容器**（`ftyp`+`moov`〔含一条 vide 轨、空样本表〕+`mdat`，boxes 走查至 EOF、`Content-Type: video/mp4`、mc stat 528B）——即「**可下载、被识别为 video/mp4** 的占位对象」，浏览器可否播放**未经验证**（不虚报可播放性）。评审教师的取件路径（`presignedGet(videoFileId)`）本身由既有 `Phase7VideoReviewIT` 覆盖。
 - ✅ **验证**：① `mvn -B -ntp clean verify` **BUILD SUCCESS 119/119 绿**、测试数不变（demo OFF 证：verify 后查库演示行=0）；② demo-on 活体（`java -jar --platform.demo.enabled=true`，不带 JWT_SECRET 起栈）：health=UP（`/doc.html` 200 + Started），`[demo]` 日志 4 对象上传 + SQL 成功；查库演示行落地（student 8、file_object 8、video_review_task@3005 3、certificate 3、notification 未读 9…），`mc ls` 证 4 对象在 MinIO（mp4 528B video/mp4 等）；③ **幂等重跑**（重启再 demo-on）：`[demo]` 4 对象「已存在则跳过」、新上传 0，各表计数不变（无重复），随后按精确 PID 杀应用。**无迁移**（非 Flyway、库 max 仍 V26）。
 
+### WS-1（恢复 `mvn verify` 绿：IT 计数按自身 fixture 隔离＝审计 #2 High —— 分支 `feature/ws01-verify-green-it-isolation`，单 commit，待主控复核合并，**demo 驻留库 & 全新库各连跑两次 `mvn -B -ntp clean verify` 均 119/119 绿**）
+- ✅ **成因**：Phase 53 demo 数据驻留共享 dev 库时污染**按全局计数**断言的 IT——`Phase2SecurityIT`（学院文员 1→2、教务处管理员 2→3，因 demo 在学院A 的 `demo_student`(9101)）、`Phase7VideoReviewIT`（`myTasks` total 3→6，因 demo 3 条评审任务挂共享种子 `test_review_teacher`(3005)；两处 `file_object WHERE biz_type='teaching-video' ==1` 因 demo 3 个视频文件对象）。
+- ✅ **做法（按自身范围断言、非放宽阈值）**：Phase2 两处改为**成员资格断言**（文员：返回全属学院A + 含 9001 + 不含 9002；管理员：含 9001 且 9002、出现学院B）；Phase7 `myTasks` 改用 demo 不触碰的**测试专属评审教师 B/C(3010/3011)** 作夹具（`total==3` 精确、分页/隔离语义全保留）；两处文件对象计数改为**合并前后快照做差==1**；cleanup 改为只删本测试 P7% 引用的 file_object（**不再连 demo teaching-video 一并删**）。越权/数据范围/真分页/幂等结算语义逐条保留。全库其余 18 个 IT 自查确认已按唯一年度/前缀/`>=`/bizId 作用域天然健壮，无需改。**无迁移、未动生产码/API**。
+- ✅ **验收（双库各双跑、门禁串行、:8080 精确 PID 核）**：② 全新库连跑两次 `mvn -B -ntp clean verify` 均 `Tests run:119, Failures:0, Errors:0`；① demo 驻留库（`demo_student` / task@3005 / teaching-video file_object 均在）连跑两次亦均 **119/119 绿**（Phase2 3/3、Phase7 16/16）。**落地收益**：demo 驻留库跑完 verify 后 `teaching-video` file_object **仍=3**（改前被 cleanup 清 0）——demo 数据自此可**常驻**共享库（手测与门禁共存）。
+- ✅ **Stretch/长期（诚实未做）**：口令漂移根治（首登改密改用一次性账号）与 verify 转 Testcontainers/独立 schema **未在本 WS 做**，另行立项、不阻塞。
+
 ### Phase 37a-part1 ✅ 已完成并合并（`72beeaf`，mvn verify 83/83 绿 + 前端 build 绿）
 - ✅ **P0-1 文件预签名 IDOR** — 删除无属主校验的 `GET /file/{id}/url`（无任何调用方，合法访问走带范围校验的业务端点）。**活体：** 学院B学生带 token 请求 → `data=None` 拿不到下载 URL（原可下载出学院A学生材料字节）。
 - ✅ **P1 会话不可撤销** — 新增 `TokenRevocationService`（Redis 记撤销时点），登出/改密/管理员重置密码后使旧 token 立即失效；filter + refresh 均校验。**活体：** 登出后旧 token `/auth/me`→401（原 200），改密后旧 token→401，重新登录正常。
