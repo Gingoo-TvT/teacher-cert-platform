@@ -15,6 +15,7 @@ public class MeVO {
     private Long collegeId;
     private Long studentId;
     private Boolean mustChangePwd;
+    private Boolean userManagementWritable;
     private List<String> roles = new ArrayList<>();
     private List<String> permissions = new ArrayList<>();
 }

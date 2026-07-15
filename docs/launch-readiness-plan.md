@@ -330,6 +330,14 @@
 - ✅ **验收（双库各双跑、门禁串行、:8080 精确 PID 核）**：② 全新库连跑两次 `mvn -B -ntp clean verify` 均 `Tests run:119, Failures:0, Errors:0`；① demo 驻留库（`demo_student` / task@3005 / teaching-video file_object 均在）连跑两次亦均 **119/119 绿**（Phase2 3/3、Phase7 16/16）。**落地收益**：demo 驻留库跑完 verify 后 `teaching-video` file_object **仍=3**（改前被 cleanup 清 0）——demo 数据自此可**常驻**共享库（手测与门禁共存）。
 - ✅ **Stretch/长期（诚实未做）**：口令漂移根治（首登改密改用一次性账号）与 verify 转 Testcontainers/独立 schema **未在本 WS 做**，另行立项、不阻塞。
 
+### WS-2（凭据硬化：prod admin bootstrap + STAFF/学生初始口令＝审计 #1 High + #4 Medium —— 分支 `feature/ws02-credential-hardening`，codex 自测完成，**待主控复核**）
+- ✅ **闭合 admin/STAFF 接管窗口**：prod 要求 `ADMIN_INITIAL_PASSWORD_HASH`（BCrypt cost≥10，不得对应公开 dev 口令），仅当 admin 仍是 V8 旧哈希时 CAS 覆盖、置 `must_change_pwd=1` 并撤销旧 token；已改密则重启不覆写，账号状态保留，缺 hash/非法 hash/缺 admin 均拒启。prod STAFF 创建/重置必须显式注入 12–64 位强口令，拒绝空值、弱值、`ChangeMe123!` 与示例值；Compose 已显式透传。
+- ✅ **学生安全默认与受控激活**：V27 只将旧 `true/idcard6` 迁为 `false/random`（checksum `1896350656`）；应用 fallback 亦 fail-closed。random 学生账号只由学生业务流程创建为停用账号并写随机占位哈希；校级管理员重置时生成单账号 20 位随机临时口令并只响应一次，不复用 STAFF 部署密钥。显式强口令才导入即启用，任何分支均不从 PII 派生口令。通用账号管理只创建 `STAFF` 且不得绑定 `studentId`。
+- ✅ **写侧范围与并发**：学生账号资料同步改为条件化字段更新，不覆盖并发改密/停用；既有 `STUDENT` 的类型、用户名、学院和学生绑定不能从通用用户页修改，资料更新、管理员重置和自助改密均用旧 password hash 作 CAS。所有用户管理写操作仅限校级 scope；`COLLEGE` scope 只可按范围读取列表，同院/跨院重置及角色自提权均返回 403。前端受控展示和复制学生临时口令，审计切面不记录响应体。
+- ✅ **会话撤销与并发状态**：JWT 增加真实毫秒 `iatMs`、口令哈希 `credentialVersion` 与 Redis 持久 `sessionGeneration`；revoke Lua 原子增代并维护单调毫秒 cutoff，缺失/非法/不匹配的代次或凭据版本均 fail-closed。refresh 只沿用输入 token 的代次，logout 增代后即使竞态晚签出的 access/refresh 也会失效。登录成功、自助改密、失败锁定和过期解锁均以状态/凭据快照作条件，错密计数由单条 SQL 原子递增，不能并发复活停用账号或丢失计数。发布须同时替换全部后端实例并要求重新登录。
+- ✅ **复现→阻断与门禁**：缺/非法/公开 admin hash 和缺/弱/公开 STAFF 口令均拒启；真实 prod HTTP 证明旧 admin 口令失败、新 bootstrap 口令成功且强制改密；Phase2 覆盖学生/STAFF 口令隔离、logout 后旧 refresh=401，以及 `COLLEGE` 同院/跨院重置和角色自提权均 403；Phase3 覆盖默认不开通、random 停用、受控强口令启用。最终 0 表 scratch schema `teacher_cert_ws2_final_20260715_153710` 执行 `mvn -B -ntp clean verify`：Surefire **30/30**、Failsafe **120/120**、`BUILD SUCCESS`；V27/R__、`false/random`、WS-2 testseed 与 demo=0 核验通过，scratch 已删除；前端 type-check/build 与 Compose config 通过。
+- ⏳ **状态/协同**：实现与自测完成，保持“待复核”；仅提交 WS-2 相关文件，明确排除审计报告、`.claude/audits/`、`docs/audit-remediation-plan.md` 与 `docs/prompts/`。WS-10 在本 WS PASS 后执行，不自行 merge/push。
+
 ### Phase 37a-part1 ✅ 已完成并合并（`72beeaf`，mvn verify 83/83 绿 + 前端 build 绿）
 - ✅ **P0-1 文件预签名 IDOR** — 删除无属主校验的 `GET /file/{id}/url`（无任何调用方，合法访问走带范围校验的业务端点）。**活体：** 学院B学生带 token 请求 → `data=None` 拿不到下载 URL（原可下载出学院A学生材料字节）。
 - ✅ **P1 会话不可撤销** — 新增 `TokenRevocationService`（Redis 记撤销时点），登出/改密/管理员重置密码后使旧 token 立即失效；filter + refresh 均校验。**活体：** 登出后旧 token `/auth/me`→401（原 200），改密后旧 token→401，重新登录正常。
@@ -506,4 +514,3 @@
 - ✅ **修法**：`InAppNotifyChannel.sendBatch` 由 `Db.saveBatch(notifications)` 改为当前事务/连接内 `for` 循环 `notificationMapper.insert(n)`（即 44a 之前的原始同事务逐行插入，彼时恒绿从无锁等待；逐行走标准 insert 的 `ASSIGN_ID` + 审计自动填充，字段/行数/语义与批量版逐行等价）。收件人扇出很小（单学院某角色成员），逐行往返成本可忽略；舍弃 44a 微小批量收益、保同事务安全。删 `Db`/`ArrayList` 无用 import。无迁移（库 max 仍 V25）、无前端。
 - ✅ **验证（活体绿条 + 复现消失）**：`mvn -B -ntp clean verify`（先按 §0 精杀 :8080——无占用者；复位 `test_%` + 查证 0 残留事务/0 lock_waits）**连续 2 次 BUILD SUCCESS，均 114/114 绿**，日志 grep `Lock wait|BatchUpdateException|<<< FAILURE` 均 0 命中。此前 rollout 稳定复现失败的 `Phase5MaterialIT`（`secondReview→notify` 路径）本相 7/7 绿；`Phase12NotificationIT` 5/5 绿佐证通知语义未变。
 - ✅ **已合并**：与 rollout 同分支独立 commit，已随分支 ff-merge 入 main（`git remote -v` 空、未 push）。**Phase 44 全部 P1（§7.3 N+1/证书导出 SXSSF/参考数据缓存 + P1-3 统计聚合下推 + P1-1 真分页 + 本 P1 通知锁等待）至此全部收尾闭环。**
-

@@ -734,7 +734,7 @@ else:                       validUntil = f"{issueYear+3}/12/31"    # 下半年�
 - `training_goal_config`(id, training_goal_code UNIQUE, default_segment, allowed_segments_json, default_internship_location, allowed_internship_locations_json) — 培养目标联动默认值与可选范围（驱动 §6.4/§6.5 前端联动与后端二次校验）。
 - 考核年度：`sys_param.current_assessment_year`；如需多年度管理可建 `assessment_year`(year, name, status, start_date, end_date)。
 - `import_record_ref`(id, batch_id, table_name, record_id, action[INSERT/UPDATE], before_json, created_at) — 导入回滚追溯（实现 §7.1"可回滚"）。
-- `sys_user.student_id` 已预留，导入学生时按 §15.8 开通账号。
+- `sys_user.student_id` 已预留；学生账号只由学生业务流程按 §15.8 的显式条件创建/绑定，通用用户管理不创建 `STUDENT`。
 - 视频维度权重：`sys_dict_item.ext_json` 存 `{"weight":x,"maxScore":y}`；合格线 `sys_param: video.passLine`。
 - 关键索引：`student(id_card_no)`、`student(student_no)` 唯一、`certificate(cert_no)` 唯一、`audit_log(biz_type,biz_id)`、`audit_log(operate_time)`、`import_export_batch(batch_no)`、`video_review_task(video_review_id,reviewer_id)` 唯一。
 
@@ -768,7 +768,7 @@ else:                       validUntil = f"{issueYear+3}/12/31"    # 下半年�
 4. **模板下拉**：Apache POI `DataValidationHelper`（显式/隐藏 sheet 承载字典与学科库选项）；所有列单元格格式预设 `@`；**H 列表头写"身份证件号码"**（AT-02）。
 
 ### 15.8 账号开通与考核年度（补 G-09）
-- 导入学生时按参数 `student.autoCreateAccount`（默认开）创建 `sys_user`：`username=学号`，初始密码 = `student.defaultPwd`（或证件号后 6 位，参数可选），角色 `STUDENT`，绑定 `student_id`，标记强制首次改密。
+- WS-2 安全增补：`student.autoCreateAccount` 默认关闭；任何情况下均不得由证件号等 PII 派生口令。学校显式开启时，`student.defaultPwd=random` 只由学生业务流程创建带随机占位哈希的停用账号，须由具备校级 `system:user:manage` 写权限的管理员受控重置；重置生成单账号随机临时口令并只展示一次，不复用 STAFF 部署密钥。仅显式配置满足强度要求的受控口令时才导入即启用。账号统一绑定 `student_id`、授予 `STUDENT` 并标记强制首次改密。通用用户管理仅创建 `STAFF` 且不得设置 `student_id`；既有 `STUDENT` 的用户类型、用户名、学院和学生绑定不可从通用入口修改。用户管理写操作仅限校级 scope，`COLLEGE` scope 只可按范围读取列表，同院/跨院重置和角色自提权均拒绝。
 - `current_assessment_year` 控制默认操作年度；查询、统计、导出默认按当前年度过滤；历史年度数据只读保留。
 
 ### 15.9 M03/M04 审核补充（补 G-04）

@@ -103,7 +103,7 @@ export function deleteUser(id: string) {
 }
 
 export function resetUserPassword(id: string) {
-  return request.put<unknown, ApiResult<null>>(`/system/user/${id}/reset-pwd`)
+  return request.put<unknown, ApiResult<string | null>>(`/system/user/${id}/reset-pwd`)
 }
 
 export function assignUserRoles(id: string, roleIds: string[]) {

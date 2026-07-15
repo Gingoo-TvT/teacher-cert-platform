@@ -12,6 +12,7 @@ import cn.edu.gpnu.platform.security.vo.LoginVO;
 import cn.edu.gpnu.platform.security.vo.MeVO;
 import cn.edu.gpnu.platform.system.service.UserSecurityService;
 import cn.edu.gpnu.platform.system.service.AuditLogService;
+import cn.edu.gpnu.platform.system.service.DataScopeService;
 import cn.edu.gpnu.platform.system.service.ParamService;
 import cn.edu.gpnu.platform.system.entity.SysAuditLog;
 import cn.edu.gpnu.platform.system.vo.UserSecurityVO;
@@ -37,6 +38,7 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final SecurityProperties securityProperties;
     private final TokenRevocationService tokenRevocationService;
+    private final DataScopeService dataScopeService;
 
     public CaptchaVO captcha() {
         CaptchaService.Captcha captcha = captchaService.create();
@@ -54,22 +56,24 @@ public class AuthService {
         }
         assertLoginAllowed(user);
         if (!passwordEncoder.matches(request.getPassword(), user.getPasswordHash())) {
-            int failed = (user.getFailedLoginCount() == null ? 0 : user.getFailedLoginCount()) + 1;
             int threshold = paramService.getInt("login.lockThreshold", securityProperties.getLogin().getLockThreshold());
             int lockMinutes = paramService.getInt("login.lockMinutes", securityProperties.getLogin().getLockMinutes());
-            LocalDateTime lockedUntil = failed >= threshold
-                    ? LocalDateTime.now().plusMinutes(lockMinutes)
-                    : null;
-            userSecurityService.markLoginFailure(user.getId(), failed, lockedUntil);
-            if (lockedUntil != null) {
+            LocalDateTime lockedUntil = LocalDateTime.now().plusMinutes(lockMinutes);
+            if (userSecurityService.markLoginFailure(user.getId(), threshold, lockedUntil)) {
                 throw new BizException("密码错误次数过多，账号已锁定");
             }
             throw new BizException("用户名或密码错误");
         }
-        userSecurityService.markLoginSuccess(user.getId(), LocalDateTime.now());
+        userSecurityService.markLoginSuccess(user.getId(), user.getPasswordHash(), LocalDateTime.now());
         UserSecurityVO refreshed = userSecurityService.loadById(user.getId());
+        if (refreshed == null
+                || !"ENABLED".equals(refreshed.getStatus())
+                || !jwtService.hasSameCredential(user, refreshed)) {
+            throw new BizException(ResultCode.UNAUTHORIZED.getCode(), "登录状态已变化，请重新登录");
+        }
+        long sessionGeneration = tokenRevocationService.currentSessionGeneration(refreshed.getId());
         recordLoginAudit(refreshed);
-        return loginVO(refreshed);
+        return loginVO(refreshed, sessionGeneration);
     }
 
     public LoginVO refresh(RefreshRequest request) {
@@ -78,17 +82,25 @@ public class AuthService {
             throw new BizException(ResultCode.UNAUTHORIZED.getCode(), "token类型不正确");
         }
         Long userId = Long.valueOf(claims.getSubject());
-        if (tokenRevocationService.isRevoked(userId, claims.getIssuedAt())) {
+        if (tokenRevocationService.isRevoked(
+                userId, claims.getIssuedAt(), jwtService.preciseIssuedAtMillis(claims))) {
+            throw new BizException(ResultCode.UNAUTHORIZED.getCode(), "登录状态已失效，请重新登录");
+        }
+        Long sessionGeneration = jwtService.sessionGeneration(claims);
+        if (!tokenRevocationService.isCurrentSessionGeneration(userId, sessionGeneration)) {
             throw new BizException(ResultCode.UNAUTHORIZED.getCode(), "登录状态已失效，请重新登录");
         }
         UserSecurityVO user = userSecurityService.loadById(userId);
         if (user == null || !"ENABLED".equals(user.getStatus())) {
             throw new BizException(ResultCode.UNAUTHORIZED.getCode(), "用户不存在或已停用");
         }
-        return loginVO(user);
+        if (!jwtService.hasCurrentCredentialVersion(claims, user)) {
+            throw new BizException(ResultCode.UNAUTHORIZED.getCode(), "登录凭据已变更，请重新登录");
+        }
+        return loginVO(user, sessionGeneration.longValue());
     }
 
-    /** 登出：撤销当前用户此刻之前签发的所有 token。 */
+    /** 登出：推进会话代次，并撤销当前用户此刻及之前签发的所有 token。 */
     public void logout() {
         tokenRevocationService.revoke(UserContext.getUserId());
     }
@@ -108,7 +120,8 @@ public class AuthService {
         if (passwordEncoder.matches(request.getNewPassword(), user.getPasswordHash())) {
             throw new BizException("新密码不能与旧密码相同");
         }
-        userSecurityService.changePassword(userId, passwordEncoder.encode(request.getNewPassword()));
+        userSecurityService.changePassword(
+                userId, user.getPasswordHash(), passwordEncoder.encode(request.getNewPassword()));
         tokenRevocationService.revoke(userId); // 改密后旧 token 立即失效
     }
 
@@ -140,10 +153,10 @@ public class AuthService {
         }
     }
 
-    private LoginVO loginVO(UserSecurityVO user) {
+    private LoginVO loginVO(UserSecurityVO user, long sessionGeneration) {
         LoginVO vo = new LoginVO();
-        vo.setAccessToken(jwtService.issueAccessToken(user));
-        vo.setRefreshToken(jwtService.issueRefreshToken(user));
+        vo.setAccessToken(jwtService.issueAccessToken(user, sessionGeneration));
+        vo.setRefreshToken(jwtService.issueRefreshToken(user, sessionGeneration));
         vo.setExpiresIn(securityProperties.getJwt().getAccessTtlSeconds());
         vo.setMustChangePwd(user.getMustChangePwd() != null && user.getMustChangePwd() == 1);
         vo.setUser(meVO(user));
@@ -159,6 +172,8 @@ public class AuthService {
         vo.setCollegeId(user.getCollegeId());
         vo.setStudentId(user.getStudentId());
         vo.setMustChangePwd(user.getMustChangePwd() != null && user.getMustChangePwd() == 1);
+        vo.setUserManagementWritable(
+                dataScopeService.hasAllSchoolScope(user.getId(), "system:user:manage"));
         vo.setRoles(new ArrayList<>(user.getRoles()));
         vo.setPermissions(new ArrayList<>(user.getPermissions()));
         return vo;

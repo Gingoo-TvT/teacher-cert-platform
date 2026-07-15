@@ -82,6 +82,9 @@ services:
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
       MINIO_BUCKET: ${MINIO_BUCKET:-teacher-cert}
       JWT_SECRET: ${JWT_SECRET}
+      # WS-2：显式转发生产凭据；Compose 的 .env 只负责插值，不会自动把变量注入容器。
+      ADMIN_INITIAL_PASSWORD_HASH: ${ADMIN_INITIAL_PASSWORD_HASH:-}
+      STAFF_INITIAL_PASSWORD: ${STAFF_INITIAL_PASSWORD:-}
       # P1-7：CORS 前端来源白名单（逗号分隔，含协议+端口、无末尾斜杠）。留空时后端回退到仅本地
       # localhost:5173（CorsConfig 默认），生产跨域前端会被拦截；同源部署（nginx 同域反代）下 CORS 不参与。
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}

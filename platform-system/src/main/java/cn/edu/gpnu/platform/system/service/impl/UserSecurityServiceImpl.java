@@ -20,6 +20,8 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class UserSecurityServiceImpl implements UserSecurityService {
 
+    private static final long SYSTEM_USER_ID = 0L;
+
     private final SysUserMapper userMapper;
     private final SysRoleMapper roleMapper;
     private final SysPermissionMapper permissionMapper;
@@ -48,49 +50,77 @@ public class UserSecurityServiceImpl implements UserSecurityService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void markLoginSuccess(Long userId, LocalDateTime loginAt) {
+    public void markLoginSuccess(Long userId, String expectedPasswordHash, LocalDateTime loginAt) {
         requireUser(userId);
-        userMapper.update(new LambdaUpdateWrapper<SysUser>()
+        int updated = userMapper.update(new LambdaUpdateWrapper<SysUser>()
                 .eq(SysUser::getId, userId)
+                .eq(SysUser::getStatus, "ENABLED")
+                .eq(SysUser::getPasswordHash, expectedPasswordHash)
                 .set(SysUser::getLastLoginAt, loginAt)
                 .set(SysUser::getFailedLoginCount, 0)
-                .set(SysUser::getLockedUntil, null));
+                .set(SysUser::getLockedUntil, null)
+                .set(SysUser::getUpdatedBy, SYSTEM_USER_ID)
+                .set(SysUser::getUpdatedAt, LocalDateTime.now()));
+        if (updated != 1) {
+            throw new BizException("登录成功状态更新发生并发冲突，请重新登录");
+        }
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void markLoginFailure(Long userId, int failedCount, LocalDateTime lockedUntil) {
-        SysUser user = requireUser(userId);
-        user.setFailedLoginCount(failedCount);
-        user.setLockedUntil(lockedUntil);
-        if (lockedUntil != null) {
-            user.setStatus("LOCKED");
+    public boolean markLoginFailure(Long userId, int lockThreshold, LocalDateTime lockedUntil) {
+        if (lockThreshold <= 0 || lockedUntil == null || !lockedUntil.isAfter(LocalDateTime.now())) {
+            throw new BizException("登录锁定参数不合法");
         }
-        userMapper.updateById(user);
+        if (userMapper.recordLoginFailure(userId, lockThreshold, lockedUntil) != 1) {
+            throw new BizException("登录失败状态更新发生并发冲突，请重试");
+        }
+        return "LOCKED".equals(requireUser(userId).getStatus());
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void unlockAfterExpired(Long userId) {
-        requireUser(userId);
-        userMapper.update(new LambdaUpdateWrapper<SysUser>()
+        SysUser user = requireUser(userId);
+        LocalDateTime expectedLockedUntil = user.getLockedUntil();
+        LocalDateTime now = LocalDateTime.now();
+        if (!"LOCKED".equals(user.getStatus())
+                || expectedLockedUntil == null
+                || expectedLockedUntil.isAfter(now)) {
+            throw new BizException("账号锁定尚未过期或状态已变化");
+        }
+        int updated = userMapper.update(new LambdaUpdateWrapper<SysUser>()
                 .eq(SysUser::getId, userId)
+                .eq(SysUser::getStatus, "LOCKED")
+                .eq(SysUser::getLockedUntil, expectedLockedUntil)
+                .le(SysUser::getLockedUntil, now)
                 .set(SysUser::getStatus, "ENABLED")
                 .set(SysUser::getFailedLoginCount, 0)
-                .set(SysUser::getLockedUntil, null));
+                .set(SysUser::getLockedUntil, null)
+                .set(SysUser::getUpdatedBy, SYSTEM_USER_ID)
+                .set(SysUser::getUpdatedAt, now));
+        if (updated != 1) {
+            throw new BizException("账号解锁发生并发冲突，请重试");
+        }
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void changePassword(Long userId, String passwordHash) {
+    public void changePassword(Long userId, String expectedPasswordHash, String newPasswordHash) {
         requireUser(userId);
-        userMapper.update(new LambdaUpdateWrapper<SysUser>()
+        int updated = userMapper.update(new LambdaUpdateWrapper<SysUser>()
                 .eq(SysUser::getId, userId)
-                .set(SysUser::getPasswordHash, passwordHash)
+                .eq(SysUser::getPasswordHash, expectedPasswordHash)
+                .eq(SysUser::getStatus, "ENABLED")
+                .set(SysUser::getPasswordHash, newPasswordHash)
                 .set(SysUser::getMustChangePwd, 0)
                 .set(SysUser::getFailedLoginCount, 0)
                 .set(SysUser::getLockedUntil, null)
-                .set(SysUser::getStatus, "ENABLED"));
+                .set(SysUser::getUpdatedBy, userId)
+                .set(SysUser::getUpdatedAt, LocalDateTime.now()));
+        if (updated != 1) {
+            throw new BizException("密码已被其他操作更新，请重新登录后重试");
+        }
     }
 
     private SysUser requireUser(Long userId) {

@@ -22,7 +22,10 @@ public interface SecurityAdminService {
 
     void deleteUser(Long id);
 
-    void resetPassword(Long id);
+    /**
+     * 重置账号口令。学生账号返回只展示一次的随机临时口令；STAFF 使用受控部署口令并返回 null。
+     */
+    String resetPassword(Long id);
 
     void assignUserRoles(Long id, UserRoleAssignRequest request);
 

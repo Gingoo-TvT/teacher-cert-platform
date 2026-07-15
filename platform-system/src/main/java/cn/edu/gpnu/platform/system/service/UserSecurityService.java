@@ -15,11 +15,11 @@ public interface UserSecurityService {
 
     Set<String> permissionCodes(Long userId);
 
-    void markLoginSuccess(Long userId, LocalDateTime loginAt);
+    void markLoginSuccess(Long userId, String expectedPasswordHash, LocalDateTime loginAt);
 
-    void markLoginFailure(Long userId, int failedCount, LocalDateTime lockedUntil);
+    boolean markLoginFailure(Long userId, int lockThreshold, LocalDateTime lockedUntil);
 
     void unlockAfterExpired(Long userId);
 
-    void changePassword(Long userId, String passwordHash);
+    void changePassword(Long userId, String expectedPasswordHash, String newPasswordHash);
 }

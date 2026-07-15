@@ -85,7 +85,7 @@ ON DUPLICATE KEY UPDATE
     updated_at = NOW(),
     deleted = 0;
 
--- ---- 测试账号（原 V8）：7 个 test_* 账号（admin 保留在 db/migration，未在此重建）----
+-- ---- 测试账号（原 V8 + WS-2 活体）：8 个 test_* 账号（admin 保留在 db/migration，未在此重建）----
 -- password_hash = bcrypt("ChangeMe123!")（与 V8 @rbac_seed_password_hash 一致），must_change_pwd=1。
 -- test_student 的 student_id=9001 / college_id=201 与 V8+V9 一致（无需额外 UPDATE）。
 INSERT INTO sys_user
@@ -97,7 +97,8 @@ VALUES
 (800000000000003005, 'test_review_teacher', '$2a$10$tzaemacCZVocmt9qla0G7Ou4bYh80qY5s9C23ViKO9FugAcTCvIOO', '评审教师测试账号', 'RBAC_REVIEWER', NULL, NULL, 'ENABLED', 'STAFF', 800000000000000201, NULL, NULL, 1, 0, NULL, NOW(), NOW(), 0),
 (800000000000003006, 'test_academic_admin', '$2a$10$tzaemacCZVocmt9qla0G7Ou4bYh80qY5s9C23ViKO9FugAcTCvIOO', '教务处管理员测试账号', 'RBAC_ACADEMIC', NULL, NULL, 'ENABLED', 'STAFF', NULL, NULL, NULL, 1, 0, NULL, NOW(), NOW(), 0),
 (800000000000003007, 'test_cert_issuer', '$2a$10$tzaemacCZVocmt9qla0G7Ou4bYh80qY5s9C23ViKO9FugAcTCvIOO', '证书签发人测试账号', 'RBAC_ISSUER', NULL, NULL, 'ENABLED', 'STAFF', NULL, NULL, NULL, 1, 0, NULL, NOW(), NOW(), 0),
-(800000000000003008, 'test_sys_admin', '$2a$10$tzaemacCZVocmt9qla0G7Ou4bYh80qY5s9C23ViKO9FugAcTCvIOO', '系统管理员测试账号', 'RBAC_SYSADMIN', NULL, NULL, 'ENABLED', 'STAFF', NULL, NULL, NULL, 1, 0, NULL, NOW(), NOW(), 0)
+(800000000000003008, 'test_sys_admin', '$2a$10$tzaemacCZVocmt9qla0G7Ou4bYh80qY5s9C23ViKO9FugAcTCvIOO', '系统管理员测试账号', 'RBAC_SYSADMIN', NULL, NULL, 'ENABLED', 'STAFF', NULL, NULL, NULL, 1, 0, NULL, NOW(), NOW(), 0),
+(800000000000009001, 'test_ws2_bootstrap_admin', '$2a$10$tzaemacCZVocmt9qla0G7Ou4bYh80qY5s9C23ViKO9FugAcTCvIOO', 'WS2凭据活体账号', 'WS2_BOOTSTRAP', NULL, NULL, 'ENABLED', 'STAFF', NULL, NULL, NULL, 1, 0, NULL, NOW(), NOW(), 0)
 ON DUPLICATE KEY UPDATE
     password_hash = VALUES(password_hash),
     real_name = VALUES(real_name),

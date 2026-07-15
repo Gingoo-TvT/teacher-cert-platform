@@ -7,7 +7,7 @@
 
 ## 1. 当前状态（截至 2026-06-14）
 - **Phase 0 与 Phase 1 全部完成，并通过 Claude 阶段复核**（Phase 1 复核 PASS：`docs/reviews/phase-01-review.md`）；**Phase 2 已由 Codex 自测完成并置「待复核」**，等待 Claude 按 `docs/REVIEW-GATE.md` 复核。
-- 待确认事项 20 项**已于 2026-06-14 书面确认**（`docs/待确认事项确认单.md`）：唯一取值变更 `validate.name.mode`→`loose`（迁移 `V6`），其余采用既有默认值。
+- 待确认事项 20 项**已于 2026-06-14 书面确认**（`docs/待确认事项确认单.md`）：原确认的业务取值变更为 `validate.name.mode`→`loose`（迁移 `V6`）；#17/#18 的自动开户与证件号后六位口令已被 2026-07-15 WS-2 安全整改取代为 `false/random`（迁移 `V27`）。
 - 仓库：本地 git，**无远程（私有，未开源）**；当前工作分支为 `feature/phase02-T024-authentication`。
 - 提交链：
   ```
@@ -129,7 +129,7 @@ git -C "$REPO" add -A && git -C "$REPO" commit -m "feat(T-0xx): ..."
 - **坑⑥（Codex/exec 常驻服务管道卡死）**：禁止直接执行 `java -jar`、`npm run dev`、`vite dev` 这类常驻服务。它们会继承 headless exec 的 stdout/stderr 管道，服务不退出则 EOF 永不到，表现为 Codex 一直 working 且不再发请求。也不要让 Codex/exec 调用包装启动脚本启动常驻服务；`scripts/dev-serve.sh` / `scripts/dev-serve.ps1` 只供外部人工终端、watchdog 或 Claude 复核环境使用。Codex 本轮只能跑会自然退出的一次性命令；若遗留服务导致卡住，可在外部运行 `~/Desktop/codex-watchdog.sh` 兜底。
 
 ## 7. 待确认事项（不阻塞开发，已设默认值并参数化）
-见 `docs/待确认事项确认单.md`（20 项，**已于 2026-06-14 书面确认**）。结论：除**姓名校验改 `loose` 放宽**（#15，`V6` 落地）外均采用既有默认值；**证书序列作用域确认 `SCHOOL_YEAR_SEGMENT`**（按学段，与示例一致，已解决需求 9.1 文字/示例冲突）。待学校后续提供（不阻塞）：完整中职专业课库、免考依据/可免科目清单（#12/#13，模板导入）；性能指标 #19 仍待提供。
+见 `docs/待确认事项确认单.md`（20 项，**已于 2026-06-14 书面确认**）。原结论中**姓名校验改 `loose` 放宽**（#15，`V6` 落地），**证书序列作用域确认 `SCHOOL_YEAR_SEGMENT`**（按学段，与示例一致）；#17/#18 后由 WS-2 安全整改收敛为默认不开学生账号、禁止 PII 派生口令（`false/random`，`V27` 落地）。待学校后续提供（不阻塞）：完整中职专业课库、免考依据/可免科目清单（#12/#13，模板导入）；性能指标 #19 仍待提供。
 
 ## 8. 验收基线 与 阶段复核闸门
 - **每个 Phase 完工后 codex 不自行置完成**：置「待复核」，由 **Claude 按 `docs/REVIEW-GATE.md` 复核**通过才算完成（产出 `docs/reviews/phase-NN-review.md`，PASS 才放行下一阶段）。

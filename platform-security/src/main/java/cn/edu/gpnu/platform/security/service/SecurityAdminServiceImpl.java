@@ -2,6 +2,9 @@ package cn.edu.gpnu.platform.security.service;
 
 import cn.edu.gpnu.platform.common.api.PageQuery;
 import cn.edu.gpnu.platform.common.api.PageResult;
+import cn.edu.gpnu.platform.common.api.ResultCode;
+import cn.edu.gpnu.platform.common.context.DataScopeContext;
+import cn.edu.gpnu.platform.common.context.UserContext;
 import cn.edu.gpnu.platform.common.exception.BizException;
 import cn.edu.gpnu.platform.system.dto.RolePermissionAssignRequest;
 import cn.edu.gpnu.platform.system.dto.RoleSaveRequest;
@@ -23,6 +26,7 @@ import cn.edu.gpnu.platform.system.mapper.SysRolePermissionMapper;
 import cn.edu.gpnu.platform.system.mapper.SysUserDataScopeMapper;
 import cn.edu.gpnu.platform.system.mapper.SysUserMapper;
 import cn.edu.gpnu.platform.system.mapper.SysUserRoleMapper;
+import cn.edu.gpnu.platform.system.service.DataScopeService;
 import cn.edu.gpnu.platform.system.vo.PermissionVO;
 import cn.edu.gpnu.platform.system.vo.RoleVO;
 import cn.edu.gpnu.platform.system.vo.UserVO;
@@ -31,21 +35,36 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.env.Environment;
+import org.springframework.core.env.Profiles;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.security.SecureRandom;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
 public class SecurityAdminServiceImpl implements SecurityAdminService {
+
+    private static final String DEV_PUBLIC_INITIAL_PASSWORD = "ChangeMe123!";
+    private static final String EXAMPLE_INITIAL_PASSWORD = "change-me-strong-staff-initial-password";
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
+    private static final String TEMP_PASSWORD_UPPER = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+    private static final String TEMP_PASSWORD_LOWER = "abcdefghijkmnpqrstuvwxyz";
+    private static final String TEMP_PASSWORD_DIGITS = "23456789";
+    private static final String TEMP_PASSWORD_SPECIAL = "@#$%!";
+    private static final String TEMP_PASSWORD_ALL =
+            TEMP_PASSWORD_UPPER + TEMP_PASSWORD_LOWER + TEMP_PASSWORD_DIGITS + TEMP_PASSWORD_SPECIAL;
 
     private static final Set<String> USER_STATUSES = Set.of("ENABLED", "LOCKED", "DISABLED");
     private static final Set<String> USER_TYPES = Set.of("STAFF", "STUDENT");
@@ -61,9 +80,35 @@ public class SecurityAdminServiceImpl implements SecurityAdminService {
     private final SysMajorMapper majorMapper;
     private final PasswordEncoder passwordEncoder;
     private final TokenRevocationService tokenRevocationService;
+    private final Environment environment;
+    private final DataScopeService dataScopeService;
 
-    @Value("${platform.security.initial-password:ChangeMe123!}")
+    @Value("${platform.security.initial-password:}")
     private String initialPassword;
+
+    // dev/test 保留既有便利口令；prod 必须显式提供强值，并拒绝公开 dev 值和旧 .env.example 占位值。
+    @jakarta.annotation.PostConstruct
+    void validateInitialPassword() {
+        if (!StringUtils.hasText(initialPassword)) {
+            throw new BizException("STAFF 初始口令未配置：生产请通过环境变量 STAFF_INITIAL_PASSWORD 显式注入（勿用公开默认口令）");
+        }
+        if (environment.acceptsProfiles(Profiles.of("prod"))
+                && (DEV_PUBLIC_INITIAL_PASSWORD.equals(initialPassword)
+                || EXAMPLE_INITIAL_PASSWORD.equals(initialPassword)
+                || !initialPassword.equals(initialPassword.trim())
+                || !isStrongInitialPassword(initialPassword))) {
+            throw new BizException("STAFF_INITIAL_PASSWORD 不安全：须为 12-64 位并包含大小写字母、数字和特殊字符，"
+                    + "且不得使用公开 dev/示例口令");
+        }
+    }
+
+    private boolean isStrongInitialPassword(String value) {
+        return value.length() >= 12 && value.length() <= 64
+                && value.chars().anyMatch(Character::isUpperCase)
+                && value.chars().anyMatch(Character::isLowerCase)
+                && value.chars().anyMatch(Character::isDigit)
+                && value.chars().anyMatch(ch -> !Character.isLetterOrDigit(ch));
+    }
 
     // Phase 44e-contract（P1-1 真分页样例）：由「全表 selectList 后 new PageResult<>(size, records)」改为
     // MyBatis-Plus Page + selectPage 真分页。@DataScope（SystemSecurityController.listUsers，alias=sys_user）
@@ -100,7 +145,12 @@ public class SecurityAdminServiceImpl implements SecurityAdminService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Long createUser(UserSaveRequest request) {
+        ensureSchoolUserManagement();
         normalizeUserRequest(request);
+        if (!"STAFF".equals(request.getUserType())) {
+            throw new BizException("通用用户管理仅支持创建 STAFF 账号");
+        }
+        ensureStaffHasNoStudentBinding(request);
         if (userMapper.selectByUsername(request.getUsername().trim()) != null) {
             throw new BizException("用户名已存在");
         }
@@ -118,42 +168,122 @@ public class SecurityAdminServiceImpl implements SecurityAdminService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void updateUser(Long id, UserSaveRequest request) {
+        ensureSchoolUserManagement();
         SysUser user = requireUser(id);
         normalizeUserRequest(request);
-        SysUser exists = userMapper.selectByUsername(request.getUsername().trim());
+        if (!Objects.equals(user.getUserType(), request.getUserType())) {
+            throw new BizException("用户类型不可通过通用用户管理修改");
+        }
+        boolean student = "STUDENT".equals(user.getUserType());
+        if (student) {
+            ensureStudentBindingUnchanged(user, request);
+        } else {
+            ensureStaffHasNoStudentBinding(request);
+        }
+        String username = request.getUsername().trim();
+        SysUser exists = userMapper.selectByUsername(username);
         if (exists != null && !exists.getId().equals(id)) {
             throw new BizException("用户名已存在");
         }
-        user.setUsername(request.getUsername().trim());
-        fillUser(user, request);
-        userMapper.updateById(user);
+        fillEditableUserFields(user, request);
+        LambdaUpdateWrapper<SysUser> updateWrapper = new LambdaUpdateWrapper<SysUser>()
+                .eq(SysUser::getId, id)
+                .eq(SysUser::getPasswordHash, user.getPasswordHash())
+                .set(SysUser::getRealName, user.getRealName())
+                .set(SysUser::getWorkNo, user.getWorkNo())
+                .set(SysUser::getEmail, user.getEmail())
+                .set(SysUser::getPhone, user.getPhone())
+                .set(SysUser::getStatus, user.getStatus())
+                .set(SysUser::getUpdatedBy, UserContext.getUserIdOrSystem())
+                .set(SysUser::getUpdatedAt, LocalDateTime.now());
+        if (!student) {
+            updateWrapper
+                    .set(SysUser::getUsername, username)
+                    .set(SysUser::getCollegeId, request.getCollegeId())
+                    .set(SysUser::getStudentId, null);
+        }
+        int updated = userMapper.update(updateWrapper);
+        if (updated != 1) {
+            throw new BizException("用户信息更新发生并发冲突，请刷新后重试");
+        }
         replaceUserRoles(id, request.getRoleIds());
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void deleteUser(Long id) {
+        ensureSchoolUserManagement();
         requireUser(id);
         userMapper.deleteById(id);
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void resetPassword(Long id) {
-        requireUser(id);
-        userMapper.update(new LambdaUpdateWrapper<SysUser>()
+    public String resetPassword(Long id) {
+        ensureSchoolUserManagement();
+        SysUser user = requireUser(id);
+        String studentTemporaryPassword = null;
+        String newPassword;
+        if ("STUDENT".equals(user.getUserType())) {
+            studentTemporaryPassword = randomTemporaryPassword();
+            newPassword = studentTemporaryPassword;
+        } else if ("STAFF".equals(user.getUserType())) {
+            newPassword = initialPassword;
+        } else {
+            throw new BizException("用户类型不支持重置密码");
+        }
+        int updated = userMapper.update(new LambdaUpdateWrapper<SysUser>()
                 .eq(SysUser::getId, id)
-                .set(SysUser::getPasswordHash, passwordEncoder.encode(initialPassword))
+                .eq(SysUser::getUserType, user.getUserType())
+                .eq(SysUser::getPasswordHash, user.getPasswordHash())
+                .set(SysUser::getPasswordHash, passwordEncoder.encode(newPassword))
                 .set(SysUser::getMustChangePwd, 1)
                 .set(SysUser::getFailedLoginCount, 0)
                 .set(SysUser::getLockedUntil, null)
-                .set(SysUser::getStatus, "ENABLED"));
+                .set(SysUser::getStatus, "ENABLED")
+                .set(SysUser::getUpdatedBy, UserContext.getUserIdOrSystem())
+                .set(SysUser::getUpdatedAt, LocalDateTime.now()));
+        if (updated != 1) {
+            throw new BizException("密码重置发生并发冲突，请刷新后重试");
+        }
         tokenRevocationService.revoke(id); // 重置密码后目标用户旧 token 立即失效
+        return studentTemporaryPassword;
+    }
+
+    private String randomTemporaryPassword() {
+        char[] value = new char[20];
+        value[0] = randomChar(TEMP_PASSWORD_UPPER);
+        value[1] = randomChar(TEMP_PASSWORD_LOWER);
+        value[2] = randomChar(TEMP_PASSWORD_DIGITS);
+        value[3] = randomChar(TEMP_PASSWORD_SPECIAL);
+        for (int i = 4; i < value.length; i++) {
+            value[i] = randomChar(TEMP_PASSWORD_ALL);
+        }
+        for (int i = value.length - 1; i > 0; i--) {
+            int swapIndex = SECURE_RANDOM.nextInt(i + 1);
+            char current = value[i];
+            value[i] = value[swapIndex];
+            value[swapIndex] = current;
+        }
+        return new String(value);
+    }
+
+    private char randomChar(String alphabet) {
+        return alphabet.charAt(SECURE_RANDOM.nextInt(alphabet.length()));
+    }
+
+    private void ensureSchoolUserManagement() {
+        DataScopeContext.Scope scope = dataScopeService.resolve("system:user:manage");
+        if (scope != null && scope.allSchool()) {
+            return;
+        }
+        throw new BizException(ResultCode.FORBIDDEN.getCode(), "用户管理写操作仅限校级权限");
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void assignUserRoles(Long id, UserRoleAssignRequest request) {
+        ensureSchoolUserManagement();
         requireUser(id);
         replaceUserRoles(id, request.getRoleIds());
     }
@@ -161,6 +291,7 @@ public class SecurityAdminServiceImpl implements SecurityAdminService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void assignUserDataScope(Long id, UserDataScopeRequest request) {
+        ensureSchoolUserManagement();
         requireUser(id);
         LinkedHashSet<Long> collegeIds = new LinkedHashSet<>(request.getCollegeIds() == null ? List.of() : request.getCollegeIds());
         LinkedHashSet<Long> majorIds = new LinkedHashSet<>(request.getMajorIds() == null ? List.of() : request.getMajorIds());
@@ -311,15 +442,33 @@ public class SecurityAdminServiceImpl implements SecurityAdminService {
         }
     }
 
+    private void ensureStaffHasNoStudentBinding(UserSaveRequest request) {
+        if (request.getStudentId() != null) {
+            throw new BizException("STAFF 账号不能关联学生档案");
+        }
+    }
+
+    private void ensureStudentBindingUnchanged(SysUser user, UserSaveRequest request) {
+        if (!Objects.equals(user.getUsername(), request.getUsername().trim())
+                || !Objects.equals(user.getCollegeId(), request.getCollegeId())
+                || !Objects.equals(user.getStudentId(), request.getStudentId())) {
+            throw new BizException("学生账号的用户名、学院和学生绑定只能通过学生管理维护");
+        }
+    }
+
     private void fillUser(SysUser user, UserSaveRequest request) {
+        fillEditableUserFields(user, request);
+        user.setUserType(request.getUserType());
+        user.setCollegeId(request.getCollegeId());
+        user.setStudentId(request.getStudentId());
+    }
+
+    private void fillEditableUserFields(SysUser user, UserSaveRequest request) {
         user.setRealName(normalizeRequired(request.getRealName(), "真实姓名不能为空"));
         user.setWorkNo(trimToNull(request.getWorkNo()));
         user.setEmail(trimToNull(request.getEmail()));
         user.setPhone(trimToNull(request.getPhone()));
         user.setStatus(request.getStatus());
-        user.setUserType(request.getUserType());
-        user.setCollegeId(request.getCollegeId());
-        user.setStudentId(request.getStudentId());
     }
 
     private void fillRole(SysRole role, RoleSaveRequest request) {

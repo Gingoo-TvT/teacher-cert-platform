@@ -4,7 +4,9 @@ import cn.edu.gpnu.platform.system.entity.SysUser;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 public interface SysUserMapper extends BaseMapper<SysUser> {
@@ -27,6 +29,28 @@ public interface SysUserMapper extends BaseMapper<SysUser> {
              LIMIT 1
             """)
     SysUser selectEnabledByStudentId(@Param("studentId") Long studentId);
+
+    // MySQL 单表 UPDATE 按 SET 顺序求值；计数递增必须放最后，前两个 CASE 才能基于旧计数判定锁定。
+    @Update("""
+            UPDATE sys_user
+               SET status = CASE
+                       WHEN failed_login_count + 1 >= #{lockThreshold} THEN 'LOCKED'
+                       ELSE status
+                   END,
+                   locked_until = CASE
+                       WHEN failed_login_count + 1 >= #{lockThreshold} THEN #{lockedUntil}
+                       ELSE locked_until
+                   END,
+                   failed_login_count = failed_login_count + 1,
+                   updated_by = 0,
+                   updated_at = CURRENT_TIMESTAMP
+             WHERE id = #{userId}
+               AND status = 'ENABLED'
+               AND deleted = 0
+            """)
+    int recordLoginFailure(@Param("userId") Long userId,
+                           @Param("lockThreshold") int lockThreshold,
+                           @Param("lockedUntil") LocalDateTime lockedUntil);
 
     @Select("""
             SELECT DISTINCT u.*

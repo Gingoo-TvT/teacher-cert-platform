@@ -14,6 +14,7 @@ export interface CurrentUser {
   collegeId?: string | null
   studentId?: string | null
   mustChangePwd: boolean
+  userManagementWritable: boolean
   roles: string[]
   permissions: string[]
 }

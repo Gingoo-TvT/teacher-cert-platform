@@ -15,6 +15,20 @@
 
 ---
 
+## [2026-07-15] WS-2 凭据硬化（审计 #1 High + #4 Medium）— 自测完成，分支 `feature/ws02-credential-hardening`，待主控复核
+- 做了什么：prod admin 改为一次性 BCrypt bootstrap；prod STAFF 缺失、弱值或公开初始口令拒启；学生自动开户默认关闭，random 只创建停用账号，禁止从 PII 派生口令；V27 仅将旧危险默认 `true/idcard6` 迁为 `false/random`；Compose、部署说明和规格同步更新。
+- 审查发现与修正（修正前问题如实留痕）：
+  - **Blocker**：Compose 原未把 `.env` 的两项凭据转发给 backend；已补显式透传，并说明 BCrypt `$` 在 dotenv 中须用单引号保护。
+  - **Major**：admin bootstrap 原未拒绝非法/公开口令哈希，且重启会覆写已改口令与账号状态；现只对 V8 旧哈希做 CAS 覆盖，撤销旧 token，保留停用/锁定状态，已改密则幂等 no-op，缺 admin 拒启。
+  - **Major**：学生账号同步原用整实体更新，存在并发改密/停用被旧快照覆盖；现按 `student_id` 定位并只更新用户名、姓名、学院、绑定字段，条件冲突即回滚。
+  - **Major**：通用重置原把 `STAFF_INITIAL_PASSWORD` 同时发给学生，且通用用户入口可创建/改绑学生账号；现通用入口只创建 `STAFF` 且 `studentId` 必须为空，既有 `STUDENT` 的类型、用户名、学院和学生绑定不可从系统用户页修改。所有用户管理写操作仅限校级 scope；`COLLEGE` scope 只可按范围读取列表，同院/跨院重置及角色自提权均返回 403。校级管理员重置学生时生成单账号 20 位随机临时口令，仅响应一次；资料更新和重置均以旧 password hash 作 CAS，避免并发凭据被覆盖。前端以只读输入框和复制按钮受控展示临时口令，不写日志。
+  - **Blocker**：仅按撤销时间判断时，refresh 可在校验后与 logout 并发并签出仍有效的新 token；现 Redis 以 Lua 原子推进持久 `sessionGeneration` 并维护单调撤销 cutoff，JWT 必须携带当前代次，refresh 只沿用输入 token 的代次。logout 一旦增代，竞态晚签出的旧代次 access/refresh 也会 fail-closed。
+  - **测试问题**：Phase3 直接改 `sys_param` 后未清 `sysParam` 缓存已修；WS-2 prod IT 账号曾与 Phase7 reviewer D 的固定 ID 冲突，已移至 `800000000000009001` 并恢复 reviewer D 夹具。
+- 关键决策与理由：admin 只接收 BCrypt 哈希且不落明文；bootstrap 只中和已应用 V8 的公开口令，不修改历史迁移。V27 checksum=`1896350656`，应用缺参 fallback 同样为 `false/random`。学生临时口令不复用 STAFF 部署密钥，避免跨角色抢登窗口。
+- 与规格的偏差/疑问：无业务规格偏差。依据审计 #1/#4 的 WS-2 验收边界，已同步 `plan §15.8`、Phase3、Phase14、README 与参数清单；审计报告、`.claude/audits/`、`docs/audit-remediation-plan.md`、`docs/prompts/` 等无关未跟踪材料不纳入提交。
+- 测试（全程串行，未启动常驻应用）：`CredentialHardeningTest` 8/8、`SecurityAdminServiceImplTest` 6/6、`UserSecurityConcurrencyTest` 5/5、`AuthServiceConcurrencyTest` 4/4、`TokenRevocationServiceTest` 7/7，共 30/30（admin/STAFF fail-fast、bootstrap 幂等、登录/改密/重置/锁定 CAS、原子错密计数、单调 cutoff、非法代次 fail-closed、refresh/logout 确定性竞态）；`Phase2SecurityIT` 3/3（学生/STAFF 口令隔离、logout 后旧 refresh=401、`COLLEGE` 同院/跨院重置及自提权均 403）、`Phase3StudentIT` 8/8、`CredentialHardeningIT` 1/1；真实 prod HTTP 验证旧 `ChangeMe123!` 登录失败、新 bootstrap 口令成功且 `mustChangePwd=true`。最终候选在 0 表 scratch schema `teacher_cert_ws2_final_20260715_153710` 执行 `mvn -B -ntp clean verify`，Surefire **30/30**、Failsafe **120/120**、9 模块 `BUILD SUCCESS`（03:39）。V27 checksum=`1896350656`、R__ testseed 均 success，参数=`false/random`，WS-2 testseed ID=`800000000000009001`，demo 用户/学生=0。`npm --prefix frontend run type-check` 与 `build` 通过（仅既有 chunk-size warning），`docker compose --env-file .env.example config -q` 通过；scratch 已删除，结束后无 Java 进程、`:8080/:5173` 无监听。
+- 下一步：`git commit --amend --no-edit` 保持 WS-2 单提交后维持“待复核”并 STOP；交 Claude/主控独立重建、复跑反例，WS-2 PASS 后再放行 WS-10，不 merge/push、不自行置 ✅。
+
 ## [2026-07-12] WS-1 恢复 `mvn verify` 绿：IT 计数按自身 fixture 隔离（审计 #2 High）— 分支 `feature/ws01-verify-green-it-isolation`，单 commit，待主控复核合并；**demo 驻留库 & 全新库各连跑两次 `mvn -B -ntp clean verify` 均 119/119 绿**
 - 做了什么（仅测试类，无迁移、未动生产码/API）：
   - **Phase2SecurityIT**（`/api/phase2/probe/students` 查 `sys_user` STUDENT × `@DataScope`）：两处**全局条数**断言 → **按本测试已知夹具的成员资格**断言。① 学院文员（学院A，COLLEGE 范围）原 `data.size()==1` → 「返回记录 collegeId **全部==学院A**（无学院B泄漏）+ 含种子学生 9001 + 不含学院B学生 9002」；② 教务处管理员（全校范围）原 `data.size()==2` → 「含 9001 且含 9002（跨学院）+ 结果出现学院B」。新增 `studentIdsOf/collegeIdsOf` 助手。demo 的学院A学生 `demo_student`(9101) 落在文员/管理员范围内属**合法**，不再撑翻断言，越权隔离语义（A 见不到 B、全校跨学院可见）**原样保留**。

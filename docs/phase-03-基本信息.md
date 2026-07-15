@@ -40,7 +40,7 @@
 - 锁定：证书生成后或（按需）复审通过后，关键字段（姓名/证件类型/证件号/出生日期/身份类型）`locked=1` 禁改；学生端禁编辑。
 
 ## 7. 学生账号开通（§15.8）
-导入/创建学生且 `student.autoCreateAccount=true` → 建 `sys_user`(username=学号, 初始密码=证件号后6位, 角色 STUDENT, 绑定 student_id, must_change_pwd=1)。
+WS-2 后安全默认 `student.autoCreateAccount=false`，导入/创建学生不自动开通登录账号。学校显式开启时：`student.defaultPwd=random` 只由学生业务流程创建停用账号（随机值仅作不可猜占位哈希）；具备校级 `system:user:manage` 写权限的管理员重置后生成单账号随机临时口令、只展示一次，再启用并强制首次改密。配置满足强度要求的受控口令才建启用账号。所有分支均禁止从证件号等 PII 派生口令，学生口令不复用 STAFF 部署密钥，并绑定 `student_id`、授予 `STUDENT`、置 `must_change_pwd=1`。通用用户管理只创建 `STAFF`，不得创建或改绑学生账号；`COLLEGE` scope 仅可按范围读取用户列表，不能执行重置等写操作。
 
 ## 8. 前端
 - 教务员：学生列表（数据范围+脱敏）、编辑、提交、初审/复审（退回填原因）、状态标签。

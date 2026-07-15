@@ -47,8 +47,9 @@ cd frontend && npm install && npm run dev
 ```bash
 # 1) 准备环境变量
 cp .env.example .env
-# 修改 JWT_SECRET、数据库/MinIO 密码和端口；必须设置 DB_USERNAME/DB_PASSWORD（非 root 应用账号，
-# 见 deploy/mysql-init/01-app-user.sh）与 REDIS_PASSWORD（Redis 生产鉴权），不可留空/沿用示例值
+# 修改 JWT_SECRET、ADMIN_INITIAL_PASSWORD_HASH、STAFF_INITIAL_PASSWORD、数据库/MinIO 密码和端口；
+# 必须设置 DB_USERNAME/DB_PASSWORD（非 root 应用账号，见 deploy/mysql-init/01-app-user.sh）与
+# REDIS_PASSWORD（Redis 生产鉴权），不可留空/沿用示例值
 
 # 2) 构建并启动生产服务（后台）
 docker compose up -d --build
@@ -59,7 +60,16 @@ docker compose ps
 # 后端健康 http://localhost:8080/api/health
 ```
 
-后端启动时由 Flyway 自动迁移并写入种子数据（字典、角色权限、参数、测试账号等）。初始测试账号沿用 V8/V13 种子：`test_academic_admin`、`test_college_clerk`、`test_college_auditor`、`test_review_teacher`、`test_cert_issuer`、`test_student`，初始密码 `ChangeMe123!`，首次登录需修改。
+后端启动时由 Flyway 自动迁移并写入种子数据（字典、角色权限、参数等）。
+
+**仅 dev/测试（`db/testseed`，生产不加载）**的初始测试账号：`test_academic_admin`、`test_college_clerk`、`test_college_auditor`、`test_review_teacher`、`test_cert_issuer`、`test_student`，初始密码 `ChangeMe123!`，首次登录需修改。**这些是本地/联调便利账号，切勿用于生产。**
+
+**生产凭据（WS-2 凭据硬化，均为必配、缺失即 fail-fast 拒绝启动）**：
+- `ADMIN_INITIAL_PASSWORD_HASH`：`admin` 超管的 **bcrypt 口令哈希**（不落明文）。仅当 admin 仍使用 V8 公开种子口令时执行一次性覆盖、撤销旧 token 并置 `must_change_pwd=1`；首登改密后重启不会再覆写。prod 未配、哈希非法或仍对应公开口令均拒绝启动（`AdminAccountInitializer`）。
+- `STAFF_INITIAL_PASSWORD`：管理员新建/重置 STAFF 账号的初始口令。生产必须显式注入（dev 默认 `ChangeMe123!`）；未配则拒绝启动（`SecurityAdminServiceImpl`）。该部署密钥不用于学生账号。
+- 学生导入**默认不再自动开户**（`student.autoCreateAccount=false`），且不再由证件号派生口令。显式开启但保持 `student.defaultPwd=random` 时，仅由学生业务流程创建**停用账号**；校级管理员重置后生成单账号随机临时口令并只在受控响应中展示一次，再由学生首次改密。只有显式配置满足强度要求的受控口令才会导入即启用。通用用户管理仅创建 `STAFF`（不得绑定 `studentId`），既有学生账号的类型、用户名、学院和学生绑定不可在系统用户页改绑；用户管理写操作仅限校级 scope，`COLLEGE` scope 仅可按范围读取列表，同院/跨院重置均返回 403。
+- WS-2 后 JWT 同时绑定毫秒级签发时间 `iatMs`、当前口令哈希的不可逆 `credentialVersion` 与 Redis 持久 `sessionGeneration`；登出以 Lua 原子推进会话代次，改密/重置后旧 access/refresh token 立即失效，缺少或不匹配任一新 claim 的存量 token 均会被拒绝。发布 WS-2 时须一次性替换或重启**全部**后端实例并要求用户重新登录，不能在滚动窗口保留会签发旧格式 token 的旧实例。
+- 交互式生成 bcrypt 哈希：`htpasswd -nBC 12 admin | sed 's/^admin://' | tr -d '\n'`（不会把明文口令放进历史或进程参数）。写入 Compose `.env` 时必须用**单引号**包住完整 `$2...` 哈希，避免 `$` 被插值；详见 `.env.example`。
 
 关键参数位于 `sys_param` 表，可在系统管理页热更新；证书编号 `cert.*`、视频 `video.*`、文件大小 `file.*` 等参数修改后按既有服务实时读取。M14 外部接口仅预留 SPI 与开关，`.env.example` 中 `PLATFORM_INTEGRATION_*_ENABLED=false` 为默认值，关闭时不影响一期功能。
 

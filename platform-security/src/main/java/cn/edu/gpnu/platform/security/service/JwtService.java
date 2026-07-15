@@ -16,13 +16,20 @@ import org.springframework.util.StringUtils;
 
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
+import java.util.Base64;
 import java.util.Date;
 import java.util.List;
 
 @Service
 @RequiredArgsConstructor
 public class JwtService {
+
+    private static final String PRECISE_ISSUED_AT_CLAIM = "iatMs";
+    private static final String CREDENTIAL_VERSION_CLAIM = "credentialVersion";
+    private static final String SESSION_GENERATION_CLAIM = "sessionGeneration";
 
     private final SecurityProperties securityProperties;
     private SecretKey key;
@@ -48,12 +55,12 @@ public class JwtService {
         this.key = Keys.hmacShaKeyFor(bytes);
     }
 
-    public String issueAccessToken(UserSecurityVO user) {
-        return issue(user, "access", securityProperties.getJwt().getAccessTtlSeconds());
+    public String issueAccessToken(UserSecurityVO user, long sessionGeneration) {
+        return issue(user, "access", securityProperties.getJwt().getAccessTtlSeconds(), sessionGeneration);
     }
 
-    public String issueRefreshToken(UserSecurityVO user) {
-        return issue(user, "refresh", securityProperties.getJwt().getRefreshTtlSeconds());
+    public String issueRefreshToken(UserSecurityVO user, long sessionGeneration) {
+        return issue(user, "refresh", securityProperties.getJwt().getRefreshTtlSeconds(), sessionGeneration);
     }
 
     public Claims parse(String token) {
@@ -72,16 +79,90 @@ public class JwtService {
         return Long.valueOf(claims.getSubject());
     }
 
-    private String issue(UserSecurityVO user, String type, long ttlSeconds) {
+    /** 返回新 token 的毫秒级签发时间；历史 token 不含该 claim 时返回 {@code null}。 */
+    public Long preciseIssuedAtMillis(Claims claims) {
+        Object value = claims == null ? null : claims.get(PRECISE_ISSUED_AT_CLAIM);
+        if (value instanceof Number number) {
+            return number.longValue();
+        }
+        if (value instanceof String text) {
+            try {
+                return Long.parseLong(text);
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    /** 返回 token 的会话代次；旧 token 或非法 claim 返回 {@code null} 并由鉴权层 fail closed。 */
+    public Long sessionGeneration(Claims claims) {
+        Object value = claims == null ? null : claims.get(SESSION_GENERATION_CLAIM);
+        if (value instanceof Number || value instanceof String) {
+            try {
+                long generation = Long.parseLong(value.toString());
+                return generation < 0 ? null : generation;
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    /** 新版 token 必须绑定当前口令哈希；缺少或不匹配版本均拒绝。 */
+    public boolean hasCurrentCredentialVersion(Claims claims, UserSecurityVO user) {
+        Object claim = claims == null ? null : claims.get(CREDENTIAL_VERSION_CLAIM);
+        if (!(claim instanceof String claimedVersion)
+                || user == null
+                || !StringUtils.hasText(user.getPasswordHash())) {
+            return false;
+        }
+        return MessageDigest.isEqual(
+                credentialVersion(user.getPasswordHash()).getBytes(StandardCharsets.UTF_8),
+                claimedVersion.getBytes(StandardCharsets.UTF_8));
+    }
+
+    /** 登录验密后 reload 必须仍是同一份口令哈希快照。 */
+    public boolean hasSameCredential(UserSecurityVO expected, UserSecurityVO current) {
+        if (expected == null || current == null
+                || !StringUtils.hasText(expected.getPasswordHash())
+                || !StringUtils.hasText(current.getPasswordHash())) {
+            return false;
+        }
+        return MessageDigest.isEqual(
+                expected.getPasswordHash().getBytes(StandardCharsets.UTF_8),
+                current.getPasswordHash().getBytes(StandardCharsets.UTF_8));
+    }
+
+    private String issue(UserSecurityVO user, String type, long ttlSeconds, long sessionGeneration) {
+        if (sessionGeneration < 0) {
+            throw new IllegalArgumentException("sessionGeneration 不能为负数");
+        }
         Instant now = Instant.now();
         return Jwts.builder()
                 .subject(String.valueOf(user.getId()))
                 .claim("typ", type)
                 .claim("username", user.getUsername())
                 .claim("roles", List.copyOf(user.getRoles()))
+                .claim(PRECISE_ISSUED_AT_CLAIM, now.toEpochMilli())
+                .claim(CREDENTIAL_VERSION_CLAIM, credentialVersion(user.getPasswordHash()))
+                .claim(SESSION_GENERATION_CLAIM, sessionGeneration)
                 .issuedAt(Date.from(now))
                 .expiration(Date.from(now.plusSeconds(ttlSeconds)))
                 .signWith(key)
                 .compact();
+    }
+
+    private String credentialVersion(String passwordHash) {
+        if (!StringUtils.hasText(passwordHash)) {
+            throw new IllegalStateException("用户凭据哈希缺失，无法签发 token");
+        }
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(passwordHash.getBytes(StandardCharsets.UTF_8));
+            return Base64.getUrlEncoder().withoutPadding().encodeToString(digest);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("JVM 不支持 SHA-256", e);
+        }
     }
 }

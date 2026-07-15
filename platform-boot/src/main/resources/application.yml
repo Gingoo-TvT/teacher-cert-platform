@@ -39,3 +39,10 @@ platform:
       lock-threshold: ${LOGIN_LOCK_THRESHOLD:5}
       lock-minutes: ${LOGIN_LOCK_MINUTES:15}
       captcha-ttl-seconds: ${CAPTCHA_TTL_SECONDS:120}
+    # STAFF 创建/重置初始口令（WS-2 审计#4）：base 空默认 → 生产必须显式注入 STAFF_INITIAL_PASSWORD，
+    # 否则 SecurityAdminServiceImpl 启动即 fail-fast（同 JWT_SECRET 风格）；dev 走 application-dev.yml 默认值。
+    initial-password: ${STAFF_INITIAL_PASSWORD:}
+    admin:
+      # 生产 admin bootstrap（WS-2 审计#1）：生产必须注入合法且不对应公开口令的 BCrypt 哈希；仅当 admin
+      # 仍使用 V8 公开种子口令时替换一次，首登改密/停用后重启不覆写。dev 不设时保留测试种子 admin。
+      initial-password-hash: ${ADMIN_INITIAL_PASSWORD_HASH:}

@@ -39,6 +39,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -48,6 +49,11 @@ public class StudentServiceImpl implements StudentService {
 
     private static final long STUDENT_ROLE_ID = 800000000000000001L;
     private static final long SYS_OPERATOR = 0L;
+    private static final String DEV_PUBLIC_INITIAL_PASSWORD = "ChangeMe123!";
+    private static final String EXAMPLE_INITIAL_PASSWORD = "change-me-strong-staff-initial-password";
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
+    private static final String RANDOM_PASSWORD_CHARS =
+            "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789@#$%!";
 
     private final StudentMapper studentMapper;
     private final SysUserMapper userMapper;
@@ -364,47 +370,94 @@ public class StudentServiceImpl implements StudentService {
     }
 
     private void ensureStudentAccount(Student student) {
-        if (!paramService.getBoolean("student.autoCreateAccount", true)) {
-            return;
+        SysUser boundUser = userMapper.selectOne(new LambdaQueryWrapper<SysUser>()
+                .eq(SysUser::getStudentId, student.getId()));
+        SysUser usernameUser = userMapper.selectByUsername(student.getStudentNo());
+        if (boundUser == null && usernameUser != null) {
+            // 不接管历史遗留的未绑定 STUDENT：其真实归属无法仅凭用户名证明，跨学院同名学号会造成账号劫持。
+            // 新账号必须由本流程原子创建并立即绑定；遗留孤儿账号需先由校级管理员完成数据修复。
+            throw new BizException("学号已被其他账号使用，不能自动绑定学生账号");
         }
-        SysUser user = userMapper.selectByUsername(student.getStudentNo());
+        if (boundUser != null && usernameUser != null && !boundUser.getId().equals(usernameUser.getId())) {
+            throw new BizException("学号已被其他账号使用，不能自动绑定学生账号");
+        }
+        SysUser user = boundUser;
         if (user == null) {
+            // 安全缺省必须 fail-closed：参数缺失/软删/非法时不自动创建账号。
+            if (!paramService.getBoolean("student.autoCreateAccount", false)) {
+                return;
+            }
+            StudentBootstrapPassword bootstrapPassword = initialPassword();
             user = new SysUser();
             user.setUsername(student.getStudentNo());
-            user.setPasswordHash(passwordEncoder.encode(initialPassword(student.getIdCardNo())));
+            user.setPasswordHash(passwordEncoder.encode(bootstrapPassword.value()));
             user.setFailedLoginCount(0);
             user.setMustChangePwd(1);
-            user.setStatus("ENABLED");
+            user.setStatus(bootstrapPassword.loginEnabled() ? "ENABLED" : "DISABLED");
             user.setUserType("STUDENT");
             user.setRealName(student.getName());
             user.setCollegeId(student.getCollegeId());
             user.setStudentId(student.getId());
             userMapper.insert(user);
         } else {
-            user.setRealName(student.getName());
-            user.setStatus("ENABLED");
-            user.setUserType("STUDENT");
-            user.setCollegeId(student.getCollegeId());
-            user.setStudentId(student.getId());
-            userMapper.updateById(user);
-            userMapper.update(new LambdaUpdateWrapper<SysUser>()
+            if (!"STUDENT".equals(user.getUserType())) {
+                throw new BizException("学号已被其他账号使用，不能自动绑定学生账号");
+            }
+            // 只更新资料字段，避免整行 updateById 把并发改密、停用或锁定后的凭据状态写回旧快照。
+            int updated = userMapper.update(new LambdaUpdateWrapper<SysUser>()
                     .eq(SysUser::getId, user.getId())
+                    .eq(SysUser::getUserType, "STUDENT")
+                    .eq(SysUser::getStudentId, student.getId())
+                    .set(SysUser::getUsername, student.getStudentNo())
+                    .set(SysUser::getRealName, student.getName())
                     .set(SysUser::getStudentId, student.getId())
-                    .set(SysUser::getCollegeId, student.getCollegeId()));
+                    .set(SysUser::getCollegeId, student.getCollegeId())
+                    .set(SysUser::getUpdatedBy, UserContext.getUserIdOrSystem())
+                    .set(SysUser::getUpdatedAt, LocalDateTime.now()));
+            if (updated != 1) {
+                throw new BizException("学生账号绑定发生并发冲突，请刷新后重试");
+            }
         }
         userRoleMapper.upsert(IdWorker.getId(), user.getId(), studentRoleId(), SYS_OPERATOR);
     }
 
-    private String initialPassword(String idCardNo) {
-        String rule = paramService.getString("student.defaultPwd", "idcard6");
-        if (!"idcard6".equalsIgnoreCase(rule)) {
-            return rule;
+    // 默认关闭自动开户。若显式开启但仍使用 random/idcard6，则只创建停用账号；随机值只形成不可猜的占位哈希，
+    // 管理员受控重置后才会启用。如需导入即启用，须配置满足强度要求的受控初始口令并安全发放。
+    private StudentBootstrapPassword initialPassword() {
+        String rule = paramService.getString("student.defaultPwd", "random");
+        if (rule != null && !rule.isBlank()
+                && !"random".equalsIgnoreCase(rule.trim())
+                && !"idcard6".equalsIgnoreCase(rule.trim())) {
+            String controlledPassword = rule.trim();
+            if (DEV_PUBLIC_INITIAL_PASSWORD.equals(controlledPassword)
+                    || EXAMPLE_INITIAL_PASSWORD.equals(controlledPassword)) {
+                throw new BizException("student.defaultPwd 不得使用公开 dev/示例口令");
+            }
+            if (!isStrongInitialPassword(controlledPassword)) {
+                throw new BizException("student.defaultPwd 必须为 12-64 位并包含大小写字母、数字和特殊字符");
+            }
+            return new StudentBootstrapPassword(controlledPassword, true);
         }
-        String text = idCardNo == null ? "" : idCardNo.trim();
-        if (text.length() < 6) {
-            throw new BizException("证件号码不足以生成初始密码");
+        return new StudentBootstrapPassword(randomInitialPassword(), false);
+    }
+
+    private String randomInitialPassword() {
+        StringBuilder sb = new StringBuilder(16);
+        for (int i = 0; i < 16; i++) {
+            sb.append(RANDOM_PASSWORD_CHARS.charAt(SECURE_RANDOM.nextInt(RANDOM_PASSWORD_CHARS.length())));
         }
-        return text.substring(text.length() - 6);
+        return sb.toString();
+    }
+
+    private boolean isStrongInitialPassword(String value) {
+        return value.length() >= 12 && value.length() <= 64
+                && value.chars().anyMatch(Character::isUpperCase)
+                && value.chars().anyMatch(Character::isLowerCase)
+                && value.chars().anyMatch(Character::isDigit)
+                && value.chars().anyMatch(ch -> !Character.isLetterOrDigit(ch));
+    }
+
+    private record StudentBootstrapPassword(String value, boolean loginEnabled) {
     }
 
     private Long studentRoleId() {

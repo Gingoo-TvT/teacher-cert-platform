@@ -54,13 +54,23 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     return;
                 }
                 Long uid = Long.valueOf(claims.getSubject());
-                if (tokenRevocationService.isRevoked(uid, claims.getIssuedAt())) {
+                if (tokenRevocationService.isRevoked(
+                        uid, claims.getIssuedAt(), jwtService.preciseIssuedAtMillis(claims))) {
+                    unauthorized(response, "登录状态已失效，请重新登录");
+                    return;
+                }
+                if (!tokenRevocationService.isCurrentSessionGeneration(
+                        uid, jwtService.sessionGeneration(claims))) {
                     unauthorized(response, "登录状态已失效，请重新登录");
                     return;
                 }
                 UserSecurityVO user = userSecurityService.loadById(uid);
                 if (user == null || !"ENABLED".equals(user.getStatus())) {
                     unauthorized(response, "用户不存在或已停用");
+                    return;
+                }
+                if (!jwtService.hasCurrentCredentialVersion(claims, user)) {
+                    unauthorized(response, "登录凭据已变更，请重新登录");
                     return;
                 }
                 bindContext(user);

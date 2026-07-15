@@ -45,3 +45,6 @@ platform:
   security:
     jwt:
       secret: ${JWT_SECRET:dev-only-insecure-jwt-secret-do-not-use-in-production-0123456789}
+    # dev/test STAFF 初始口令默认值（对应 base 的空默认）：本地/IT「开箱即用」；生产不加载本文件 →
+    # base 空默认强制注入 STAFF_INITIAL_PASSWORD。dev 不设 admin.initial-password-hash → 保留测试种子 admin。
+    initial-password: ${STAFF_INITIAL_PASSWORD:ChangeMe123!}

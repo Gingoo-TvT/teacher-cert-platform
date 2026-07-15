@@ -18,6 +18,7 @@ const visible = ref(false)
 const saving = ref(false)
 const userFormRef = ref<FormInst | null>(null)
 const editingUserId = ref<string | null>(null)
+const editingStudent = ref(false)
 
 interface UserFormState {
   username: string
@@ -55,6 +56,7 @@ const userRules: FormRules = {
 
 function open(row?: User) {
   editingUserId.value = row?.id || null
+  editingStudent.value = row?.userType === 'STUDENT'
   userForm.username = row?.username || ''
   userForm.realName = row?.realName || ''
   userForm.workNo = row?.workNo || ''
@@ -79,9 +81,9 @@ async function saveUser() {
       email: cleanOptional(userForm.email),
       phone: cleanOptional(userForm.phone),
       status: userForm.status,
-      userType: userForm.userType,
+      userType: editingUserId.value ? userForm.userType : 'STAFF',
       collegeId: userForm.collegeId,
-      studentId: cleanOptional(userForm.studentId),
+      studentId: editingStudent.value ? cleanOptional(userForm.studentId) : null,
       roleIds: userForm.roleIds
     }
     if (editingUserId.value) {
@@ -120,7 +122,7 @@ defineExpose({ open })
         <div class="form-section-title">基本信息</div>
         <n-grid :cols="2" :x-gap="12">
           <n-form-item-gi label="用户名" path="username">
-            <n-input v-model:value="userForm.username" maxlength="64" show-count />
+            <n-input v-model:value="userForm.username" :disabled="editingStudent" maxlength="64" show-count />
           </n-form-item-gi>
           <n-form-item-gi label="姓名" path="realName">
             <n-input v-model:value="userForm.realName" maxlength="128" show-count />
@@ -128,8 +130,8 @@ defineExpose({ open })
           <n-form-item-gi label="工号" path="workNo">
             <n-input v-model:value="userForm.workNo" maxlength="64" show-count />
           </n-form-item-gi>
-          <n-form-item-gi label="学生ID" path="studentId">
-            <n-input v-model:value="userForm.studentId" />
+          <n-form-item-gi v-if="editingStudent" label="学生ID" path="studentId">
+            <n-input v-model:value="userForm.studentId" disabled />
           </n-form-item-gi>
         </n-grid>
         <div class="form-section-title">联系信息</div>
@@ -146,6 +148,7 @@ defineExpose({ open })
           <n-form-item-gi label="用户类型" path="userType">
             <n-select
               v-model:value="userForm.userType"
+              disabled
               :options="[
                 { label: '教职工', value: 'STAFF' },
                 { label: '学生', value: 'STUDENT' }
@@ -163,7 +166,13 @@ defineExpose({ open })
             />
           </n-form-item-gi>
           <n-form-item-gi label="所属学院" path="collegeId" :span="2">
-            <n-select v-model:value="userForm.collegeId" :options="collegeOptions" clearable filterable />
+            <n-select
+              v-model:value="userForm.collegeId"
+              :options="collegeOptions"
+              :disabled="editingStudent"
+              clearable
+              filterable
+            />
           </n-form-item-gi>
           <n-form-item-gi label="角色" path="roleIds" :span="2">
             <n-select v-model:value="userForm.roleIds" :options="roleOptions" multiple filterable />

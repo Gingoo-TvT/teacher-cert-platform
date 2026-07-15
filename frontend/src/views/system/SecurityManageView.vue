@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, h, onMounted, ref } from 'vue'
-import { NButton, NPopconfirm, NSpace, useMessage, type DataTableColumns, type SelectOption } from 'naive-ui'
+import { CopyOutline } from '@vicons/ionicons5'
+import { NButton, NIcon, NInput, NPopconfirm, NSpace, useDialog, useMessage, type DataTableColumns, type SelectOption } from 'naive-ui'
 import { listColleges, listMajors, type College, type Major } from '@/api/organization'
 import {
   deleteRole, deleteUser, listRoles, listUsers, permissionTree, resetUserPassword,
@@ -19,6 +20,7 @@ import RolePermissionDrawer from './components/security/RolePermissionDrawer.vue
 import UserScopeDrawer from './components/security/UserScopeDrawer.vue'
 
 const message = useMessage()
+const dialog = useDialog()
 const userStore = useUserStore()
 
 const userLoading = ref(false)
@@ -57,6 +59,7 @@ const majorOptions = computed<SelectOption[]>(() =>
 )
 
 const canManageUsers = computed(() => userStore.hasPerm('system:user:manage'))
+const canWriteUsers = computed(() => Boolean(userStore.currentUser?.userManagementWritable))
 const canManageRoles = computed(() => userStore.hasPerm('system:role:manage'))
 const canManagePerms = computed(() => userStore.hasPerm('system:perm:manage'))
 const hasVisibleSection = computed(() => canManageUsers.value || canManageRoles.value || canManagePerms.value)
@@ -88,7 +91,7 @@ const userColumns: DataTableColumns<User> = [
     key: 'actions',
     width: 230,
     render: (row) =>
-      canManageUsers.value
+      canWriteUsers.value
         ? renderTableActions([
               h(NButton, { size: 'small', quaternary: true, onClick: () => userDrawerRef.value?.open(row) }, { default: () => '编辑' }),
               h(NButton, { size: 'small', quaternary: true, onClick: () => userScopeDrawerRef.value?.open(row) }, { default: () => '范围' }),
@@ -210,7 +213,7 @@ async function loadPermissions() {
 }
 
 async function loadScopes() {
-  if (!canManageUsers.value) {
+  if (!canWriteUsers.value) {
     colleges.value = []
     majors.value = []
     return
@@ -223,8 +226,9 @@ async function loadScopes() {
 async function refreshAll() {
   const tasks: Promise<void>[] = []
   if (canManageUsers.value) {
-    tasks.push(loadUsers(), loadScopes())
+    tasks.push(loadUsers())
   }
+  if (canWriteUsers.value) tasks.push(loadScopes())
   if (canManageRoles.value) tasks.push(loadRoles())
   if (canManagePerms.value) tasks.push(loadPermissions())
   await Promise.all(tasks)
@@ -232,8 +236,38 @@ async function refreshAll() {
 
 async function resetPassword(row: User) {
   try {
-    await resetUserPassword(row.id)
-    message.success('密码已重置')
+    const response = await resetUserPassword(row.id)
+    if (response.data) {
+      const temporaryPassword = response.data
+      dialog.success({
+        title: '学生临时口令',
+        content: () => h(NSpace, { vertical: true, size: 12 }, () => [
+          h('span', '口令仅在本次重置后显示，请通过受控渠道交给学生。'),
+          h(NSpace, { wrap: false, align: 'center' }, () => [
+            h(NInput, { value: temporaryPassword, readonly: true, style: { width: '260px' } }),
+            h(NButton, {
+              secondary: true,
+              onClick: async () => {
+                try {
+                  await navigator.clipboard.writeText(temporaryPassword)
+                  message.success('临时口令已复制')
+                } catch {
+                  message.error('复制失败，请手动记录')
+                }
+              }
+            }, {
+              icon: () => h(NIcon, null, { default: () => h(CopyOutline) }),
+              default: () => '复制'
+            })
+          ])
+        ]),
+        positiveText: '已妥善记录',
+        closable: false,
+        maskClosable: false
+      })
+    } else {
+      message.success('密码已重置')
+    }
     await loadUsers()
   } catch (error) {
     showError(error, '密码重置失败')
@@ -360,7 +394,7 @@ onMounted(refreshAll)
             @refresh="loadUsers"
           >
             <template #actions>
-              <n-button v-if="canManageUsers" type="primary" size="small" @click="userDrawerRef?.open()">新增用户</n-button>
+              <n-button v-if="canWriteUsers" type="primary" size="small" @click="userDrawerRef?.open()">新增用户</n-button>
             </template>
           </DataPanel>
         </div>

@@ -3,7 +3,9 @@ package cn.edu.gpnu.platform.boot;
 import cn.edu.gpnu.platform.PlatformApplication;
 import cn.edu.gpnu.platform.business.student.entity.Student;
 import cn.edu.gpnu.platform.business.student.mapper.StudentMapper;
+import cn.edu.gpnu.platform.system.entity.SysParam;
 import cn.edu.gpnu.platform.system.entity.SysUser;
+import cn.edu.gpnu.platform.system.mapper.SysParamMapper;
 import cn.edu.gpnu.platform.system.mapper.SysUserMapper;
 import cn.edu.gpnu.platform.system.mapper.SysUserRoleMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -17,6 +19,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.cache.Cache;
+import org.springframework.cache.CacheManager;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -66,9 +70,16 @@ class Phase3StudentIT {
     @Autowired
     private PasswordEncoder passwordEncoder;
 
+    @Autowired
+    private SysParamMapper paramMapper;
+
+    @Autowired
+    private CacheManager cacheManager;
+
     @BeforeEach
     @AfterEach
     void resetSeedUsers() {
+        setStudentAccountParams(false, "random");
         cleanupGeneratedStudents();
         ensureSecondCollegeStudent();
         resetUser("test_student", true);
@@ -260,16 +271,106 @@ class Phase3StudentIT {
     }
 
     @Test
-    void createdStudentAccountCanLoginWithInitialPassword() throws Exception {
+    void importedStudentHasNoIdCardDerivedLogin() throws Exception {
+        // WS-2（审计#4）：学生自动开户默认关闭（V27 把 student.autoCreateAccount 出厂默认翻为 false）+ 初始口令
+        // 不再由证件号派生（student.defaultPwd 默认 random）→ 导入学生拿不到「证件号后六位」这类可猜口令。
+        // 本用例把原「创建即可用证件号后六位登录」改写为其安全反面（复现→阻断），不弱化被测语义。
         LoginResult academic = readyLogin("test_academic_admin");
         String studentNo = uniqueNo("P3LOGIN");
         String permitNo = uniqueTravelPermit("L");
         create(academic.accessToken(), student(studentNo, "登录测试", "hm_travel_permit",
                 permitNo, "2000/1/2", COLLEGE_A));
 
-        LoginResult created = login(studentNo, permitNo.substring(permitNo.length() - 6));
-        assertThat(created.mustChangePwd()).isTrue();
-        assertThat(created.permissions()).contains("student:view").contains("student:confirm");
+        // 默认不再自动开通登录账号
+        assertThat(userMapper.selectByUsername(studentNo)).isNull();
+        // 证件号后六位登录被拒（账号不存在 → 凭据无效，业务码非 0）
+        ResponseEntity<String> attempt = loginRaw(studentNo, permitNo.substring(permitNo.length() - 6));
+        assertThat(json(attempt).at("/code").asInt()).isNotEqualTo(0);
+
+        // studentNo 与既有 STAFF 用户名冲突时必须整体回滚，不能把 STAFF 劫持为学生账号。
+        assertCreateFails(academic.accessToken(), student("test_college_clerk", "账号冲突", "hm_travel_permit",
+                uniqueTravelPermit("S"), "2000/1/2", COLLEGE_A), "学号已被其他账号使用");
+        assertThat(userMapper.selectByUsername("test_college_clerk").getUserType()).isEqualTo("STAFF");
+
+        // 历史遗留的未绑定 STUDENT 也不能只凭同名学号被新学生接管，尤其不能跨学院改写归属。
+        String orphanStudentNo = uniqueNo("P3ORPHAN");
+        SysUser orphan = new SysUser();
+        orphan.setUsername(orphanStudentNo);
+        orphan.setPasswordHash(passwordEncoder.encode("Orphan-Student-2026!"));
+        orphan.setRealName("历史孤儿学生账号");
+        orphan.setStatus("DISABLED");
+        orphan.setUserType("STUDENT");
+        orphan.setCollegeId(COLLEGE_B);
+        orphan.setStudentId(null);
+        orphan.setMustChangePwd(1);
+        orphan.setFailedLoginCount(0);
+        userMapper.insert(orphan);
+        String orphanHash = orphan.getPasswordHash();
+
+        assertCreateFails(academic.accessToken(), student(orphanStudentNo, "跨院接管反例", "hm_travel_permit",
+                uniqueTravelPermit("O"), "2000/1/2", COLLEGE_A), "学号已被其他账号使用");
+        SysUser unchangedOrphan = userMapper.selectById(orphan.getId());
+        assertThat(unchangedOrphan.getStudentId()).isNull();
+        assertThat(unchangedOrphan.getCollegeId()).isEqualTo(COLLEGE_B);
+        assertThat(unchangedOrphan.getPasswordHash()).isEqualTo(orphanHash);
+        assertThat(studentMapper.selectOne(new LambdaQueryWrapper<Student>()
+                .eq(Student::getStudentNo, orphanStudentNo))).isNull();
+
+        // 显式开启但使用 random 时只创建停用账号；随机明文不外发，须管理员受控重置后才会启用。
+        setStudentAccountParams(true, "random");
+        String randomStudentNo = uniqueNo("P3RANDOMPWD");
+        String randomPermitNo = uniqueTravelPermit("R");
+        create(academic.accessToken(), student(randomStudentNo, "随机口令", "hm_travel_permit",
+                randomPermitNo, "2000/1/2", COLLEGE_A));
+        SysUser randomAccount = userMapper.selectByUsername(randomStudentNo);
+        assertThat(randomAccount).isNotNull();
+        assertThat(randomAccount.getStatus()).isEqualTo("DISABLED");
+        assertThat(randomAccount.getMustChangePwd()).isEqualTo(1);
+        assertThat(passwordEncoder.matches(
+                randomPermitNo.substring(randomPermitNo.length() - 6), randomAccount.getPasswordHash())).isFalse();
+        assertThat(passwordEncoder.matches(INITIAL_PASSWORD, randomAccount.getPasswordHash())).isFalse();
+
+        // 只有显式配置满足强度要求的受控口令，自动开户账号才会启用并可完成首次登录。
+        String controlledPassword = "Student-Init-2026!";
+        setStudentAccountParams(true, controlledPassword);
+        String controlledStudentNo = uniqueNo("P3CONTROLLEDPWD");
+        String controlledPermitNo = uniqueTravelPermit("C");
+        long controlledStudentId = create(academic.accessToken(), student(controlledStudentNo, "受控口令", "hm_travel_permit",
+                controlledPermitNo, "2000/1/2", COLLEGE_A));
+        SysUser controlledAccount = userMapper.selectByUsername(controlledStudentNo);
+        assertThat(controlledAccount).isNotNull();
+        assertThat(controlledAccount.getStatus()).isEqualTo("ENABLED");
+        assertThat(passwordEncoder.matches(controlledPassword, controlledAccount.getPasswordHash())).isTrue();
+        assertThat(passwordEncoder.matches(
+                controlledPermitNo.substring(controlledPermitNo.length() - 6), controlledAccount.getPasswordHash())).isFalse();
+        LoginResult controlledLogin = login(controlledStudentNo, controlledPassword);
+        assertThat(controlledLogin.mustChangePwd()).isTrue();
+        assertThat(controlledLogin.permissions()).contains("student:view").contains("student:confirm");
+
+        // 关闭自动开户后修改学号，既有账号仍须按 student_id 跟随改名，不得留下旧用户名。
+        setStudentAccountParams(false, "random");
+        String renamedStudentNo = uniqueNo("P3RENAMEDPWD");
+        ResponseEntity<String> renamed = exchange("/api/student/" + controlledStudentId, HttpMethod.PUT,
+                academic.accessToken(), student(renamedStudentNo, "受控口令", "hm_travel_permit",
+                        controlledPermitNo, "2000/1/2", COLLEGE_A));
+        assertThat(json(renamed).at("/code").asInt()).isEqualTo(0);
+        assertThat(userMapper.selectByUsername(controlledStudentNo)).isNull();
+        SysUser renamedAccount = userMapper.selectByUsername(renamedStudentNo);
+        assertThat(renamedAccount).isNotNull();
+        assertThat(renamedAccount.getId()).isEqualTo(controlledAccount.getId());
+        assertThat(renamedAccount.getStudentId()).isEqualTo(controlledStudentId);
+        assertThat(passwordEncoder.matches(controlledPassword, renamedAccount.getPasswordHash())).isTrue();
+        assertThat(login(renamedStudentNo, controlledPassword).mustChangePwd()).isTrue();
+
+        // 显式受控口令仍必须达到强度要求，弱值不得创建可登录账号。
+        setStudentAccountParams(true, "weak");
+        assertCreateFails(academic.accessToken(), student(uniqueNo("P3WEAKPWD"), "弱口令", "hm_travel_permit",
+                uniqueTravelPermit("W"), "2000/1/2", COLLEGE_A),
+                "student.defaultPwd 必须为 12-64 位并包含大小写字母、数字和特殊字符");
+        setStudentAccountParams(true, INITIAL_PASSWORD);
+        assertCreateFails(academic.accessToken(), student(uniqueNo("P3PUBLICPWD"), "公开口令", "hm_travel_permit",
+                uniqueTravelPermit("D"), "2000/1/2", COLLEGE_A),
+                "student.defaultPwd 不得使用公开 dev/示例口令");
     }
 
     @Test
@@ -512,6 +613,19 @@ class Phase3StudentIT {
                 .likeRight(Student::getStudentNo, "P3")
                 .or()
                 .likeRight(Student::getStudentNo, "00P3"));
+    }
+
+    private void setStudentAccountParams(boolean autoCreate, String passwordRule) {
+        paramMapper.update(null, new LambdaUpdateWrapper<SysParam>()
+                .eq(SysParam::getParamKey, "student.autoCreateAccount")
+                .set(SysParam::getParamValue, Boolean.toString(autoCreate)));
+        paramMapper.update(null, new LambdaUpdateWrapper<SysParam>()
+                .eq(SysParam::getParamKey, "student.defaultPwd")
+                .set(SysParam::getParamValue, passwordRule));
+        Cache cache = cacheManager.getCache("sysParam");
+        if (cache != null) {
+            cache.clear();
+        }
     }
 
     private record LoginResult(String accessToken, String refreshToken, boolean mustChangePwd, String permissions) {

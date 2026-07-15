@@ -84,8 +84,8 @@
 | `review.return.target` | `FIRST_REVIEW` | 复审退回目标态 | Phase 3/5/6 |
 | `validate.name.mode` | `loose` | 姓名校验模式（确认单#15 放宽，V6 落地；原默认 strict） | Phase 3 |
 | `validate.idcard.checksum` | `false` | 身份证校验码开关 | Phase 3 |
-| `student.autoCreateAccount` | `true` | 导入即开通学生账号 | Phase 3 |
-| `student.defaultPwd` | `idcard6`(证件号后6位) | 学生初始密码规则 | Phase 3 |
+| `student.autoCreateAccount` | `false` | 是否导入即创建学生账号（WS-2 安全默认关闭） | Phase 3 |
+| `student.defaultPwd` | `random` | 随机占位哈希时账号停用待重置；禁止 PII 派生 | Phase 3 |
 | `current_assessment_year` | 当前年 | 当前考核年度 | 全局 |
 
-> 以上默认值若学校另有口径，改 `sys_param` 即可，无需改代码。开放项见 `待确认事项确认单.md`（**20 项已于 2026-06-14 确认**；唯一取值变更 `validate.name.mode`→`loose`，见 `V6__confirmed_params.sql`）。
+> 以上默认值若学校另有口径，改 `sys_param` 即可，无需改代码。开放项见 `待确认事项确认单.md`（**20 项已于 2026-06-14 确认**；原业务取值变更 `validate.name.mode`→`loose`，见 `V6__confirmed_params.sql`；#17/#18 后由 WS-2 安全整改取代为 `false/random`，见 `V27__ws02_credential_hardening_defaults.sql`）。

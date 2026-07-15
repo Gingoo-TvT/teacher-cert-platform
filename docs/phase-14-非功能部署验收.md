@@ -20,8 +20,11 @@ M14 扩展点预留、后端/前端 Dockerfile、生产 docker-compose、兼容�
 - **关键环境变量（`.env.example` → 复制为 `.env`，均须显式设强值，勿沿用示例）**：
   - `SPRING_PROFILES_ACTIVE=prod`（**必须**；否则默认 `dev` profile 会启用非密默认值——dev 库 root、内置 JWT dev 密钥、MinIO 默认口令）。
   - `JWT_SECRET`（**必须**，≥32 字节；base 空默认下 prod 未注入即拒绝启动。可为任意 ≥32 字节字符串，含人类可读口令）。
+  - `ADMIN_INITIAL_PASSWORD_HASH`（**必须**，BCrypt cost≥10，且不得对应公开 dev 口令；Compose `.env` 中以单引号包住完整 `$2...` 哈希）。
+  - `STAFF_INITIAL_PASSWORD`（**必须**，12-64 位且含大小写字母、数字、特殊字符；不得使用公开 dev/示例口令）。
   - `DB_PASSWORD` / `REDIS_PASSWORD`（**必须**强口令）。
   - `CORS_ALLOWED_ORIGINS`（P1-7）：允许跨域的前端来源白名单，逗号分隔、含协议+端口、无末尾斜杠（如 `https://cert.gpnu.edu.cn`）。同源部署（前端 nginx 同域反代 `/api`）下 CORS 不参与、可留空；跨域独立前端域名时**必须**设为真实域名，否则被拦截。`allowCredentials=true` 下不可用通配 `*`。
+- **WS-2 发布切换**：新版 JWT 含毫秒级签发时间 `iatMs`、口令凭据版本 `credentialVersion` 和 Redis 持久会话代次 `sessionGeneration`；缺少或不匹配任一新 claim 的存量 token 会被拒绝，logout 通过原子增代使旧 access/refresh 立即失效。发布时必须同时替换/重启全部后端实例并通知用户重新登录；禁止旧实例在滚动窗口继续签发旧格式 token。
 
 ## 4. 非功能收口（plan §十二）
 - 安全/权限、个人信息保护、文件安全、性能（批量/分片）、存储（大视频）、可靠性（备份/逻辑删除）、审计、兼容性、可配置性逐项核对。

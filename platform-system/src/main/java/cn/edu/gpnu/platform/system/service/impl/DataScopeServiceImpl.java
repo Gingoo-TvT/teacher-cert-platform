@@ -42,6 +42,18 @@ public class DataScopeServiceImpl implements DataScopeService {
         return scope;
     }
 
+    @Override
+    public boolean hasAllSchoolScope(Long userId, String permissionCode) {
+        if (userId == null) {
+            return false;
+        }
+        DataScopeContext.ScopeType scopeType = bestScope(
+                rolePermissionMapper.selectScopeTypes(userId, permissionCode));
+        return scopeType == DataScopeContext.ScopeType.SCHOOL
+                || scopeType == DataScopeContext.ScopeType.SYSTEM
+                || scopeType == DataScopeContext.ScopeType.LOGIN_ALL;
+    }
+
     private DataScopeContext.ScopeType bestScope(List<String> values) {
         if (values == null || values.isEmpty()) {
             return DataScopeContext.ScopeType.NONE;

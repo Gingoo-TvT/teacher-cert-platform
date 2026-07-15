@@ -180,6 +180,47 @@ class Phase2SecurityIT {
         LoginResult sysAdmin = login("test_sys_admin", INITIAL_PASSWORD);
         assertThat(sysAdmin.permissions().toString())
                 .contains("system:user:manage", "cert:issue", "video:score", "exchange:import", "material:view");
+        changePassword(sysAdmin.accessToken(), INITIAL_PASSWORD, CHANGED_PASSWORD);
+        LoginResult changedSysAdmin = login("test_sys_admin", CHANGED_PASSWORD);
+        assertThat(changedSysAdmin.userManagementWritable()).isTrue();
+
+        // WS-2：复用既有学生夹具验证受控重置，不经通用用户管理入口创建或绑定学生。
+        LoginResult studentBeforeReset = login("test_student_b", INITIAL_PASSWORD);
+        SysUser managedStudent = userMapper.selectByUsername("test_student_b");
+        assertThat(managedStudent).isNotNull();
+        ResponseEntity<String> studentReset = exchange("/api/system/user/" + managedStudent.getId() + "/reset-pwd",
+                HttpMethod.PUT, changedSysAdmin.accessToken(), null);
+        assertThat(studentReset.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode studentResetRoot = json(studentReset);
+        assertThat(studentResetRoot.at("/code").asInt()).isEqualTo(0);
+        String studentTemporaryPassword = studentResetRoot.at("/data").asText();
+        assertThat(studentTemporaryPassword).hasSize(20).isNotEqualTo(INITIAL_PASSWORD);
+        assertThat(studentTemporaryPassword.chars().anyMatch(Character::isUpperCase)).isTrue();
+        assertThat(studentTemporaryPassword.chars().anyMatch(Character::isLowerCase)).isTrue();
+        assertThat(studentTemporaryPassword.chars().anyMatch(Character::isDigit)).isTrue();
+        assertThat(studentTemporaryPassword.chars().anyMatch(ch -> !Character.isLetterOrDigit(ch))).isTrue();
+        SysUser resetManagedStudent = userMapper.selectById(managedStudent.getId());
+        assertThat(resetManagedStudent.getStatus()).isEqualTo("ENABLED");
+        assertThat(resetManagedStudent.getMustChangePwd()).isEqualTo(1);
+        assertThat(passwordEncoder.matches(studentTemporaryPassword, resetManagedStudent.getPasswordHash())).isTrue();
+        ResponseEntity<String> revokedStudentAccess = exchange(
+                "/api/auth/me", HttpMethod.GET, studentBeforeReset.accessToken(), null);
+        assertThat(revokedStudentAccess.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(json(revokedStudentAccess).at("/code").asInt()).isEqualTo(401);
+        assertThat(json(loginRaw("test_student_b", INITIAL_PASSWORD)).at("/code").asInt()).isNotEqualTo(0);
+        LoginResult resetStudent = login("test_student_b", studentTemporaryPassword);
+        assertThat(resetStudent.mustChangePwd()).isTrue();
+        ResponseEntity<String> freshStudentAccess = exchange(
+                "/api/auth/me", HttpMethod.GET, resetStudent.accessToken(), null);
+        assertThat(freshStudentAccess.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(json(freshStudentAccess).at("/code").asInt()).isEqualTo(0);
+
+        // STAFF 重置仍使用受控部署口令，但学生的一次性口令绝不能登录 STAFF 账号。
+        SysUser clerkUser = userMapper.selectByUsername("test_college_clerk");
+        ResponseEntity<String> staffReset = exchange("/api/system/user/" + clerkUser.getId() + "/reset-pwd",
+                HttpMethod.PUT, changedSysAdmin.accessToken(), null);
+        assertThat(json(staffReset).at("/data").isNull()).isTrue();
+        assertThat(json(loginRaw("test_college_clerk", studentTemporaryPassword)).at("/code").asInt()).isNotEqualTo(0);
 
         Thread.sleep(2500);
         ResponseEntity<String> expiredAccess = exchange("/api/auth/me", HttpMethod.GET, changedStudent.accessToken(), null);
@@ -189,6 +230,17 @@ class Phase2SecurityIT {
         LoginResult refreshed = refresh(changedStudent.refreshToken());
         assertThat(refreshed.accessToken()).isNotBlank();
         assertThat(refreshed.permissions().toString()).contains("student:view");
+
+        ResponseEntity<String> logout = exchange(
+                "/api/auth/logout", HttpMethod.POST, refreshed.accessToken(), null);
+        assertThat(logout.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(json(logout).at("/code").asInt()).isEqualTo(0);
+        ResponseEntity<String> refreshAfterLogout = rest.postForEntity(
+                url("/api/auth/refresh"),
+                Map.of("refreshToken", refreshed.refreshToken()),
+                String.class);
+        assertThat(refreshAfterLogout.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(json(refreshAfterLogout).at("/code").asInt()).isEqualTo(401);
 
         ResponseEntity<String> invalidRefresh = rest.postForEntity(
                 url("/api/auth/refresh"),
@@ -235,6 +287,7 @@ class Phase2SecurityIT {
         LoginResult scopedInitial = login(P44E_ADMIN_USERNAME, INITIAL_PASSWORD);
         changePassword(scopedInitial.accessToken(), INITIAL_PASSWORD, CHANGED_PASSWORD);
         LoginResult scoped = login(P44E_ADMIN_USERNAME, CHANGED_PASSWORD);
+        assertThat(scoped.userManagementWritable()).isFalse();
 
         JsonNode page1 = json(exchange("/api/system/user?keyword=" + prefix + "&page=1&size=2",
                 HttpMethod.GET, scoped.accessToken(), null)).at("/data");
@@ -249,6 +302,39 @@ class Phase2SecurityIT {
         assertThat(page2.at("/records").toString()).doesNotContain(String.valueOf(PHASE2_COLLEGE_B));
 
         assertThat(page1.at("/records/0/id").asLong()).isNotEqualTo(page2.at("/records/0/id").asLong());
+
+        // WS-2：官方矩阵仅给 SYS_ADMIN system:user:manage=SYSTEM。自定义 COLLEGE scope 可读本院列表，
+        // 但所有用户写操作仍须校级范围，避免借学生临时口令或角色分配完成自提权。
+        SysUser crossCollegeStudent = userMapper.selectByUsername("test_student_b");
+        String crossCollegeHash = crossCollegeStudent.getPasswordHash();
+        String crossCollegeStatus = crossCollegeStudent.getStatus();
+        ResponseEntity<String> crossCollegeReset = exchange(
+                "/api/system/user/" + crossCollegeStudent.getId() + "/reset-pwd",
+                HttpMethod.PUT, scoped.accessToken(), null);
+        assertThat(json(crossCollegeReset).at("/code").asInt()).isEqualTo(403);
+        SysUser unchangedCrossCollegeStudent = userMapper.selectById(crossCollegeStudent.getId());
+        assertThat(unchangedCrossCollegeStudent.getPasswordHash()).isEqualTo(crossCollegeHash);
+        assertThat(unchangedCrossCollegeStudent.getStatus()).isEqualTo(crossCollegeStatus);
+
+        SysUser ownCollegeStudent = userMapper.selectByUsername("test_student");
+        String ownCollegeHash = ownCollegeStudent.getPasswordHash();
+        String ownCollegeStatus = ownCollegeStudent.getStatus();
+        ResponseEntity<String> ownCollegeReset = exchange(
+                "/api/system/user/" + ownCollegeStudent.getId() + "/reset-pwd",
+                HttpMethod.PUT, scoped.accessToken(), null);
+        assertThat(json(ownCollegeReset).at("/code").asInt()).isEqualTo(403);
+        SysUser unchangedOwnCollegeStudent = userMapper.selectById(ownCollegeStudent.getId());
+        assertThat(unchangedOwnCollegeStudent.getPasswordHash()).isEqualTo(ownCollegeHash);
+        assertThat(unchangedOwnCollegeStudent.getStatus()).isEqualTo(ownCollegeStatus);
+
+        SysUser scopedManager = userMapper.selectByUsername(P44E_ADMIN_USERNAME);
+        SysRole sysAdminRole = roleMapper.selectOne(new LambdaQueryWrapper<SysRole>()
+                .eq(SysRole::getCode, "SYS_ADMIN"));
+        ResponseEntity<String> selfEscalation = exchange(
+                "/api/system/user/" + scopedManager.getId() + "/roles",
+                HttpMethod.PUT, scoped.accessToken(), Map.of("roleIds", List.of(sysAdminRole.getId())));
+        assertThat(json(selfEscalation).at("/code").asInt()).isEqualTo(403);
+        assertThat(roleMapper.selectCodesByUserId(scopedManager.getId())).doesNotContain("SYS_ADMIN");
     }
 
     private LoginResult login(String username, String password) throws Exception {
@@ -261,7 +347,8 @@ class Phase2SecurityIT {
                 data.at("/accessToken").asText(),
                 data.at("/refreshToken").asText(),
                 data.at("/mustChangePwd").asBoolean(),
-                data.at("/user/permissions").toString()
+                data.at("/user/permissions").toString(),
+                data.at("/user/userManagementWritable").asBoolean()
         );
     }
 
@@ -283,7 +370,8 @@ class Phase2SecurityIT {
                 data.at("/accessToken").asText(),
                 data.at("/refreshToken").asText(),
                 data.at("/mustChangePwd").asBoolean(),
-                data.at("/user/permissions").toString()
+                data.at("/user/permissions").toString(),
+                data.at("/user/userManagementWritable").asBoolean()
         );
     }
 
@@ -443,6 +531,7 @@ class Phase2SecurityIT {
         return ids;
     }
 
-    private record LoginResult(String accessToken, String refreshToken, boolean mustChangePwd, String permissions) {
+    private record LoginResult(String accessToken, String refreshToken, boolean mustChangePwd, String permissions,
+                               boolean userManagementWritable) {
     }
 }
