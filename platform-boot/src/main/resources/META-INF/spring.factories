@@ -1,0 +1,2 @@
+org.springframework.boot.env.EnvironmentPostProcessor=\
+cn.edu.gpnu.platform.boot.config.RuntimeProfileGuard

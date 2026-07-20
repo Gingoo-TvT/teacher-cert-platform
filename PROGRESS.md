@@ -5,17 +5,17 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**审计整改 WS-2（凭据硬化）待复核**——分支 `feature/ws02-credential-hardening`。
-- 阻塞项：无；已知协同项为 WS-10（移除默认 dev profile + profile 守卫），按既定顺序在 WS-2 复核通过后执行。
-- 最近更新：2026-07-15（admin 一次性 bootstrap、STAFF/学生口令隔离、学生单账号临时口令、通用入口仅 STAFF、学生绑定不可变、用户管理写仅校级 scope、状态/凭据 CAS、持久 session generation 闭合 logout/refresh 竞态、Compose 凭据透传、V27；最终 0 表库 `mvn clean verify`：Surefire 30/30、Failsafe 120/120，前端 type-check/build 与 Compose config 通过）。
-- 下一步：交 Claude/主控独立复核 WS-2；PASS 后再放行 WS-10，不自行置 ✅、不 merge/push。
+- 当前阶段：**审计整改 WS-10（profile 守卫）自测完成、待复核**——分支 `feature/ws10-profile-guard`；WS-1/WS-2 同样保持待外部复核。
+- 阻塞项：无；主配置已无默认 profile，dev/test/生产路径均改为显式选择，WS-2 的误启动协同窗口已关闭。
+- 最近更新：2026-07-20（无 profile、`dev+prod`、prod 混入 testseed/demo/已知开发或示例凭据均在上下文创建前拒绝；空库 `mvn clean verify`：Surefire 36/36、Failsafe 120/120；前端 type-check/build 与 Compose config 通过）。
+- 下一步：保持 WS-10 单提交并交主控独立复核；不得自行置 ✅，不 merge/push。
 
 ## 审计整改工作流
 | WS | 内容 | 状态 |
 |---|---|---|
 | WS-1 | IT 计数按自身 fixture 隔离 | `[x]` 单提交完成，待主控复核/合并 |
 | WS-2 | prod admin bootstrap + STAFF/学生初始口令硬化 | `[x]` **待复核**（2026-07-15） |
-| WS-10 | 移除默认 dev profile + profile fail-fast | `[ ]` WS-2 PASS 后开始 |
+| WS-10 | 移除默认 dev profile + profile fail-fast | `[x]` **待复核**（2026-07-20） |
 
 ## 阶段汇总
 | Phase | 名称 | 优先级 | 任务数 | 完成 | 状态 |

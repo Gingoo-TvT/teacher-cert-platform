@@ -1,11 +1,20 @@
 # HANDOFF.md — 交接说明（接手必读）
 
 > 目的：让后续 codex / Claude 在**本机（Windows + Git Bash）** 无障碍接手。
-> 顺序：先读本文件 → 再按 `AGENTS.md` §0 读其余文档。当前 Phase 2 已由 Codex 自测完成，下一步是 Claude 复核。
+> 顺序：先读本文件 → 再按 `AGENTS.md` §0 读其余文档。当前审计整改 WS-1、WS-2、WS-10 已由 Codex 自测完成，均待主控复核。
 
 ---
 
-## 1. 当前状态（截至 2026-06-14）
+## 0. 当前接力快照（2026-07-20）
+- 当前分支 `feature/ws10-profile-guard`，基于 WS-2 提交 `9bdee8f`；WS-1=`25be4bd`、WS-2=`9bdee8f`，WS-10 由本分支单提交交付（具体哈希见 `git log -1`）。`main` 仍为 `e4f8228`，无 remote，禁止 push/擅自 merge。
+- WS-10 已删除默认 dev profile；本地后端必须显式 `SPRING_PROFILES_ACTIVE=dev`，生产必须显式 `prod`。无 profile 或 prod 混入 testseed/demo/开发示例凭据会在上下文创建前拒绝启动。
+- 最终空库门禁：Surefire 36/36、Failsafe 120/120，前端 type-check/build、生产 Compose config 通过。WS-1/WS-2/WS-10 均保持“待复核”，不得自行置为已复核。
+- 后续审计 WS 仍待实施；已盘点的近端顺序为 WS-13 权限天花板，随后 WS-3 MinIO 直传与 WS-4 D0 UI 基线。WS-4 缺 D0 规范/截图工具，禁止直接跳到铺开阶段。
+- `.claude/audits/`、审计 HTML、`docs/audit-remediation-plan.md`、`docs/prompts/` 是本地未跟踪审计资料，不得纳入功能提交。
+
+> 下方 §1 是 2026-06-14 的历史交接快照，保留用于环境与早期实现追溯；当前状态以上述 §0、`PROGRESS.md` 与 `DEVLOG.md` 顶部为准。
+
+## 1. 历史状态（截至 2026-06-14）
 - **Phase 0 与 Phase 1 全部完成，并通过 Claude 阶段复核**（Phase 1 复核 PASS：`docs/reviews/phase-01-review.md`）；**Phase 2 已由 Codex 自测完成并置「待复核」**，等待 Claude 按 `docs/REVIEW-GATE.md` 复核。
 - 待确认事项 20 项**已于 2026-06-14 书面确认**（`docs/待确认事项确认单.md`）：原确认的业务取值变更为 `validate.name.mode`→`loose`（迁移 `V6`）；#17/#18 的自动开户与证件号后六位口令已被 2026-07-15 WS-2 安全整改取代为 `false/random`（迁移 `V27`）。
 - 仓库：本地 git，**无远程（私有，未开源）**；当前工作分支为 `feature/phase02-T024-authentication`。
@@ -75,6 +84,7 @@ docker compose -f "$REPO/docker-compose.dev.yml" up -d
 # 后端：构建；运行期服务必须在 Codex 外部终端启动
 "$MVN" -f "$REPO/pom.xml" -B -ntp -DskipTests package
 export JWT_SECRET="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+export SPRING_PROFILES_ACTIVE="dev"
 cd "$REPO"
 # 下列 dev-serve 命令只能在外部 Git Bash 窗口执行，禁止由 Codex/exec 直接调用：
 bash scripts/dev-serve.sh backend http://127.0.0.1:8080/api/health "$JAVA_HOME/bin/java" -jar "$REPO/platform-boot/target/teacher-cert-platform.jar"

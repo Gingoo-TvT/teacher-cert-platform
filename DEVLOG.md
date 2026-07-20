@@ -15,6 +15,14 @@
 
 ---
 
+## [2026-07-20] WS-10 移除默认 dev profile + 启动 fail-fast 守卫（审计 #9）— 自测完成，待主控复核
+- 做了什么：删除主 `application.yml` 的默认 `spring.profiles.active=dev`；新增 ConfigData 之后、上下文创建之前执行的 `RuntimeProfileGuard`，无显式 dev/prod、同时激活 dev+prod，以及 prod 混入 `db/testseed`、demo、缺失配置或已知开发/示例 DB、Redis、MinIO、JWT、STAFF 凭据时直接拒绝启动，异常只列属性名、不回显配置值。dev 启动脚本仅在 backend 且调用方未指定 profile 时补 `dev`；README、HANDOFF、Phase 14、`application-{dev,demo,prod}.yml` 注释及桌面 `测试账号.txt` 已同步。
+- 关键决策与理由：测试 profile 置于 `platform-boot/src/test/resources/config/application.yml`，作为高优先级补充显式激活 dev，同时保留主 `application.yml` 的 multipart 等基础配置；不逐个给 20 个 IT 加 `@ActiveProfiles`。`CredentialHardeningIT` 使用真实本地 DB/MinIO/testseed，诚实归类为 dev 夹具；另以真实 `SpringApplication` 的精简 prod 上下文同时执行已注册守卫和 `AdminAccountInitializer`，保留 WS-2 的 prod 正向 bootstrap 生命周期证据，不给守卫增加测试绕过开关。
+- 问题与解决：初版把测试配置放在测试 classpath 根目录的同名 `application.yml`，首次全量门禁因此遮蔽主配置，Phase7 大分片回退到 Spring 默认 1MB 并 1/120 报错；移至 `config/` 后，先用干净构建隔离重跑 `RuntimeProfileGuardTest` 6/6 与 `largeMultipartUploadTakesServerSideComposeFastPath` 1/1 通过，再从空库重跑全量 120/120。新增 prod 正向测试还消除了对其它测试类 MyBatis TableInfo 静态初始化的顺序依赖，可独立运行。
+- 与规格的偏差/疑问：未由 Codex 启动常驻 jar 或实际调用 `dev-serve`（AGENTS.md §6.1 明令禁止）；脚本行为由读码、Shell 语法路径和全量 Spring 测试覆盖，活体人工脚本复核留给主控。无迁移，库最高仍 V27。
+- 测试：`RuntimeProfileGuardTest` 6/6；与 `CredentialHardeningTest` 合跑 14/14；`CredentialHardeningIT` 1/1；最终新建空数据临时 MySQL 后 `mvn -B -ntp clean verify` 9 模块 `BUILD SUCCESS`，Surefire **36/36**、Failsafe **120/120**；`npm --prefix frontend run type-check`、`npm --prefix frontend run build` 通过（仅既有 naive/echarts chunk warning）；`docker compose --env-file .env.example config -q` 与 `git diff --check` 通过。
+- 下一步：保持 WS-10 单提交，明确排除 `.claude/audits/`、审计 HTML、`docs/audit-remediation-plan.md`、`docs/prompts/`；交主控复核，不 merge/push。
+
 ## [2026-07-15] WS-2 凭据硬化（审计 #1 High + #4 Medium）— 自测完成，分支 `feature/ws02-credential-hardening`，待主控复核
 - 做了什么：prod admin 改为一次性 BCrypt bootstrap；prod STAFF 缺失、弱值或公开初始口令拒启；学生自动开户默认关闭，random 只创建停用账号，禁止从 PII 派生口令；V27 仅将旧危险默认 `true/idcard6` 迁为 `false/random`；Compose、部署说明和规格同步更新。
 - 审查发现与修正（修正前问题如实留痕）：

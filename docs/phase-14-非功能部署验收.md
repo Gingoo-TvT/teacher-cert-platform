@@ -18,7 +18,7 @@ M14 扩展点预留、后端/前端 Dockerfile、生产 docker-compose、兼容�
 - 启动初始化：Flyway 自动迁移 + 种子（字典/角色/超管/参数）。
 - 产出 `README`（部署、初始账号、参数说明）。
 - **关键环境变量（`.env.example` → 复制为 `.env`，均须显式设强值，勿沿用示例）**：
-  - `SPRING_PROFILES_ACTIVE=prod`（**必须**；否则默认 `dev` profile 会启用非密默认值——dev 库 root、内置 JWT dev 密钥、MinIO 默认口令）。
+  - `SPRING_PROFILES_ACTIVE=prod`（**必须**；主配置无默认 profile，未显式设置会在上下文创建前拒绝启动；prod 混入 testseed、demo 或已知 dev/示例凭据同样拒绝）。
   - `JWT_SECRET`（**必须**，≥32 字节；base 空默认下 prod 未注入即拒绝启动。可为任意 ≥32 字节字符串，含人类可读口令）。
   - `ADMIN_INITIAL_PASSWORD_HASH`（**必须**，BCrypt cost≥10，且不得对应公开 dev 口令；Compose `.env` 中以单引号包住完整 `$2...` 哈希）。
   - `STAFF_INITIAL_PASSWORD`（**必须**，12-64 位且含大小写字母、数字、特殊字符；不得使用公开 dev/示例口令）。

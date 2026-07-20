@@ -15,7 +15,7 @@ docker compose -f docker-compose.dev.yml up -d
 
 # 2) 后端（Flyway 自动建表 + 种子参数）
 mvn -DskipTests package
-java -jar platform-boot/target/teacher-cert-platform.jar
+SPRING_PROFILES_ACTIVE=dev java -jar platform-boot/target/teacher-cert-platform.jar
 #   健康检查  http://localhost:8080/api/health
 #   接口文档  http://localhost:8080/doc.html
 
@@ -37,6 +37,7 @@ cd frontend && npm install && npm run dev
 | platform-boot | 启动、全局配置、Swagger、跨域、全局异常 |
 
 ## 默认配置（开发）
+- 后端不再默认激活 profile；本地启动必须显式设置 `SPRING_PROFILES_ACTIVE=dev`。PowerShell 可先执行 `$env:SPRING_PROFILES_ACTIVE='dev'`。
 - MySQL：`root` / `root123`，库 `teacher_cert`
 - MinIO：`minioadmin` / `minioadmin123`，bucket `teacher-cert`
 - 可配置参数见 `sys_param` 表与 `docs/README.md` §6

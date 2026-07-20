@@ -26,7 +26,9 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@ActiveProfiles("prod")
+// 本 IT 使用 testseed 与本地 MySQL/MinIO 凭据，必须明确归类为 dev 测试夹具；
+// prod profile 的 fail-fast 由 CredentialHardeningTest 与 RuntimeProfileGuardTest 覆盖。
+@ActiveProfiles("dev")
 @SpringBootTest(classes = PlatformApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class CredentialHardeningIT {
 
@@ -92,7 +94,7 @@ class CredentialHardeningIT {
     }
 
     @Test
-    void prodBootstrapStartsAndRejectsOldAdminPassword() throws Exception {
+    void configuredBootstrapStartsAndRejectsOldAdminPassword() throws Exception {
         ResponseEntity<String> oldLogin = login(LEGACY_PUBLIC_PASSWORD);
         assertThat(oldLogin.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(json(oldLogin).at("/code").asInt()).isNotEqualTo(0);

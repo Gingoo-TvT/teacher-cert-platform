@@ -1,5 +1,6 @@
 # 生产 profile（Phase 37a 安全急修 P0-4）：关闭接口文档 + 显式 Flyway 安全项。
-# 其余配置继承 application.yml；启动用 SPRING_PROFILES_ACTIVE=prod（docker-compose.yml 已设）。
+# 其余配置继承 application.yml；主配置不再提供默认 profile，启动必须显式设置
+# SPRING_PROFILES_ACTIVE=prod（docker-compose.yml 已设）。
 
 # 关闭 Swagger / Knife4j —— 生产不暴露 API 文档与"试调"界面
 springdoc:

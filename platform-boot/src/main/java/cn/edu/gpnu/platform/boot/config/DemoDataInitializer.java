@@ -23,9 +23,10 @@ import java.util.List;
  *
  * <p><b>默认关闭</b>（与 {@link CleanupScheduleConfig} / BackupScheduleConfig 同款门禁）：由
  * {@code platform.demo.enabled} 门禁——{@code havingValue="true"} 且默认 matchIfMissing=false，故未配置的
- * dev/测试环境本 bean 不注册、演示数据永不装载。<b>ITs 从不设置该开关</b>（走默认 dev profile），因此
+ * dev/测试环境本 bean 不注册、演示数据永不装载。<b>ITs 从不设置该开关</b>（config/ 测试资源显式激活 dev），因此
  * {@code mvn verify} 期间本 bean 不存在、演示数据不进库，基于基础种子精确计数的 IT 断言不受任何影响。
- * 启用方式：{@code --platform.demo.enabled=true} 或 {@code SPRING_PROFILES_ACTIVE=dev,demo}（application-demo.yml）。
+ * 启用方式：显式选择 dev 后传 {@code --platform.demo.enabled=true}，或使用
+ * {@code SPRING_PROFILES_ACTIVE=dev,demo}（application-demo.yml）。
  *
  * <p>作为 {@link ApplicationRunner} 在上下文刷新之后运行——此时 Flyway 迁移 + db/testseed 已装载、
  * MinIO bucket 已由 {@code MinioConfig#ensureBucket} 确保存在，可安全引用基础种子并写对象。两步均<b>幂等</b>：

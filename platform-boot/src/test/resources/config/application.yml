@@ -1,0 +1,5 @@
+spring:
+  profiles:
+    # WS-10：放在 config/ 下作为高优先级补充，避免同名根资源遮蔽主 application.yml。
+    # 测试显式选择 dev，以加载 testseed 与本地依赖配置；生产主配置不再默认 dev。
+    active: dev

@@ -28,6 +28,10 @@ if [ -f "$pid_file" ]; then
   rm -f "$pid_file"
 fi
 
+if [ "$name" = "backend" ]; then
+  export SPRING_PROFILES_ACTIVE="${SPRING_PROFILES_ACTIVE:-dev}"
+fi
+
 nohup "$@" >"$log_file" 2>&1 &
 pid="$!"
 echo "$pid" >"$pid_file"

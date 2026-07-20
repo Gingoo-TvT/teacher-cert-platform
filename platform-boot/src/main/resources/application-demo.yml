@@ -4,10 +4,10 @@
 # 作用：仅开启演示数据装载开关 platform.demo.enabled=true，其余配置继承 dev。
 # 用法（二选一，均需 dev 基础种子已加载）：
 #   1) SPRING_PROFILES_ACTIVE=dev,demo   （附加本 profile；推荐）
-#   2) java -jar teacher-cert-platform.jar --platform.demo.enabled=true   （命令行覆盖，走默认 dev profile）
+#   2) java -jar teacher-cert-platform.jar --spring.profiles.active=dev --platform.demo.enabled=true
 #
 # 注意：dev 默认【不】开启（application-dev.yml 未设该键），故 `mvn verify` 与常规 dev 运行不受影响、
-#       ITs 永不装载演示数据（基于基础种子的精确计数断言不被污染）。
+#       ITs 显式使用 dev 且不设该开关，永不装载演示数据（精确计数断言不被污染）。
 # =============================================================
 platform:
   demo:

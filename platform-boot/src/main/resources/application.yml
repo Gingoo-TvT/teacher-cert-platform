@@ -4,8 +4,6 @@ server:
 spring:
   application:
     name: teacher-cert-platform
-  profiles:
-    active: dev
   servlet:
     multipart:
       # 与 file.maxSize.* 业务参数对齐：材料/佐证 50MB 级、名册 Excel 数十 MB；

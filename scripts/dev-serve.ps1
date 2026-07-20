@@ -38,6 +38,9 @@ if (Test-Path $pidFile) {
 
 $exe = $Command[0]
 $args = if ($Command.Count -gt 1) { $Command[1..($Command.Count - 1)] } else { @() }
+if ($Name -eq 'backend' -and [string]::IsNullOrWhiteSpace($env:SPRING_PROFILES_ACTIVE)) {
+    $env:SPRING_PROFILES_ACTIVE = 'dev'
+}
 $process = Start-Process -FilePath $exe `
     -ArgumentList $args `
     -WorkingDirectory (Get-Location).Path `

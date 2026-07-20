@@ -13,7 +13,7 @@ spring:
     enabled: true
     # Phase 52（种子测试/生产分离）：dev/test 额外加载 db/testseed（R__testseed 重放测试专用种子），
     # 生产 profile 只加载 db/migration（application-prod.yml），故 V26 删除后生产保持干净。
-    # IT 默认走 dev profile（application.yml active=dev），因此会加载 db/testseed，测试数据照常可用。
+    # IT 由 src/test/resources/config/application.yml 显式激活 dev，因此会加载 db/testseed，测试数据照常可用。
     locations: classpath:db/migration,classpath:db/testseed
     baseline-on-migrate: true
     encoding: UTF-8
@@ -36,7 +36,7 @@ minio:
   secret-key: minioadmin123
   bucket: teacher-cert
 
-# 安全（platform-security）—— 仅 dev 的 JWT 密钥默认值，保证本地/开发「直接 java -jar / mvn 起栈」开箱即用。
+# 安全（platform-security）—— 仅 dev 的 JWT 密钥默认值；显式选择 dev 后，本地启动无需另配 JWT_SECRET。
 # base application.yml 为 `secret: ${JWT_SECRET:}`（空默认、全 profile）；未注入 JWT_SECRET 时 JwtService.init
 # 会抛错拒绝启动（这是生产的正确行为：密钥必须显式注入、不硬编码进包）。dev profile 在此提供一个明确标注
 # 「仅供本地、切勿用于生产」的默认值：若设置了环境变量 JWT_SECRET 则优先用它，否则用该默认值。

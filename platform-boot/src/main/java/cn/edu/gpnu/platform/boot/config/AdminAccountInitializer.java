@@ -30,7 +30,7 @@ import java.util.regex.Pattern;
  *   <li>未注入且为 <b>prod</b> profile → 抛错 <b>fail-fast 拒绝启动</b>（同 {@code JwtService}/JWT_SECRET 风格），
  *       生产绝不以公开口令 admin 起栈；</li>
  *   <li>未注入且非 prod（dev/test）→ no-op：admin 保留 {@code db/testseed} 的 ChangeMe123!（本地/IT 便利，
- *       故 ITs 走默认 dev profile 时本组件不改任何账号、断言不受影响）。</li>
+ *       故 ITs 通过测试配置显式选择 dev 时，本组件不改任何账号、断言不受影响）。</li>
  * </ul>
  * 已完成 bootstrap 或首登改密后不再覆写，避免重启把一次性凭据变成永久重置入口。覆盖在 Web 开始服务
  * <b>之前</b>发生（{@link SmartInitializingSingleton} 在全部单例完成初始化后、上下文 refresh 前执行；
