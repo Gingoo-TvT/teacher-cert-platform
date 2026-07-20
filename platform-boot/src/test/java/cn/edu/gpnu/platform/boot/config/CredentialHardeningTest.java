@@ -2,6 +2,7 @@ package cn.edu.gpnu.platform.boot.config;
 
 import cn.edu.gpnu.platform.common.context.DataScopeContext;
 import cn.edu.gpnu.platform.common.exception.BizException;
+import cn.edu.gpnu.platform.security.service.RbacAuthorizationGuard;
 import cn.edu.gpnu.platform.security.service.SecurityAdminServiceImpl;
 import cn.edu.gpnu.platform.security.service.TokenRevocationService;
 import cn.edu.gpnu.platform.system.entity.SysUser;
@@ -149,6 +150,7 @@ class CredentialHardeningTest {
         PasswordEncoder passwordEncoder = mock(PasswordEncoder.class);
         TokenRevocationService revocationService = mock(TokenRevocationService.class);
         DataScopeService dataScopeService = mock(DataScopeService.class);
+        RbacAuthorizationGuard authorizationGuard = mock(RbacAuthorizationGuard.class);
         SysUser student = user(21L, "STUDENT", "old-student-hash");
         DataScopeContext.Scope schoolScope = new DataScopeContext.Scope();
         schoolScope.setScopeType(DataScopeContext.ScopeType.SYSTEM);
@@ -160,7 +162,7 @@ class CredentialHardeningTest {
 
         SecurityAdminServiceImpl service = new SecurityAdminServiceImpl(
                 userMapper, null, null, null, null, null, null, null,
-                passwordEncoder, revocationService, null, dataScopeService);
+                passwordEncoder, revocationService, null, dataScopeService, authorizationGuard);
 
         assertThatThrownBy(() -> service.resetPassword(student.getId()))
                 .isInstanceOf(BizException.class)
@@ -280,7 +282,7 @@ class CredentialHardeningTest {
         SecurityAdminServiceImpl securityAdminService(Environment environment) {
             return new SecurityAdminServiceImpl(
                     null, null, null, null, null, null, null, null,
-                    new BCryptPasswordEncoder(10), null, environment, null);
+                    new BCryptPasswordEncoder(10), null, environment, null, null);
         }
     }
 

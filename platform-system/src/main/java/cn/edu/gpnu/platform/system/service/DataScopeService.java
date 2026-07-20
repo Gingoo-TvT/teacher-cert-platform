@@ -7,4 +7,6 @@ public interface DataScopeService {
     DataScopeContext.Scope resolve(String permissionCode);
 
     boolean hasAllSchoolScope(Long userId, String permissionCode);
+
+    boolean hasSystemScope(Long userId, String permissionCode);
 }

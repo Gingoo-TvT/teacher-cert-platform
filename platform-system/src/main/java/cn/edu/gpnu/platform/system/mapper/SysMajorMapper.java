@@ -17,4 +17,13 @@ public interface SysMajorMapper extends BaseMapper<SysMajor> {
     Long countByCodeYearIncludingDeleted(@Param("code") String code,
                                          @Param("yearVersion") String yearVersion,
                                          @Param("excludeId") Long excludeId);
+
+    @Select("""
+            SELECT college_id
+              FROM sys_major
+             WHERE id = #{id}
+               AND deleted = 0
+             FOR UPDATE
+            """)
+    Long selectCollegeIdForUpdate(@Param("id") Long id);
 }

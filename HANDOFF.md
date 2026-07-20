@@ -1,15 +1,15 @@
 # HANDOFF.md — 交接说明（接手必读）
 
 > 目的：让后续 codex / Claude 在**本机（Windows + Git Bash）** 无障碍接手。
-> 顺序：先读本文件 → 再按 `AGENTS.md` §0 读其余文档。当前审计整改 WS-1、WS-2、WS-10 已由 Codex 自测完成，均待主控复核。
+> 顺序：先读本文件 → 再按 `AGENTS.md` §0 读其余文档。当前审计整改 WS-1、WS-2、WS-10、WS-13 已由 Codex 自测完成，均待主控复核。
 
 ---
 
 ## 0. 当前接力快照（2026-07-20）
-- 当前分支 `feature/ws10-profile-guard`，基于 WS-2 提交 `9bdee8f`；WS-1=`25be4bd`、WS-2=`9bdee8f`，WS-10 由本分支单提交交付（具体哈希见 `git log -1`）。`main` 仍为 `e4f8228`，无 remote，禁止 push/擅自 merge。
-- WS-10 已删除默认 dev profile；本地后端必须显式 `SPRING_PROFILES_ACTIVE=dev`，生产必须显式 `prod`。无 profile 或 prod 混入 testseed/demo/开发示例凭据会在上下文创建前拒绝启动。
-- 最终空库门禁：Surefire 36/36、Failsafe 120/120，前端 type-check/build、生产 Compose config 通过。WS-1/WS-2/WS-10 均保持“待复核”，不得自行置为已复核。
-- 后续审计 WS 仍待实施；已盘点的近端顺序为 WS-13 权限天花板，随后 WS-3 MinIO 直传与 WS-4 D0 UI 基线。WS-4 缺 D0 规范/截图工具，禁止直接跳到铺开阶段。
+- 当前分支 `feature/ws13-rbac-ceiling`，基于 WS-10 提交 `32905a5`；WS-1=`25be4bd`、WS-2=`9bdee8f`、WS-10=`32905a5`，WS-13 由本分支单提交交付（具体哈希见 `git log -1`）。`main` 仍为 `e4f8228`，无 remote，禁止 push/擅自 merge。
+- WS-13 按严格方案 A 落地：角色写精确要求数据库有效授权 `system:role:manage@SYSTEM`，授权不得超过操作者当前有效授权；统一数据库锁保护快照，校验 scope 偏序、当前态与 after-state、停用角色潜在权限、共享角色成员完整向量，并覆盖学生开户/绑定/迁移/删除账号旁路。WS-10 的显式 profile 要求保持不变。
+- 最终 0 表 schema `teacher_cert_ws13_final_20260720_203546` 门禁：9 模块 `BUILD SUCCESS`，Surefire 121/121、Failsafe 125/125；前端 type-check/build 通过。WS-1/WS-2/WS-10/WS-13 均保持“待复核”，不得自行置为已复核。
+- 后续已盘点的近端顺序为 WS-3 MinIO 直传与 WS-4 D0 UI 基线。WS-4 缺 D0 规范/截图工具，禁止直接跳到铺开阶段。
 - `.claude/audits/`、审计 HTML、`docs/audit-remediation-plan.md`、`docs/prompts/` 是本地未跟踪审计资料，不得纳入功能提交。
 
 > 下方 §1 是 2026-06-14 的历史交接快照，保留用于环境与早期实现追溯；当前状态以上述 §0、`PROGRESS.md` 与 `DEVLOG.md` 顶部为准。
@@ -70,7 +70,7 @@
 
 - **坑①（PATH）**：`mvn`/`java`/`git` 已写入用户级 PATH，但旧进程继承旧环境 → **新开终端**才直接可用；脚本里用全路径最稳（见 §3）。
 - **坑②（GBK 控制台）**：中文 Windows 控制台默认 GBK，java/mvn 的**中文告警会显示乱码**（如 `δ֪`），**不影响编译**（源码已 UTF-8，父 POM 强制）；HTTP/DB 中文正常。
-- **坑③（Docker）**：依赖容器需 Docker Desktop 引擎运行；容器名 `tcp-mysql`/`tcp-redis`/`tcp-minio`。
+- **坑③（Docker）**：依赖容器需 Docker Desktop 引擎运行；常规容器名 `tcp-mysql`/`tcp-redis`/`tcp-minio`。本机 `hdp11` 占用宿主 3306/8080，不得误停或误写其数据库；WS-13 验收使用独立 Compose 和 MySQL `localhost:33306`。
 
 ## 3. 一键操作命令（本机已验证，Git Bash 复制即用）
 ```bash
@@ -120,10 +120,11 @@ git -C "$REPO" add -A && git -C "$REPO" commit -m "feat(T-0xx): ..."
 - 实体继承 `BaseEntity`（id/审计字段/逻辑删除自动）；Mapper 放 `**/mapper`（已 `@MapperScan("cn.edu.gpnu.platform.**.mapper")`）；统一返回 `Result`；写操作 `@AuditLog`；列表/导出/统计查询 `@DataScope`；当前用户取 `UserContext`。
 - **文本化字段全链路 String + Excel `@`**（学校代码/学号/证件号/出生日期/证书编号/有效期限）——AT-01 生命线，勿用数值/日期类型。
 
-## 5. 当前复核入口 → Phase 2（账号角色权限，T-023~T-029）
-1. 读 `AGENTS.md` → `docs/REVIEW-GATE.md` → `docs/phase-02-认证与权限.md` → `plan.md §15.1`。
-2. 复核重点：AT-13（学生仅本人、学院仅授权范围、无权限 403）、§15.1 矩阵逐格、首次改密、错密锁定、refresh、前端真实登录与权限菜单。
-3. 若需要启动后端/前端做运行期验证，必须在 Codex 外部终端或 Claude 复核 harness 中启动；Codex/headless exec 禁止执行 `java -jar`、`npm run dev`、`vite dev` 或 `scripts/dev-serve.*`。
+## 5. 当前复核入口 → WS-13（RBAC 授权天花板）
+1. 读 `AGENTS.md` → `docs/REVIEW-GATE.md` → `docs/launch-readiness-plan.md §7.10`，再检查 `RbacAuthorizationGuard` 及 `Ws13RbacCeilingIT`。
+2. 复核重点：角色写是否精确要求 `system:role:manage@SYSTEM`；7 scope 偏序和具体学院/专业范围；目标当前态与 after-state；停用角色潜在权限；共享角色每个成员的完整授权；学生开户、迁移、删除旁路；并发写是否共用同一数据库锁。
+3. 必做反例：低权管理员给自己或他人提权、重置/修改高权用户、修改或删除含高权成员的共享角色均失败且数据库不变；同权合法委派成功。不允许用 `SYS_ADMIN` 角色码特判替代授权比较。
+4. 若需要启动后端/前端做运行期验证，必须在 Codex 外部终端或 Claude 复核 harness 中启动；Codex/headless exec 禁止执行 `java -jar`、`npm run dev`、`vite dev` 或 `scripts/dev-serve.*`。
 
 ## 6. 已知坑与规避（别重复踩）
 - Lombok `optional` 不向子模块传递 → 已在父 POM 解决。

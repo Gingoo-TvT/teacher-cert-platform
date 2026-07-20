@@ -15,6 +15,14 @@
 
 ---
 
+## [2026-07-20] WS-13 RBAC 授权天花板（launch-readiness §7.10 P1 遗留）— 自测完成，待主控复核
+- 做了什么：按严格方案 A 新增统一 `RbacAuthorizationGuard`。角色写必须从数据库精确持有 `system:role:manage@SYSTEM`；用户、角色、权限和数据范围变更均不得超过操作者数据库当前有效授权。7 种 scope 使用显式偏序比较，同权允许，高权或不可比较拒绝；同时校验目标当前态与 after-state、具体学院/专业范围、停用角色潜在权限，以及共享角色现有成员通过其它角色取得的完整授权向量。用户创建/修改/删除/重置密码/角色分配/数据范围分配，角色创建/修改/删除/权限分配，以及学生开户、绑定、学院迁移、删除时停用账号的旁路均已接入。
+- 关键决策与理由：不使用 `SYS_ADMIN` 角色码特判，也不信任 JWT/UserContext 中可能陈旧的权限；所有 RBAC 写事务先锁定 `sys_permission.code='system:role:manage'` 行，再重载数据库授权并校验，守卫强制 `@Transactional(MANDATORY)`。专业归属以 `SELECT ... FOR UPDATE` 读取，与专业迁移行锁串行，避免具体范围校验 TOCTOU。前端只在 `/me.roleManagementWritable=true` 时显示角色写操作；角色授权抽屉要求逐权限显式选择 scope，新勾选未选择范围时不能保存，不再静默提权；角色管理员可读取权限树但不能因此获得权限点管理权。
+- 问题与解决：安全审查补出三处遗漏并已闭合：学生删除原可绕过绑定账号天花板，现始终校验该账号；共享低权角色原只看目标角色自身授权，现批量加载成员其它角色和权限后校验完整向量，避免 N+1；专业到学院解析原为普通读，现改锁定读。最终差异审查又发现用户编辑抽屉在 `updateUser` 已替换角色后重复请求角色分配，自撤管理权时会出现首请求成功、次请求 403 的假失败；现收敛为单请求原子提交。全量门禁首次仅传 `-Dspring.datasource.url` 时，`CredentialHardeningIT` 的高优先级动态属性回落到 3306；最终同时设置 `SPRING_DATASOURCE_URL` 后在隔离的 33306 空库通过，未为 WS-13 修改该测试语义。
+- 与规格的偏差/疑问：无业务规格偏差；无迁移，数据库最高仍 V27。已知性能权衡：为保证 MySQL REPEATABLE READ 下在任何授权相关读取前取得统一锁，学生 create/update/delete（含 batchCreate 外层事务）当前也会持有全局 RBAC 行锁；授权正确性优先，但会串行化学生写与权限管理，需在生产压测后决定是否以不削弱快照一致性的方案收窄锁范围。未启动常驻应用；审计报告、`.claude/audits/`、`docs/audit-remediation-plan.md` 与 `docs/prompts/` 不纳入提交。
+- 测试：聚焦单测 `RbacAuthorizationGuardTest` + `StudentServiceRbacTest` **71/71**，聚焦真实 MySQL `Phase3StudentIT` + `Ws13RbacCeilingIT` **13/13**。最终从 0 表 schema `teacher_cert_ws13_final_20260720_203546` 执行 9 模块 `mvn -B -ntp clean verify`，`BUILD SUCCESS`：Surefire **121/121**、Failsafe **125/125**，Failures/Errors/Skipped 均为 0；Flyway V1~V27 + R__testseed 全成功。测试清理补丁后 `Phase3StudentIT` 再跑 **9/9**，生成账号的残留角色关联为 0。`npm --prefix frontend run type-check` 与 `build` 通过（仅既有 naive/echarts chunk warning）；`git diff --check` 通过；验收 Compose 已 `down -v` 清理。
+- 下一步：仅提交 WS-13 相关源码、测试与本轮交接文档，保持“待复核”；交主控独立复核，不 merge/push。
+
 ## [2026-07-20] WS-10 移除默认 dev profile + 启动 fail-fast 守卫（审计 #9）— 自测完成，待主控复核
 - 做了什么：删除主 `application.yml` 的默认 `spring.profiles.active=dev`；新增 ConfigData 之后、上下文创建之前执行的 `RuntimeProfileGuard`，无显式 dev/prod、同时激活 dev+prod，以及 prod 混入 `db/testseed`、demo、缺失配置或已知开发/示例 DB、Redis、MinIO、JWT、STAFF 凭据时直接拒绝启动，异常只列属性名、不回显配置值。dev 启动脚本仅在 backend 且调用方未指定 profile 时补 `dev`；README、HANDOFF、Phase 14、`application-{dev,demo,prod}.yml` 注释及桌面 `测试账号.txt` 已同步。
 - 关键决策与理由：测试 profile 置于 `platform-boot/src/test/resources/config/application.yml`，作为高优先级补充显式激活 dev，同时保留主 `application.yml` 的 multipart 等基础配置；不逐个给 20 个 IT 加 `@ActiveProfiles`。`CredentialHardeningIT` 使用真实本地 DB/MinIO/testseed，诚实归类为 dev 夹具；另以真实 `SpringApplication` 的精简 prod 上下文同时执行已注册守卫和 `AdminAccountInitializer`，保留 WS-2 的 prod 正向 bootstrap 生命周期证据，不给守卫增加测试绕过开关。

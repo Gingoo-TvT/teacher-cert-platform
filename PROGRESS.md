@@ -5,10 +5,10 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**审计整改 WS-10（profile 守卫）自测完成、待复核**——分支 `feature/ws10-profile-guard`；WS-1/WS-2 同样保持待外部复核。
-- 阻塞项：无；主配置已无默认 profile，dev/test/生产路径均改为显式选择，WS-2 的误启动协同窗口已关闭。
-- 最近更新：2026-07-20（无 profile、`dev+prod`、prod 混入 testseed/demo/已知开发或示例凭据均在上下文创建前拒绝；空库 `mvn clean verify`：Surefire 36/36、Failsafe 120/120；前端 type-check/build 与 Compose config 通过）。
-- 下一步：保持 WS-10 单提交并交主控独立复核；不得自行置 ✅，不 merge/push。
+- 当前阶段：**审计整改 WS-13（RBAC 授权天花板）自测完成、待复核**——分支 `feature/ws13-rbac-ceiling`；WS-1/WS-2/WS-10 同样保持待外部复核。
+- 阻塞项：无；严格方案 A 已覆盖用户/角色写、共享角色成员完整授权向量及学生账号旁路，所有授权写使用统一数据库锁和有效授权快照。
+- 最近更新：2026-07-20（精确 `system:role:manage@SYSTEM`、7 scope 偏序、当前态/after-state、具体学院/专业、停用角色潜在权限均已收口；空库 `mvn clean verify`：Surefire 121/121、Failsafe 125/125；前端 type-check/build 通过）。
+- 下一步：保持 WS-13 单提交并交主控独立复核；不得自行置 ✅，不 merge/push。
 
 ## 审计整改工作流
 | WS | 内容 | 状态 |
@@ -16,6 +16,7 @@
 | WS-1 | IT 计数按自身 fixture 隔离 | `[x]` 单提交完成，待主控复核/合并 |
 | WS-2 | prod admin bootstrap + STAFF/学生初始口令硬化 | `[x]` **待复核**（2026-07-15） |
 | WS-10 | 移除默认 dev profile + profile fail-fast | `[x]` **待复核**（2026-07-20） |
+| WS-13 | RBAC 授权天花板（防自提权守卫） | `[x]` **待复核**（2026-07-20） |
 
 ## 阶段汇总
 | Phase | 名称 | 优先级 | 任务数 | 完成 | 状态 |

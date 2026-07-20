@@ -8,9 +8,40 @@ import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
+import java.util.Collection;
 import java.util.List;
 
 public interface SysRolePermissionMapper extends BaseMapper<SysRolePermission> {
+
+    /**
+     * Serializes all application RBAC mutations on one stable row. Callers must hold a transaction
+     * and acquire this lock before any consistent read of authorization state.
+     */
+    @Select("""
+            SELECT id
+             FROM sys_permission
+             WHERE code = 'system:role:manage'
+             FOR UPDATE
+            """)
+    Long lockAuthorizationState();
+
+    /**
+     * Loads the caller's currently effective grants. Authorization ceiling checks must use this
+     * database view instead of the permission codes carried in the request's UserContext.
+     */
+    @Select("""
+            SELECT rp.*
+              FROM sys_role_permission rp
+              JOIN sys_permission p ON p.id = rp.permission_id AND p.deleted = 0 AND p.status = 1
+              JOIN sys_user_role ur ON ur.role_id = rp.role_id AND ur.deleted = 0
+              JOIN sys_role r ON r.id = rp.role_id AND r.deleted = 0 AND r.status = 1
+              JOIN sys_user u ON u.id = ur.user_id AND u.deleted = 0 AND u.status = 'ENABLED'
+             WHERE ur.user_id = #{userId}
+               AND rp.deleted = 0
+             ORDER BY rp.permission_id,
+                      FIELD(rp.scope_type, 'SYSTEM', 'SCHOOL', 'LOGIN_ALL', 'COLLEGE', 'SELF', 'ASSIGNED', 'NONE')
+            """)
+    List<SysRolePermission> selectEffectiveByUserId(@Param("userId") Long userId);
 
     @Select("""
             SELECT DISTINCT rp.scope_type
@@ -33,6 +64,19 @@ public interface SysRolePermissionMapper extends BaseMapper<SysRolePermission> {
              ORDER BY permission_id
             """)
     List<SysRolePermission> selectByRoleId(@Param("roleId") Long roleId);
+
+    @Select({
+            "<script>",
+            "SELECT * FROM sys_role_permission",
+            "WHERE deleted = 0",
+            "AND role_id IN",
+            "<foreach collection='roleIds' item='roleId' open='(' separator=',' close=')'>",
+            "#{roleId}",
+            "</foreach>",
+            "ORDER BY role_id, permission_id, id",
+            "</script>"
+    })
+    List<SysRolePermission> selectByRoleIds(@Param("roleIds") Collection<Long> roleIds);
 
     @Update("""
             UPDATE sys_role_permission

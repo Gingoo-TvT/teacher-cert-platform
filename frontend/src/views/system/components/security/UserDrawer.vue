@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { reactive, ref } from 'vue'
 import { useMessage, type FormInst, type FormRules, type SelectOption } from 'naive-ui'
-import { assignUserRoles, createUser, updateUser, type User, type UserPayload } from '@/api/security'
+import { createUser, updateUser, type User, type UserPayload } from '@/api/security'
 
 defineProps<{
   roleOptions: SelectOption[]
@@ -88,7 +88,6 @@ async function saveUser() {
     }
     if (editingUserId.value) {
       await updateUser(editingUserId.value, payload)
-      await assignUserRoles(editingUserId.value, payload.roleIds)
     } else {
       await createUser(payload)
     }

@@ -82,6 +82,7 @@ public class SecurityAdminServiceImpl implements SecurityAdminService {
     private final TokenRevocationService tokenRevocationService;
     private final Environment environment;
     private final DataScopeService dataScopeService;
+    private final RbacAuthorizationGuard authorizationGuard;
 
     @Value("${platform.security.initial-password:}")
     private String initialPassword;
@@ -154,6 +155,8 @@ public class SecurityAdminServiceImpl implements SecurityAdminService {
         if (userMapper.selectByUsername(request.getUsername().trim()) != null) {
             throw new BizException("用户名已存在");
         }
+        authorizationGuard.assertCanSetUserAuthorization(
+                null, request.getRoleIds(), request.getCollegeId(), List.of(), List.of());
         SysUser user = new SysUser();
         user.setUsername(request.getUsername().trim());
         user.setPasswordHash(passwordEncoder.encode(initialPassword));
@@ -177,9 +180,16 @@ public class SecurityAdminServiceImpl implements SecurityAdminService {
         boolean student = "STUDENT".equals(user.getUserType());
         if (student) {
             ensureStudentBindingUnchanged(user, request);
+            ensureStudentRoleOnly(request.getRoleIds());
         } else {
             ensureStaffHasNoStudentBinding(request);
         }
+        authorizationGuard.assertCanSetUserAuthorization(
+                id,
+                request.getRoleIds(),
+                request.getCollegeId(),
+                userDataScopeMapper.selectCollegeIds(id),
+                userDataScopeMapper.selectMajorIds(id));
         String username = request.getUsername().trim();
         SysUser exists = userMapper.selectByUsername(username);
         if (exists != null && !exists.getId().equals(id)) {
@@ -214,6 +224,7 @@ public class SecurityAdminServiceImpl implements SecurityAdminService {
     public void deleteUser(Long id) {
         ensureSchoolUserManagement();
         requireUser(id);
+        authorizationGuard.assertCanManageUser(id);
         userMapper.deleteById(id);
     }
 
@@ -222,6 +233,7 @@ public class SecurityAdminServiceImpl implements SecurityAdminService {
     public String resetPassword(Long id) {
         ensureSchoolUserManagement();
         SysUser user = requireUser(id);
+        authorizationGuard.assertCanManageUser(id);
         String studentTemporaryPassword = null;
         String newPassword;
         if ("STUDENT".equals(user.getUserType())) {
@@ -273,6 +285,9 @@ public class SecurityAdminServiceImpl implements SecurityAdminService {
     }
 
     private void ensureSchoolUserManagement() {
+        // This must be the first database operation in every user-authorization write. Under
+        // MySQL REPEATABLE READ, taking it later would retain a pre-lock snapshot and allow write skew.
+        authorizationGuard.lockAuthorizationState();
         DataScopeContext.Scope scope = dataScopeService.resolve("system:user:manage");
         if (scope != null && scope.allSchool()) {
             return;
@@ -284,7 +299,16 @@ public class SecurityAdminServiceImpl implements SecurityAdminService {
     @Transactional(rollbackFor = Exception.class)
     public void assignUserRoles(Long id, UserRoleAssignRequest request) {
         ensureSchoolUserManagement();
-        requireUser(id);
+        SysUser user = requireUser(id);
+        if ("STUDENT".equals(user.getUserType())) {
+            ensureStudentRoleOnly(request.getRoleIds());
+        }
+        authorizationGuard.assertCanSetUserAuthorization(
+                id,
+                request.getRoleIds(),
+                user.getCollegeId(),
+                userDataScopeMapper.selectCollegeIds(id),
+                userDataScopeMapper.selectMajorIds(id));
         replaceUserRoles(id, request.getRoleIds());
     }
 
@@ -292,11 +316,13 @@ public class SecurityAdminServiceImpl implements SecurityAdminService {
     @Transactional(rollbackFor = Exception.class)
     public void assignUserDataScope(Long id, UserDataScopeRequest request) {
         ensureSchoolUserManagement();
-        requireUser(id);
+        SysUser user = requireUser(id);
         LinkedHashSet<Long> collegeIds = new LinkedHashSet<>(request.getCollegeIds() == null ? List.of() : request.getCollegeIds());
         LinkedHashSet<Long> majorIds = new LinkedHashSet<>(request.getMajorIds() == null ? List.of() : request.getMajorIds());
         collegeIds.forEach(this::requireCollege);
         majorIds.forEach(this::requireMajor);
+        authorizationGuard.assertCanSetUserAuthorization(
+                id, userRoleMapper.selectRoleIds(id), user.getCollegeId(), collegeIds, majorIds);
         // 先物理删除旧授权再重建：主键由 ASSIGN_ID 生成、审计字段由 AuditMetaObjectHandler 自动填充，
         // 规避复用合成 id 且唯一键不含 deleted 导致的唯一冲突/授权错乱（P0-14）。
         userDataScopeMapper.deleteByUserId(id);
@@ -329,6 +355,7 @@ public class SecurityAdminServiceImpl implements SecurityAdminService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Long createRole(RoleSaveRequest request) {
+        authorizationGuard.requireSystemRoleManagement();
         String code = normalizeRequired(request.getCode(), "角色编码不能为空");
         if (roleMapper.selectOne(new LambdaQueryWrapper<SysRole>().eq(SysRole::getCode, code).last("LIMIT 1")) != null) {
             throw new BizException("角色编码已存在");
@@ -343,7 +370,9 @@ public class SecurityAdminServiceImpl implements SecurityAdminService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void updateRole(Long id, RoleSaveRequest request) {
+        authorizationGuard.requireSystemRoleManagement();
         SysRole role = requireRole(id);
+        authorizationGuard.assertCanManageRole(id);
         String code = normalizeRequired(request.getCode(), "角色编码不能为空");
         SysRole exists = roleMapper.selectOne(new LambdaQueryWrapper<SysRole>().eq(SysRole::getCode, code).last("LIMIT 1"));
         if (exists != null && !exists.getId().equals(id)) {
@@ -357,13 +386,16 @@ public class SecurityAdminServiceImpl implements SecurityAdminService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void deleteRole(Long id) {
+        authorizationGuard.requireSystemRoleManagement();
         requireRole(id);
+        authorizationGuard.assertCanManageRole(id);
         roleMapper.deleteById(id);
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void assignRolePermissions(Long id, RolePermissionAssignRequest request) {
+        authorizationGuard.requireSystemRoleManagement();
         requireRole(id);
         // 先校验并按权限去重（同一权限多次出现时以最后一次范围为准，规避唯一键冲突）。
         LinkedHashMap<Long, String> scopeByPermission = new LinkedHashMap<>();
@@ -375,6 +407,7 @@ public class SecurityAdminServiceImpl implements SecurityAdminService {
             }
             scopeByPermission.put(item.getPermissionId(), scopeType);
         }
+        authorizationGuard.assertCanSetRolePermissions(id, scopeByPermission);
         // 物理删除旧授权后重建：主键 ASSIGN_ID、审计字段自动填充，规避 id 复用 + 唯一键缺 deleted 冲突（P0-14）。
         rolePermissionMapper.deleteByRoleId(id);
         scopeByPermission.forEach((permissionId, scopeType) -> {
@@ -453,6 +486,20 @@ public class SecurityAdminServiceImpl implements SecurityAdminService {
                 || !Objects.equals(user.getCollegeId(), request.getCollegeId())
                 || !Objects.equals(user.getStudentId(), request.getStudentId())) {
             throw new BizException("学生账号的用户名、学院和学生绑定只能通过学生管理维护");
+        }
+    }
+
+    private void ensureStudentRoleOnly(List<Long> roleIds) {
+        LinkedHashSet<Long> unique = roleIds == null
+                ? new LinkedHashSet<>()
+                : new LinkedHashSet<>(roleIds);
+        if (unique.size() != 1) {
+            throw new BizException("学生账号只能绑定系统 STUDENT 角色");
+        }
+        Long roleId = unique.iterator().next();
+        SysRole role = roleId == null ? null : roleMapper.selectById(roleId);
+        if (role == null || !"STUDENT".equals(role.getCode())) {
+            throw new BizException("学生账号只能绑定系统 STUDENT 角色");
         }
     }
 

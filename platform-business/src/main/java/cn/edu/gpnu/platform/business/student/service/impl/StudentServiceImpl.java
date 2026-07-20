@@ -20,9 +20,11 @@ import cn.edu.gpnu.platform.common.api.ResultCode;
 import cn.edu.gpnu.platform.common.context.DataScopeContext;
 import cn.edu.gpnu.platform.common.context.UserContext;
 import cn.edu.gpnu.platform.common.exception.BizException;
+import cn.edu.gpnu.platform.security.service.RbacAuthorizationGuard;
 import cn.edu.gpnu.platform.system.entity.SysRole;
 import cn.edu.gpnu.platform.system.entity.SysUser;
 import cn.edu.gpnu.platform.system.mapper.SysRoleMapper;
+import cn.edu.gpnu.platform.system.mapper.SysUserDataScopeMapper;
 import cn.edu.gpnu.platform.system.mapper.SysUserMapper;
 import cn.edu.gpnu.platform.system.mapper.SysUserRoleMapper;
 import cn.edu.gpnu.platform.system.service.AuditLogService;
@@ -41,13 +43,14 @@ import org.springframework.util.StringUtils;
 
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Objects;
 
 @Service
 @RequiredArgsConstructor
 public class StudentServiceImpl implements StudentService {
 
-    private static final long STUDENT_ROLE_ID = 800000000000000001L;
     private static final long SYS_OPERATOR = 0L;
     private static final String DEV_PUBLIC_INITIAL_PASSWORD = "ChangeMe123!";
     private static final String EXAMPLE_INITIAL_PASSWORD = "change-me-strong-staff-initial-password";
@@ -59,6 +62,8 @@ public class StudentServiceImpl implements StudentService {
     private final SysUserMapper userMapper;
     private final SysRoleMapper roleMapper;
     private final SysUserRoleMapper userRoleMapper;
+    private final SysUserDataScopeMapper userDataScopeMapper;
+    private final RbacAuthorizationGuard authorizationGuard;
     private final PasswordEncoder passwordEncoder;
     private final DataScopeService dataScopeService;
     private final ParamService paramService;
@@ -116,6 +121,7 @@ public class StudentServiceImpl implements StudentService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Long create(StudentSaveRequest request) {
+        authorizationGuard.lockAuthorizationState();
         Student entity = new Student();
         fill(entity, request, false, true);
         entity.setStatus(StudentStatus.DRAFT.name());
@@ -147,6 +153,7 @@ public class StudentServiceImpl implements StudentService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void update(Long id, StudentSaveRequest request) {
+        authorizationGuard.lockAuthorizationState();
         Student entity = requireStudent(id);
         fill(entity, request, true, true);
         studentMapper.updateById(entity);
@@ -156,8 +163,10 @@ public class StudentServiceImpl implements StudentService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void delete(Long id) {
+        authorizationGuard.lockAuthorizationState();
         Student entity = requireStudent(id);
         ensureEditable(entity, "删除");
+        ensureStudentAccountCanBeDisabled(id);
         studentMapper.deleteById(id);
         // P0-12：同步停用该学生的登录账号，防删除/退学后仍可登录（JWT filter 每请求校验 status=ENABLED，旧 token 下次请求即失效）
         userMapper.update(null, new LambdaUpdateWrapper<SysUser>()
@@ -387,6 +396,8 @@ public class StudentServiceImpl implements StudentService {
             if (!paramService.getBoolean("student.autoCreateAccount", false)) {
                 return;
             }
+            StudentRoleBinding roleBinding = authorizeStudentRoleBinding(
+                    null, null, student.getCollegeId());
             StudentBootstrapPassword bootstrapPassword = initialPassword();
             user = new SysUser();
             user.setUsername(student.getStudentNo());
@@ -399,10 +410,13 @@ public class StudentServiceImpl implements StudentService {
             user.setCollegeId(student.getCollegeId());
             user.setStudentId(student.getId());
             userMapper.insert(user);
+            userRoleMapper.upsert(IdWorker.getId(), user.getId(), roleBinding.roleId(), SYS_OPERATOR);
         } else {
             if (!"STUDENT".equals(user.getUserType())) {
                 throw new BizException("学号已被其他账号使用，不能自动绑定学生账号");
             }
+            StudentRoleBinding roleBinding = authorizeStudentRoleBinding(
+                    user.getId(), user.getCollegeId(), student.getCollegeId());
             // 只更新资料字段，避免整行 updateById 把并发改密、停用或锁定后的凭据状态写回旧快照。
             int updated = userMapper.update(new LambdaUpdateWrapper<SysUser>()
                     .eq(SysUser::getId, user.getId())
@@ -417,8 +431,68 @@ public class StudentServiceImpl implements StudentService {
             if (updated != 1) {
                 throw new BizException("学生账号绑定发生并发冲突，请刷新后重试");
             }
+            if (roleBinding.assignmentRequired()) {
+                userRoleMapper.upsert(IdWorker.getId(), user.getId(), roleBinding.roleId(), SYS_OPERATOR);
+            }
         }
-        userRoleMapper.upsert(IdWorker.getId(), user.getId(), studentRoleId(), SYS_OPERATOR);
+    }
+
+    private StudentRoleBinding authorizeStudentRoleBinding(Long userId,
+                                                           Long currentHomeCollegeId,
+                                                           Long requestedHomeCollegeId) {
+        Long studentRoleId = studentRoleId();
+        List<Long> currentRoleIds = userId == null
+                ? List.of()
+                : safeIds(userRoleMapper.selectRoleIds(userId));
+        if (currentRoleIds.stream().anyMatch(roleId -> !studentRoleId.equals(roleId))) {
+            throw new BizException(ResultCode.FORBIDDEN.getCode(), "学生账号仅允许绑定系统 STUDENT 角色");
+        }
+        LinkedHashSet<Long> mergedRoleIds = new LinkedHashSet<>(currentRoleIds);
+        boolean assignmentRequired = mergedRoleIds.add(studentRoleId);
+        boolean authorizationChanged = userId == null
+                || assignmentRequired
+                || !Objects.equals(currentHomeCollegeId, requestedHomeCollegeId);
+        if (authorizationChanged) {
+            List<Long> collegeIds = userId == null
+                    ? List.of()
+                    : safeIds(userDataScopeMapper.selectCollegeIds(userId));
+            List<Long> majorIds = userId == null
+                    ? List.of()
+                    : safeIds(userDataScopeMapper.selectMajorIds(userId));
+            authorizationGuard.assertCanSetUserAuthorization(
+                    userId, List.copyOf(mergedRoleIds), requestedHomeCollegeId, collegeIds, majorIds);
+        }
+        return new StudentRoleBinding(studentRoleId, assignmentRequired);
+    }
+
+    private void ensureStudentAccountCanBeDisabled(Long studentId) {
+        SysUser account = userMapper.selectOne(new LambdaQueryWrapper<SysUser>()
+                .eq(SysUser::getStudentId, studentId));
+        if (account == null) {
+            return;
+        }
+        if (!"STUDENT".equals(account.getUserType())) {
+            throw invalidStudentAccountAuthorization();
+        }
+        List<Long> roleIds = safeIds(userRoleMapper.selectRoleIds(account.getId()));
+        if (!roleIds.isEmpty()) {
+            Long studentRoleId = studentRoleId();
+            if (roleIds.stream().anyMatch(roleId -> !studentRoleId.equals(roleId))) {
+                throw invalidStudentAccountAuthorization();
+            }
+        }
+        authorizationGuard.assertCanManageUser(account.getId());
+    }
+
+    private BizException invalidStudentAccountAuthorization() {
+        return new BizException(ResultCode.FORBIDDEN.getCode(), "学生账号授权异常，不能通过学生管理停用");
+    }
+
+    private List<Long> safeIds(List<Long> ids) {
+        return ids == null ? List.of() : List.copyOf(ids);
+    }
+
+    private record StudentRoleBinding(Long roleId, boolean assignmentRequired) {
     }
 
     // 默认关闭自动开户。若显式开启但仍使用 random/idcard6，则只创建停用账号；随机值只形成不可猜的占位哈希，
@@ -464,7 +538,10 @@ public class StudentServiceImpl implements StudentService {
         SysRole role = roleMapper.selectOne(new LambdaQueryWrapper<SysRole>()
                 .eq(SysRole::getCode, "STUDENT")
                 .last("LIMIT 1"));
-        return role == null ? STUDENT_ROLE_ID : role.getId();
+        if (role == null || role.getId() == null) {
+            throw new BizException(ResultCode.FORBIDDEN.getCode(), "系统 STUDENT 角色不可用");
+        }
+        return role.getId();
     }
 
     private StudentVO toVO(Student entity, boolean plain) {

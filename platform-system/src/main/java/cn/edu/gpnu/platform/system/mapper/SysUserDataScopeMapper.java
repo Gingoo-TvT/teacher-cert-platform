@@ -8,6 +8,7 @@ import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
+import java.util.Collection;
 import java.util.List;
 
 public interface SysUserDataScopeMapper extends BaseMapper<SysUserDataScope> {
@@ -31,6 +32,19 @@ public interface SysUserDataScopeMapper extends BaseMapper<SysUserDataScope> {
              ORDER BY major_id
             """)
     List<Long> selectMajorIds(@Param("userId") Long userId);
+
+    @Select({
+            "<script>",
+            "SELECT * FROM sys_user_data_scope",
+            "WHERE deleted = 0",
+            "AND user_id IN",
+            "<foreach collection='userIds' item='userId' open='(' separator=',' close=')'>",
+            "#{userId}",
+            "</foreach>",
+            "ORDER BY user_id, id",
+            "</script>"
+    })
+    List<SysUserDataScope> selectByUserIds(@Param("userIds") Collection<Long> userIds);
 
     @Update("""
             UPDATE sys_user_data_scope

@@ -174,6 +174,8 @@ public class AuthService {
         vo.setMustChangePwd(user.getMustChangePwd() != null && user.getMustChangePwd() == 1);
         vo.setUserManagementWritable(
                 dataScopeService.hasAllSchoolScope(user.getId(), "system:user:manage"));
+        vo.setRoleManagementWritable(
+                dataScopeService.hasSystemScope(user.getId(), "system:role:manage"));
         vo.setRoles(new ArrayList<>(user.getRoles()));
         vo.setPermissions(new ArrayList<>(user.getPermissions()));
         return vo;

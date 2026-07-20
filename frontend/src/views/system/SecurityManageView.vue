@@ -61,7 +61,9 @@ const majorOptions = computed<SelectOption[]>(() =>
 const canManageUsers = computed(() => userStore.hasPerm('system:user:manage'))
 const canWriteUsers = computed(() => Boolean(userStore.currentUser?.userManagementWritable))
 const canManageRoles = computed(() => userStore.hasPerm('system:role:manage'))
+const canWriteRoles = computed(() => Boolean(userStore.currentUser?.roleManagementWritable))
 const canManagePerms = computed(() => userStore.hasPerm('system:perm:manage'))
+const canReadPermissionTree = computed(() => canManagePerms.value || canWriteRoles.value)
 const hasVisibleSection = computed(() => canManageUsers.value || canManageRoles.value || canManagePerms.value)
 // Phase 44e-contract（P1-1 真分页样例）：真分页后 users 仅为当页数据，用户总数改用后端 total；
 // 原「启用用户」为本地按当页 status 过滤统计，翻页后不再代表全量，故移除（不再具备统计意义）。
@@ -119,7 +121,7 @@ const roleColumns: DataTableColumns<Role> = [
     key: 'actions',
     width: 210,
     render: (row) =>
-      canManageRoles.value
+      canWriteRoles.value
         ? renderTableActions([
             h(NButton, { size: 'small', quaternary: true, onClick: () => roleDrawerRef.value?.open(row) }, { default: () => '编辑' }),
             h(NButton, { size: 'small', quaternary: true, onClick: () => rolePermDrawerRef.value?.open(row) }, { default: () => '授权' }),
@@ -197,7 +199,7 @@ async function loadRoles() {
 }
 
 async function loadPermissions() {
-  if (!canManagePerms.value) {
+  if (!canReadPermissionTree.value) {
     permissions.value = []
     return
   }
@@ -230,7 +232,7 @@ async function refreshAll() {
   }
   if (canWriteUsers.value) tasks.push(loadScopes())
   if (canManageRoles.value) tasks.push(loadRoles())
-  if (canManagePerms.value) tasks.push(loadPermissions())
+  if (canReadPermissionTree.value) tasks.push(loadPermissions())
   await Promise.all(tasks)
 }
 
@@ -420,7 +422,7 @@ onMounted(refreshAll)
             @refresh="loadRoles"
           >
             <template #actions>
-              <n-button v-if="canManageRoles" type="primary" size="small" @click="roleDrawerRef?.open()">新增角色</n-button>
+              <n-button v-if="canWriteRoles" type="primary" size="small" @click="roleDrawerRef?.open()">新增角色</n-button>
             </template>
           </DataPanel>
         </div>

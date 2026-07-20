@@ -2,8 +2,10 @@ package cn.edu.gpnu.platform.boot.config;
 
 import cn.edu.gpnu.platform.common.context.DataScopeContext;
 import cn.edu.gpnu.platform.common.exception.BizException;
+import cn.edu.gpnu.platform.security.service.RbacAuthorizationGuard;
 import cn.edu.gpnu.platform.security.service.SecurityAdminServiceImpl;
 import cn.edu.gpnu.platform.security.service.TokenRevocationService;
+import cn.edu.gpnu.platform.system.dto.UserRoleAssignRequest;
 import cn.edu.gpnu.platform.system.dto.UserSaveRequest;
 import cn.edu.gpnu.platform.system.entity.SysCollege;
 import cn.edu.gpnu.platform.system.entity.SysRole;
@@ -25,6 +27,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.core.env.Environment;
@@ -38,6 +41,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -81,6 +85,8 @@ class SecurityAdminServiceImplTest {
     private Environment environment;
     @Mock
     private DataScopeService dataScopeService;
+    @Mock
+    private RbacAuthorizationGuard authorizationGuard;
 
     private SecurityAdminServiceImpl service;
 
@@ -98,7 +104,8 @@ class SecurityAdminServiceImplTest {
                 passwordEncoder,
                 tokenRevocationService,
                 environment,
-                dataScopeService);
+                dataScopeService,
+                authorizationGuard);
         ReflectionTestUtils.setField(service, "initialPassword", "Staff-Initial-2026!");
         when(dataScopeService.resolve("system:user:manage")).thenReturn(scope(DataScopeContext.ScopeType.SCHOOL));
     }
@@ -162,7 +169,7 @@ class SecurityAdminServiceImplTest {
         when(userMapper.selectByUsername(student.getUsername())).thenReturn(student);
         when(collegeMapper.selectById(COLLEGE_ID)).thenReturn(new SysCollege());
         when(userMapper.update(any(LambdaUpdateWrapper.class))).thenReturn(1);
-        when(roleMapper.selectById(ROLE_ID)).thenReturn(new SysRole());
+        when(roleMapper.selectById(ROLE_ID)).thenReturn(role("STUDENT"));
 
         UserSaveRequest request = request(student.getUsername(), "STUDENT", COLLEGE_ID, STUDENT_ID);
         request.setRealName("更新后的姓名");
@@ -177,6 +184,36 @@ class SecurityAdminServiceImplTest {
     }
 
     @Test
+    void updateStudentRejectsAnyRoleOtherThanTheSystemStudentRole() {
+        when(userMapper.selectById(USER_ID)).thenReturn(studentUser());
+        when(collegeMapper.selectById(COLLEGE_ID)).thenReturn(new SysCollege());
+        when(roleMapper.selectById(ROLE_ID)).thenReturn(role("COLLEGE_CLERK"));
+
+        assertThatThrownBy(() -> service.updateUser(
+                USER_ID, request("student-account", "STUDENT", COLLEGE_ID, STUDENT_ID)))
+                .isInstanceOf(BizException.class)
+                .hasMessage("学生账号只能绑定系统 STUDENT 角色");
+
+        verify(authorizationGuard, never()).assertCanSetUserAuthorization(any(), any(), any(), any(), any());
+        verify(userMapper, never()).update(any(LambdaUpdateWrapper.class));
+    }
+
+    @Test
+    void assignStudentRolesRejectsMixedOrNonStudentRoles() {
+        when(userMapper.selectById(USER_ID)).thenReturn(studentUser());
+        when(roleMapper.selectById(ROLE_ID)).thenReturn(role("SYS_ADMIN"));
+        UserRoleAssignRequest request = new UserRoleAssignRequest();
+        request.setRoleIds(List.of(ROLE_ID));
+
+        assertThatThrownBy(() -> service.assignUserRoles(USER_ID, request))
+                .isInstanceOf(BizException.class)
+                .hasMessage("学生账号只能绑定系统 STUDENT 角色");
+
+        verify(authorizationGuard, never()).assertCanSetUserAuthorization(any(), any(), any(), any(), any());
+        verify(userRoleMapper, never()).deleteByUserId(anyLong());
+    }
+
+    @Test
     void nonSchoolScopeIsRejectedBeforeTargetUserLookup() {
         when(dataScopeService.resolve("system:user:manage")).thenReturn(scope(DataScopeContext.ScopeType.COLLEGE));
 
@@ -188,6 +225,20 @@ class SecurityAdminServiceImplTest {
                 .hasMessage("用户管理写操作仅限校级权限");
 
         verify(userMapper, never()).selectById(anyLong());
+    }
+
+    @Test
+    void userAuthorizationWritesLockBeforeReadingThePermissionSnapshot() {
+        when(dataScopeService.resolve("system:user:manage"))
+                .thenReturn(scope(DataScopeContext.ScopeType.COLLEGE));
+
+        assertThatThrownBy(() -> service.resetPassword(USER_ID))
+                .isInstanceOf(BizException.class)
+                .hasMessage("用户管理写操作仅限校级权限");
+
+        InOrder order = inOrder(authorizationGuard, dataScopeService);
+        order.verify(authorizationGuard).lockAuthorizationState();
+        order.verify(dataScopeService).resolve("system:user:manage");
     }
 
     private void assertStudentBindingChangeRejected(UserSaveRequest request) {
@@ -219,6 +270,13 @@ class SecurityAdminServiceImplTest {
         user.setCollegeId(COLLEGE_ID);
         user.setStudentId(STUDENT_ID);
         return user;
+    }
+
+    private SysRole role(String code) {
+        SysRole role = new SysRole();
+        role.setId(ROLE_ID);
+        role.setCode(code);
+        return role;
     }
 
     private DataScopeContext.Scope scope(DataScopeContext.ScopeType scopeType) {

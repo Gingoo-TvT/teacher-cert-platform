@@ -125,7 +125,7 @@
 - **P1 登出是空操作、令牌不可撤销**：`AuthController.logout:48` 什么都不做；无 Redis/JWT 黑名单 → 泄露的 access token 存活满 1h、refresh 满 7 天。
 - **P1 改密/重置密码不失效既有令牌**：`AuthService.changePassword:83`、`SecurityAdminServiceImpl.resetPassword:127` 只改 hash；令牌无 passwordChangedAt/版本 → 被盗后改密，旧令牌仍有效到自然过期。
 - **P1 refresh 令牌可重放不轮换**（`AuthService.refresh:74`，7 天无重用检测）。
-- **P1 RBAC 管理写无 scope、无权限天花板（自提权）**：`SystemSecurityController:51-152` 全部管理写只有 @PreAuthorize、无 @DataScope；`assignRolePermissions:216`/`assignUserRoles:260` 接受任意 permissionId（含 SYSTEM/SCHOOL 范围）/roleId → 持 `system:role:manage` 者可给自己/任何人授满 SYS_ADMIN 等价权（无"不可编辑更高权用户"守卫）。种子里仅 SYS_ADMIN@SYSTEM 持这些权，故**当前潜伏**，但是设计级授权缺口；若哪天给 COLLEGE 范围自定义角色发了这权，即可跨学院增删改用户/重置密码。
+- **P1 RBAC 管理写无 scope、无权限天花板（自提权）**：`SystemSecurityController:51-152` 全部管理写只有 @PreAuthorize、无 @DataScope；`assignRolePermissions:216`/`assignUserRoles:260` 接受任意 permissionId（含 SYSTEM/SCHOOL 范围）/roleId → 持 `system:role:manage` 者可给自己/任何人授满 SYS_ADMIN 等价权（无"不可编辑更高权用户"守卫）。种子里仅 SYS_ADMIN@SYSTEM 持这些权，故**当前潜伏**，但是设计级授权缺口；若哪天给 COLLEGE 范围自定义角色发了这权，即可跨学院增删改用户/重置密码。**✅ 已修复（WS-13，待主控复核）：** 角色写精确要求数据库有效授权 `system:role:manage@SYSTEM`，所有授权写在统一数据库锁内重载有效授权，按 7 scope 偏序校验当前态与 after-state、具体范围、停用角色潜在权限及共享角色成员完整授权，并覆盖学生账号旁路；不使用 `SYS_ADMIN` 代码特判。
 - **P2 验证码形同虚设**：`CaptchaService.svg:55` 把 4 字符明文当可选中 `<text>` 渲染，脚本直接从 SVG 读出（无需 OCR）——`/auth/login` 无真正防自动化（一次性+TTL 是对的）。
 - **P2** 管理员建的 STAFF 账号固定初始密码 `ChangeMe123!`（`SecurityAdminServiceImpl:61`，env 未设时的硬编码兜底）；RBAC 关系表 PK 用 `id*1000`（snowflake ~19 位）**long 溢出**→ 可能 PK 碰撞覆盖他人授权行（`:155,220,268`）；`plainIdCard` 忽略自己的 `plain` 参数无条件返回明文（`StudentController:129`）；多个 detail-by-id 仅靠服务层手写校验（模式脆弱，将来漏写即 IDOR）。
 - **P2（数据范围）** `StatsServiceImpl.batchVisible:556` 用 `scopeJson.contains(collegeId)` 子串匹配 → collegeId `1` 匹配 `10/11/100`（跨学院泄露）；SELF 范围统计恒空（学生看不到本人统计，`:440`）；`@DataScope` 表未在 TABLE_RULES 则**静默不过滤**（opt-in 非默认拒绝，未来给带属主新表加 @DataScope 漏配则泄露）。
@@ -344,6 +344,14 @@
 - ✅ **WS-2 协同证据**：`CredentialHardeningIT` 诚实使用 dev 的真实 testseed/DB/MinIO 夹具，验证旧公开口令失败、新 bootstrap 口令成功；新增真实 `SpringApplication` prod 正向测试，在同一上下文执行已注册 profile 守卫与 `AdminAccountInitializer`，同时保留既有 prod 缺失/弱凭据反例，无测试绕过开关。
 - ✅ **门禁**：空库 `mvn -B -ntp clean verify` 9 模块 `BUILD SUCCESS`，Surefire **36/36**、Failsafe **120/120**；其中守卫 6/6、Phase7 大分片 16/16。前端 type-check/build、生产 Compose config、`git diff --check` 均通过。首次全量发现根测试 `application.yml` 遮蔽主配置导致 1MB 上传上限，已移至 `config/` 并以隔离反例 + 最终全量闭环。
 - ⏳ **状态**：单提交、自测完成，待主控独立复核；未启动常驻应用，不自行 merge/push。
+
+### WS-13（RBAC 授权天花板＝§7.10 P1 遗留 —— 分支 `feature/ws13-rbac-ceiling`，codex 自测完成，**待主控复核**）
+- ✅ **严格委派语义**：角色写必须从数据库精确持有 `system:role:manage@SYSTEM`；操作者授权每次从数据库重载，不信任 JWT/UserContext 陈旧权限，也不按 `SYS_ADMIN` 角色码特判。7 种 scope 使用显式偏序，同权允许，高权或不可比较拒绝；用户/角色变更同时校验当前态与 after-state、具体学院/专业、停用角色潜在权限及共享角色成员通过其它角色持有的完整授权向量。
+- ✅ **锁与 TOCTOU**：所有 RBAC 写事务先锁定 `sys_permission.code='system:role:manage'` 行，守卫强制 `@Transactional(MANDATORY)`；共享角色成员授权批量加载，避免锁内 N+1。专业归属使用 `SELECT ... FOR UPDATE`，与组织侧迁移行锁串行，具体范围校验不再读取可过期归属。
+- ✅ **业务旁路与前端**：用户创建/修改/删除/重置密码/角色分配/数据范围分配、角色创建/修改/删除/权限分配，以及学生开户、绑定、学院迁移和删除停用账号均接入守卫。`/me.roleManagementWritable` 仅精确 SYSTEM 为 true；权限树允许角色管理员读取，角色授权抽屉逐权限显式选择 scope，新勾选未选择范围时不能保存，角色写按钮按 writable 契约显示。
+- ✅ **审查补修**：学生删除始终校验绑定账号；共享角色变更按成员完整授权向量拒绝间接越权；专业到学院解析改锁定读。真实 MySQL 反例覆盖低权管理员修改、清权或删除高权成员共享角色，及学生删除账号旁路，失败均回滚；同权委派和 SYSTEM 非 `SYS_ADMIN` 管理员正例保留。
+- ✅ **门禁与状态**：0 表 schema `teacher_cert_ws13_final_20260720_203546` 执行 9 模块 `mvn -B -ntp clean verify`，Surefire **121/121**、Failsafe **125/125**、Failures/Errors/Skipped=0，Flyway 最高仍 V27；前端 type-check/build 通过。无迁移，保持“待复核”，仅交付 WS-13 单提交，不 merge/push。
+- ⚠️ **性能权衡**：为保证 REPEATABLE READ 下授权快照一致，学生 create/update/delete（含批量创建外层事务）也会持有同一全局 RBAC 行锁，因而学生写与权限管理被串行化。当前选择正确性优先；上线压测若证明不可接受，后续收窄锁范围时必须保留“首个授权相关数据库读取前加锁”和统一锁顺序。
 
 ### Phase 37a-part1 ✅ 已完成并合并（`72beeaf`，mvn verify 83/83 绿 + 前端 build 绿）
 - ✅ **P0-1 文件预签名 IDOR** — 删除无属主校验的 `GET /file/{id}/url`（无任何调用方，合法访问走带范围校验的业务端点）。**活体：** 学院B学生带 token 请求 → `data=None` 拿不到下载 URL（原可下载出学院A学生材料字节）。

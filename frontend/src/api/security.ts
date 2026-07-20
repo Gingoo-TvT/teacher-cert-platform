@@ -43,9 +43,21 @@ export interface Permission {
   path?: string | null
   sort: number
   status: number
-  scopeType?: string | null
+  scopeType?: RolePermissionScopeType | null
   children: Permission[]
 }
+
+export const ROLE_PERMISSION_SCOPE_TYPES = [
+  'SYSTEM',
+  'SCHOOL',
+  'LOGIN_ALL',
+  'COLLEGE',
+  'SELF',
+  'ASSIGNED',
+  'NONE'
+] as const
+
+export type RolePermissionScopeType = (typeof ROLE_PERMISSION_SCOPE_TYPES)[number]
 
 export interface UserPayload {
   username: string
@@ -70,7 +82,11 @@ export interface RolePayload {
 
 export interface RolePermissionItem {
   permissionId: string
-  scopeType: string
+  scopeType: RolePermissionScopeType
+}
+
+export function isRolePermissionScopeType(value: unknown): value is RolePermissionScopeType {
+  return typeof value === 'string' && ROLE_PERMISSION_SCOPE_TYPES.some((scope) => scope === value)
 }
 
 export interface UserDataScopePayload {

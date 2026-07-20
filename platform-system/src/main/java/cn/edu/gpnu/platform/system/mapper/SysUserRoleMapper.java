@@ -8,6 +8,7 @@ import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
+import java.util.Collection;
 import java.util.List;
 
 public interface SysUserRoleMapper extends BaseMapper<SysUserRole> {
@@ -20,6 +21,31 @@ public interface SysUserRoleMapper extends BaseMapper<SysUserRole> {
              ORDER BY role_id
             """)
     List<Long> selectRoleIds(@Param("userId") Long userId);
+
+    @Select("""
+            SELECT DISTINCT ur.user_id
+              FROM sys_user_role ur
+              JOIN sys_user u ON u.id = ur.user_id AND u.deleted = 0
+             WHERE ur.role_id = #{roleId}
+               AND ur.deleted = 0
+             ORDER BY ur.user_id
+            """)
+    List<Long> selectUserIdsByRoleId(@Param("roleId") Long roleId);
+
+    @Select({
+            "<script>",
+            "SELECT * FROM sys_user_role",
+            "WHERE deleted = 0",
+            "AND role_id != #{excludedRoleId}",
+            "AND user_id IN",
+            "<foreach collection='userIds' item='userId' open='(' separator=',' close=')'>",
+            "#{userId}",
+            "</foreach>",
+            "ORDER BY user_id, role_id, id",
+            "</script>"
+    })
+    List<SysUserRole> selectByUserIdsExcludingRole(@Param("userIds") Collection<Long> userIds,
+                                                   @Param("excludedRoleId") Long excludedRoleId);
 
     @Update("""
             UPDATE sys_user_role

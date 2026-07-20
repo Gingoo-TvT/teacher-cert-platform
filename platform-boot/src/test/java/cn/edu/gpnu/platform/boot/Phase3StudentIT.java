@@ -87,6 +87,7 @@ class Phase3StudentIT {
         resetUser("test_college_clerk", true);
         resetUser("test_college_auditor", true);
         resetUser("test_academic_admin", true);
+        resetUser("test_sys_admin", true);
     }
 
     @Test
@@ -317,10 +318,20 @@ class Phase3StudentIT {
                 .eq(Student::getStudentNo, orphanStudentNo))).isNull();
 
         // 显式开启但使用 random 时只创建停用账号；随机明文不外发，须管理员受控重置后才会启用。
+        LoginResult sysAdmin = readyLogin("test_sys_admin");
         setStudentAccountParams(true, "random");
+        String deniedStudentNo = uniqueNo("P3CEILING");
+        ResponseEntity<String> deniedAutoAccount = exchange("/api/student", HttpMethod.POST,
+                academic.accessToken(), student(deniedStudentNo, "委派拦截", "hm_travel_permit",
+                        uniqueTravelPermit("G"), "2000/1/2", COLLEGE_A));
+        assertThat(json(deniedAutoAccount).at("/code").asInt()).isEqualTo(403);
+        assertThat(userMapper.selectByUsername(deniedStudentNo)).isNull();
+        assertThat(studentMapper.selectOne(new LambdaQueryWrapper<Student>()
+                .eq(Student::getStudentNo, deniedStudentNo))).isNull();
+
         String randomStudentNo = uniqueNo("P3RANDOMPWD");
         String randomPermitNo = uniqueTravelPermit("R");
-        create(academic.accessToken(), student(randomStudentNo, "随机口令", "hm_travel_permit",
+        create(sysAdmin.accessToken(), student(randomStudentNo, "随机口令", "hm_travel_permit",
                 randomPermitNo, "2000/1/2", COLLEGE_A));
         SysUser randomAccount = userMapper.selectByUsername(randomStudentNo);
         assertThat(randomAccount).isNotNull();
@@ -335,7 +346,7 @@ class Phase3StudentIT {
         setStudentAccountParams(true, controlledPassword);
         String controlledStudentNo = uniqueNo("P3CONTROLLEDPWD");
         String controlledPermitNo = uniqueTravelPermit("C");
-        long controlledStudentId = create(academic.accessToken(), student(controlledStudentNo, "受控口令", "hm_travel_permit",
+        long controlledStudentId = create(sysAdmin.accessToken(), student(controlledStudentNo, "受控口令", "hm_travel_permit",
                 controlledPermitNo, "2000/1/2", COLLEGE_A));
         SysUser controlledAccount = userMapper.selectByUsername(controlledStudentNo);
         assertThat(controlledAccount).isNotNull();
@@ -364,13 +375,42 @@ class Phase3StudentIT {
 
         // 显式受控口令仍必须达到强度要求，弱值不得创建可登录账号。
         setStudentAccountParams(true, "weak");
-        assertCreateFails(academic.accessToken(), student(uniqueNo("P3WEAKPWD"), "弱口令", "hm_travel_permit",
+        assertCreateFails(sysAdmin.accessToken(), student(uniqueNo("P3WEAKPWD"), "弱口令", "hm_travel_permit",
                 uniqueTravelPermit("W"), "2000/1/2", COLLEGE_A),
                 "student.defaultPwd 必须为 12-64 位并包含大小写字母、数字和特殊字符");
         setStudentAccountParams(true, INITIAL_PASSWORD);
-        assertCreateFails(academic.accessToken(), student(uniqueNo("P3PUBLICPWD"), "公开口令", "hm_travel_permit",
+        assertCreateFails(sysAdmin.accessToken(), student(uniqueNo("P3PUBLICPWD"), "公开口令", "hm_travel_permit",
                 uniqueTravelPermit("D"), "2000/1/2", COLLEGE_A),
                 "student.defaultPwd 不得使用公开 dev/示例口令");
+    }
+
+    @Test
+    void deletingABoundStudentAccountRespectsTheAuthorizationCeiling() throws Exception {
+        LoginResult sysAdmin = readyLogin("test_sys_admin");
+        LoginResult academic = readyLogin("test_academic_admin");
+        setStudentAccountParams(true, "Student-Delete-2026!");
+
+        String studentNo = uniqueNo("P3DELETECEILING");
+        long studentId = create(sysAdmin.accessToken(), student(
+                studentNo, "删除天花板", "hm_travel_permit", uniqueTravelPermit("Z"),
+                "2000/1/2", COLLEGE_A));
+        SysUser account = userMapper.selectByUsername(studentNo);
+        assertThat(account).isNotNull();
+        assertThat(account.getStatus()).isEqualTo("ENABLED");
+
+        ResponseEntity<String> denied = exchange(
+                "/api/student/" + studentId, HttpMethod.DELETE, academic.accessToken(), null);
+        assertThat(denied.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(json(denied).at("/code").asInt()).isEqualTo(403);
+        assertThat(studentMapper.selectById(studentId)).isNotNull();
+        assertThat(userMapper.selectById(account.getId()).getStatus()).isEqualTo("ENABLED");
+
+        ResponseEntity<String> deleted = exchange(
+                "/api/student/" + studentId, HttpMethod.DELETE, sysAdmin.accessToken(), null);
+        assertThat(deleted.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(json(deleted).at("/code").asInt()).isEqualTo(0);
+        assertThat(studentMapper.selectById(studentId)).isNull();
+        assertThat(userMapper.selectById(account.getId()).getStatus()).isEqualTo("DISABLED");
     }
 
     @Test
@@ -604,6 +644,12 @@ class Phase3StudentIT {
     }
 
     private void cleanupGeneratedStudents() {
+        userMapper.selectList(new LambdaQueryWrapper<SysUser>()
+                        .eq(SysUser::getUserType, "STUDENT")
+                        .and(w -> w.likeRight(SysUser::getUsername, "P3")
+                                .or()
+                                .likeRight(SysUser::getUsername, "00P3")))
+                .forEach(user -> userRoleMapper.deleteByUserId(user.getId()));
         userMapper.delete(new LambdaQueryWrapper<SysUser>()
                 .eq(SysUser::getUserType, "STUDENT")
                 .and(w -> w.likeRight(SysUser::getUsername, "P3")

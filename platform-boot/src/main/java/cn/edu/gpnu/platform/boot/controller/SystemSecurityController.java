@@ -153,7 +153,7 @@ public class SystemSecurityController {
     }
 
     @Operation(summary = "权限树")
-    @PreAuthorize("@pms.has('system:perm:manage')")
+    @PreAuthorize("@pms.has('system:perm:manage') or @pms.has('system:role:manage')")
     @GetMapping("/permission/tree")
     public Result<List<PermissionVO>> permissionTree() {
         return Result.ok(securityAdminService.permissionTree());

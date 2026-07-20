@@ -7,6 +7,7 @@ import cn.edu.gpnu.platform.system.mapper.SysUserDataScopeMapper;
 import cn.edu.gpnu.platform.system.service.DataScopeService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -52,6 +53,15 @@ public class DataScopeServiceImpl implements DataScopeService {
         return scopeType == DataScopeContext.ScopeType.SCHOOL
                 || scopeType == DataScopeContext.ScopeType.SYSTEM
                 || scopeType == DataScopeContext.ScopeType.LOGIN_ALL;
+    }
+
+    @Override
+    public boolean hasSystemScope(Long userId, String permissionCode) {
+        if (userId == null || !StringUtils.hasText(permissionCode)) {
+            return false;
+        }
+        List<String> scopeTypes = rolePermissionMapper.selectScopeTypes(userId, permissionCode);
+        return scopeTypes != null && scopeTypes.stream().anyMatch("SYSTEM"::equals);
     }
 
     private DataScopeContext.ScopeType bestScope(List<String> values) {
