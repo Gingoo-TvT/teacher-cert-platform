@@ -5,6 +5,12 @@ import cn.edu.gpnu.platform.business.material.entity.ProcessMaterial;
 import cn.edu.gpnu.platform.business.material.mapper.ProcessMaterialMapper;
 import cn.edu.gpnu.platform.business.student.entity.Student;
 import cn.edu.gpnu.platform.business.student.mapper.StudentMapper;
+import cn.edu.gpnu.platform.file.config.MinioProperties;
+import cn.edu.gpnu.platform.file.entity.FileObject;
+import cn.edu.gpnu.platform.file.exception.MultipartUploadNotFoundException;
+import cn.edu.gpnu.platform.file.mapper.FileObjectMapper;
+import cn.edu.gpnu.platform.file.model.MultipartUploadedPart;
+import cn.edu.gpnu.platform.file.service.MultipartObjectService;
 import cn.edu.gpnu.platform.system.entity.SysParam;
 import cn.edu.gpnu.platform.system.entity.SysUser;
 import cn.edu.gpnu.platform.system.mapper.SysParamMapper;
@@ -14,6 +20,9 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.minio.GetObjectArgs;
+import io.minio.MinioClient;
+import io.minio.RemoveObjectArgs;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -35,10 +44,15 @@ import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 
 import java.time.LocalDateTime;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.zip.ZipInputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @SpringBootTest(classes = PlatformApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @TestPropertySource(properties = {
@@ -59,6 +73,7 @@ class Phase5MaterialIT {
     private static final String COURSE = "teacher_education_course";
     private static final String PRACTICE = "education_internship_practice";
     private static final String SKILL = "professional_ability_skill_training";
+    private static final long DIRECT_UPLOAD_PART_SIZE = 8L * 1024 * 1024;
 
     @LocalServerPort
     private int port;
@@ -92,6 +107,18 @@ class Phase5MaterialIT {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private MinioClient minioClient;
+
+    @Autowired
+    private MinioProperties minioProperties;
+
+    @Autowired
+    private FileObjectMapper fileObjectMapper;
+
+    @Autowired
+    private MultipartObjectService multipartObjectService;
 
     @BeforeEach
     @AfterEach
@@ -204,6 +231,385 @@ class Phase5MaterialIT {
         JsonNode studentRecords = json(studentList).at("/data/records");
         assertThat(studentRecords.size()).isEqualTo(1);
         assertThat(studentRecords.at("/0/studentId").asLong()).isEqualTo(9001L);
+    }
+
+    @Test
+    void presignedMaterialUploadCompletesIdempotentlyAndStoresExactObject() throws Exception {
+        LoginResult student = readyLogin("test_student");
+        byte[] content = ("%PDF-1.7\n"
+                + "WS-3 browser-to-MinIO material upload\n%%EOF").getBytes(StandardCharsets.UTF_8);
+
+        JsonNode init = initDirectUpload(student.accessToken(), null, 9001L, YEAR, MORALITY,
+                "direct.pdf", "application/pdf", content);
+        long fileId = jsonLong(init.at("/fileId"));
+        assertThat(init.at("/uploadMode").asText()).isEqualTo("PRESIGNED_MULTIPART");
+        assertThat(jsonLong(init.at("/partSize"))).isEqualTo(DIRECT_UPLOAD_PART_SIZE);
+        assertThat(init.at("/uploadedParts")).isEmpty();
+        assertThat(init.at("/parts")).hasSize(1);
+        assertThat(init.at("/parts/0/partNumber").asInt()).isEqualTo(1);
+
+        String etag = putPresignedPart(init.at("/parts/0/url").asText(), content);
+        Map<String, Object> completeBody = directCompleteBody(fileId, null, 9001L, YEAR, MORALITY, etag);
+        ResponseEntity<String> completed = exchange("/api/material/upload/complete", HttpMethod.POST,
+                student.accessToken(), completeBody);
+        assertThat(completed.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(json(completed).at("/code").asInt()).isZero();
+        long materialId = jsonLong(json(completed).at("/data"));
+
+        ProcessMaterial material = materialMapper.selectById(materialId);
+        assertThat(material).isNotNull();
+        assertThat(material.getStudentId()).isEqualTo(9001L);
+        assertThat(material.getAssessmentYear()).isEqualTo(YEAR);
+        assertThat(material.getCategory()).isEqualTo(MORALITY);
+        assertThat(material.getStatus()).isEqualTo("DRAFT");
+        assertThat(material.getFileId()).isEqualTo(fileId);
+
+        FileObject file = fileObjectMapper.selectById(fileId);
+        assertThat(file).isNotNull();
+        assertThat(file.getStatus()).isEqualTo("READY");
+        assertThat(file.getBizType()).isEqualTo("process-material");
+        assertThat(file.getSize()).isEqualTo((long) content.length);
+        try (java.io.InputStream in = minioClient.getObject(GetObjectArgs.builder()
+                .bucket(minioProperties.getBucket()).object(file.getObjectKey()).build())) {
+            assertThat(in.readAllBytes()).isEqualTo(content);
+        }
+
+        ResponseEntity<String> retried = exchange("/api/material/upload/complete", HttpMethod.POST,
+                student.accessToken(), completeBody);
+        assertThat(json(retried).at("/code").asInt()).isZero();
+        assertThat(jsonLong(json(retried).at("/data"))).isEqualTo(materialId);
+        assertThat(materialMapper.selectCount(new LambdaQueryWrapper<ProcessMaterial>()
+                .eq(ProcessMaterial::getFileId, fileId))).isEqualTo(1L);
+
+        LoginResult clerk = readyLogin("test_college_clerk");
+        LoginResult auditor = readyLogin("test_college_auditor");
+        approve(clerk.accessToken(), auditor.accessToken(), materialId);
+        ResponseEntity<String> lockedReplacement = initDirectUploadRaw(readyLogin("test_student").accessToken(), materialId,
+                9001L, YEAR, MORALITY, "locked-replacement.pdf", "application/pdf", content);
+        assertThat(json(lockedReplacement).at("/code").asInt()).isEqualTo(1000);
+        assertThat(json(lockedReplacement).at("/msg").asText()).contains("当前状态不可编辑");
+    }
+
+    @Test
+    void presignedMaterialUploadRejectsCrossStudentAndTamperedCompletion() throws Exception {
+        LoginResult studentA = readyLogin("test_student");
+        LoginResult studentB = readyLogin("test_student_b");
+        byte[] content = "%PDF-1.7\nWS-3 authorization\n%%EOF".getBytes(StandardCharsets.UTF_8);
+
+        ResponseEntity<String> crossStudentInit = initDirectUploadRaw(studentA.accessToken(), null,
+                9002L, YEAR, MORALITY, "cross-student.pdf", "application/pdf", content);
+        assertThat(json(crossStudentInit).at("/code").asInt()).isEqualTo(403);
+
+        String contextYear = "P5-CONTEXT";
+        JsonNode contextInit = initDirectUpload(studentA.accessToken(), null, 9001L, contextYear, MORALITY,
+                "context.pdf", "application/pdf", content);
+        long contextFileId = jsonLong(contextInit.at("/fileId"));
+        String contextEtag = putPresignedPart(contextInit.at("/parts/0/url").asText(), content);
+        ResponseEntity<String> tamperedContext = exchange("/api/material/upload/complete", HttpMethod.POST,
+                studentA.accessToken(), directCompleteBody(contextFileId, null, 9001L,
+                        "P5-TAMPERED", MORALITY, contextEtag));
+        assertThat(json(tamperedContext).at("/code").asInt()).isEqualTo(1000);
+        assertThat(json(tamperedContext).at("/msg").asText()).contains("业务绑定版本已变化");
+
+        String ownerYear = "P5-OWNER";
+        JsonNode ownerInit = initDirectUpload(studentB.accessToken(), null, 9002L, ownerYear, MORALITY,
+                "owner.pdf", "application/pdf", content);
+        long ownerFileId = jsonLong(ownerInit.at("/fileId"));
+        String ownerEtag = putPresignedPart(ownerInit.at("/parts/0/url").asText(), content);
+        ResponseEntity<String> foreignFile = exchange("/api/material/upload/complete", HttpMethod.POST,
+                studentA.accessToken(), directCompleteBody(ownerFileId, null, 9001L,
+                        ownerYear, MORALITY, ownerEtag));
+        assertThat(json(foreignFile).at("/code").asInt()).isEqualTo(1000);
+        assertThat(json(foreignFile).at("/msg").asText()).contains("无权定稿");
+
+        String etagYear = "P5-ETAG";
+        JsonNode etagInit = initDirectUpload(studentA.accessToken(), null, 9001L, etagYear, MORALITY,
+                "etag.pdf", "application/pdf", content);
+        long etagFileId = jsonLong(etagInit.at("/fileId"));
+        String validEtag = putPresignedPart(etagInit.at("/parts/0/url").asText(), content);
+        ResponseEntity<String> forgedEtag = exchange("/api/material/upload/complete", HttpMethod.POST,
+                studentA.accessToken(), directCompleteBody(etagFileId, null, 9001L,
+                        etagYear, MORALITY, validEtag + "-forged"));
+        assertThat(json(forgedEtag).at("/code").asInt()).isEqualTo(1000);
+        assertThat(json(forgedEtag).at("/msg").asText()).contains("ETag校验失败");
+        assertThat(materialMapper.selectCount(new LambdaQueryWrapper<ProcessMaterial>()
+                .in(ProcessMaterial::getAssessmentYear, contextYear, ownerYear, etagYear))).isZero();
+    }
+
+    @Test
+    void presignedMaterialUploadResumesUploadedPartsForNewAndReturnedContexts() throws Exception {
+        LoginResult student = readyLogin("test_student");
+        byte[] newContent = "%PDF-1.7\nresume-new-context\n%%EOF".getBytes(StandardCharsets.UTF_8);
+        assertDirectUploadResumes(student.accessToken(), null, "P5-RESUME", "resume-new.pdf", newContent);
+
+        String returnedYear = "P5-RETURN";
+        long materialId = uploadOk(student.accessToken(), 9001L, returnedYear, MORALITY, "returned.pdf");
+        submit(student.accessToken(), materialId);
+        LoginResult clerk = readyLogin("test_college_clerk");
+        firstReview(clerk.accessToken(), materialId, "REJECT", "请修改后重新提交");
+        assertThat(materialMapper.selectById(materialId).getStatus()).isEqualTo("FIRST_REJECTED");
+
+        byte[] returnedContent = "%PDF-1.7\nresume-returned-context\n%%EOF".getBytes(StandardCharsets.UTF_8);
+        assertDirectUploadResumes(student.accessToken(), materialId, returnedYear,
+                "resume-returned.pdf", returnedContent);
+    }
+
+    @Test
+    void presignedMaterialUploadCancelAbortsSessionAllowsRestartAndRejectsForeignOwner() throws Exception {
+        LoginResult studentA = readyLogin("test_student");
+        LoginResult studentB = readyLogin("test_student_b");
+        String year = "P5-CANCEL";
+        byte[] content = "%PDF-1.7\ncancel-and-restart-A\n%%EOF".getBytes(StandardCharsets.UTF_8);
+
+        JsonNode initial = initDirectUpload(studentA.accessToken(), null, 9001L, year, MORALITY,
+                "cancel.pdf", "application/pdf", content);
+        long initialFileId = jsonLong(initial.at("/fileId"));
+        FileObject initialFile = fileObjectMapper.selectById(initialFileId);
+
+        ResponseEntity<String> foreignCancel = exchange("/api/material/upload/" + initialFileId,
+                HttpMethod.DELETE, studentB.accessToken(), null);
+        assertThat(json(foreignCancel).at("/code").asInt()).isNotZero();
+        assertThat(json(foreignCancel).at("/msg").asText()).contains("无权");
+        assertThat(fileObjectMapper.selectById(initialFileId).getStatus()).isEqualTo("UPLOADING");
+        assertThat(multipartObjectService.listUploadedParts(initialFile.getObjectKey(),
+                initialFile.getMultipartUploadId())).isEmpty();
+
+        cancelDirectUploadOk(studentA.accessToken(), initialFileId);
+        assertThat(fileObjectMapper.selectById(initialFileId).getStatus()).isEqualTo("FAILED");
+        assertThatThrownBy(() -> multipartObjectService.listUploadedParts(initialFile.getObjectKey(),
+                initialFile.getMultipartUploadId()))
+                .isInstanceOf(MultipartUploadNotFoundException.class);
+
+        JsonNode sameHash = initDirectUpload(studentA.accessToken(), null, 9001L, year, MORALITY,
+                "cancel.pdf", "application/pdf", content);
+        long sameHashFileId = jsonLong(sameHash.at("/fileId"));
+        assertThat(sameHashFileId).isNotEqualTo(initialFileId);
+        cancelDirectUploadOk(studentA.accessToken(), sameHashFileId);
+
+        byte[] differentHash = content.clone();
+        differentHash[20] ^= 1;
+        JsonNode changed = initDirectUpload(studentA.accessToken(), null, 9001L, year, MORALITY,
+                "cancel.pdf", "application/pdf", differentHash);
+        long changedFileId = jsonLong(changed.at("/fileId"));
+        assertThat(changedFileId).isNotIn(initialFileId, sameHashFileId);
+        cancelDirectUploadOk(studentA.accessToken(), changedFileId);
+    }
+
+    @Test
+    void staleInitiatingMaterialUploadIsCasReclaimedBeforeNewSessionStarts() throws Exception {
+        LoginResult student = readyLogin("test_student");
+        String year = "P5-STALE";
+        byte[] content = "%PDF-1.7\nstale-initiating\n%%EOF".getBytes(StandardCharsets.UTF_8);
+        JsonNode initial = initDirectUpload(student.accessToken(), null, 9001L, year, MORALITY,
+                "stale.pdf", "application/pdf", content);
+        long staleFileId = jsonLong(initial.at("/fileId"));
+        FileObject staleFile = fileObjectMapper.selectById(staleFileId);
+        multipartObjectService.abortUpload(staleFile.getObjectKey(), staleFile.getMultipartUploadId());
+        int constructed = jdbcTemplate.update("UPDATE file_object SET status = 'INITIATING', updated_at = ? "
+                        + "WHERE id = ? AND status = 'UPLOADING'",
+                java.sql.Timestamp.valueOf(LocalDateTime.now().minusDays(1)), staleFileId);
+        assertThat(constructed).isEqualTo(1);
+
+        JsonNode replacement = initDirectUpload(student.accessToken(), null, 9001L, year, MORALITY,
+                "stale.pdf", "application/pdf", content);
+        long replacementFileId = jsonLong(replacement.at("/fileId"));
+        assertThat(replacementFileId).isNotEqualTo(staleFileId);
+        assertThat(fileObjectMapper.selectById(staleFileId).getStatus()).isEqualTo("FAILED");
+        assertThat(fileObjectMapper.selectById(replacementFileId).getStatus()).isEqualTo("UPLOADING");
+        cancelDirectUploadOk(student.accessToken(), replacementFileId);
+    }
+
+    @Test
+    void completingMaterialUploadRecoversReadyObjectAndBindsWithEmptyPartsIdempotently() throws Exception {
+        LoginResult student = readyLogin("test_student");
+        String year = "P5-RECOVER";
+        byte[] content = "%PDF-1.7\ncomplete-recovery\n%%EOF".getBytes(StandardCharsets.UTF_8);
+        JsonNode initial = initDirectUpload(student.accessToken(), null, 9001L, year, MORALITY,
+                "recover.pdf", "application/pdf", content);
+        long fileId = jsonLong(initial.at("/fileId"));
+        putPresignedPart(initial.at("/parts/0/url").asText(), content);
+        completeMinioObjectAndSetDatabaseStatus(fileId, "COMPLETING");
+
+        JsonNode recovered = initDirectUpload(student.accessToken(), null, 9001L, year, MORALITY,
+                "recover.pdf", "application/pdf", content);
+        assertThat(recovered.at("/uploadMode").asText()).isEqualTo("READY");
+        assertThat(jsonLong(recovered.at("/fileId"))).isEqualTo(fileId);
+        assertThat(recovered.at("/uploadedParts")).isEmpty();
+        assertThat(recovered.at("/parts")).isEmpty();
+        assertThat(fileObjectMapper.selectById(fileId).getStatus()).isEqualTo("READY");
+        assertThat(fileObjectMapper.selectById(fileId).getMultipartUploadId()).isNull();
+
+        Map<String, Object> completion = directCompleteBody(fileId, null, 9001L, year, MORALITY, List.of());
+        ResponseEntity<String> completed = exchange("/api/material/upload/complete", HttpMethod.POST,
+                student.accessToken(), completion);
+        assertThat(json(completed).at("/code").asInt()).isZero();
+        long materialId = jsonLong(json(completed).at("/data"));
+
+        ResponseEntity<String> retried = exchange("/api/material/upload/complete", HttpMethod.POST,
+                student.accessToken(), completion);
+        assertThat(json(retried).at("/code").asInt()).isZero();
+        assertThat(jsonLong(json(retried).at("/data"))).isEqualTo(materialId);
+        assertThat(materialMapper.selectCount(new LambdaQueryWrapper<ProcessMaterial>()
+                .eq(ProcessMaterial::getFileId, fileId))).isEqualTo(1L);
+    }
+
+    @Test
+    void presignedMaterialPartRejectsPayloadWhoseLengthDiffersFromSignedLength() throws Exception {
+        LoginResult student = readyLogin("test_student");
+        byte[] content = "%PDF-1.7\nsigned-content-length\n%%EOF".getBytes(StandardCharsets.UTF_8);
+        JsonNode initial = initDirectUpload(student.accessToken(), null, 9001L, "P5-LENGTH", MORALITY,
+                "length.pdf", "application/pdf", content);
+        long fileId = jsonLong(initial.at("/fileId"));
+        byte[] shortPayload = java.util.Arrays.copyOf(content, content.length - 1);
+
+        int status = PresignedMultipartUploadTestClient.putStatus(initial.at("/parts/0"), shortPayload);
+        assertThat(status).isBetween(400, 499);
+        FileObject file = fileObjectMapper.selectById(fileId);
+        assertThat(multipartObjectService.listUploadedParts(file.getObjectKey(), file.getMultipartUploadId())).isEmpty();
+        cancelDirectUploadOk(student.accessToken(), fileId);
+    }
+
+    @Test
+    void directMaterialUploadDtoBoundsReturnValidationCodesInsteadOfDatabaseErrors() throws Exception {
+        LoginResult student = readyLogin("test_student");
+        byte[] content = "%PDF-1.7\ndto-validation\n%%EOF".getBytes(StandardCharsets.UTF_8);
+        Map<String, Object> overlongName = directInitBody(null, 9001L, "P5-VALID", MORALITY,
+                "x".repeat(252) + ".pdf", "application/pdf", content);
+        ResponseEntity<String> overlongResponse = exchange("/api/material/upload/init", HttpMethod.POST,
+                student.accessToken(), overlongName);
+        assertApiValidation(overlongResponse, "文件名长度不能超过255");
+
+        List<Map<String, Object>> tooManyParts = java.util.stream.IntStream.rangeClosed(1, 10_001)
+                .mapToObj(part -> Map.<String, Object>of("partNumber", part, "etag", "etag-" + part))
+                .toList();
+        Map<String, Object> tooManyBody = directCompleteBody(1L, null, 9001L, "P5-VALID",
+                MORALITY, tooManyParts);
+        ResponseEntity<String> tooManyResponse = exchange("/api/material/upload/complete", HttpMethod.POST,
+                student.accessToken(), tooManyBody);
+        assertApiValidation(tooManyResponse, "上传分片数量超过限制");
+    }
+
+    @Test
+    void disabledDirectMaterialUploadFallsBackToServerUploadAndReplace() throws Exception {
+        LoginResult student = readyLogin("test_student");
+        boolean directUploadEnabled = minioProperties.isDirectUploadEnabled();
+        minioProperties.setDirectUploadEnabled(false);
+        try {
+            String year = "P5-FALLBACK";
+            byte[] content = "%PDF-1.7\nserver-upload-fallback\n%%EOF".getBytes(StandardCharsets.UTF_8);
+            JsonNode fallback = initDirectUpload(student.accessToken(), null, 9001L, year, MORALITY,
+                    "fallback.pdf", "application/pdf", content);
+            assertThat(fallback.at("/uploadMode").asText()).isEqualTo("SERVER_UPLOAD");
+            assertThat(fallback.at("/fileId").isMissingNode() || fallback.at("/fileId").isNull()).isTrue();
+            assertThat(fallback.at("/uploadedParts")).isEmpty();
+            assertThat(fallback.at("/parts")).isEmpty();
+
+            ResponseEntity<String> uploaded = upload(student.accessToken(), 9001L, year, MORALITY,
+                    "fallback.pdf", "application/pdf", content);
+            assertThat(json(uploaded).at("/code").asInt()).isZero();
+            long materialId = jsonLong(json(uploaded).at("/data"));
+            ProcessMaterial material = materialMapper.selectById(materialId);
+            long firstFileId = material.getFileId();
+            assertThat(fileObjectMapper.selectById(firstFileId).getStatus()).isEqualTo("READY");
+
+            byte[] replacement = "%PDF-1.7\nserver-replace-fallback\n%%EOF".getBytes(StandardCharsets.UTF_8);
+            ResponseEntity<String> replaced = replace(student.accessToken(), materialId,
+                    "fallback-replaced.pdf", "application/pdf", replacement);
+            assertThat(json(replaced).at("/code").asInt()).isZero();
+            ProcessMaterial updated = materialMapper.selectById(materialId);
+            assertThat(updated.getFileId()).isNotEqualTo(firstFileId);
+            assertThat(updated.getFileName()).isEqualTo("fallback-replaced.pdf");
+            assertThat(fileObjectMapper.selectById(updated.getFileId()).getStatus()).isEqualTo("READY");
+        } finally {
+            minioProperties.setDirectUploadEnabled(directUploadEnabled);
+        }
+    }
+
+    @Test
+    void lateReadyReplacementCannotOverwriteMaterialBoundByNewerReadyUpload() throws Exception {
+        LoginResult student = readyLogin("test_student");
+        String year = "P5-RACE";
+        long materialId = uploadOk(student.accessToken(), 9001L, year, MORALITY, "original.pdf");
+        long originalFileId = materialMapper.selectById(materialId).getFileId();
+
+        byte[] lateContent = "%PDF-1.7\nlate-ready-replacement\n%%EOF".getBytes(StandardCharsets.UTF_8);
+        JsonNode lateInit = initDirectUpload(student.accessToken(), materialId, 9001L, year, MORALITY,
+                "late.pdf", "application/pdf", lateContent);
+        long lateFileId = jsonLong(lateInit.at("/fileId"));
+        putPresignedPart(lateInit.at("/parts/0/url").asText(), lateContent);
+        completeMinioObjectAndSetDatabaseStatus(lateFileId, "READY");
+
+        byte[] winnerContent = "%PDF-1.7\nnewer-ready-replacement\n%%EOF".getBytes(StandardCharsets.UTF_8);
+        JsonNode winnerInit = initDirectUpload(student.accessToken(), materialId, 9001L, year, MORALITY,
+                "winner.pdf", "application/pdf", winnerContent);
+        long winnerFileId = jsonLong(winnerInit.at("/fileId"));
+        String winnerEtag = putPresignedPart(winnerInit.at("/parts/0/url").asText(), winnerContent);
+        ResponseEntity<String> winnerComplete = exchange("/api/material/upload/complete", HttpMethod.POST,
+                student.accessToken(), directCompleteBody(winnerFileId, materialId, 9001L, year,
+                        MORALITY, winnerEtag));
+        assertThat(json(winnerComplete).at("/code").asInt()).isZero();
+        assertThat(jsonLong(json(winnerComplete).at("/data"))).isEqualTo(materialId);
+        assertThat(fileObjectMapper.selectById(lateFileId).getStatus()).isEqualTo("READY");
+        assertThat(fileObjectMapper.selectById(winnerFileId).getStatus()).isEqualTo("READY");
+        assertThat(materialMapper.selectById(materialId).getFileId()).isEqualTo(winnerFileId);
+        assertThat(winnerFileId).isNotIn(originalFileId, lateFileId);
+
+        ResponseEntity<String> lateComplete = exchange("/api/material/upload/complete", HttpMethod.POST,
+                student.accessToken(), directCompleteBody(lateFileId, materialId, 9001L, year,
+                        MORALITY, List.of()));
+        JsonNode lateResult = json(lateComplete);
+        assertThat(lateResult.at("/code").asInt()).isEqualTo(1000);
+        assertThat(lateResult.at("/msg").asText())
+                .containsAnyOf("业务绑定版本已变化", "业务上下文不一致", "材料已被其他上传替换");
+        assertThat(materialMapper.selectById(materialId).getFileId()).isEqualTo(winnerFileId);
+    }
+
+    @Test
+    void replacementBindingVersionMismatchFailsOldSessionAndReleasesUploadSlot() throws Exception {
+        LoginResult student = readyLogin("test_student");
+        String year = "P5-BINDING";
+        long materialId = uploadOk(student.accessToken(), 9001L, year, MORALITY, "binding-original.pdf");
+
+        byte[] firstContent = "%PDF-1.7\nfirst-ready-before-binding\n%%EOF".getBytes(StandardCharsets.UTF_8);
+        JsonNode firstInit = initDirectUpload(student.accessToken(), materialId, 9001L, year, MORALITY,
+                "binding-first.pdf", "application/pdf", firstContent);
+        long firstFileId = jsonLong(firstInit.at("/fileId"));
+        putPresignedPart(firstInit.at("/parts/0/url").asText(), firstContent);
+        completeMinioObjectAndSetDatabaseStatus(firstFileId, "READY");
+
+        byte[] staleContent = "%PDF-1.7\nstale-binding-version\n%%EOF".getBytes(StandardCharsets.UTF_8);
+        JsonNode staleInit = initDirectUpload(student.accessToken(), materialId, 9001L, year, MORALITY,
+                "binding-stale.pdf", "application/pdf", staleContent);
+        long staleFileId = jsonLong(staleInit.at("/fileId"));
+        String staleEtag = putPresignedPart(staleInit.at("/parts/0/url").asText(), staleContent);
+        FileObject staleFile = fileObjectMapper.selectById(staleFileId);
+
+        ResponseEntity<String> firstBinding = exchange("/api/material/upload/complete", HttpMethod.POST,
+                student.accessToken(), directCompleteBody(firstFileId, materialId, 9001L, year,
+                        MORALITY, List.of()));
+        assertThat(json(firstBinding).at("/code").asInt()).isZero();
+        assertThat(materialMapper.selectById(materialId).getFileId()).isEqualTo(firstFileId);
+
+        ResponseEntity<String> staleComplete = exchange("/api/material/upload/complete", HttpMethod.POST,
+                student.accessToken(), directCompleteBody(staleFileId, materialId, 9001L, year,
+                        MORALITY, staleEtag));
+        JsonNode staleResult = json(staleComplete);
+        assertThat(staleResult.at("/code").asInt()).isEqualTo(1000);
+        assertThat(staleResult.at("/msg").asText()).contains("业务绑定版本已变化");
+        assertThat(fileObjectMapper.selectById(staleFileId).getStatus()).isEqualTo("FAILED");
+        assertThat(materialMapper.selectById(materialId).getFileId()).isEqualTo(firstFileId);
+        assertThat(multipartObjectService.findObject(staleFile.getObjectKey())).isEmpty();
+        assertThatThrownBy(() -> multipartObjectService.listUploadedParts(staleFile.getObjectKey(),
+                staleFile.getMultipartUploadId()))
+                .isInstanceOf(MultipartUploadNotFoundException.class);
+
+        byte[] nextContent = "%PDF-1.7\nnext-binding-version\n%%EOF".getBytes(StandardCharsets.UTF_8);
+        JsonNode nextInit = initDirectUpload(student.accessToken(), materialId, 9001L, year, MORALITY,
+                "binding-next.pdf", "application/pdf", nextContent);
+        long nextFileId = jsonLong(nextInit.at("/fileId"));
+        assertThat(nextFileId).isNotIn(firstFileId, staleFileId);
+        assertThat(fileObjectMapper.selectById(nextFileId).getStatus()).isEqualTo("UPLOADING");
+        cancelDirectUploadOk(student.accessToken(), nextFileId);
     }
 
     /**
@@ -356,6 +762,137 @@ class Phase5MaterialIT {
         JsonNode root = json(response);
         assertThat(root.at("/code").asInt()).isEqualTo(0);
         return root.at("/data").asLong();
+    }
+
+    private void assertDirectUploadResumes(String token, Long materialId, String year,
+                                           String filename, byte[] content) throws Exception {
+        JsonNode initial = initDirectUpload(token, materialId, 9001L, year, MORALITY,
+                filename, "application/pdf", content);
+        long fileId = jsonLong(initial.at("/fileId"));
+        String etag = putPresignedPart(initial.at("/parts/0/url").asText(), content);
+
+        JsonNode resumed = initDirectUpload(token, materialId, 9001L, year, MORALITY,
+                filename, "application/pdf", content);
+        assertThat(jsonLong(resumed.at("/fileId"))).isEqualTo(fileId);
+        assertThat(resumed.at("/uploadMode").asText()).isEqualTo("PRESIGNED_MULTIPART");
+        assertThat(resumed.at("/uploadedParts")).hasSize(1);
+        assertThat(resumed.at("/uploadedParts/0/partNumber").asInt()).isEqualTo(1);
+        assertThat(jsonLong(resumed.at("/uploadedParts/0/size"))).isEqualTo(content.length);
+        assertThat(resumed.at("/uploadedParts/0/etag").asText()).isEqualTo(etag);
+        assertThat(resumed.at("/parts")).isEmpty();
+        cancelDirectUploadOk(token, fileId);
+    }
+
+    private JsonNode initDirectUpload(String token, Long materialId, long studentId, String year,
+                                      String category, String filename, String contentType, byte[] content) throws Exception {
+        ResponseEntity<String> response = initDirectUploadRaw(token, materialId, studentId, year,
+                category, filename, contentType, content);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode root = json(response);
+        assertThat(root.at("/code").asInt()).isZero();
+        return root.at("/data");
+    }
+
+    private ResponseEntity<String> initDirectUploadRaw(String token, Long materialId, long studentId, String year,
+                                                       String category, String filename, String contentType,
+                                                       byte[] content) throws Exception {
+        return exchange("/api/material/upload/init", HttpMethod.POST, token,
+                directInitBody(materialId, studentId, year, category, filename, contentType, content));
+    }
+
+    private Map<String, Object> directInitBody(Long materialId, long studentId, String year,
+                                               String category, String filename, String contentType,
+                                               byte[] content) throws Exception {
+        Map<String, Object> body = new LinkedHashMap<>();
+        if (materialId != null) {
+            body.put("materialId", materialId);
+        }
+        body.put("studentId", studentId);
+        body.put("assessmentYear", year);
+        body.put("category", category);
+        body.put("fileName", filename);
+        body.put("contentType", contentType);
+        body.put("size", content.length);
+        body.put("fileHash", sha256(content));
+        body.put("partSize", DIRECT_UPLOAD_PART_SIZE);
+        return body;
+    }
+
+    private Map<String, Object> directCompleteBody(long fileId, Long materialId, long studentId,
+                                                    String year, String category, String etag) {
+        return directCompleteBody(fileId, materialId, studentId, year, category,
+                List.of(Map.<String, Object>of("partNumber", 1, "etag", etag)));
+    }
+
+    private Map<String, Object> directCompleteBody(long fileId, Long materialId, long studentId,
+                                                    String year, String category,
+                                                    List<Map<String, Object>> parts) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("fileId", fileId);
+        if (materialId != null) {
+            body.put("materialId", materialId);
+        }
+        body.put("studentId", studentId);
+        body.put("assessmentYear", year);
+        body.put("category", category);
+        body.put("parts", parts);
+        return body;
+    }
+
+    private void cancelDirectUploadOk(String token, long fileId) throws Exception {
+        ResponseEntity<String> response = exchange("/api/material/upload/" + fileId,
+                HttpMethod.DELETE, token, null);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(json(response).at("/code").asInt()).isZero();
+    }
+
+    private void completeMinioObjectAndSetDatabaseStatus(long fileId, String databaseStatus) {
+        assertThat(databaseStatus).isIn("COMPLETING", "READY");
+        FileObject file = fileObjectMapper.selectById(fileId);
+        assertThat(file).isNotNull();
+        List<MultipartUploadedPart> storedParts = multipartObjectService.listUploadedParts(
+                file.getObjectKey(), file.getMultipartUploadId());
+        assertThat(storedParts).hasSize(file.getUploadTotalParts());
+        multipartObjectService.completeUpload(file.getObjectKey(), file.getMultipartUploadId(), storedParts);
+
+        int changed;
+        if ("READY".equals(databaseStatus)) {
+            changed = jdbcTemplate.update("UPDATE file_object SET status = 'READY', multipart_upload_id = NULL, "
+                    + "upload_expires_at = NULL, updated_at = NOW() WHERE id = ? AND status = 'UPLOADING'", fileId);
+        } else {
+            changed = jdbcTemplate.update("UPDATE file_object SET status = 'COMPLETING', updated_at = NOW() "
+                    + "WHERE id = ? AND status = 'UPLOADING'", fileId);
+        }
+        assertThat(changed).isEqualTo(1);
+    }
+
+    private void assertApiValidation(ResponseEntity<String> response, String expectedMessage) throws Exception {
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode result = json(response);
+        assertThat(result.at("/code").asInt()).isEqualTo(400);
+        assertThat(result.at("/msg").asText()).contains(expectedMessage);
+    }
+
+    private String putPresignedPart(String uploadUrl, byte[] content) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_OCTET_STREAM);
+        ResponseEntity<String> response = rest.getRestTemplate().exchange(java.net.URI.create(uploadUrl), HttpMethod.PUT,
+                new HttpEntity<>(content, headers), String.class);
+        assertThat(response.getStatusCode().is2xxSuccessful())
+                .withFailMessage("预签名 PUT 失败: status=%s, body=%s",
+                        response.getStatusCode(), response.getBody())
+                .isTrue();
+        String etag = response.getHeaders().getFirst(HttpHeaders.ETAG);
+        assertThat(etag).isNotBlank();
+        return etag;
+    }
+
+    private long jsonLong(JsonNode node) {
+        return Long.parseLong(node.asText());
+    }
+
+    private String sha256(byte[] content) throws Exception {
+        return java.util.HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(content));
     }
 
     private ResponseEntity<String> upload(String token, long studentId, String year, String category,
@@ -571,6 +1108,25 @@ class Phase5MaterialIT {
     }
 
     private void cleanupGeneratedData() {
+        List<FileObject> materialFiles = fileObjectMapper.selectList(new LambdaQueryWrapper<FileObject>()
+                .eq(FileObject::getBizType, "process-material"));
+        for (FileObject file : materialFiles) {
+            if (file.getMultipartUploadId() != null && !file.getMultipartUploadId().isBlank()) {
+                try {
+                    multipartObjectService.abortUpload(file.getObjectKey(), file.getMultipartUploadId());
+                } catch (RuntimeException ignored) {
+                    // The upload may already have been completed or aborted by the exercised recovery path.
+                }
+            }
+            if (file.getBucket() != null && file.getObjectKey() != null) {
+                try {
+                    minioClient.removeObject(RemoveObjectArgs.builder()
+                            .bucket(file.getBucket()).object(file.getObjectKey()).build());
+                } catch (Exception ignored) {
+                    // Cleanup remains best-effort so the original test failure is preserved.
+                }
+            }
+        }
         jdbcTemplate.update("DELETE FROM process_material WHERE assessment_year LIKE 'P5%'");
         jdbcTemplate.update("DELETE FROM file_object WHERE biz_type = 'process-material'");
     }

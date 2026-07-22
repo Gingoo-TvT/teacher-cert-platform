@@ -5,16 +5,17 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**审计整改 WS-13（RBAC 授权天花板）自测完成、待复核**——分支 `feature/ws13-rbac-ceiling`；WS-1/WS-2/WS-10 同样保持待外部复核。
-- 阻塞项：无；严格方案 A 已覆盖用户/角色写、共享角色成员完整授权向量及学生账号旁路，所有授权写使用统一数据库锁和有效授权快照。
-- 最近更新：2026-07-20（精确 `system:role:manage@SYSTEM`、7 scope 偏序、当前态/after-state、具体学院/专业、停用角色潜在权限均已收口；空库 `mvn clean verify`：Surefire 121/121、Failsafe 125/125；前端 type-check/build 通过）。
-- 下一步：保持 WS-13 单提交并交主控独立复核；不得自行置 ✅，不 merge/push。
+- 当前阶段：**审计整改 WS-3（MinIO 预签名直传与独立端点）自测完成、待复核**——分支 `feature/ws03-minio-presign`；WS-1/WS-2/WS-10/WS-13 同样保持待外部复核。
+- 阻塞项：无；材料与视频已支持浏览器直传 MinIO，服务端只签名、校验与提交，旧服务端分片路径保留为配置化回退。
+- 最近更新：2026-07-22（V28、S3 multipart presigner、内外双端点、CORS、并行 5 分片与 Worker 指纹已落地；空库 `mvn clean verify`：Surefire 121/121、Failsafe 144/144；前端 type-check/build、生产/dev Compose config 均通过）。
+- 下一步：保持 WS-3 单提交并交主控独立复核；不得自行置 ✅，不 merge/push。复核通过后再进入 WS-4 D0 UI 基线。
 
 ## 审计整改工作流
 | WS | 内容 | 状态 |
 |---|---|---|
 | WS-1 | IT 计数按自身 fixture 隔离 | `[x]` 单提交完成，待主控复核/合并 |
 | WS-2 | prod admin bootstrap + STAFF/学生初始口令硬化 | `[x]` **待复核**（2026-07-15） |
+| WS-3 | MinIO 预签名直传、独立端点与浏览器并行分片 | `[x]` **待复核**（2026-07-22） |
 | WS-10 | 移除默认 dev profile + profile fail-fast | `[x]` **待复核**（2026-07-20） |
 | WS-13 | RBAC 授权天花板（防自提权守卫） | `[x]` **待复核**（2026-07-20） |
 

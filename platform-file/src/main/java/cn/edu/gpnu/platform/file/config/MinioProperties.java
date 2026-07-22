@@ -13,7 +13,17 @@ import org.springframework.stereotype.Component;
 public class MinioProperties {
 
     private String endpoint;
+    private String publicEndpoint;
     private String accessKey;
     private String secretKey;
     private String bucket;
+    private String region = "us-east-1";
+    private int presignExpirySeconds = 900;
+    private boolean directUploadEnabled = true;
+    private int directUploadInitTimeoutSeconds = 120;
+    private int directUploadCompleteTimeoutSeconds = 300;
+
+    public String browserEndpoint() {
+        return publicEndpoint == null || publicEndpoint.isBlank() ? endpoint : publicEndpoint;
+    }
 }

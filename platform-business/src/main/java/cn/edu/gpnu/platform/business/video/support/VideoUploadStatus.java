@@ -7,7 +7,8 @@ public enum VideoUploadStatus {
     MERGING,
     MERGED,
     VALIDATION_FAILED,
-    FAST_HIT;
+    FAST_HIT,
+    FAILED;
 
     public static VideoUploadStatus of(String value) {
         return Arrays.stream(values())

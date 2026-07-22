@@ -23,6 +23,13 @@ public class FileObject extends BaseEntity {
     private String contentType;
     private String md5;
     private String bizType;
+    private String status;
+    private String multipartUploadId;
+    private Long uploadPartSize;
+    private Integer uploadTotalParts;
+    private LocalDateTime uploadExpiresAt;
+    private String uploadContextHash;
+    private String uploadMetadataHash;
     private Long uploaderId;
     private LocalDateTime uploadTime;
 }

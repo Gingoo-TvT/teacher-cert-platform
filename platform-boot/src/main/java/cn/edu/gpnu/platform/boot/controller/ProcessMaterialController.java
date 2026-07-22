@@ -3,10 +3,13 @@ package cn.edu.gpnu.platform.boot.controller;
 import cn.edu.gpnu.platform.business.material.dto.MaterialBatchDownloadRequest;
 import cn.edu.gpnu.platform.business.material.dto.MaterialQuery;
 import cn.edu.gpnu.platform.business.material.dto.MaterialReviewRequest;
+import cn.edu.gpnu.platform.business.material.dto.MaterialDirectUploadInitRequest;
+import cn.edu.gpnu.platform.business.material.dto.MaterialDirectUploadCompleteRequest;
 import cn.edu.gpnu.platform.business.material.service.ProcessMaterialService;
 import cn.edu.gpnu.platform.business.material.vo.BatchDownloadFile;
 import cn.edu.gpnu.platform.business.material.vo.ProcessMaterialVO;
 import cn.edu.gpnu.platform.business.material.vo.ProcessStatusVO;
+import cn.edu.gpnu.platform.business.material.vo.MaterialDirectUploadVO;
 import cn.edu.gpnu.platform.common.annotation.AuditLog;
 import cn.edu.gpnu.platform.common.annotation.DataScope;
 import cn.edu.gpnu.platform.common.api.PageResult;
@@ -58,6 +61,33 @@ public class ProcessMaterialController {
                                @RequestParam("file") MultipartFile file) throws IOException {
         return Result.ok(processMaterialService.upload(studentId, assessmentYear, category,
                 file.getInputStream(), file.getOriginalFilename(), file.getContentType(), file.getSize()));
+    }
+
+    @Operation(summary = "初始化材料浏览器直传")
+    @PreAuthorize("@pms.has('material:upload')")
+    @AuditLog(bizType = "material", operation = "uploadInit")
+    @PostMapping("/upload/init")
+    public Result<MaterialDirectUploadVO> initDirectUpload(
+            @Valid @RequestBody MaterialDirectUploadInitRequest request) {
+        return Result.ok(processMaterialService.initDirectUpload(request));
+    }
+
+    @Operation(summary = "定稿浏览器直传材料")
+    @PreAuthorize("@pms.has('material:upload')")
+    @AuditLog(bizType = "material", operation = "uploadComplete")
+    @PostMapping("/upload/complete")
+    public Result<Long> completeDirectUpload(
+            @Valid @RequestBody MaterialDirectUploadCompleteRequest request) {
+        return Result.ok(processMaterialService.completeDirectUpload(request));
+    }
+
+    @Operation(summary = "取消材料浏览器直传")
+    @PreAuthorize("@pms.has('material:upload')")
+    @AuditLog(bizType = "material", operation = "uploadCancel")
+    @DeleteMapping("/upload/{fileId}")
+    public Result<Void> cancelDirectUpload(@PathVariable Long fileId) {
+        processMaterialService.cancelDirectUpload(fileId);
+        return Result.ok();
     }
 
     @Operation(summary = "删除材料")

@@ -338,6 +338,12 @@
 - ✅ **复现→阻断与门禁**：缺/非法/公开 admin hash 和缺/弱/公开 STAFF 口令均拒启；真实 prod HTTP 证明旧 admin 口令失败、新 bootstrap 口令成功且强制改密；Phase2 覆盖学生/STAFF 口令隔离、logout 后旧 refresh=401，以及 `COLLEGE` 同院/跨院重置和角色自提权均 403；Phase3 覆盖默认不开通、random 停用、受控强口令启用。最终 0 表 scratch schema `teacher_cert_ws2_final_20260715_153710` 执行 `mvn -B -ntp clean verify`：Surefire **30/30**、Failsafe **120/120**、`BUILD SUCCESS`；V27/R__、`false/random`、WS-2 testseed 与 demo=0 核验通过，scratch 已删除；前端 type-check/build 与 Compose config 通过。
 - ⏳ **状态/协同**：实现与自测完成，保持“待复核”；仅提交 WS-2 相关文件，明确排除审计报告、`.claude/audits/`、`docs/audit-remediation-plan.md` 与 `docs/prompts/`。协同项 WS-10 后续已在独立分支完成自测，二者均不自行 merge/push。
 
+### WS-3（MinIO 预签名直传与独立端点＝审计 C1/C3/C4，兼容既有 C2 鉴权直下 —— 分支 `feature/ws03-minio-presign`，codex 自测完成，**待主控复核**）
+- ✅ **浏览器直传**：材料和视频统一采用 S3 multipart init/list-parts/complete/cancel；服务端生成 object key 与限时 part URL，浏览器 5 路并发 PUT MinIO，视频指纹由 Web Worker 计算，刷新后按服务端已上传 parts 续传。旧服务端分片上传保留为配置化回退，不强制一次性割断历史会话。
+- ✅ **边界与完整性**：内部 endpoint 用于服务端 S3 API，public endpoint 专用于生成浏览器可达签名，Compose 同步配置 MinIO CORS。签名覆盖 `Content-Length`；完成阶段从 MinIO `ListParts`/`HeadObject` 重验连续 part number、精确大小、ETag、Content-Type 与对象前缀。材料还校验属主、业务年度/类型与绑定版本摘要；视频以状态 CAS、同学生同年度唯一活动会话和幂等 complete/cancel 防并发双绑。
+- ✅ **鉴权直下与诚实范围**：材料、免考附件和视频播放继续先走各自业务权限/数据范围，再签发 GET URL；不恢复通用 file-id 下载端点。MinIO 已存对象的上传/下载字节不经应用；即时生成的 Excel/ZIP 仍保持既有同步响应契约，不冒充对象存储直下。
+- ✅ **迁移/门禁**：新增幂等 `V28__minio_presigned_multipart.sql`，V1–V27 冻结。聚焦 `Phase5MaterialIT` 18/18 + `Phase7VideoReviewIT` 24/24；最终 0 表 schema 执行 9 模块 `mvn -B -ntp clean verify`，Surefire **121/121**、Failsafe **144/144**、Failures/Errors/Skipped=0；前端 type-check/build、生产/dev Compose config 与 `git diff --check` 通过。保持“待复核”，不 merge/push。
+
 ### WS-10（移除默认 dev profile + 启动 fail-fast 守卫＝审计 #9 Low —— 分支 `feature/ws10-profile-guard`，codex 自测完成，**待主控复核**）
 - ✅ **误启动 fail-fast**：主 `application.yml` 不再默认激活 dev；注册 `EnvironmentPostProcessor` 在 ConfigData 加载后、应用上下文创建前检查 profile。未显式选择 dev/prod、同时选择 dev+prod，以及 prod 混入 `db/testseed`、demo、缺失配置或已知开发/示例 DB、Redis、MinIO、JWT、STAFF 凭据均拒绝启动；错误只列属性名，不回显秘密。prod Flyway 仍显式只加载 `classpath:db/migration`。
 - ✅ **开发/测试便利保留**：`dev-serve.ps1/.sh` 仅对 backend 且调用方未设置 profile 时补 dev；README、HANDOFF、Phase 14、demo 启动示例及桌面 `测试账号.txt` 已同步显式 profile。IT 用 `src/test/resources/config/application.yml` 显式选择 dev；放在 `config/` 是为了补充而非遮蔽主同名配置，100MB/120MB multipart 等基础项仍生效。

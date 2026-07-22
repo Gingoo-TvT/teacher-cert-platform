@@ -13,6 +13,8 @@ public class VideoUploadProgressVO {
     private Integer uploadedChunks;
     private Long uploadedBytes;
     private List<Integer> uploadedChunkIndexes;
+    private String uploadMode;
+    private List<VideoUploadedPartVO> uploadedParts;
     private Long fileId;
     private String validationMessage;
 }

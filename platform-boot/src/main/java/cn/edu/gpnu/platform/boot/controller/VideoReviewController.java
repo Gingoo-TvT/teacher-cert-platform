@@ -7,6 +7,7 @@ import cn.edu.gpnu.platform.business.video.dto.VideoReturnRequest;
 import cn.edu.gpnu.platform.business.video.dto.VideoScoreRequest;
 import cn.edu.gpnu.platform.business.video.dto.VideoThirdReviewRequest;
 import cn.edu.gpnu.platform.business.video.dto.VideoUploadInitRequest;
+import cn.edu.gpnu.platform.business.video.dto.VideoUploadCompleteRequest;
 import cn.edu.gpnu.platform.business.video.dto.VideoUploadMergeRequest;
 import cn.edu.gpnu.platform.business.video.service.VideoReviewService;
 import cn.edu.gpnu.platform.business.video.vo.ReviewerCandidateVO;
@@ -24,6 +25,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -46,6 +48,7 @@ public class VideoReviewController {
 
     @Operation(summary = "视频分片上传初始化")
     @PreAuthorize("@pms.has('video:upload')")
+    @AuditLog(bizType = "video", operation = "uploadInit")
     @PostMapping("/upload/init")
     public Result<VideoUploadInitVO> initUpload(@Valid @RequestBody VideoUploadInitRequest request) {
         return Result.ok(videoReviewService.initUpload(request));
@@ -59,6 +62,23 @@ public class VideoReviewController {
                                     @RequestParam("md5") String md5,
                                     @RequestParam("file") MultipartFile file) throws IOException {
         videoReviewService.uploadChunk(uploadId, index, md5, file.getInputStream(), file.getSize());
+        return Result.ok();
+    }
+
+    @Operation(summary = "定稿浏览器直传的视频分片")
+    @PreAuthorize("@pms.has('video:upload')")
+    @AuditLog(bizType = "video", operation = "uploadComplete")
+    @PostMapping("/upload/complete")
+    public Result<VideoReviewVO> complete(@Valid @RequestBody VideoUploadCompleteRequest request) {
+        return Result.ok(videoReviewService.complete(request));
+    }
+
+    @Operation(summary = "取消视频上传会话")
+    @PreAuthorize("@pms.has('video:upload')")
+    @AuditLog(bizType = "video", operation = "uploadCancel")
+    @DeleteMapping("/upload/{uploadId}")
+    public Result<Void> cancelUpload(@PathVariable String uploadId) {
+        videoReviewService.cancelUpload(uploadId);
         return Result.ok();
     }
 

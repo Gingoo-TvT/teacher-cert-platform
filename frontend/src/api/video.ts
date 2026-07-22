@@ -61,6 +61,7 @@ export interface VideoUploadInitPayload {
   studentId: string
   assessmentYear: string
   fileMd5: string
+  legacyFileHash?: string | null
   fileName: string
   contentType?: string | null
   size: number
@@ -74,8 +75,37 @@ export interface VideoUploadInitResult {
   fileId?: string | null
   reviewId?: string | null
   uploadedChunks: number[]
+  uploadMode: VideoUploadMode
+  partSize: number
+  uploadedParts: VideoUploadedPart[]
+  parts: VideoPresignedPart[]
   status?: string | null
   validationMessage?: string | null
+}
+
+export type VideoUploadMode = 'PRESIGNED_MULTIPART' | 'SERVER_CHUNK' | 'FAST_HIT'
+
+export interface VideoUploadedPart {
+  partNumber: number
+  etag: string
+  size: number
+}
+
+export interface VideoPresignedPart {
+  partNumber: number
+  url: string
+  expiresAt: string
+}
+
+export interface VideoUploadCompletedPart {
+  partNumber: number
+  etag: string
+}
+
+export interface VideoUploadCompletePayload {
+  uploadId: string
+  durationSeconds?: number | null
+  parts: VideoUploadCompletedPart[]
 }
 
 export interface VideoUploadProgress {
@@ -130,21 +160,29 @@ export interface ReviewerCandidate {
   workNo?: string | null
 }
 
-export function initVideoUpload(payload: VideoUploadInitPayload) {
-  return request.post<unknown, ApiResult<VideoUploadInitResult>>('/video/upload/init', payload)
+export function initVideoUpload(payload: VideoUploadInitPayload, signal?: AbortSignal) {
+  return request.post<unknown, ApiResult<VideoUploadInitResult>>('/video/upload/init', payload, { signal })
 }
 
-export function uploadVideoChunk(payload: { uploadId: string; index: number; md5: string; blob: Blob }) {
+export function uploadVideoChunk(payload: { uploadId: string; index: number; md5: string; blob: Blob; signal?: AbortSignal }) {
   const data = new FormData()
   data.append('uploadId', payload.uploadId)
   data.append('index', String(payload.index))
   data.append('md5', payload.md5)
   data.append('file', payload.blob, `chunk-${payload.index}`)
-  return request.post<unknown, ApiResult<null>>('/video/upload/chunk', data)
+  return request.post<unknown, ApiResult<null>>('/video/upload/chunk', data, { signal: payload.signal })
 }
 
-export function mergeVideoUpload(uploadId: string, durationSeconds?: number | null) {
-  return request.post<unknown, ApiResult<VideoReview>>('/video/upload/merge', { uploadId, durationSeconds })
+export function mergeVideoUpload(uploadId: string, durationSeconds?: number | null, signal?: AbortSignal) {
+  return request.post<unknown, ApiResult<VideoReview>>('/video/upload/merge', { uploadId, durationSeconds }, { signal })
+}
+
+export function completeVideoUpload(payload: VideoUploadCompletePayload, signal?: AbortSignal) {
+  return request.post<unknown, ApiResult<VideoReview>>('/video/upload/complete', payload, { signal })
+}
+
+export function cancelVideoUpload(uploadId: string) {
+  return request.delete<unknown, ApiResult<null>>(`/video/upload/${encodeURIComponent(uploadId)}`)
 }
 
 export function videoUploadProgress(uploadId: string) {

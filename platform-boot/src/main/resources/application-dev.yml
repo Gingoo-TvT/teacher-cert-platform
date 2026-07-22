@@ -32,9 +32,16 @@ mybatis-plus:
 # MinIO（platform-file 使用，Chunk B）
 minio:
   endpoint: http://localhost:9000
+  # 预签名 URL 的 host 必须从浏览器可达；应用内部 endpoint 与它不得混用。
+  public-endpoint: ${MINIO_PUBLIC_ENDPOINT:http://localhost:9000}
   access-key: minioadmin
   secret-key: minioadmin123
   bucket: teacher-cert
+  region: us-east-1
+  presign-expiry-seconds: 900
+  direct-upload-enabled: ${MINIO_DIRECT_UPLOAD_ENABLED:true}
+  direct-upload-init-timeout-seconds: ${MINIO_DIRECT_UPLOAD_INIT_TIMEOUT_SECONDS:120}
+  direct-upload-complete-timeout-seconds: ${MINIO_DIRECT_UPLOAD_COMPLETE_TIMEOUT_SECONDS:300}
 
 # 安全（platform-security）—— 仅 dev 的 JWT 密钥默认值；显式选择 dev 后，本地启动无需另配 JWT_SECRET。
 # base application.yml 为 `secret: ${JWT_SECRET:}`（空默认、全 profile）；未注入 JWT_SECRET 时 JwtService.init

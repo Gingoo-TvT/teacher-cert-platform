@@ -3,6 +3,8 @@ package cn.edu.gpnu.platform.business.material.service.impl;
 import cn.edu.gpnu.platform.business.material.dto.MaterialBatchDownloadRequest;
 import cn.edu.gpnu.platform.business.material.dto.MaterialQuery;
 import cn.edu.gpnu.platform.business.material.dto.MaterialReviewRequest;
+import cn.edu.gpnu.platform.business.material.dto.MaterialDirectUploadInitRequest;
+import cn.edu.gpnu.platform.business.material.dto.MaterialDirectUploadCompleteRequest;
 import cn.edu.gpnu.platform.business.material.entity.ProcessMaterial;
 import cn.edu.gpnu.platform.business.material.mapper.ProcessMaterialMapper;
 import cn.edu.gpnu.platform.business.material.service.ProcessMaterialService;
@@ -10,6 +12,9 @@ import cn.edu.gpnu.platform.business.material.support.MaterialStatus;
 import cn.edu.gpnu.platform.business.material.vo.BatchDownloadFile;
 import cn.edu.gpnu.platform.business.material.vo.ProcessMaterialVO;
 import cn.edu.gpnu.platform.business.material.vo.ProcessStatusVO;
+import cn.edu.gpnu.platform.business.material.vo.MaterialDirectUploadVO;
+import cn.edu.gpnu.platform.business.material.vo.MaterialPresignedPartVO;
+import cn.edu.gpnu.platform.business.material.vo.MaterialUploadedPartVO;
 import cn.edu.gpnu.platform.business.student.entity.Student;
 import cn.edu.gpnu.platform.business.student.mapper.StudentMapper;
 import cn.edu.gpnu.platform.business.support.ReviewNotificationHelper;
@@ -20,7 +25,10 @@ import cn.edu.gpnu.platform.common.context.DataScopeContext;
 import cn.edu.gpnu.platform.common.context.UserContext;
 import cn.edu.gpnu.platform.common.exception.BizException;
 import cn.edu.gpnu.platform.file.entity.FileObject;
+import cn.edu.gpnu.platform.file.config.MinioProperties;
 import cn.edu.gpnu.platform.file.mapper.FileObjectMapper;
+import cn.edu.gpnu.platform.file.model.DirectFileUploadPlan;
+import cn.edu.gpnu.platform.file.model.MultipartUploadedPart;
 import cn.edu.gpnu.platform.file.service.FileService;
 import cn.edu.gpnu.platform.system.service.AuditLogService;
 import cn.edu.gpnu.platform.system.service.DataScopeService;
@@ -33,6 +41,7 @@ import io.minio.GetObjectArgs;
 import io.minio.MinioClient;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
@@ -63,6 +72,7 @@ public class ProcessMaterialServiceImpl implements ProcessMaterialService {
     private final DictService dictService;
     private final FileObjectMapper fileObjectMapper;
     private final FileService fileService;
+    private final MinioProperties minioProperties;
     private final DataScopeService dataScopeService;
     private final ParamService paramService;
     private final MinioClient minioClient;
@@ -107,6 +117,118 @@ public class ProcessMaterialServiceImpl implements ProcessMaterialService {
         fillFile(entity, file);
         processMaterialMapper.insert(entity);
         return entity.getId();
+    }
+
+    @Override
+    public MaterialDirectUploadVO initDirectUpload(MaterialDirectUploadInitRequest request) {
+        DirectMaterialContext context = directMaterialContext(request.getMaterialId(), request.getStudentId(),
+                request.getAssessmentYear(), request.getCategory());
+        validateFile(request.getFileName(), request.getContentType(), request.getSize());
+        if (!minioProperties.isDirectUploadEnabled()) {
+            MaterialDirectUploadVO fallback = new MaterialDirectUploadVO();
+            fallback.setUploadMode("SERVER_UPLOAD");
+            fallback.setPartSize(request.getPartSize());
+            fallback.setUploadedParts(List.of());
+            fallback.setParts(List.of());
+            return fallback;
+        }
+        DirectFileUploadPlan plan = fileService.initDirectUpload(
+                requiredTrim(request.getFileName(), "文件名不能为空"),
+                normalizeContentType(request.getFileName(), request.getContentType()),
+                request.getSize(), MATERIAL_BIZ_TYPE,
+                requiredTrim(request.getFileHash(), "文件摘要不能为空").toLowerCase(Locale.ROOT),
+                request.getPartSize(), directMetadata(context));
+        MaterialDirectUploadVO vo = new MaterialDirectUploadVO();
+        vo.setFileId(plan.fileId());
+        vo.setUploadMode(plan.ready() ? "READY" : "PRESIGNED_MULTIPART");
+        vo.setPartSize(plan.partSize());
+        if (plan.ready()) {
+            vo.setUploadedParts(List.of());
+            vo.setParts(List.of());
+            return vo;
+        }
+        vo.setUploadedParts(plan.upload().uploadedParts().stream().map(part -> {
+            MaterialUploadedPartVO item = new MaterialUploadedPartVO();
+            item.setPartNumber(part.partNumber());
+            item.setEtag(part.eTag());
+            item.setSize(part.size());
+            return item;
+        }).toList());
+        vo.setParts(plan.upload().parts().stream().map(part -> {
+            MaterialPresignedPartVO item = new MaterialPresignedPartVO();
+            item.setPartNumber(part.partNumber());
+            item.setUrl(part.url());
+            item.setExpiresAt(part.expiresAt());
+            return item;
+        }).toList());
+        return vo;
+    }
+
+    @Override
+    public Long completeDirectUpload(MaterialDirectUploadCompleteRequest request) {
+        DirectMaterialContext context = directMaterialContext(request.getMaterialId(), request.getStudentId(),
+                request.getAssessmentYear(), request.getCategory());
+        List<MultipartUploadedPart> parts = request.getParts().stream()
+                .map(part -> new MultipartUploadedPart(part.getPartNumber(), part.getEtag(), 0L))
+                .toList();
+        FileObject file = fileService.completeDirectUpload(request.getFileId(), parts, directMetadata(context));
+        if (!MATERIAL_BIZ_TYPE.equals(file.getBizType()) || !"READY".equals(file.getStatus())) {
+            throw new BizException("直传文件不是可绑定的材料对象");
+        }
+        ProcessMaterial bound = processMaterialMapper.selectOne(new LambdaQueryWrapper<ProcessMaterial>()
+                .eq(ProcessMaterial::getFileId, file.getId())
+                .last("LIMIT 1"));
+        if (bound != null) {
+            return bound.getId();
+        }
+        if (context.existing() != null) {
+            Long expectedFileId = context.existing().getFileId();
+            ProcessMaterial entity = requireMaterial(context.existing().getId());
+            ensureCanWriteMaterial(entity, "material:upload");
+            ensureEditable(entity);
+            String expectedStatus = entity.getStatus();
+            Integer expectedLocked = entity.getLocked();
+            fillFile(entity, file);
+            int changed = processMaterialMapper.update(entity, new LambdaUpdateWrapper<ProcessMaterial>()
+                    .eq(ProcessMaterial::getId, entity.getId())
+                    .eq(ProcessMaterial::getFileId, expectedFileId)
+                    .eq(ProcessMaterial::getStatus, expectedStatus)
+                    .eq(ProcessMaterial::getLocked, expectedLocked));
+            if (changed != 1) {
+                ProcessMaterial current = requireMaterial(entity.getId());
+                if (file.getId().equals(current.getFileId())) {
+                    return current.getId();
+                }
+                throw new BizException("材料已被其他上传替换，请刷新后重试");
+            }
+            return entity.getId();
+        }
+        ProcessMaterial entity = new ProcessMaterial();
+        entity.setStudentId(context.student().getId());
+        entity.setCollegeId(context.student().getCollegeId());
+        entity.setAssessmentYear(context.assessmentYear());
+        entity.setCategory(context.category());
+        entity.setStatus(MaterialStatus.DRAFT.name());
+        entity.setLocked(0);
+        fillFile(entity, file);
+        try {
+            processMaterialMapper.insert(entity);
+            return entity.getId();
+        } catch (DuplicateKeyException duplicate) {
+            ProcessMaterial concurrentlyBound = processMaterialMapper.selectOne(
+                    new LambdaQueryWrapper<ProcessMaterial>()
+                            .eq(ProcessMaterial::getFileId, file.getId())
+                            .last("LIMIT 1"));
+            if (concurrentlyBound != null) {
+                return concurrentlyBound.getId();
+            }
+            throw duplicate;
+        }
+    }
+
+    @Override
+    public void cancelDirectUpload(Long fileId) {
+        fileService.cancelDirectUpload(fileId);
     }
 
     @Override
@@ -438,6 +560,38 @@ public class ProcessMaterialServiceImpl implements ProcessMaterialService {
         }
     }
 
+    private DirectMaterialContext directMaterialContext(Long materialId, Long studentId,
+                                                        String assessmentYear, String category) {
+        String year = requiredTrim(assessmentYear, "考核年度不能为空");
+        String categoryCode = requiredTrim(category, "材料类别不能为空");
+        if (materialId == null) {
+            Student student = requireStudent(studentId);
+            ensureCanWriteStudent(student, "material:upload");
+            validateCategory(categoryCode);
+            return new DirectMaterialContext(null, student, year, categoryCode);
+        }
+        ProcessMaterial existing = requireMaterial(materialId);
+        ensureCanWriteMaterial(existing, "material:upload");
+        ensureEditable(existing);
+        if (!existing.getStudentId().equals(studentId)
+                || !existing.getAssessmentYear().equals(year)
+                || !existing.getCategory().equals(categoryCode)) {
+            throw new BizException("替换材料的业务上下文不可变更");
+        }
+        return new DirectMaterialContext(existing, requireStudent(existing.getStudentId()),
+                existing.getAssessmentYear(), existing.getCategory());
+    }
+
+    private Map<String, String> directMetadata(DirectMaterialContext context) {
+        return Map.of(
+                "student-id", String.valueOf(context.student().getId()),
+                "assessment-year", context.assessmentYear(),
+                "category", context.category(),
+                "material-id", context.existing() == null ? "NEW" : String.valueOf(context.existing().getId()),
+                "binding-version", context.existing() == null
+                        ? "NONE" : String.valueOf(context.existing().getFileId()));
+    }
+
     private void validateFile(String originalFilename, String contentType, long size) {
         if (size <= 0) {
             throw new BizException("文件不能为空");
@@ -646,5 +800,9 @@ public class ProcessMaterialServiceImpl implements ProcessMaterialService {
 
     private String trimToNull(String value) {
         return StringUtils.hasText(value) ? value.trim() : null;
+    }
+
+    private record DirectMaterialContext(ProcessMaterial existing, Student student,
+                                         String assessmentYear, String category) {
     }
 }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch, type Component } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch, type Component } from 'vue'
 import { AlertCircleOutline, CheckmarkCircleOutline, CloudUploadOutline, PlayCircleOutline, RefreshOutline, TimeOutline } from '@vicons/ionicons5'
 import { useMessage, type UploadFileInfo } from 'naive-ui'
 import StatusTag from '@/components/StatusTag.vue'
@@ -7,12 +7,11 @@ import { statusLabel } from '@/constants/statusLabels'
 import { useUserStore } from '@/stores/user'
 import { useYearStore } from '@/stores/year'
 import { detectVideoDurationSeconds, formatVideoDuration } from '@/utils/videoDuration'
+import { isAbortError, uploadVideoFile } from '@/utils/videoUpload'
 import {
-  initVideoUpload,
+  cancelVideoUpload,
   listVideoReviews,
-  mergeVideoUpload,
   playVideoReview,
-  uploadVideoChunk,
   VIDEO_UPLOAD_CHUNK_SIZE,
   type VideoReview
 } from '@/api/video'
@@ -32,8 +31,17 @@ const playerVisible = ref(false)
 const reviews = ref<VideoReview[]>([])
 const fileList = ref<UploadFileInfo[]>([])
 const uploadProgress = ref(0)
+const activeUploadId = ref<string | null>(null)
+const initPending = ref(false)
+const cancelling = ref(false)
+let uploadController: AbortController | null = null
+let abandonRequested = false
 const durationDetected = ref(false)
 const durationDetectFailed = ref(false)
+const durationDetecting = ref(false)
+let durationDetection: Promise<number | null> | null = null
+let durationDetectionFile: File | null = null
+let durationDetectionSequence = 0
 const playbackUrl = ref('')
 const watermarkText = ref('')
 const watermarkStyle = ref({ left: '12%', top: '18%' })
@@ -84,22 +92,41 @@ function openUpload() {
   uploadForm.durationSeconds = currentReview.value?.durationSeconds || 900
   durationDetected.value = Boolean(currentReview.value?.durationSeconds)
   durationDetectFailed.value = false
+  durationDetecting.value = false
+  durationDetection = null
+  durationDetectionFile = null
+  durationDetectionSequence += 1
   uploadProgress.value = 0
   fileList.value = []
+  initPending.value = false
+  cancelling.value = false
+  abandonRequested = false
   uploadVisible.value = true
 }
 
 async function handleFileListUpdate(next: UploadFileInfo[]) {
   fileList.value = next
   const file = next[0]?.file
+  const sequence = ++durationDetectionSequence
   durationDetected.value = false
   durationDetectFailed.value = false
-  if (!file) return
-  try {
-    uploadForm.durationSeconds = await detectVideoDurationSeconds(file)
-    durationDetected.value = true
-  } catch {
+  durationDetectionFile = file || null
+  if (!file) {
+    durationDetecting.value = false
+    durationDetection = null
+    return
+  }
+  durationDetecting.value = true
+  const pending = detectVideoDurationSeconds(file).then((value) => value).catch(() => null)
+  durationDetection = pending
+  const detected = await pending
+  if (sequence !== durationDetectionSequence || fileList.value[0]?.file !== file) return
+  durationDetecting.value = false
+  if (detected == null) {
     durationDetectFailed.value = true
+  } else {
+    uploadForm.durationSeconds = detected
+    durationDetected.value = true
   }
 }
 
@@ -111,47 +138,98 @@ async function uploadVideo() {
   }
   uploading.value = true
   uploadProgress.value = 0
+  abandonRequested = false
+  const controller = new AbortController()
+  uploadController = controller
   try {
-    const fileMd5 = await quickHash(file)
-    const init = await initVideoUpload({
+    let durationSeconds = uploadForm.durationSeconds
+    if (durationDetectionFile === file && durationDetection) {
+      const detected = await durationDetection
+      if (fileList.value[0]?.file !== file) throw new Error('视频文件已变化，请重新开始上传')
+      if (detected != null) durationSeconds = detected
+    }
+    const result = await uploadVideoFile({
+      file,
       studentId: uploadForm.studentId,
       assessmentYear: uploadForm.assessmentYear,
-      fileMd5,
-      fileName: file.name,
-      contentType: file.type || 'video/mp4',
-      size: file.size,
       chunkSize: uploadForm.chunkSize,
-      durationSeconds: uploadForm.durationSeconds
+      durationSeconds,
+      signal: controller.signal,
+      onInitPending: (pending) => {
+        initPending.value = pending
+      },
+      shouldAbandon: () => abandonRequested,
+      onSession: (uploadId) => {
+        activeUploadId.value = uploadId
+        if (abandonRequested) controller.abort()
+      },
+      onProgress: (progress) => {
+        uploadProgress.value = progress.percentage
+      }
     })
-    if (init.data.instantHit) {
-      uploadProgress.value = 100
-      message.success(init.data.validationMessage || '秒传命中')
+    if (abandonRequested) {
+      activeUploadId.value = null
+      message.warning(result.instantHit ? '视频已完成秒传，无法取消' : '视频已完成定稿，无法取消')
       uploadVisible.value = false
       await loadReviews()
       return
     }
-    const uploadId = init.data.uploadId
-    if (!uploadId) throw new Error('上传会话为空')
-    const uploaded = new Set(init.data.uploadedChunks)
-    const total = Math.ceil(file.size / uploadForm.chunkSize)
-    for (let index = 0; index < total; index += 1) {
-      if (uploaded.has(index)) {
-        uploadProgress.value = Math.round(((index + 1) / total) * 100)
-        continue
-      }
-      const start = index * uploadForm.chunkSize
-      const blob = file.slice(start, Math.min(start + uploadForm.chunkSize, file.size))
-      await uploadVideoChunk({ uploadId, index, md5: await quickHash(blob), blob })
-      uploadProgress.value = Math.round(((index + 1) / total) * 100)
+    activeUploadId.value = null
+    uploadController = null
+    if (result.instantHit) {
+      uploadProgress.value = 100
+      message.success(result.validationMessage || '秒传命中')
+      uploadVisible.value = false
+      await loadReviews()
+      return
     }
-    const merged = await mergeVideoUpload(uploadId, uploadForm.durationSeconds)
-    message[merged.data.status === 'VALIDATION_FAILED' ? 'warning' : 'success'](merged.data.validationMessage || '上传完成')
+    if (!result.review) throw new Error('服务端未返回视频校验结果')
+    message[result.review.status === 'VALIDATION_FAILED' ? 'warning' : 'success'](result.validationMessage || '上传完成')
     uploadVisible.value = false
     await loadReviews()
   } catch (error) {
-    showError(error, '上传失败')
+    if (abandonRequested) {
+      if (activeUploadId.value) {
+        if (await cancelActiveVideoSession()) uploadVisible.value = false
+      } else if (isAbortError(error)) {
+        uploadVisible.value = false
+      } else {
+        showError(error, '无法确认服务端上传会话是否已取消，请重试')
+      }
+    } else if (!isAbortError(error)) {
+      showError(error, '上传失败')
+    }
   } finally {
+    if (uploadController === controller) uploadController = null
+    initPending.value = false
+    cancelling.value = false
     uploading.value = false
+  }
+}
+
+async function cancelOrClose() {
+  if (!uploading.value && !activeUploadId.value) {
+    uploadVisible.value = false
+    return
+  }
+  abandonRequested = true
+  cancelling.value = true
+  if (uploading.value && initPending.value && !activeUploadId.value) return
+  uploadController?.abort()
+  if (await cancelActiveVideoSession()) uploadVisible.value = false
+  cancelling.value = false
+}
+
+async function cancelActiveVideoSession() {
+  const uploadId = activeUploadId.value
+  if (!uploadId) return true
+  try {
+    await cancelVideoUpload(uploadId)
+    activeUploadId.value = null
+    return true
+  } catch (error) {
+    showError(error, '取消上传失败')
+    return false
   }
 }
 
@@ -166,14 +244,6 @@ async function openPlayer() {
   } catch (error) {
     showError(error, '播放失败')
   }
-}
-
-async function quickHash(blob: Blob) {
-  const buffer = await blob.arrayBuffer()
-  const bytes = new Uint8Array(buffer)
-  let hash = 0
-  for (const byte of bytes) hash = (hash * 31 + byte) >>> 0
-  return hash.toString(16).padStart(8, '0')
 }
 
 function moveWatermark() {
@@ -194,6 +264,10 @@ watch(
     await loadReviews()
   }
 )
+
+onBeforeUnmount(() => {
+  uploadController?.abort()
+})
 </script>
 
 <template>
@@ -247,8 +321,8 @@ watch(
       </n-spin>
     </n-card>
 
-    <n-drawer v-model:show="uploadVisible" :width="560">
-      <n-drawer-content title="上传教学能力视频" closable>
+    <n-drawer v-model:show="uploadVisible" :width="560" :mask-closable="!uploading && !activeUploadId">
+      <n-drawer-content title="上传教学能力视频" :closable="!uploading && !activeUploadId">
         <n-space vertical>
           <n-alert v-if="returned" type="warning" :bordered="false">
             {{ reviewMessage || '视频已退回，请按意见重新上传。' }}
@@ -268,8 +342,8 @@ watch(
         </n-space>
         <template #footer>
           <n-space justify="end">
-            <n-button @click="uploadVisible = false">取消</n-button>
-            <n-button type="primary" :loading="uploading" @click="uploadVideo">开始上传</n-button>
+            <n-button :loading="cancelling" @click="cancelOrClose">取消</n-button>
+            <n-button type="primary" :loading="uploading" :disabled="durationDetecting" @click="uploadVideo">开始上传</n-button>
           </n-space>
         </template>
       </n-drawer-content>

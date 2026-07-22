@@ -9,6 +9,8 @@ import cn.edu.gpnu.platform.business.video.dto.VideoReturnRequest;
 import cn.edu.gpnu.platform.business.video.dto.VideoScoreRequest;
 import cn.edu.gpnu.platform.business.video.dto.VideoThirdReviewRequest;
 import cn.edu.gpnu.platform.business.video.dto.VideoUploadInitRequest;
+import cn.edu.gpnu.platform.business.video.dto.VideoUploadCompleteRequest;
+import cn.edu.gpnu.platform.business.video.dto.MultipartCompletedPartRequest;
 import cn.edu.gpnu.platform.business.video.dto.VideoUploadMergeRequest;
 import cn.edu.gpnu.platform.business.video.entity.ReviewerGroup;
 import cn.edu.gpnu.platform.business.video.entity.ReviewerGroupMember;
@@ -30,7 +32,9 @@ import cn.edu.gpnu.platform.business.video.vo.VideoPlaybackVO;
 import cn.edu.gpnu.platform.business.video.vo.VideoReviewTaskVO;
 import cn.edu.gpnu.platform.business.video.vo.VideoReviewVO;
 import cn.edu.gpnu.platform.business.video.vo.VideoUploadInitVO;
+import cn.edu.gpnu.platform.business.video.vo.VideoPresignedPartVO;
 import cn.edu.gpnu.platform.business.video.vo.VideoUploadProgressVO;
+import cn.edu.gpnu.platform.business.video.vo.VideoUploadedPartVO;
 import cn.edu.gpnu.platform.business.support.ReviewNotificationHelper;
 import cn.edu.gpnu.platform.common.api.PageQuery;
 import cn.edu.gpnu.platform.common.api.PageResult;
@@ -40,8 +44,13 @@ import cn.edu.gpnu.platform.common.context.UserContext;
 import cn.edu.gpnu.platform.common.exception.BizException;
 import cn.edu.gpnu.platform.file.config.MinioProperties;
 import cn.edu.gpnu.platform.file.entity.FileObject;
+import cn.edu.gpnu.platform.file.exception.MultipartUploadNotFoundException;
 import cn.edu.gpnu.platform.file.mapper.FileObjectMapper;
+import cn.edu.gpnu.platform.file.model.MultipartObjectInfo;
+import cn.edu.gpnu.platform.file.model.MultipartUploadPlan;
+import cn.edu.gpnu.platform.file.model.MultipartUploadedPart;
 import cn.edu.gpnu.platform.file.service.FileService;
+import cn.edu.gpnu.platform.file.service.MultipartObjectService;
 import cn.edu.gpnu.platform.system.entity.SysDictItem;
 import cn.edu.gpnu.platform.system.entity.SysUser;
 import cn.edu.gpnu.platform.system.mapper.SysDictItemMapper;
@@ -61,7 +70,10 @@ import io.minio.GetObjectArgs;
 import io.minio.MinioClient;
 import io.minio.ObjectWriteArgs;
 import io.minio.PutObjectArgs;
+import io.minio.RemoveObjectArgs;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -71,6 +83,7 @@ import java.io.InputStream;
 import java.io.IOException;
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -79,21 +92,27 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class VideoReviewServiceImpl implements VideoReviewService {
 
     private static final String VIDEO_BIZ_TYPE = "teaching-video";
     private static final String CHUNK_BIZ_TYPE = "video-chunk";
+    private static final String PRESIGNED_MULTIPART_MODE = "PRESIGNED_MULTIPART";
+    private static final String SERVER_CHUNK_MODE = "SERVER_CHUNK";
     private static final long DEFAULT_MAX_VIDEO_SIZE = 2_147_483_648L;
     // MinIO/S3 服务端合并（composeObject→multipart UploadPartCopy）要求：除最后一片外每一源片 ≥5MiB
     // （io.minio.ObjectWriteArgs.MIN_MULTIPART_SIZE）。前端分片 8MiB（VIDEO_UPLOAD_CHUNK_SIZE）即满足此下限，
     // 令多分片上传走服务端合并快路径；小于此阈值的分片（末片/单分片场景）回退流式拼接。此常量即与 SDK 下限锁步。
     private static final long MIN_COMPOSE_PART_SIZE = ObjectWriteArgs.MIN_MULTIPART_SIZE;
+    private static final long MAX_DIRECT_PART_SIZE = 67_108_864L;
+    private static final int MAX_DIRECT_PARTS = 10_000;
     private static final int DEFAULT_DURATION_TARGET = 900;
     private static final int DEFAULT_DURATION_TOLERANCE = 60;
     private static final int DEFAULT_PASS_LINE = 60;
@@ -114,6 +133,7 @@ public class VideoReviewServiceImpl implements VideoReviewService {
     private final SysDictItemMapper dictItemMapper;
     private final FileObjectMapper fileObjectMapper;
     private final FileService fileService;
+    private final MultipartObjectService multipartObjectService;
     private final DataScopeService dataScopeService;
     private final ParamService paramService;
     private final MinioClient minioClient;
@@ -124,53 +144,105 @@ public class VideoReviewServiceImpl implements VideoReviewService {
     private final TransactionTemplate transactionTemplate;
 
     @Override
-    @Transactional(rollbackFor = Exception.class)
     public VideoUploadInitVO initUpload(VideoUploadInitRequest request) {
         Student student = requireStudent(request.getStudentId());
         ensureCanWriteStudent(student, "video:upload");
         validateUploadMeta(request.getFileName(), request.getContentType(), request.getSize());
-        ensureReviewReuploadable(student.getId(), request.getAssessmentYear());
-        archiveReturnedUploadSessions(student.getId(), request.getAssessmentYear());
-        FileObject existingFile = fileService.getByMd5(requiredTrim(request.getFileMd5(), "文件MD5不能为空"));
+        validateDirectChunkPlan(request.getSize(), request.getChunkSize());
+        String assessmentYear = requiredTrim(request.getAssessmentYear(), "考核年度不能为空");
+        String fileHash = requiredTrim(request.getFileMd5(), "文件MD5不能为空").toLowerCase(Locale.ROOT);
+        String legacyFileHash = StringUtils.hasText(request.getLegacyFileHash())
+                ? request.getLegacyFileHash().trim().toLowerCase(Locale.ROOT) : null;
+        transactionTemplate.executeWithoutResult(status ->
+                ensureReviewReuploadable(student.getId(), assessmentYear));
+        VideoUploadSession existing = currentOpenUploadSession(student.getId(), assessmentYear);
+        String currentUploadId = existing == null ? null : existing.getUploadId();
+        transactionTemplate.executeWithoutResult(status ->
+                archiveReturnedUploadSessions(student.getId(), assessmentYear, currentUploadId));
+        if (existing != null && PRESIGNED_MULTIPART_MODE.equals(existing.getUploadMode())
+                && VideoUploadStatus.UPLOADING.name().equals(existing.getStatus())) {
+            try {
+                multipartObjectService.listUploadedParts(existing.getObjectKey(), existing.getS3UploadId());
+            } catch (MultipartUploadNotFoundException missing) {
+                failDirectSession(existing);
+                existing = null;
+            }
+        }
+        if (existing != null) {
+            boolean legacyMatch = (SERVER_CHUNK_MODE.equals(existing.getUploadMode())
+                    || !StringUtils.hasText(existing.getUploadMode()))
+                    && Integer.valueOf(0).equals(existing.getSlotClaimed())
+                    && legacyFileHash != null && legacyFileHash.equals(existing.getFileMd5());
+            if (!fileHash.equals(existing.getFileMd5()) && !legacyMatch) {
+                throw new BizException("该学生本年度已有其他视频正在上传，请先完成原上传");
+            }
+            validateResumableSession(existing, request);
+            if (SERVER_CHUNK_MODE.equals(existing.getUploadMode()) || !StringUtils.hasText(existing.getUploadMode())) {
+                return toUploadInitVO(updateResumeMetadata(
+                        existing, request.getDurationSeconds(), legacyMatch ? fileHash : null), null);
+            }
+            if (VideoUploadStatus.MERGING.name().equals(existing.getStatus())) {
+                return toMergingUploadInitVO(existing);
+            }
+            if (!minioProperties.isDirectUploadEnabled()) {
+                failDirectSession(existing);
+                existing = null;
+            } else if (VideoUploadStatus.UPLOADING.name().equals(existing.getStatus())) {
+                try {
+                    MultipartUploadPlan resumed = multipartObjectService.resumeUpload(
+                            requireVideoObjectKey(existing.getObjectKey()), existing.getS3UploadId(),
+                            existing.getFileSize(), existing.getChunkSize(), existing.getTotalChunks(),
+                            minioProperties.getPresignExpirySeconds());
+                    VideoUploadSession resumedSession = updateDirectResume(existing, resumed, request.getDurationSeconds());
+                    return toUploadInitVO(resumedSession, resumed);
+                } catch (MultipartUploadNotFoundException missing) {
+                    failDirectSession(existing);
+                    existing = null;
+                }
+            } else {
+                throw new BizException("该视频正在定稿，请稍后刷新结果");
+            }
+        }
+        // 跨用户秒传只接受新版 256-bit 指纹；8位 rolling hash/旧32位 MD5 仅可恢复同学生年度会话。
+        FileObject existingFile = fileHash.length() == 64
+                ? fileService.getByMd5(fileHash, VIDEO_BIZ_TYPE) : null;
         if (existingFile != null) {
-            VideoReview review = upsertReviewAfterValidation(student, request.getAssessmentYear(), existingFile,
-                    request.getFileMd5(), request.getDurationSeconds(), true, null);
+            VideoReview review = transactionTemplate.execute(status -> upsertReviewAfterValidation(
+                    student, assessmentYear, existingFile, fileHash, request.getDurationSeconds(), true, null));
             VideoUploadInitVO vo = new VideoUploadInitVO();
             vo.setUploadId(null);
+            vo.setUploadMode("FAST_HIT");
+            vo.setPartSize(request.getChunkSize());
             vo.setInstantHit(true);
             vo.setFileId(existingFile.getId());
-            vo.setReviewId(review.getId());
+            vo.setReviewId(review == null ? null : review.getId());
             vo.setUploadedChunks(List.of());
-            vo.setStatus(review.getStatus());
-            vo.setValidationMessage(review.getValidationMessage());
+            vo.setUploadedParts(List.of());
+            vo.setParts(List.of());
+            vo.setStatus(review == null ? null : review.getStatus());
+            vo.setValidationMessage(review == null ? null : review.getValidationMessage());
             return vo;
         }
-        VideoUploadSession existing = sessionMapper.selectOne(new LambdaQueryWrapper<VideoUploadSession>()
-                .eq(VideoUploadSession::getStudentId, student.getId())
-                .eq(VideoUploadSession::getAssessmentYear, requiredTrim(request.getAssessmentYear(), "考核年度不能为空"))
-                .eq(VideoUploadSession::getFileMd5, request.getFileMd5().trim())
-                .eq(VideoUploadSession::getStatus, VideoUploadStatus.UPLOADING.name())
-                .orderByDesc(VideoUploadSession::getCreatedAt)
-                .last("LIMIT 1"));
-        VideoUploadSession session = existing == null ? createSession(student, request) : existing;
-        if (existing != null && request.getDurationSeconds() != null) {
-            existing.setDurationSeconds(request.getDurationSeconds());
-            sessionMapper.updateById(existing);
+        if (!minioProperties.isDirectUploadEnabled()) {
+            VideoUploadSession serverSession;
+            try {
+                serverSession = transactionTemplate.execute(status -> createSession(student, request));
+            } catch (DuplicateKeyException duplicate) {
+                throw new BizException("该学生本年度已有视频正在上传，请刷新后继续原上传");
+            }
+            return toUploadInitVO(serverSession, null);
         }
-        VideoUploadInitVO vo = new VideoUploadInitVO();
-        vo.setUploadId(session.getUploadId());
-        vo.setInstantHit(false);
-        vo.setUploadedChunks(uploadedIndexes(session.getUploadId()));
-        vo.setStatus(session.getStatus());
-        vo.setValidationMessage(session.getValidationMessage());
-        vo.setFileId(session.getFileId());
-        return vo;
+        DirectUploadStart started = startDirectUpload(student, request, assessmentYear, fileHash);
+        return toUploadInitVO(started.session(), started.plan());
     }
 
     @Override
     public void uploadChunk(String uploadId, Integer index, String md5, InputStream input, long size) {
         VideoUploadSession session = requireSession(uploadId);
         ensureCanWriteStudent(requireStudent(session.getStudentId()), "video:upload");
+        if (PRESIGNED_MULTIPART_MODE.equals(session.getUploadMode())) {
+            throw new BizException("该会话必须由浏览器直传MinIO");
+        }
         if (VideoUploadStatus.of(session.getStatus()) != VideoUploadStatus.UPLOADING) {
             throw new BizException("当前上传会话不可继续上传");
         }
@@ -220,8 +292,153 @@ public class VideoReviewServiceImpl implements VideoReviewService {
     }
 
     @Override
+    public void cancelUpload(String uploadId) {
+        VideoUploadSession session = requireSession(requiredTrim(uploadId, "上传会话不能为空"));
+        ensureCanWriteStudent(requireStudent(session.getStudentId()), "video:upload");
+        VideoUploadStatus status = VideoUploadStatus.of(session.getStatus());
+        if (status == VideoUploadStatus.FAILED || status == VideoUploadStatus.MERGED
+                || status == VideoUploadStatus.VALIDATION_FAILED) {
+            return;
+        }
+        if (status == VideoUploadStatus.MERGING) {
+            throw new BizException("视频正在定稿，当前不可取消");
+        }
+        int changed = sessionMapper.update(null, new LambdaUpdateWrapper<VideoUploadSession>()
+                .eq(VideoUploadSession::getId, session.getId())
+                .eq(VideoUploadSession::getStatus, VideoUploadStatus.UPLOADING.name())
+                .set(VideoUploadSession::getStatus, VideoUploadStatus.FAILED.name()));
+        if (changed == 0) {
+            throw new BizException("上传会话状态已变化，请刷新后重试");
+        }
+        if (PRESIGNED_MULTIPART_MODE.equals(session.getUploadMode())) {
+            try {
+                multipartObjectService.abortUpload(
+                        requireVideoObjectKey(session.getObjectKey()), session.getS3UploadId());
+            } catch (RuntimeException e) {
+                log.warn("取消视频上传后 abort MinIO 失败，生命周期规则将兜底: uploadId={}, message={}",
+                        session.getUploadId(), e.getMessage());
+            }
+            return;
+        }
+        List<VideoUploadChunk> uploaded = chunks(session.getUploadId());
+        for (VideoUploadChunk chunk : uploaded) {
+            if (!StringUtils.hasText(chunk.getObjectKey())) {
+                continue;
+            }
+            try {
+                minioClient.removeObject(RemoveObjectArgs.builder()
+                        .bucket(minioProperties.getBucket()).object(chunk.getObjectKey()).build());
+            } catch (Exception e) {
+                log.warn("取消视频上传后删除服务端分片失败: uploadId={}, objectKey={}, message={}",
+                        session.getUploadId(), chunk.getObjectKey(), e.getMessage());
+            }
+        }
+        if (!uploaded.isEmpty()) {
+            chunkMapper.update(null, new LambdaUpdateWrapper<VideoUploadChunk>()
+                    .eq(VideoUploadChunk::getUploadId, session.getUploadId())
+                    .setSql("deleted = 1"));
+        }
+    }
+
+    @Override
+    public VideoReviewVO complete(VideoUploadCompleteRequest request) {
+        VideoUploadSession session = requireSession(request.getUploadId());
+        requirePresignedSession(session);
+        Student student = requireStudent(session.getStudentId());
+        ensureCanWriteStudent(student, "video:upload");
+
+        VideoUploadStatus initialStatus = VideoUploadStatus.of(session.getStatus());
+        if (initialStatus == VideoUploadStatus.MERGED || initialStatus == VideoUploadStatus.VALIDATION_FAILED) {
+            return handleNonClaimableMerge(session);
+        }
+        if (initialStatus == VideoUploadStatus.FAILED) {
+            throw new BizException("上传会话已失效，请重新发起上传");
+        }
+        boolean claimed = false;
+        if (initialStatus == VideoUploadStatus.UPLOADING) {
+            List<MultipartUploadedPart> s3Parts = multipartObjectService.listUploadedParts(
+                    session.getObjectKey(), session.getS3UploadId());
+            validateDirectParts(session, s3Parts);
+            List<MultipartUploadedPart> verified = verifyClientParts(request.getParts(), s3Parts);
+            Boolean claimResult = transactionTemplate.execute(status -> {
+                VideoUploadSession locked = lockUploadSession(request.getUploadId());
+                VideoUploadStatus lockedStatus = VideoUploadStatus.of(locked.getStatus());
+                if (lockedStatus != VideoUploadStatus.UPLOADING) {
+                    return false;
+                }
+                ensureReviewReuploadable(locked.getStudentId(), locked.getAssessmentYear());
+                persistDirectParts(locked, verified);
+                locked.setStatus(VideoUploadStatus.MERGING.name());
+                if (request.getDurationSeconds() != null) {
+                    locked.setDurationSeconds(request.getDurationSeconds());
+                }
+                sessionMapper.updateById(locked);
+                return true;
+            });
+            claimed = Boolean.TRUE.equals(claimResult);
+            session = requireSession(session.getUploadId());
+        }
+        VideoUploadStatus activeStatus = VideoUploadStatus.of(session.getStatus());
+        if (activeStatus == VideoUploadStatus.MERGED || activeStatus == VideoUploadStatus.VALIDATION_FAILED) {
+            return handleNonClaimableMerge(session);
+        }
+        if (activeStatus != VideoUploadStatus.MERGING) {
+            throw new BizException("视频上传会话状态已变化，请刷新后重试");
+        }
+        VideoUploadSession activeSession = session;
+
+        try {
+            MultipartObjectInfo existingObject = multipartObjectService.findObject(activeSession.getObjectKey())
+                    .orElse(null);
+            List<MultipartUploadedPart> storedParts = directPartsFromDatabase(activeSession.getUploadId());
+            List<MultipartUploadedPart> verifiedParts;
+            if (storedParts.isEmpty() && existingObject == null) {
+                storedParts = multipartObjectService.listUploadedParts(
+                        activeSession.getObjectKey(), activeSession.getS3UploadId());
+                validateDirectParts(activeSession, storedParts);
+                verifiedParts = verifyClientParts(request.getParts(), storedParts);
+                List<MultipartUploadedPart> recoveryParts = verifiedParts;
+                transactionTemplate.executeWithoutResult(status -> {
+                    VideoUploadSession locked = lockUploadSession(activeSession.getUploadId());
+                    if (VideoUploadStatus.of(locked.getStatus()) != VideoUploadStatus.MERGING) {
+                        throw new BizException("视频上传会话状态已变化，请刷新后重试");
+                    }
+                    persistDirectParts(locked, recoveryParts);
+                });
+            } else if (storedParts.isEmpty()) {
+                verifiedParts = List.of();
+            } else {
+                validateDirectParts(activeSession, storedParts);
+                verifiedParts = verifyClientParts(request.getParts(), storedParts);
+            }
+            MultipartObjectInfo objectInfo = existingObject != null
+                    ? existingObject
+                    : multipartObjectService.completeUpload(
+                            activeSession.getObjectKey(), activeSession.getS3UploadId(), verifiedParts);
+            validateCompletedVideoObject(activeSession, objectInfo);
+            Integer duration = request.getDurationSeconds() == null
+                    ? activeSession.getDurationSeconds() : request.getDurationSeconds();
+            return finalizeDirectUpload(activeSession.getUploadId(), student, objectInfo, duration);
+        } catch (RuntimeException e) {
+            boolean objectExists = multipartObjectService.findObject(activeSession.getObjectKey()).isPresent();
+            if (e instanceof DirectUploadTerminalException && objectExists) {
+                failCompletedDirectSession(activeSession, e.getMessage());
+            } else if (claimed && !objectExists) {
+                sessionMapper.update(null, new LambdaUpdateWrapper<VideoUploadSession>()
+                        .eq(VideoUploadSession::getUploadId, activeSession.getUploadId())
+                        .eq(VideoUploadSession::getStatus, VideoUploadStatus.MERGING.name())
+                        .set(VideoUploadSession::getStatus, VideoUploadStatus.UPLOADING.name()));
+            }
+            throw e;
+        }
+    }
+
+    @Override
     public VideoReviewVO merge(VideoUploadMergeRequest request) {
         VideoUploadSession session = requireSession(request.getUploadId());
+        if (PRESIGNED_MULTIPART_MODE.equals(session.getUploadMode())) {
+            throw new BizException("浏览器直传会话请调用complete定稿");
+        }
         Student student = requireStudent(session.getStudentId());
         ensureCanWriteStudent(student, "video:upload");
         ensureReviewReuploadable(student.getId(), session.getAssessmentYear());
@@ -298,13 +515,28 @@ public class VideoReviewServiceImpl implements VideoReviewService {
     public VideoUploadProgressVO progress(String uploadId) {
         VideoUploadSession session = requireSession(uploadId);
         ensureCanWriteStudent(requireStudent(session.getStudentId()), "video:upload");
+        List<MultipartUploadedPart> directParts = List.of();
+        if (PRESIGNED_MULTIPART_MODE.equals(session.getUploadMode())) {
+            requirePresignedSession(session);
+            if (VideoUploadStatus.of(session.getStatus()) == VideoUploadStatus.UPLOADING) {
+                directParts = multipartObjectService.listUploadedParts(session.getObjectKey(), session.getS3UploadId());
+            } else {
+                directParts = directPartsFromDatabase(uploadId);
+            }
+            session.setUploadedChunks(directParts.size());
+            session.setUploadedBytes(directParts.stream().mapToLong(MultipartUploadedPart::size).sum());
+        }
         VideoUploadProgressVO vo = new VideoUploadProgressVO();
         vo.setUploadId(session.getUploadId());
+        vo.setUploadMode(StringUtils.hasText(session.getUploadMode()) ? session.getUploadMode() : SERVER_CHUNK_MODE);
         vo.setStatus(session.getStatus());
         vo.setTotalChunks(session.getTotalChunks());
         vo.setUploadedChunks(session.getUploadedChunks());
         vo.setUploadedBytes(session.getUploadedBytes());
-        vo.setUploadedChunkIndexes(uploadedIndexes(uploadId));
+        vo.setUploadedChunkIndexes(PRESIGNED_MULTIPART_MODE.equals(session.getUploadMode())
+                ? directParts.stream().map(part -> part.partNumber() - 1).sorted().toList()
+                : uploadedIndexes(uploadId));
+        vo.setUploadedParts(directParts.stream().map(this::toUploadedPartVO).toList());
         vo.setFileId(session.getFileId());
         vo.setValidationMessage(session.getValidationMessage());
         return vo;
@@ -551,9 +783,449 @@ public class VideoReviewServiceImpl implements VideoReviewService {
                 .toList();
     }
 
+    private VideoUploadSession currentOpenUploadSession(Long studentId, String assessmentYear) {
+        return sessionMapper.selectOne(new LambdaQueryWrapper<VideoUploadSession>()
+                .eq(VideoUploadSession::getStudentId, studentId)
+                .eq(VideoUploadSession::getAssessmentYear, assessmentYear)
+                .in(VideoUploadSession::getStatus,
+                        VideoUploadStatus.UPLOADING.name(), VideoUploadStatus.MERGING.name())
+                .orderByDesc(VideoUploadSession::getSlotClaimed)
+                .orderByDesc(VideoUploadSession::getCreatedAt)
+                .last("LIMIT 1"));
+    }
+
+    private void validateResumableSession(VideoUploadSession session, VideoUploadInitRequest request) {
+        String fileName = requiredTrim(request.getFileName(), "文件名不能为空");
+        String contentType = normalizeContentType(request.getFileName(), request.getContentType());
+        int totalChunks = totalParts(request.getSize(), request.getChunkSize());
+        if (!Objects.equals(session.getFileName(), fileName)
+                || !Objects.equals(session.getFileSize(), request.getSize())
+                || !Objects.equals(session.getChunkSize(), request.getChunkSize())
+                || !Objects.equals(session.getTotalChunks(), totalChunks)
+                || !Objects.equals(session.getContentType(), contentType)) {
+            throw new BizException("续传文件与原上传会话不一致");
+        }
+    }
+
+    private VideoUploadSession updateResumeMetadata(VideoUploadSession session, Integer durationSeconds,
+                                                    String upgradedFileHash) {
+        boolean updateDuration = durationSeconds != null
+                && !Objects.equals(durationSeconds, session.getDurationSeconds());
+        boolean updateFileHash = StringUtils.hasText(upgradedFileHash)
+                && !Objects.equals(upgradedFileHash, session.getFileMd5());
+        if (!updateDuration && !updateFileHash) {
+            return requireUploadingResumeSession(session);
+        }
+        LambdaUpdateWrapper<VideoUploadSession> update = uploadingResumeUpdate(session)
+                .set(VideoUploadSession::getUpdatedAt, LocalDateTime.now());
+        if (updateDuration) {
+            update.set(VideoUploadSession::getDurationSeconds, durationSeconds);
+        }
+        if (updateFileHash) {
+            update.set(VideoUploadSession::getFileMd5, upgradedFileHash);
+        }
+        transactionTemplate.execute(status -> sessionMapper.update(null, update));
+        return requireUploadingResumeSession(session);
+    }
+
+    private VideoUploadSession updateDirectResume(VideoUploadSession session, MultipartUploadPlan plan,
+                                                   Integer durationSeconds) {
+        LambdaUpdateWrapper<VideoUploadSession> update = uploadingResumeUpdate(session)
+                .set(VideoUploadSession::getPresignExpiresAt,
+                        LocalDateTime.ofInstant(plan.expiresAt(), ZoneId.systemDefault()))
+                .set(VideoUploadSession::getUploadedChunks, plan.uploadedParts().size())
+                .set(VideoUploadSession::getUploadedBytes,
+                        plan.uploadedParts().stream().mapToLong(MultipartUploadedPart::size).sum())
+                .set(VideoUploadSession::getUpdatedAt, LocalDateTime.now());
+        if (durationSeconds != null) {
+            update.set(VideoUploadSession::getDurationSeconds, durationSeconds);
+        }
+        transactionTemplate.execute(status -> sessionMapper.update(null, update));
+        return requireUploadingResumeSession(session);
+    }
+
+    private LambdaUpdateWrapper<VideoUploadSession> uploadingResumeUpdate(VideoUploadSession session) {
+        return new LambdaUpdateWrapper<VideoUploadSession>()
+                .eq(VideoUploadSession::getId, session.getId())
+                .eq(VideoUploadSession::getUploadId, session.getUploadId())
+                .eq(VideoUploadSession::getStatus, VideoUploadStatus.UPLOADING.name());
+    }
+
+    private VideoUploadSession requireUploadingResumeSession(VideoUploadSession attempted) {
+        VideoUploadSession latest = sessionMapper.selectById(attempted.getId());
+        if (latest == null || !Objects.equals(latest.getUploadId(), attempted.getUploadId())) {
+            throw new BizException("上传会话不存在或已失效");
+        }
+        VideoUploadStatus status = VideoUploadStatus.of(latest.getStatus());
+        if (status == VideoUploadStatus.UPLOADING) {
+            return latest;
+        }
+        if (status == VideoUploadStatus.FAILED) {
+            throw new BizException("上传会话已失效，请重新发起上传");
+        }
+        if (status == VideoUploadStatus.MERGING) {
+            throw new BizException("视频正在定稿，请稍后刷新结果");
+        }
+        if (status == VideoUploadStatus.MERGED || status == VideoUploadStatus.VALIDATION_FAILED) {
+            throw new BizException("视频已完成，请刷新结果");
+        }
+        throw new BizException("上传会话状态已变化，请刷新后重试");
+    }
+
+    private void failDirectSession(VideoUploadSession session) {
+        int changed = sessionMapper.update(null, new LambdaUpdateWrapper<VideoUploadSession>()
+                .eq(VideoUploadSession::getId, session.getId())
+                .eq(VideoUploadSession::getStatus, VideoUploadStatus.UPLOADING.name())
+                .set(VideoUploadSession::getStatus, VideoUploadStatus.FAILED.name()));
+        if (changed == 0) {
+            throw new BizException("上传会话状态已变化，请刷新后重试");
+        }
+        if (StringUtils.hasText(session.getS3UploadId()) && StringUtils.hasText(session.getObjectKey())) {
+            multipartObjectService.abortUpload(requireVideoObjectKey(session.getObjectKey()), session.getS3UploadId());
+        }
+    }
+
+    private DirectUploadStart startDirectUpload(Student student, VideoUploadInitRequest request,
+                                                String assessmentYear, String fileHash) {
+        String uploadId = UUID.randomUUID().toString().replace("-", "");
+        String objectKey = VIDEO_BIZ_TYPE + "/" + UUID.randomUUID().toString().replace("-", "") + ".mp4";
+        int totalParts = totalParts(request.getSize(), request.getChunkSize());
+        MultipartUploadPlan plan = multipartObjectService.createUpload(objectKey, "video/mp4", Map.of(
+                        "upload-id", uploadId,
+                        "owner-id", String.valueOf(UserContext.getUserIdOrSystem()),
+                        "expected-size", String.valueOf(request.getSize()),
+                        "fingerprint", fileHash),
+                request.getSize(), request.getChunkSize(), totalParts,
+                minioProperties.getPresignExpirySeconds());
+        try {
+            VideoUploadSession session = transactionTemplate.execute(status -> createDirectSession(
+                    student, request, assessmentYear, fileHash, uploadId, plan));
+            return new DirectUploadStart(session, plan);
+        } catch (RuntimeException e) {
+            multipartObjectService.abortUpload(objectKey, plan.multipartUploadId());
+            if (e instanceof DuplicateKeyException) {
+                throw new BizException("该学生本年度已有视频正在上传，请刷新后继续原上传");
+            }
+            throw e;
+        }
+    }
+
+    private VideoUploadSession createDirectSession(Student student, VideoUploadInitRequest request,
+                                                    String assessmentYear, String fileHash, String uploadId,
+                                                    MultipartUploadPlan uploadPlan) {
+        VideoUploadSession session = new VideoUploadSession();
+        session.setUploadId(uploadId);
+        session.setUploadMode(PRESIGNED_MULTIPART_MODE);
+        session.setS3UploadId(uploadPlan.multipartUploadId());
+        session.setObjectKey(uploadPlan.objectKey());
+        session.setPresignExpiresAt(LocalDateTime.ofInstant(uploadPlan.expiresAt(), ZoneId.systemDefault()));
+        session.setSlotClaimed(1);
+        session.setStudentId(student.getId());
+        session.setCollegeId(student.getCollegeId());
+        session.setAssessmentYear(assessmentYear);
+        session.setFileMd5(fileHash);
+        session.setFileName(requiredTrim(request.getFileName(), "文件名不能为空"));
+        session.setFileSize(request.getSize());
+        session.setContentType(normalizeContentType(request.getFileName(), request.getContentType()));
+        session.setChunkSize(request.getChunkSize());
+        session.setTotalChunks(totalParts(request.getSize(), request.getChunkSize()));
+        session.setUploadedChunks(0);
+        session.setUploadedBytes(0L);
+        session.setDurationSeconds(request.getDurationSeconds());
+        session.setStatus(VideoUploadStatus.UPLOADING.name());
+        sessionMapper.insert(session);
+        return session;
+    }
+
+    private record DirectUploadStart(VideoUploadSession session, MultipartUploadPlan plan) {
+    }
+
+    private VideoUploadInitVO toUploadInitVO(VideoUploadSession session, MultipartUploadPlan uploadPlan) {
+        VideoUploadInitVO vo = new VideoUploadInitVO();
+        vo.setUploadId(session.getUploadId());
+        vo.setUploadMode(StringUtils.hasText(session.getUploadMode()) ? session.getUploadMode() : SERVER_CHUNK_MODE);
+        vo.setPartSize(session.getChunkSize());
+        vo.setInstantHit(false);
+        vo.setStatus(session.getStatus());
+        vo.setValidationMessage(session.getValidationMessage());
+        vo.setFileId(session.getFileId());
+        if (uploadPlan == null) {
+            vo.setUploadedChunks(uploadedIndexes(session.getUploadId()));
+            vo.setUploadedParts(List.of());
+            vo.setParts(List.of());
+            return vo;
+        }
+        vo.setUploadedChunks(uploadPlan.uploadedParts().stream()
+                .map(part -> part.partNumber() - 1)
+                .sorted()
+                .toList());
+        vo.setUploadedParts(uploadPlan.uploadedParts().stream().map(this::toUploadedPartVO).toList());
+        vo.setParts(uploadPlan.parts().stream().map(part -> {
+            VideoPresignedPartVO item = new VideoPresignedPartVO();
+            item.setPartNumber(part.partNumber());
+            item.setUrl(part.url());
+            item.setExpiresAt(part.expiresAt());
+            return item;
+        }).toList());
+        return vo;
+    }
+
+    private VideoUploadInitVO toMergingUploadInitVO(VideoUploadSession session) {
+        List<MultipartUploadedPart> verifiedParts = directPartsFromDatabase(session.getUploadId());
+        validateDirectParts(session, verifiedParts);
+        VideoUploadInitVO vo = new VideoUploadInitVO();
+        vo.setUploadId(session.getUploadId());
+        vo.setUploadMode(PRESIGNED_MULTIPART_MODE);
+        vo.setPartSize(session.getChunkSize());
+        vo.setInstantHit(false);
+        vo.setFileId(session.getFileId());
+        vo.setUploadedChunks(verifiedParts.stream()
+                .map(part -> part.partNumber() - 1)
+                .toList());
+        vo.setUploadedParts(verifiedParts.stream().map(this::toUploadedPartVO).toList());
+        vo.setParts(List.of());
+        vo.setStatus(session.getStatus());
+        vo.setValidationMessage(session.getValidationMessage());
+        return vo;
+    }
+
+    private VideoUploadedPartVO toUploadedPartVO(MultipartUploadedPart part) {
+        VideoUploadedPartVO vo = new VideoUploadedPartVO();
+        vo.setPartNumber(part.partNumber());
+        vo.setEtag(part.eTag());
+        vo.setSize(part.size());
+        return vo;
+    }
+
+    private VideoReviewVO finalizeDirectUpload(String uploadId, Student student,
+                                               MultipartObjectInfo objectInfo, Integer durationSeconds) {
+        Long reviewId = transactionTemplate.execute(status -> {
+            VideoUploadSession locked = lockUploadSession(uploadId);
+            VideoUploadStatus uploadStatus = VideoUploadStatus.of(locked.getStatus());
+            if (uploadStatus == VideoUploadStatus.MERGED || uploadStatus == VideoUploadStatus.VALIDATION_FAILED) {
+                VideoReview existing = existingReview(locked.getStudentId(), locked.getAssessmentYear());
+                if (existing == null) {
+                    throw new BizException("视频已定稿但评审记录不存在");
+                }
+                return existing.getId();
+            }
+            if (uploadStatus != VideoUploadStatus.MERGING) {
+                throw new BizException("视频上传会话状态已变化，请刷新后重试");
+            }
+            FileObject file = fileObjectMapper.selectOne(new LambdaQueryWrapper<FileObject>()
+                    .eq(FileObject::getBucket, objectInfo.bucket())
+                    .eq(FileObject::getObjectKey, objectInfo.objectKey())
+                    .last("LIMIT 1"));
+            if (file == null) {
+                file = registerComposedFile(locked, objectInfo.objectKey());
+            }
+            locked.setDurationSeconds(durationSeconds);
+            locked.setFileId(file.getId());
+            VideoReview review = upsertReviewAfterValidation(student, locked.getAssessmentYear(), file,
+                    locked.getFileMd5(), durationSeconds, false, locked.getUploadId());
+            locked.setStatus(VideoReviewStatus.of(review.getStatus()) == VideoReviewStatus.VALIDATION_FAILED
+                    ? VideoUploadStatus.VALIDATION_FAILED.name()
+                    : VideoUploadStatus.MERGED.name());
+            locked.setValidationMessage(review.getValidationMessage());
+            sessionMapper.updateById(locked);
+            return review.getId();
+        });
+        if (reviewId == null) {
+            throw new BizException("视频定稿事务未返回结果");
+        }
+        return detail(reviewId);
+    }
+
+    private void persistDirectParts(VideoUploadSession session, List<MultipartUploadedPart> parts) {
+        for (MultipartUploadedPart part : parts) {
+            int chunkIndex = part.partNumber() - 1;
+            VideoUploadChunk chunk = chunkMapper.selectOne(new LambdaQueryWrapper<VideoUploadChunk>()
+                    .eq(VideoUploadChunk::getUploadId, session.getUploadId())
+                    .eq(VideoUploadChunk::getChunkIndex, chunkIndex)
+                    .last("LIMIT 1"));
+            if (chunk == null) {
+                chunk = new VideoUploadChunk();
+                chunk.setUploadId(session.getUploadId());
+                chunk.setChunkIndex(chunkIndex);
+                chunk.setPartNumber(part.partNumber());
+                chunk.setEtag(part.eTag());
+                chunk.setChunkSize(part.size());
+                chunk.setObjectKey(session.getObjectKey());
+                chunk.setUploadedAt(LocalDateTime.now());
+                chunkMapper.insert(chunk);
+            } else {
+                chunk.setPartNumber(part.partNumber());
+                chunk.setEtag(part.eTag());
+                chunk.setChunkSize(part.size());
+                chunk.setObjectKey(session.getObjectKey());
+                chunk.setUploadedAt(LocalDateTime.now());
+                chunkMapper.updateById(chunk);
+            }
+        }
+        sessionMapper.update(new LambdaUpdateWrapper<VideoUploadSession>()
+                .eq(VideoUploadSession::getUploadId, session.getUploadId())
+                .set(VideoUploadSession::getUploadedChunks, parts.size())
+                .set(VideoUploadSession::getUploadedBytes,
+                        parts.stream().mapToLong(MultipartUploadedPart::size).sum()));
+    }
+
+    private List<MultipartUploadedPart> directPartsFromDatabase(String uploadId) {
+        return chunks(uploadId).stream()
+                .filter(chunk -> chunk.getPartNumber() != null && StringUtils.hasText(chunk.getEtag()))
+                .map(chunk -> new MultipartUploadedPart(
+                        chunk.getPartNumber(), chunk.getEtag(), chunk.getChunkSize() == null ? 0L : chunk.getChunkSize()))
+                .sorted(Comparator.comparingInt(MultipartUploadedPart::partNumber))
+                .toList();
+    }
+
+    private List<MultipartUploadedPart> verifyClientParts(List<MultipartCompletedPartRequest> requestedParts,
+                                                          List<MultipartUploadedPart> storedParts) {
+        Map<Integer, MultipartUploadedPart> stored = storedParts.stream().collect(Collectors.toMap(
+                MultipartUploadedPart::partNumber, part -> part, (left, right) -> left, LinkedHashMap::new));
+        if (requestedParts == null || requestedParts.size() != stored.size()) {
+            throw new BizException("上传分片数量不一致");
+        }
+        Map<Integer, MultipartUploadedPart> verified = new LinkedHashMap<>();
+        for (MultipartCompletedPartRequest requested : requestedParts) {
+            if (requested == null || requested.getPartNumber() == null
+                    || verified.containsKey(requested.getPartNumber())) {
+                throw new BizException("上传分片序号重复或为空");
+            }
+            MultipartUploadedPart storedPart = stored.get(requested.getPartNumber());
+            if (storedPart == null || !normalizeETag(storedPart.eTag()).equals(normalizeETag(requested.getEtag()))) {
+                throw new BizException("上传分片ETag校验失败");
+            }
+            verified.put(requested.getPartNumber(), storedPart);
+        }
+        return verified.values().stream()
+                .sorted(Comparator.comparingInt(MultipartUploadedPart::partNumber))
+                .toList();
+    }
+
+    private void validateDirectParts(VideoUploadSession session, List<MultipartUploadedPart> parts) {
+        if (parts.size() != session.getTotalChunks()) {
+            throw new BizException("分片尚未全部上传");
+        }
+        long totalSize = 0L;
+        for (int index = 0; index < parts.size(); index++) {
+            MultipartUploadedPart part = parts.get(index);
+            if (part.partNumber() != index + 1) {
+                throw new BizException("上传分片序号必须连续");
+            }
+            long expectedSize = index == parts.size() - 1
+                    ? session.getFileSize() - session.getChunkSize() * index
+                    : session.getChunkSize();
+            if (part.size() != expectedSize) {
+                throw new BizException("上传分片大小不符合会话约束");
+            }
+            totalSize += part.size();
+        }
+        if (totalSize != session.getFileSize()) {
+            throw new BizException("上传对象总大小不一致");
+        }
+    }
+
+    private void validateCompletedVideoObject(VideoUploadSession session, MultipartObjectInfo objectInfo) {
+        requireVideoObjectKey(objectInfo.objectKey());
+        if (!minioProperties.getBucket().equals(objectInfo.bucket())
+                || !session.getObjectKey().equals(objectInfo.objectKey())
+                || objectInfo.size() != session.getFileSize()) {
+            throw new DirectUploadTerminalException("定稿对象与上传会话不一致");
+        }
+        if (!"video/mp4".equals(normalizeContentType(session.getFileName(), objectInfo.contentType()))) {
+            throw new DirectUploadTerminalException("定稿对象类型不合法");
+        }
+    }
+
+    private void failCompletedDirectSession(VideoUploadSession session, String reason) {
+        int changed = sessionMapper.update(null, new LambdaUpdateWrapper<VideoUploadSession>()
+                .eq(VideoUploadSession::getUploadId, session.getUploadId())
+                .eq(VideoUploadSession::getStatus, VideoUploadStatus.MERGING.name())
+                .set(VideoUploadSession::getStatus, VideoUploadStatus.FAILED.name())
+                .set(VideoUploadSession::getValidationMessage, reason));
+        if (changed != 1) {
+            return;
+        }
+        FileObject registered = fileObjectMapper.selectOne(new LambdaQueryWrapper<FileObject>()
+                .eq(FileObject::getBucket, minioProperties.getBucket())
+                .eq(FileObject::getObjectKey, session.getObjectKey())
+                .last("LIMIT 1"));
+        if (registered != null) {
+            log.warn("终态失败的视频对象已有文件登记，保留给孤儿扫描复核: uploadId={}, fileId={}",
+                    session.getUploadId(), registered.getId());
+            return;
+        }
+        try {
+            minioClient.removeObject(RemoveObjectArgs.builder()
+                    .bucket(minioProperties.getBucket())
+                    .object(session.getObjectKey())
+                    .build());
+        } catch (Exception cleanupFailure) {
+            log.warn("终态失败的视频对象删除失败，孤儿扫描将兜底: uploadId={}, message={}",
+                    session.getUploadId(), cleanupFailure.getMessage());
+        }
+    }
+
+    private void requirePresignedSession(VideoUploadSession session) {
+        if (!PRESIGNED_MULTIPART_MODE.equals(session.getUploadMode())
+                || !StringUtils.hasText(session.getS3UploadId())) {
+            throw new BizException("该会话不是浏览器直传会话");
+        }
+        requireVideoObjectKey(session.getObjectKey());
+    }
+
+    private String requireVideoObjectKey(String objectKey) {
+        if (!StringUtils.hasText(objectKey) || !objectKey.startsWith(VIDEO_BIZ_TYPE + "/")
+                || objectKey.contains("..")) {
+            throw new BizException("视频对象Key不合法");
+        }
+        return objectKey;
+    }
+
+    private String normalizeETag(String eTag) {
+        if (!StringUtils.hasText(eTag)) {
+            return "";
+        }
+        String value = eTag.trim();
+        if (value.startsWith("\"") && value.endsWith("\"") && value.length() >= 2) {
+            value = value.substring(1, value.length() - 1);
+        }
+        return value.toLowerCase(Locale.ROOT);
+    }
+
+    private int totalParts(long fileSize, long partSize) {
+        long total = (fileSize + partSize - 1) / partSize;
+        if (total > MAX_DIRECT_PARTS) {
+            throw new BizException("视频分片数量超过限制");
+        }
+        return (int) total;
+    }
+
+    private void validateDirectChunkPlan(Long fileSize, Long partSize) {
+        if (fileSize == null || partSize == null || partSize <= 0 || partSize > MAX_DIRECT_PART_SIZE) {
+            throw new BizException("分片大小不合法");
+        }
+        int total = totalParts(fileSize, partSize);
+        if (total > 1 && partSize < MIN_COMPOSE_PART_SIZE) {
+            throw new BizException("除最后一片外，直传分片不得小于5MiB");
+        }
+    }
+
+    private VideoUploadSession lockUploadSession(String uploadId) {
+        VideoUploadSession session = sessionMapper.selectOne(new LambdaQueryWrapper<VideoUploadSession>()
+                .eq(VideoUploadSession::getUploadId, uploadId)
+                .last("FOR UPDATE"));
+        if (session == null) {
+            throw new BizException(ResultCode.NOT_FOUND.getCode(), "上传会话不存在");
+        }
+        return session;
+    }
+
     private VideoUploadSession createSession(Student student, VideoUploadInitRequest request) {
         VideoUploadSession session = new VideoUploadSession();
         session.setUploadId(UUID.randomUUID().toString().replace("-", ""));
+        session.setUploadMode(SERVER_CHUNK_MODE);
+        session.setSlotClaimed(1);
         session.setStudentId(student.getId());
         session.setCollegeId(student.getCollegeId());
         session.setAssessmentYear(requiredTrim(request.getAssessmentYear(), "考核年度不能为空"));
@@ -638,7 +1310,14 @@ public class VideoReviewServiceImpl implements VideoReviewService {
                 .eq(VideoReviewTask::getVideoReviewId, review.getId()));
         if (status.locked() || !status.reuploadable()
                 || (status != VideoReviewStatus.RETURNED && taskCount != null && taskCount > 0)) {
-            throw new BizException("评审进行中不可重新上传");
+            throw new DirectUploadTerminalException("评审进行中不可重新上传");
+        }
+    }
+
+    private static final class DirectUploadTerminalException extends BizException {
+
+        private DirectUploadTerminalException(String message) {
+            super(message);
         }
     }
 
@@ -668,10 +1347,10 @@ public class VideoReviewServiceImpl implements VideoReviewService {
         review.setLocked(0);
     }
 
-    private void archiveReturnedUploadSessions(Long studentId, String assessmentYear) {
+    private void archiveReturnedUploadSessions(Long studentId, String assessmentYear, String currentUploadId) {
         VideoReview existing = existingReview(studentId, assessmentYear);
         if (existing != null && VideoReviewStatus.of(existing.getStatus()) == VideoReviewStatus.RETURNED) {
-            archiveUploadSessions(studentId, requiredTrim(assessmentYear, "考核年度不能为空"), null);
+            archiveUploadSessions(studentId, requiredTrim(assessmentYear, "考核年度不能为空"), currentUploadId);
         }
     }
 
@@ -778,7 +1457,7 @@ public class VideoReviewServiceImpl implements VideoReviewService {
         }
         int target = paramService.getInt("video.durationTarget", DEFAULT_DURATION_TARGET);
         int tolerance = paramService.getInt("video.durationTolerance", DEFAULT_DURATION_TOLERANCE);
-        if (Math.abs(durationSeconds - target) > tolerance) {
+        if (Math.abs((long) durationSeconds - target) > tolerance) {
             review.setFormatCheck("FAIL");
             review.setStatus(VideoReviewStatus.VALIDATION_FAILED.name());
             review.setValidationMessage("视频时长超出容差");
@@ -786,7 +1465,7 @@ public class VideoReviewServiceImpl implements VideoReviewService {
         }
         review.setFormatCheck("PASS");
         review.setStatus(VideoReviewStatus.WAIT_REVIEW.name());
-        review.setValidationMessage(instantHit ? "MD5秒传命中，校验通过" : "校验通过");
+        review.setValidationMessage(instantHit ? "文件秒传命中，校验通过" : "校验通过");
     }
 
     private FileObject registerComposedFile(VideoUploadSession session, String objectKey) {
@@ -799,6 +1478,7 @@ public class VideoReviewServiceImpl implements VideoReviewService {
         file.setContentType("video/mp4");
         file.setMd5(session.getFileMd5());
         file.setBizType(VIDEO_BIZ_TYPE);
+        file.setStatus("READY");
         file.setUploaderId(UserContext.getUserIdOrSystem());
         file.setUploadTime(LocalDateTime.now());
         fileObjectMapper.insert(file);

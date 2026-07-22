@@ -1,15 +1,15 @@
 # HANDOFF.md — 交接说明（接手必读）
 
 > 目的：让后续 codex / Claude 在**本机（Windows + Git Bash）** 无障碍接手。
-> 顺序：先读本文件 → 再按 `AGENTS.md` §0 读其余文档。当前审计整改 WS-1、WS-2、WS-10、WS-13 已由 Codex 自测完成，均待主控复核。
+> 顺序：先读本文件 → 再按 `AGENTS.md` §0 读其余文档。当前审计整改 WS-1、WS-2、WS-3、WS-10、WS-13 已由 Codex 自测完成，均待主控复核。
 
 ---
 
-## 0. 当前接力快照（2026-07-20）
-- 当前分支 `feature/ws13-rbac-ceiling`，基于 WS-10 提交 `32905a5`；WS-1=`25be4bd`、WS-2=`9bdee8f`、WS-10=`32905a5`，WS-13 由本分支单提交交付（具体哈希见 `git log -1`）。`main` 仍为 `e4f8228`，无 remote，禁止 push/擅自 merge。
-- WS-13 按严格方案 A 落地：角色写精确要求数据库有效授权 `system:role:manage@SYSTEM`，授权不得超过操作者当前有效授权；统一数据库锁保护快照，校验 scope 偏序、当前态与 after-state、停用角色潜在权限、共享角色成员完整向量，并覆盖学生开户/绑定/迁移/删除账号旁路。WS-10 的显式 profile 要求保持不变。
-- 最终 0 表 schema `teacher_cert_ws13_final_20260720_203546` 门禁：9 模块 `BUILD SUCCESS`，Surefire 121/121、Failsafe 125/125；前端 type-check/build 通过。WS-1/WS-2/WS-10/WS-13 均保持“待复核”，不得自行置为已复核。
-- 后续已盘点的近端顺序为 WS-3 MinIO 直传与 WS-4 D0 UI 基线。WS-4 缺 D0 规范/截图工具，禁止直接跳到铺开阶段。
+## 0. 当前接力快照（2026-07-22）
+- 当前分支 `feature/ws03-minio-presign`，基于 WS-13 提交 `acfc3b6`；WS-3 由本分支唯一提交交付（具体哈希见 `git log -1`）。`main` 仍为 `e4f8228`，无 remote，禁止 push/擅自 merge。
+- WS-3 已落地：材料/视频通过 S3 multipart 预签名 URL 从浏览器直传 MinIO；服务端负责属主/业务上下文、对象前缀、Content-Length、连续分片、ETag、最终对象元数据与状态 CAS 校验。前端 5 路并发、Worker 指纹、刷新续传；内外 endpoint 与 CORS 分离；旧服务端分片路径保留为配置化回退。WS-10 的显式 profile 与 WS-13 的 RBAC 天花板保持不变。
+- 最终 0 表 schema `teacher_cert_ws3_final_20260722_1052` 门禁：9 模块 `BUILD SUCCESS`，Surefire 121/121、Failsafe 144/144；前端 type-check/build、生产/dev Compose config 通过。WS-1/WS-2/WS-3/WS-10/WS-13 均保持“待复核”，不得自行置为已复核。
+- 后续近端顺序为主控复核 WS-3，再进入 WS-4 D0 UI 基线。WS-4 缺 D0 规范/截图工具，禁止直接跳到铺开阶段。
 - `.claude/audits/`、审计 HTML、`docs/audit-remediation-plan.md`、`docs/prompts/` 是本地未跟踪审计资料，不得纳入功能提交。
 
 > 下方 §1 是 2026-06-14 的历史交接快照，保留用于环境与早期实现追溯；当前状态以上述 §0、`PROGRESS.md` 与 `DEVLOG.md` 顶部为准。
@@ -120,10 +120,10 @@ git -C "$REPO" add -A && git -C "$REPO" commit -m "feat(T-0xx): ..."
 - 实体继承 `BaseEntity`（id/审计字段/逻辑删除自动）；Mapper 放 `**/mapper`（已 `@MapperScan("cn.edu.gpnu.platform.**.mapper")`）；统一返回 `Result`；写操作 `@AuditLog`；列表/导出/统计查询 `@DataScope`；当前用户取 `UserContext`。
 - **文本化字段全链路 String + Excel `@`**（学校代码/学号/证件号/出生日期/证书编号/有效期限）——AT-01 生命线，勿用数值/日期类型。
 
-## 5. 当前复核入口 → WS-13（RBAC 授权天花板）
-1. 读 `AGENTS.md` → `docs/REVIEW-GATE.md` → `docs/launch-readiness-plan.md §7.10`，再检查 `RbacAuthorizationGuard` 及 `Ws13RbacCeilingIT`。
-2. 复核重点：角色写是否精确要求 `system:role:manage@SYSTEM`；7 scope 偏序和具体学院/专业范围；目标当前态与 after-state；停用角色潜在权限；共享角色每个成员的完整授权；学生开户、迁移、删除旁路；并发写是否共用同一数据库锁。
-3. 必做反例：低权管理员给自己或他人提权、重置/修改高权用户、修改或删除含高权成员的共享角色均失败且数据库不变；同权合法委派成功。不允许用 `SYS_ADMIN` 角色码特判替代授权比较。
+## 5. 当前复核入口 → WS-3（MinIO 预签名直传与独立端点）
+1. 读 `AGENTS.md` → `docs/REVIEW-GATE.md` → `docs/launch-readiness-plan.md §11`，再检查 `S3MultipartObjectService`、材料/视频 direct-upload service、V28、`Phase5MaterialIT` 与 `Phase7VideoReviewIT`。
+2. 复核重点：签名 URL 是否使用浏览器可达 public endpoint；签名与完成阶段是否验证属主、业务上下文、object key 前缀、Content-Length、连续 part number、ETag 与最终对象大小/类型；状态 CAS、重复 complete/cancel、同学生同年度活动会话唯一性及旧上传路径回退是否成立。
+3. 必做反例：跨用户/跨业务 complete 或 cancel、伪造/遗漏/重复分片、错误 ETag/大小、过期或失败会话均拒绝且不绑定业务记录；合法材料和视频分片能跳过已上传 part 续传并幂等完成。浏览器侧另核 public endpoint/CORS、5 路并发与 Worker 指纹不经过应用字节中转。
 4. 若需要启动后端/前端做运行期验证，必须在 Codex 外部终端或 Claude 复核 harness 中启动；Codex/headless exec 禁止执行 `java -jar`、`npm run dev`、`vite dev` 或 `scripts/dev-serve.*`。
 
 ## 6. 已知坑与规避（别重复踩）

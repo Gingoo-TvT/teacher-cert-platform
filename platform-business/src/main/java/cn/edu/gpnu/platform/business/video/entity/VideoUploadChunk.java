@@ -14,6 +14,8 @@ public class VideoUploadChunk extends BaseEntity {
 
     private String uploadId;
     private Integer chunkIndex;
+    private Integer partNumber;
+    private String etag;
     private String chunkMd5;
     private Long chunkSize;
     private String objectKey;

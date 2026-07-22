@@ -44,6 +44,7 @@
         <jjwt.version>0.12.6</jjwt.version>
         <fastexcel.version>1.1.0</fastexcel.version>
         <minio.version>8.5.12</minio.version>
+        <aws.sdk.version>2.25.60</aws.sdk.version>
     </properties>
 
     <dependencyManagement>
@@ -68,6 +69,8 @@
             <dependency><groupId>cn.hutool</groupId><artifactId>hutool-all</artifactId><version>${hutool.version}</version></dependency>
             <dependency><groupId>cn.idev.excel</groupId><artifactId>fastexcel</artifactId><version>${fastexcel.version}</version></dependency>
             <dependency><groupId>io.minio</groupId><artifactId>minio</artifactId><version>${minio.version}</version></dependency>
+            <dependency><groupId>software.amazon.awssdk</groupId><artifactId>s3</artifactId><version>${aws.sdk.version}</version></dependency>
+            <dependency><groupId>software.amazon.awssdk</groupId><artifactId>url-connection-client</artifactId><version>${aws.sdk.version}</version></dependency>
             <dependency><groupId>io.jsonwebtoken</groupId><artifactId>jjwt-api</artifactId><version>${jjwt.version}</version></dependency>
             <dependency><groupId>io.jsonwebtoken</groupId><artifactId>jjwt-impl</artifactId><version>${jjwt.version}</version></dependency>
             <dependency><groupId>io.jsonwebtoken</groupId><artifactId>jjwt-jackson</artifactId><version>${jjwt.version}</version></dependency>

@@ -86,6 +86,7 @@ class Phase14E2EIT {
     private static final String STUDENT_NO = "00123P14";
     private static final String IMPORT_CERT_NO = "202610588344300901";
     private static final String SUBJECT_EXEMPTED = "comprehensive_quality_junior";
+    private static final int VIDEO_PART_SIZE = 8 * 1024 * 1024;
     private static final List<String> MATERIAL_CATEGORIES = List.of(
             "morality_teacher_ethics",
             "teacher_education_course",
@@ -481,32 +482,23 @@ class Phase14E2EIT {
                 "fileName", "phase14.mp4",
                 "contentType", "video/mp4",
                 "size", content.length,
-                "chunkSize", 4,
+                "chunkSize", VIDEO_PART_SIZE,
                 "durationSeconds", 900
         ))).at("/data");
+        assertThat(init.at("/uploadMode").asText()).isEqualTo("PRESIGNED_MULTIPART");
+        assertThat(init.at("/partSize").asInt()).isEqualTo(VIDEO_PART_SIZE);
         String uploadId = init.at("/uploadId").asText();
-        for (int offset = 0, index = 0; offset < content.length; offset += 4, index++) {
-            uploadChunk(token, uploadId, index, slice(content, offset, Math.min(4, content.length - offset)));
-        }
-        ResponseEntity<String> merged = exchange("/api/video/upload/merge", HttpMethod.POST, token,
-                Map.of("uploadId", uploadId, "durationSeconds", 900));
-        assertOk(merged);
-        JsonNode data = json(merged).at("/data");
+        List<PresignedMultipartUploadTestClient.CompletedPart> parts =
+                PresignedMultipartUploadTestClient.putAll(init, content);
+        ResponseEntity<String> completed = exchange("/api/video/upload/complete", HttpMethod.POST, token, Map.of(
+                "uploadId", uploadId,
+                "durationSeconds", 900,
+                "parts", PresignedMultipartUploadTestClient.completionParts(parts)
+        ));
+        assertOk(completed);
+        JsonNode data = json(completed).at("/data");
         assertThat(data.at("/status").asText()).isEqualTo("WAIT_REVIEW");
         return data.at("/id").asLong();
-    }
-
-    private void uploadChunk(String token, String uploadId, int index, byte[] content) throws Exception {
-        MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
-        body.add("uploadId", uploadId);
-        body.add("index", String.valueOf(index));
-        body.add("md5", md5(content));
-        body.add("file", resource("chunk-" + index, "application/octet-stream", content));
-        HttpHeaders headers = authHeaders(token);
-        headers.setContentType(MediaType.MULTIPART_FORM_DATA);
-        ResponseEntity<String> response = rest.exchange(url("/api/video/upload/chunk"), HttpMethod.POST,
-                new HttpEntity<>(body, headers), String.class);
-        assertOk(response);
     }
 
     private void assignVideo(String token, long reviewId) throws Exception {
@@ -786,12 +778,6 @@ class Phase14E2EIT {
 
     private byte[] mp4(String text) {
         return ("....ftypmp42" + text + "-mdat").getBytes(java.nio.charset.StandardCharsets.UTF_8);
-    }
-
-    private byte[] slice(byte[] input, int offset, int length) {
-        byte[] out = new byte[length];
-        System.arraycopy(input, offset, out, 0, length);
-        return out;
     }
 
     private String md5(byte[] bytes) throws Exception {

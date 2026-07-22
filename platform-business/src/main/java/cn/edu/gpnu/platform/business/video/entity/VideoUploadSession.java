@@ -11,6 +11,11 @@ import lombok.EqualsAndHashCode;
 public class VideoUploadSession extends BaseEntity {
 
     private String uploadId;
+    private String uploadMode;
+    private String s3UploadId;
+    private String objectKey;
+    private java.time.LocalDateTime presignExpiresAt;
+    private Integer slotClaimed;
     private Long studentId;
     private Long collegeId;
     private String assessmentYear;

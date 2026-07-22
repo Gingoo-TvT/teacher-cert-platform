@@ -54,25 +54,75 @@ export interface ProcessStatus {
   categories: CategoryStatus[]
 }
 
+export const MATERIAL_UPLOAD_PART_SIZE = 8 * 1024 * 1024
+
+export interface MaterialPresignedPart {
+  partNumber: number
+  url: string
+  expiresAt: string
+}
+
+export interface MaterialUploadedPart {
+  partNumber: number
+  etag: string
+  size: number
+}
+
+export interface MaterialDirectUploadInitResult {
+  fileId?: string | null
+  uploadMode: 'PRESIGNED_MULTIPART' | 'SERVER_UPLOAD' | 'READY'
+  partSize: number
+  uploadedParts: MaterialUploadedPart[]
+  parts: MaterialPresignedPart[]
+}
+
+export interface MaterialDirectUploadContext {
+  materialId?: string | null
+  studentId: string
+  assessmentYear: string
+  category: string
+}
+
 export function listMaterials(query: MaterialQuery = {}) {
   return request.get<unknown, ApiResult<PageResult<ProcessMaterial>>>('/material', {
     params: cleanParams(query)
   })
 }
 
-export function uploadMaterial(payload: { studentId: string; assessmentYear: string; category: string; file: File }) {
+export function uploadMaterial(payload: { studentId: string; assessmentYear: string; category: string; file: File }, signal?: AbortSignal) {
   const data = new FormData()
   data.append('studentId', payload.studentId)
   data.append('assessmentYear', payload.assessmentYear)
   data.append('category', payload.category)
   data.append('file', payload.file)
-  return request.post<unknown, ApiResult<string>>('/material/upload', data)
+  return request.post<unknown, ApiResult<string>>('/material/upload', data, { signal })
 }
 
-export function replaceMaterial(id: string, file: File) {
+export function initMaterialDirectUpload(payload: MaterialDirectUploadContext & {
+  fileName: string
+  contentType: string
+  size: number
+  fileHash: string
+  partSize: number
+}, signal?: AbortSignal) {
+  return request.post<unknown, ApiResult<MaterialDirectUploadInitResult>>('/material/upload/init', payload, { signal })
+}
+
+export function completeMaterialDirectUpload(payload: MaterialDirectUploadContext & {
+  fileId: string
+  parts: Array<{ partNumber: number; etag: string }>
+}, signal?: AbortSignal) {
+  return request.post<unknown, ApiResult<string>>('/material/upload/complete', payload, { signal })
+}
+
+export function cancelMaterialDirectUpload(fileId: string) {
+  return request.delete<unknown, ApiResult<null>>(`/material/upload/${fileId}`)
+}
+
+export function replaceMaterial(id: string, file: File, signal?: AbortSignal) {
   const data = new FormData()
   data.append('file', file)
-  return request.put<unknown, ApiResult<null>>(`/material/${id}/replace`, data)
+  return request.put<unknown, ApiResult<null>>(`/material/${id}/replace`, data, { signal })
 }
 
 export function deleteMaterial(id: string) {

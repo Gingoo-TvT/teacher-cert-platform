@@ -15,6 +15,14 @@
 
 ---
 
+## [2026-07-22] WS-3 MinIO 预签名直传与独立端点 — 自测完成，待主控复核
+- 做了什么：新增 V28，把 `file_object` 补齐 `object_key`/`storage_status`/对象校验元数据，扩展视频上传会话与分片持久化，并为材料业务绑定增加唯一约束；`platform-file` 接入 AWS S3 v2 presigner 与 multipart API。材料和视频均新增 init/list-parts/complete/cancel 流程，浏览器凭服务端签发的限时 URL 直接 PUT MinIO，服务端完成属主、业务上下文、对象前缀、分片连续性、精确长度、ETag 与最终对象元数据校验后才绑定业务记录。前端以 5 路并发上传，Web Worker 计算视频指纹，刷新后可按服务端已上传分片续传；原服务端分片上传作为配置化兼容回退保留。
+- 关键决策与理由：MinIO 使用内部 endpoint 执行服务端 API、public endpoint 生成浏览器可达 URL，避免把 Docker 内部主机名签入前端；签名覆盖 `Content-Length`，完成时以服务端 `ListParts`/`HeadObject` 为准，不信任客户端自报。材料绑定携带业务版本摘要，避免上传过程中业务上下文变化后误绑；视频状态采用 `INITIATING → UPLOADING → COMPLETING → READY/FAILED` 条件更新和同学生同年度唯一活动会话，重复 complete 保持幂等。下载继续走既有材料/免考/视频业务鉴权后签发 GET URL，不恢复通用 file-id 下载端点。
+- 问题与解决：兼容旧视频会话时需要保留原滚动哈希语义，前端工具按会话模式选择 Worker tree-hash 或 legacy rolling hash；测试环境宿主 3306/8080 已被 `hdp11` 占用，本轮只使用隔离 Compose 的 MySQL `localhost:33306`、Redis 与 MinIO，并在全新 0 表 schema 完成迁移和回归，未触碰或停止 `hdp11`。聚焦测试先验证材料/视频 42 个正反例，再执行全量门禁。
+- 与规格的偏差/疑问：无权限点、状态机或业务规则变更。WS-3 覆盖 MinIO 已存附件/视频对象的浏览器直传与鉴权后直下；即时生成的 Excel/ZIP 仍保持既有同步响应契约，它们不是 MinIO 对象，不在本次对象存储预签名路径内。审计报告、`.claude/audits/`、`docs/audit-remediation-plan.md` 与 `docs/prompts/` 不纳入功能提交。
+- 测试：`mvn -B -ntp -DskipTests package` 9 模块成功；`Phase5MaterialIT` 18/18 + `Phase7VideoReviewIT` 24/24 聚焦真实 MySQL/MinIO 集成 **42/42**。最终从 0 表 schema `teacher_cert_ws3_final_20260722_1052` 执行 `mvn -B -ntp clean verify`，Surefire **121/121**、Failsafe **144/144**，Failures/Errors/Skipped 均为 0，Flyway V1~V28 + R__testseed 成功；`npm --prefix frontend run type-check`、`build` 通过（仅既有 chunk warning）；生产与 dev Compose config、`git diff --check` 通过。未由 Codex 启动常驻后端或前端。
+- 下一步：两个 WS-3 scratch schema 已精确删除，`teacher-cert-ws13` 隔离 Compose 已停止并移除；生成 WS-3 唯一提交并停在“待复核”。交主控复核预签名边界、并发/幂等/恢复反例与浏览器到 MinIO 的网络可达性，不 merge/push；复核通过后再进入 WS-4 D0。
+
 ## [2026-07-20] WS-13 RBAC 授权天花板（launch-readiness §7.10 P1 遗留）— 自测完成，待主控复核
 - 做了什么：按严格方案 A 新增统一 `RbacAuthorizationGuard`。角色写必须从数据库精确持有 `system:role:manage@SYSTEM`；用户、角色、权限和数据范围变更均不得超过操作者数据库当前有效授权。7 种 scope 使用显式偏序比较，同权允许，高权或不可比较拒绝；同时校验目标当前态与 after-state、具体学院/专业范围、停用角色潜在权限，以及共享角色现有成员通过其它角色取得的完整授权向量。用户创建/修改/删除/重置密码/角色分配/数据范围分配，角色创建/修改/删除/权限分配，以及学生开户、绑定、学院迁移、删除时停用账号的旁路均已接入。
 - 关键决策与理由：不使用 `SYS_ADMIN` 角色码特判，也不信任 JWT/UserContext 中可能陈旧的权限；所有 RBAC 写事务先锁定 `sys_permission.code='system:role:manage'` 行，再重载数据库授权并校验，守卫强制 `@Transactional(MANDATORY)`。专业归属以 `SELECT ... FOR UPDATE` 读取，与专业迁移行锁串行，避免具体范围校验 TOCTOU。前端只在 `/me.roleManagementWritable=true` 时显示角色写操作；角色授权抽屉要求逐权限显式选择 scope，新勾选未选择范围时不能保存，不再静默提权；角色管理员可读取权限树但不能因此获得权限点管理权。

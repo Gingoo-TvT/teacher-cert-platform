@@ -14,6 +14,8 @@ import cn.edu.gpnu.platform.business.video.mapper.VideoUploadSessionMapper;
 import cn.edu.gpnu.platform.file.config.MinioProperties;
 import cn.edu.gpnu.platform.file.entity.FileObject;
 import cn.edu.gpnu.platform.file.mapper.FileObjectMapper;
+import cn.edu.gpnu.platform.file.model.MultipartUploadedPart;
+import cn.edu.gpnu.platform.file.service.MultipartObjectService;
 import cn.edu.gpnu.platform.system.entity.SysAuditLog;
 import cn.edu.gpnu.platform.system.entity.SysParam;
 import cn.edu.gpnu.platform.system.mapper.SysAuditLogMapper;
@@ -50,6 +52,9 @@ import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 
 import java.io.InputStream;
+import java.net.URI;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -90,6 +95,9 @@ class Phase7VideoReviewIT {
     private static final long REVIEWER_C_ROLE_ID = 800000000000004011L;
     private static final long REVIEWER_D_ROLE_ID = 800000000000004012L;
     private static final String YEAR = "P7-2026";
+    private static final int VIDEO_PART_SIZE = 8 * 1024 * 1024;
+    private static final byte[] VIDEO_FINGERPRINT_MARKER =
+            "teacher-cert-file-sha256-tree-v1\0".getBytes(StandardCharsets.UTF_8);
 
     @LocalServerPort
     private int port;
@@ -145,6 +153,9 @@ class Phase7VideoReviewIT {
     @Autowired
     private FileObjectMapper fileObjectMapper;
 
+    @Autowired
+    private MultipartObjectService multipartObjectService;
+
     @BeforeEach
     @AfterEach
     void resetSeedUsers() {
@@ -173,46 +184,157 @@ class Phase7VideoReviewIT {
     }
 
     @Test
-    void chunkUploadMergeResumeAndInstantHitWorkWithValidation() throws Exception {
+    void presignedUploadCompleteResumeAndInstantHitWorkWithValidation() throws Exception {
         LoginResult student = readyLogin("test_student");
         byte[] content = mp4("phase7-ok");
-        String md5 = md5(content);
+        String fingerprint = videoFingerprint(content);
+        String partMd5 = md5(content);
 
-        JsonNode init = initUpload(student.accessToken(), 9001L, YEAR, "lesson.mp4", "video/mp4", content.length, 4, md5, 900);
-        String uploadId = init.at("/uploadId").asText();
-        uploadChunk(student.accessToken(), uploadId, 0, slice(content, 0, 4));
-        JsonNode resume = initUpload(student.accessToken(), 9001L, YEAR, "lesson.mp4", "video/mp4", content.length, 4, md5, 900);
-        assertThat(resume.at("/uploadedChunks").toString()).contains("0");
-        for (int offset = 4, index = 1; offset < content.length; offset += 4, index++) {
-            uploadChunk(student.accessToken(), uploadId, index, slice(content, offset, Math.min(4, content.length - offset)));
+        JsonNode init = initUpload(student.accessToken(), 9001L, YEAR, "lesson.mp4", "video/mp4",
+                content.length, VIDEO_PART_SIZE, fingerprint, 900);
+        assertThat(init.at("/uploadMode").asText()).isEqualTo("PRESIGNED_MULTIPART");
+        assertThat(init.at("/partSize").asInt()).isEqualTo(VIDEO_PART_SIZE);
+        assertThat(init.at("/parts")).hasSize(1);
+        assertThat(init.at("/parts/0/expiresAt").asText()).isNotBlank();
+        URI publicUrl = URI.create(init.at("/parts/0/url").asText());
+        assertThat(publicUrl.getHost()).isEqualTo("localhost");
+        assertThat(publicUrl.getPort()).isEqualTo(9000);
+        for (String method : List.of("PUT", "GET", "HEAD")) {
+            PresignedMultipartUploadTestClient.CorsPreflight preflight =
+                    PresignedMultipartUploadTestClient.preflight(init.at("/parts/0"), method);
+            assertThat(preflight.status()).isIn(200, 204);
+            assertThat(preflight.allowOrigin()).isEqualTo(PresignedMultipartUploadTestClient.BROWSER_ORIGIN);
+            assertThat(preflight.allowMethods()).containsIgnoringCase(method);
         }
+        PresignedMultipartUploadTestClient.CorsPreflight evilOrigin =
+                PresignedMultipartUploadTestClient.preflight(
+                        init.at("/parts/0"), "PUT", "https://evil.example");
+        assertThat(evilOrigin.status()).isEqualTo(204);
+        assertThat(evilOrigin.allowOrigin()).isEmpty();
+        String uploadId = init.at("/uploadId").asText();
+        PresignedMultipartUploadTestClient.CompletedPart uploaded =
+                PresignedMultipartUploadTestClient.put(init.at("/parts/0"), content);
+        assertThat(uploaded.allowOrigin()).isIn(PresignedMultipartUploadTestClient.BROWSER_ORIGIN, "*");
+        assertThat(uploaded.exposedHeaders()).containsIgnoringCase("ETag");
+        JsonNode resume = initUpload(student.accessToken(), 9001L, YEAR, "lesson.mp4", "video/mp4",
+                content.length, VIDEO_PART_SIZE, fingerprint, 900);
+        assertThat(resume.at("/uploadId").asText()).isEqualTo(uploadId);
+        assertThat(resume.at("/uploadedChunks").toString()).contains("0");
+        assertThat(resume.at("/uploadedParts")).hasSize(1);
+        assertThat(resume.at("/uploadedParts/0/partNumber").asInt()).isEqualTo(1);
+        assertThat(resume.at("/uploadedParts/0/etag").asText()).contains(partMd5);
+        assertThat(resume.at("/uploadedParts/0/size").asLong()).isEqualTo(content.length);
+        assertThat(resume.at("/parts")).isEmpty();
 
-        JsonNode merged = merge(student.accessToken(), uploadId, 900);
-        assertThat(merged.at("/status").asText()).isEqualTo("WAIT_REVIEW");
-        assertThat(merged.at("/formatCheck").asText()).isEqualTo("PASS");
+        JsonNode completed = complete(student.accessToken(), uploadId, 900, List.of(uploaded));
+        assertThat(completed.at("/status").asText()).isEqualTo("WAIT_REVIEW");
+        assertThat(completed.at("/formatCheck").asText()).isEqualTo("PASS");
 
-        JsonNode instant = initUpload(student.accessToken(), 9001L, "P7-INSTANT", "lesson.mp4", "video/mp4", content.length, 4, md5, 900);
+        JsonNode instant = initUpload(student.accessToken(), 9001L, "P7-INSTANT", "lesson.mp4", "video/mp4",
+                content.length, VIDEO_PART_SIZE, fingerprint, 900);
         assertThat(instant.at("/instantHit").asBoolean()).isTrue();
+        assertThat(instant.at("/uploadMode").asText()).isEqualTo("FAST_HIT");
         assertThat(instant.at("/status").asText()).isEqualTo("WAIT_REVIEW");
     }
 
     @Test
-    void nonMp4OrInvalidDurationAreRejectedByServerValidation() throws Exception {
+    void nonMp4InvalidPartPlanAndExtremeDurationsAreRejected() throws Exception {
         LoginResult student = readyLogin("test_student");
         byte[] avi = "RIFF-AVI".getBytes();
         ResponseEntity<String> badType = exchange("/api/video/upload/init", HttpMethod.POST, student.accessToken(),
-                initBody(9001L, YEAR, "bad.avi", "video/x-msvideo", avi.length, 4, md5(avi), 900));
+                initBody(9001L, YEAR, "bad.avi", "video/x-msvideo", avi.length, VIDEO_PART_SIZE,
+                        videoFingerprint(avi), 900));
         assertThat(json(badType).at("/code").asInt()).isEqualTo(1000);
         assertThat(json(badType).at("/msg").asText()).contains("视频格式必须为MP4");
 
+        int tooSmallPart = 4 * 1024 * 1024;
+        ResponseEntity<String> badPartPlan = exchange("/api/video/upload/init", HttpMethod.POST,
+                student.accessToken(), initBody(9001L, "P7-SMALL-PART", "small-part.mp4", "video/mp4",
+                        tooSmallPart + 1L, tooSmallPart, videoFingerprint(mp4("small-part")), 900));
+        assertThat(json(badPartPlan).at("/code").asInt()).isEqualTo(1000);
+        assertThat(json(badPartPlan).at("/msg").asText()).contains("不得小于5MiB");
+
+        byte[] extreme = mp4("extreme-duration");
+        ResponseEntity<String> negativeInit = exchange("/api/video/upload/init", HttpMethod.POST,
+                student.accessToken(), initBody(9001L, "P7-DUR-MIN", "duration-min.mp4", "video/mp4",
+                        extreme.length, VIDEO_PART_SIZE, videoFingerprint(extreme), Integer.MIN_VALUE));
+        assertThat(json(negativeInit).at("/code").asInt()).isEqualTo(400);
+        assertThat(json(negativeInit).at("/msg").asText()).contains("视频时长必须大于0");
+
+        ResponseEntity<String> excessiveInit = exchange("/api/video/upload/init", HttpMethod.POST,
+                student.accessToken(), initBody(9001L, "P7-DUR-MAX", "duration-max.mp4", "video/mp4",
+                        extreme.length, VIDEO_PART_SIZE, videoFingerprint(extreme), 86_401));
+        assertThat(json(excessiveInit).at("/code").asInt()).isEqualTo(400);
+        assertThat(json(excessiveInit).at("/msg").asText()).contains("视频时长不能超过86400秒");
+
+        ResponseEntity<String> negativeMerge = exchange("/api/video/upload/merge", HttpMethod.POST,
+                student.accessToken(), Map.of("uploadId", "duration-guard", "durationSeconds", Integer.MIN_VALUE));
+        assertThat(json(negativeMerge).at("/code").asInt()).isEqualTo(400);
+        assertThat(json(negativeMerge).at("/msg").asText()).contains("视频时长必须大于0");
+        ResponseEntity<String> excessiveMerge = exchange("/api/video/upload/merge", HttpMethod.POST,
+                student.accessToken(), Map.of("uploadId", "duration-guard", "durationSeconds", 86_401));
+        assertThat(json(excessiveMerge).at("/code").asInt()).isEqualTo(400);
+        assertThat(json(excessiveMerge).at("/msg").asText()).contains("视频时长不能超过86400秒");
+
         byte[] content = mp4("duration");
         JsonNode init = initUpload(student.accessToken(), 9001L, "P7-DURATION", "duration.mp4", "video/mp4",
-                content.length, 4, md5(content), 1200);
+                content.length, VIDEO_PART_SIZE, videoFingerprint(content), 1200);
         String uploadId = init.at("/uploadId").asText();
-        uploadAll(student.accessToken(), uploadId, content, 4);
-        JsonNode merged = merge(student.accessToken(), uploadId, 1200);
-        assertThat(merged.at("/status").asText()).isEqualTo("VALIDATION_FAILED");
-        assertThat(merged.at("/validationMessage").asText()).contains("视频时长超出容差");
+        List<PresignedMultipartUploadTestClient.CompletedPart> parts =
+                PresignedMultipartUploadTestClient.putAll(init, content);
+        ResponseEntity<String> negativeComplete = exchange("/api/video/upload/complete", HttpMethod.POST,
+                student.accessToken(), completeBody(uploadId, Integer.MIN_VALUE, parts));
+        assertThat(json(negativeComplete).at("/code").asInt()).isEqualTo(400);
+        assertThat(json(negativeComplete).at("/msg").asText()).contains("视频时长必须大于0");
+        ResponseEntity<String> excessiveComplete = exchange("/api/video/upload/complete", HttpMethod.POST,
+                student.accessToken(), completeBody(uploadId, 86_401, parts));
+        assertThat(json(excessiveComplete).at("/code").asInt()).isEqualTo(400);
+        assertThat(json(excessiveComplete).at("/msg").asText()).contains("视频时长不能超过86400秒");
+        assertThat(sessionMapper.selectOne(new LambdaQueryWrapper<VideoUploadSession>()
+                .eq(VideoUploadSession::getUploadId, uploadId)
+                .last("LIMIT 1")).getStatus()).isEqualTo("UPLOADING");
+
+        JsonNode completed = complete(student.accessToken(), uploadId, 1200, parts);
+        assertThat(completed.at("/status").asText()).isEqualTo("VALIDATION_FAILED");
+        assertThat(completed.at("/validationMessage").asText()).contains("视频时长超出容差");
+    }
+
+    @Test
+    void legacyFingerprintLengthsRemainExplicitCompatibilityPaths() throws Exception {
+        LoginResult student = readyLogin("test_student_b");
+        byte[] content = mp4("legacy-fingerprint");
+        String legacy32Hash = md5(content);
+        String legacy8Hash = "1234abcd";
+        Long otherUploaderId = userMapper.selectByUsername("test_student").getId();
+        FileObject legacy32Seed = seedReadyVideoFile(legacy32Hash, content, "legacy32", otherUploaderId);
+        FileObject legacy8Seed = seedReadyVideoFile(legacy8Hash, content, "legacy8", otherUploaderId);
+
+        try {
+            JsonNode legacy32 = initUpload(student.accessToken(), 9002L, "P7-LEGACY32", "legacy32.mp4",
+                    "video/mp4", content.length, VIDEO_PART_SIZE, legacy32Hash, 900);
+            assertThat(legacy32.at("/instantHit").asBoolean()).isFalse();
+            assertThat(legacy32.at("/uploadMode").asText()).isEqualTo("PRESIGNED_MULTIPART");
+            assertThat(legacy32.hasNonNull("fileId")).isFalse();
+            assertThat(json(exchange("/api/video/upload/" + legacy32.at("/uploadId").asText(), HttpMethod.DELETE,
+                    student.accessToken(), null)).at("/code").asInt()).isEqualTo(0);
+
+            JsonNode legacy8 = initUpload(student.accessToken(), 9002L, "P7-LEGACY8", "legacy8.mp4", "video/mp4",
+                    content.length, VIDEO_PART_SIZE, legacy8Hash, 900);
+            assertThat(legacy8.at("/instantHit").asBoolean()).isFalse();
+            assertThat(legacy8.at("/uploadMode").asText()).isEqualTo("PRESIGNED_MULTIPART");
+            assertThat(legacy8.hasNonNull("fileId")).isFalse();
+            assertThat(json(exchange("/api/video/upload/" + legacy8.at("/uploadId").asText(), HttpMethod.DELETE,
+                    student.accessToken(), null)).at("/code").asInt()).isEqualTo(0);
+
+            ResponseEntity<String> invalid = exchange("/api/video/upload/init", HttpMethod.POST,
+                    student.accessToken(), initBody(9002L, "P7-BAD-HASH", "bad-hash.mp4", "video/mp4",
+                            content.length, VIDEO_PART_SIZE, "0123456789abcdef", 900));
+            assertThat(json(invalid).at("/code").asInt()).isEqualTo(400);
+            assertThat(json(invalid).at("/msg").asText()).contains("文件指纹格式不合法");
+        } finally {
+            jdbcTemplate.update("DELETE FROM file_object WHERE id IN (?, ?)",
+                    legacy32Seed.getId(), legacy8Seed.getId());
+        }
     }
 
     @Test
@@ -275,11 +397,12 @@ class Phase7VideoReviewIT {
         String reviewingYear = "P7-RU-REV";
         long reviewingId = uploadValidatedVideo(student.accessToken(), 9001L, reviewingYear);
         byte[] replacement = mp4("replacement-before-reviewing");
-        String replacementMd5 = md5(replacement);
+        String replacementFingerprint = videoFingerprint(replacement);
         JsonNode replacementInit = initUpload(student.accessToken(), 9001L, reviewingYear,
-                "replacement.mp4", "video/mp4", replacement.length, 4, replacementMd5, 900);
+                "replacement.mp4", "video/mp4", replacement.length, VIDEO_PART_SIZE, replacementFingerprint, 900);
         String replacementUploadId = replacementInit.at("/uploadId").asText();
-        uploadAll(student.accessToken(), replacementUploadId, replacement, 4);
+        List<PresignedMultipartUploadTestClient.CompletedPart> replacementParts =
+                PresignedMultipartUploadTestClient.putAll(replacementInit, replacement);
 
         assign(auditor.accessToken(), reviewingId, 800000000000003005L, REVIEWER_B_USER_ID);
         VideoReview beforeReviewing = reviewMapper.selectById(reviewingId);
@@ -288,14 +411,14 @@ class Phase7VideoReviewIT {
         byte[] original = mp4(reviewingYear);
         ResponseEntity<String> instantHit = exchange("/api/video/upload/init", HttpMethod.POST, student.accessToken(),
                 initBody(9001L, reviewingYear, "lesson-" + reviewingYear + ".mp4",
-                        "video/mp4", original.length, 4, md5(original), 900));
+                        "video/mp4", original.length, VIDEO_PART_SIZE, videoFingerprint(original), 900));
         assertThat(json(instantHit).at("/code").asInt()).isEqualTo(1000);
         assertThat(json(instantHit).at("/msg").asText()).contains("评审进行中不可重新上传");
 
-        ResponseEntity<String> mergeAgain = exchange("/api/video/upload/merge", HttpMethod.POST, student.accessToken(),
-                Map.of("uploadId", replacementUploadId, "durationSeconds", 900));
-        assertThat(json(mergeAgain).at("/code").asInt()).isEqualTo(1000);
-        assertThat(json(mergeAgain).at("/msg").asText()).contains("评审进行中不可重新上传");
+        ResponseEntity<String> completeAgain = exchange("/api/video/upload/complete", HttpMethod.POST,
+                student.accessToken(), completeBody(replacementUploadId, 900, replacementParts));
+        assertThat(json(completeAgain).at("/code").asInt()).isEqualTo(1000);
+        assertThat(json(completeAgain).at("/msg").asText()).contains("评审进行中不可重新上传");
         VideoReview afterReviewing = reviewMapper.selectById(reviewingId);
         assertThat(afterReviewing.getStatus()).isEqualTo("REVIEWING");
         assertThat(afterReviewing.getVideoFileId()).isEqualTo(beforeReviewing.getVideoFileId());
@@ -311,7 +434,7 @@ class Phase7VideoReviewIT {
         byte[] needReviewFile = mp4(needReviewYear);
         ResponseEntity<String> needReviewReupload = exchange("/api/video/upload/init", HttpMethod.POST, student.accessToken(),
                 initBody(9001L, needReviewYear, "lesson-" + needReviewYear + ".mp4",
-                        "video/mp4", needReviewFile.length, 4, md5(needReviewFile), 900));
+                        "video/mp4", needReviewFile.length, VIDEO_PART_SIZE, videoFingerprint(needReviewFile), 900));
         assertThat(json(needReviewReupload).at("/code").asInt()).isEqualTo(1000);
         assertThat(json(needReviewReupload).at("/msg").asText()).contains("评审进行中不可重新上传");
         assertThat(reviewMapper.selectById(needReviewId).getStatus()).isEqualTo("NEED_REVIEW");
@@ -354,15 +477,16 @@ class Phase7VideoReviewIT {
         assertThat(returnAudit.getTarget()).contains(String.valueOf(reviewId)).contains(year);
 
         byte[] replacement = mp4("returned-replacement");
-        String md5 = md5(replacement);
+        String fingerprint = videoFingerprint(replacement);
         JsonNode init = initUpload(student.accessToken(), 9001L, year,
-                "lesson-" + year + "-reupload.mp4", "video/mp4", replacement.length, 4, md5, 900);
+                "lesson-" + year + "-reupload.mp4", "video/mp4", replacement.length, VIDEO_PART_SIZE, fingerprint, 900);
         assertThat(init.at("/instantHit").asBoolean()).isFalse();
         String uploadId = init.at("/uploadId").asText();
-        uploadAll(student.accessToken(), uploadId, replacement, 4);
-        JsonNode merged = merge(student.accessToken(), uploadId, 900);
-        assertThat(merged.at("/id").asLong()).isEqualTo(reviewId);
-        assertThat(merged.at("/status").asText()).isEqualTo("WAIT_REVIEW");
+        List<PresignedMultipartUploadTestClient.CompletedPart> parts =
+                PresignedMultipartUploadTestClient.putAll(init, replacement);
+        JsonNode completed = complete(student.accessToken(), uploadId, 900, parts);
+        assertThat(completed.at("/id").asLong()).isEqualTo(reviewId);
+        assertThat(completed.at("/status").asText()).isEqualTo("WAIT_REVIEW");
         assertThat(taskCount(reviewId)).isZero();
         VideoReview reset = reviewMapper.selectById(reviewId);
         assertThat(reset.getFinalScore()).isNull();
@@ -401,7 +525,7 @@ class Phase7VideoReviewIT {
         byte[] replacement = mp4("confirmed-replacement");
         ResponseEntity<String> reupload = exchange("/api/video/upload/init", HttpMethod.POST, student.accessToken(),
                 initBody(9001L, year, "confirmed-replacement.mp4", "video/mp4",
-                        replacement.length, 4, md5(replacement), 900));
+                        replacement.length, VIDEO_PART_SIZE, videoFingerprint(replacement), 900));
         assertThat(json(reupload).at("/code").asInt()).isEqualTo(1000);
         assertThat(json(reupload).at("/msg").asText()).contains("评审进行中不可重新上传");
         assertThat(reviewMapper.selectById(reviewId).getStatus()).isEqualTo("CONFIRMED");
@@ -526,7 +650,8 @@ class Phase7VideoReviewIT {
         LoginResult reviewerA = readyLogin("test_review_teacher");
 
         ResponseEntity<String> crossStudent = exchange("/api/video/upload/init", HttpMethod.POST, studentA.accessToken(),
-                initBody(9002L, YEAR, "cross.mp4", "video/mp4", 8, 4, md5(mp4("cross")), 900));
+                initBody(9002L, YEAR, "cross.mp4", "video/mp4", 8, VIDEO_PART_SIZE,
+                        videoFingerprint(mp4("cross")), 900));
         assertThat(json(crossStudent).at("/code").asInt()).isEqualTo(403);
 
         long own = uploadValidatedVideo(studentA.accessToken(), 9001L, "P7-SCOPE-A");
@@ -683,41 +808,113 @@ class Phase7VideoReviewIT {
     }
 
     @Test
-    void concurrentMergeProducesExactlyOneFileObject() throws Exception {
-        // Phase 42.3 merge 幂等（§7.1）：并发/重试合并同一会话 → 恰一个 teaching-video file_object，不产生重复行 + 孤儿。
+    void completeRejectsTamperedEtagAndAllowsCorrectRetry() throws Exception {
+        LoginResult student = readyLogin("test_student");
+        String year = "P7-ETAG";
+        byte[] content = mp4(year);
+        JsonNode init = initUpload(student.accessToken(), 9001L, year, "lesson-" + year + ".mp4",
+                "video/mp4", content.length, VIDEO_PART_SIZE, videoFingerprint(content), 900);
+        String uploadId = init.at("/uploadId").asText();
+        PresignedMultipartUploadTestClient.CompletedPart uploaded =
+                PresignedMultipartUploadTestClient.put(init.at("/parts/0"), content);
+        PresignedMultipartUploadTestClient.CompletedPart tampered =
+                new PresignedMultipartUploadTestClient.CompletedPart(1, "\"00000000000000000000000000000000\"", content.length);
+
+        ResponseEntity<String> rejected = exchange("/api/video/upload/complete", HttpMethod.POST,
+                student.accessToken(), completeBody(uploadId, 900, List.of(tampered)));
+        assertThat(json(rejected).at("/code").asInt()).isEqualTo(1000);
+        assertThat(json(rejected).at("/msg").asText()).contains("ETag校验失败");
+        VideoUploadSession retryable = sessionMapper.selectOne(new LambdaQueryWrapper<VideoUploadSession>()
+                .eq(VideoUploadSession::getUploadId, uploadId)
+                .last("LIMIT 1"));
+        assertThat(retryable.getStatus()).isEqualTo("UPLOADING");
+
+        JsonNode completed = complete(student.accessToken(), uploadId, 900, List.of(uploaded));
+        assertThat(completed.at("/status").asText()).isEqualTo("WAIT_REVIEW");
+    }
+
+    @Test
+    void presignedPartRejectsUnexpectedContentLength() throws Exception {
+        LoginResult student = readyLogin("test_student");
+        String truncatedYear = "P7-LENGTH";
+        byte[] truncatedContent = mp4(truncatedYear);
+        JsonNode truncatedInit = initUpload(student.accessToken(), 9001L, truncatedYear,
+                "length-truncated.mp4", "video/mp4", truncatedContent.length, VIDEO_PART_SIZE,
+                videoFingerprint(truncatedContent), 900);
+        byte[] truncated = new byte[truncatedContent.length - 1];
+        System.arraycopy(truncatedContent, 0, truncated, 0, truncated.length);
+
+        assertThat(PresignedMultipartUploadTestClient.putStatus(
+                truncatedInit.at("/parts/0"), truncated)).isEqualTo(403);
+        PresignedMultipartUploadTestClient.CompletedPart truncatedRetry =
+                PresignedMultipartUploadTestClient.put(truncatedInit.at("/parts/0"), truncatedContent);
+        JsonNode truncatedCompleted = complete(student.accessToken(), truncatedInit.at("/uploadId").asText(),
+                900, List.of(truncatedRetry));
+        assertThat(truncatedCompleted.at("/status").asText()).isEqualTo("WAIT_REVIEW");
+
+        String oversizedYear = "P7-LENGTH-OVER";
+        byte[] oversizedContent = mp4(oversizedYear);
+        JsonNode oversizedInit = initUpload(student.accessToken(), 9001L, oversizedYear,
+                "length-oversized.mp4", "video/mp4", oversizedContent.length, VIDEO_PART_SIZE,
+                videoFingerprint(oversizedContent), 900);
+        byte[] oversized = new byte[oversizedContent.length + 1];
+        System.arraycopy(oversizedContent, 0, oversized, 0, oversizedContent.length);
+
+        assertThat(PresignedMultipartUploadTestClient.putStatus(
+                oversizedInit.at("/parts/0"), oversized)).isEqualTo(403);
+        PresignedMultipartUploadTestClient.CompletedPart oversizedRetry =
+                PresignedMultipartUploadTestClient.put(oversizedInit.at("/parts/0"), oversizedContent);
+        JsonNode oversizedCompleted = complete(student.accessToken(), oversizedInit.at("/uploadId").asText(),
+                900, List.of(oversizedRetry));
+        assertThat(oversizedCompleted.at("/status").asText()).isEqualTo("WAIT_REVIEW");
+    }
+
+    @Test
+    void expiredPresignedPartUrlIsRejectedByMinio() throws Exception {
+        LoginResult student = readyLogin("test_student");
+        String year = "P7-EXPIRY";
+        byte[] content = mp4(year);
+        int originalExpiry = minioProperties.getPresignExpirySeconds();
+        JsonNode init;
+        try {
+            minioProperties.setPresignExpirySeconds(1);
+            init = initUpload(student.accessToken(), 9001L, year, "expired.mp4",
+                    "video/mp4", content.length, VIDEO_PART_SIZE, videoFingerprint(content), 900);
+        } finally {
+            minioProperties.setPresignExpirySeconds(originalExpiry);
+        }
+        String uploadId = init.at("/uploadId").asText();
+        VideoUploadSession session = sessionMapper.selectOne(new LambdaQueryWrapper<VideoUploadSession>()
+                .eq(VideoUploadSession::getUploadId, uploadId)
+                .last("LIMIT 1"));
+        try {
+            Thread.sleep(2_100L);
+            assertThat(PresignedMultipartUploadTestClient.putStatus(init.at("/parts/0"), content)).isEqualTo(403);
+        } finally {
+            multipartObjectService.abortUpload(session.getObjectKey(), session.getS3UploadId());
+        }
+    }
+
+    @Test
+    void completeRetryProducesExactlyOneFileObject() throws Exception {
+        // WS-3 complete 幂等：客户端因响应丢失重试同一份 ETag 清单，仍只落一个 file_object 和一个 review。
         LoginResult student = readyLogin("test_student");
         Set<Long> preExistingVideoFiles = teachingVideoFileObjectIds();
-        String year = "P7-RACE-MERGE";
+        String year = "P7-COMP-RETRY";
         byte[] content = mp4(year);
-        String hash = md5(content);
+        String hash = videoFingerprint(content);
         JsonNode init = initUpload(student.accessToken(), 9001L, year, "lesson-" + year + ".mp4",
-                "video/mp4", content.length, 4, hash, 900);
+                "video/mp4", content.length, VIDEO_PART_SIZE, hash, 900);
         String uploadId = init.at("/uploadId").asText();
-        uploadAll(student.accessToken(), uploadId, content, 4);
+        List<PresignedMultipartUploadTestClient.CompletedPart> parts =
+                PresignedMultipartUploadTestClient.putAll(init, content);
 
-        CyclicBarrier barrier = new CyclicBarrier(2);
-        ExecutorService executor = Executors.newFixedThreadPool(2);
-        List<Integer> codes = new ArrayList<>();
-        try {
-            Callable<Integer> merge1 = () -> {
-                barrier.await();
-                return mergeRaw(student.accessToken(), uploadId, 900);
-            };
-            Callable<Integer> merge2 = () -> {
-                barrier.await();
-                return mergeRaw(student.accessToken(), uploadId, 900);
-            };
-            List<Future<Integer>> futures = executor.invokeAll(List.of(merge1, merge2));
-            codes.add(futures.get(0).get());
-            codes.add(futures.get(1).get());
-        } finally {
-            executor.shutdownNow();
-        }
+        JsonNode first = complete(student.accessToken(), uploadId, 900, parts);
+        JsonNode retry = complete(student.accessToken(), uploadId, 900, parts);
+        assertThat(retry.at("/id").asLong()).isEqualTo(first.at("/id").asLong());
+        assertThat(retry.at("/status").asText()).isEqualTo("WAIT_REVIEW");
 
-        // 至少一个成功；失败者（若命中合并中）为幂等拒绝 code=1000，绝不产生第二个文件对象
-        assertThat(codes).contains(0);
-        assertThat(codes).allMatch(code -> code == 0 || code == 1000);
-        // 核心不变式：本次合并恰新增一个 teaching-video file_object（改前重复合并会新增 2 个 + MinIO 孤儿）。
+        // 核心不变式：本次定稿恰新增一个 teaching-video file_object。
         // WS-1（审计#2）：由「全表 COUNT==1」改为「合并前后快照做差==1」，对共享库常驻的 demo teaching-video
         // file_object 健壮（demo 常驻是本 WS 目标态），仍精确校验「不产生重复行/孤儿」原语义。
         Set<Long> newVideoFiles = teachingVideoFileObjectIds();
@@ -738,27 +935,206 @@ class Phase7VideoReviewIT {
     }
 
     @Test
-    void largeMultipartUploadTakesServerSideComposeFastPath() throws Exception {
-        // P1-2 阶段1：分片 ≥5MiB 时 merge 走 MinIO 服务端 composeObject（字节不经应用逐片拉回），非流式回退慢路径。
-        // 证据链：① 合并对象字节 == 原始拼接内容（合并正确）；② 恰一个 teaching-video file_object；
-        // ③ 合并对象 content-type 仍为 video/mp4（分片以 octet-stream 存储，快路径显式回填、不退化）；
-        // ④ 对象 ETag 形如 <hex>-<partCount>（S3/MinIO 多部件合并语义）——流式回退的单次 putObject 得纯 MD5（无 '-'），
-        //    以此在活体 MinIO 上判别「确实走了服务端合并快路径」而非回退。
+    void mergingSessionBeforeS3CompletionResumesWithoutReleasingActiveSlot() throws Exception {
+        LoginResult student = readyLogin("test_student");
+        String year = "P7-REC-PENDING";
+        String fileName = "lesson-recovery-pending.mp4";
+        byte[] content = mp4(year);
+        String fingerprint = videoFingerprint(content);
+        JsonNode init = initUpload(student.accessToken(), 9001L, year, fileName, "video/mp4",
+                content.length, VIDEO_PART_SIZE, fingerprint, 900);
+        String uploadId = init.at("/uploadId").asText();
+        List<PresignedMultipartUploadTestClient.CompletedPart> uploaded =
+                PresignedMultipartUploadTestClient.putAll(init, content);
+        VideoUploadSession merging = forceMerging(uploadId, uploaded);
+
+        assertThat(multipartObjectService.findObject(merging.getObjectKey())).isEmpty();
+        ResponseEntity<String> differentFile = exchange("/api/video/upload/init", HttpMethod.POST,
+                student.accessToken(), initBody(9001L, year, fileName, "video/mp4", content.length,
+                        VIDEO_PART_SIZE, videoFingerprint(mp4("different-recovery-file")), 900));
+        assertThat(json(differentFile).at("/code").asInt()).isEqualTo(1000);
+        assertThat(json(differentFile).at("/msg").asText()).contains("已有其他视频正在上传");
+
+        ResponseEntity<String> cancel = exchange("/api/video/upload/" + uploadId, HttpMethod.DELETE,
+                student.accessToken(), null);
+        assertThat(json(cancel).at("/code").asInt()).isEqualTo(1000);
+        assertThat(json(cancel).at("/msg").asText()).contains("当前不可取消");
+        assertThat(uploadSession(uploadId).getStatus()).isEqualTo("MERGING");
+
+        JsonNode resumed = initUpload(student.accessToken(), 9001L, year, fileName, "video/mp4",
+                content.length, VIDEO_PART_SIZE, fingerprint, 900);
+        assertMergingResume(resumed, uploadId, uploaded);
+        JsonNode completed = complete(student.accessToken(), uploadId, 900,
+                completedPartsFromResume(resumed.at("/uploadedParts")));
+
+        assertThat(completed.at("/status").asText()).isEqualTo("WAIT_REVIEW");
+        VideoUploadSession finalized = uploadSession(uploadId);
+        assertThat(finalized.getStatus()).isEqualTo("MERGED");
+        assertThat(finalized.getFileId()).isNotNull();
+        assertThat(multipartObjectService.findObject(finalized.getObjectKey())).isPresent();
+    }
+
+    @Test
+    void mergingSessionAfterS3CompletionFinalizesMissingDatabaseMetadataExactlyOnce() throws Exception {
+        LoginResult student = readyLogin("test_student");
+        String year = "P7-REC-OBJECT";
+        String fileName = "lesson-recovery-object.mp4";
+        byte[] content = mp4(year);
+        String fingerprint = videoFingerprint(content);
+        JsonNode init = initUpload(student.accessToken(), 9001L, year, fileName, "video/mp4",
+                content.length, VIDEO_PART_SIZE, fingerprint, 900);
+        String uploadId = init.at("/uploadId").asText();
+        List<PresignedMultipartUploadTestClient.CompletedPart> uploaded =
+                PresignedMultipartUploadTestClient.putAll(init, content);
+        VideoUploadSession merging = forceMerging(uploadId, uploaded);
+
+        multipartObjectService.completeUpload(merging.getObjectKey(), merging.getS3UploadId(),
+                toMultipartUploadedParts(uploaded));
+        assertThat(multipartObjectService.findObject(merging.getObjectKey())).isPresent();
+        assertThat(uploadSession(uploadId).getFileId()).isNull();
+        assertThat(fileObjectMapper.selectCount(new LambdaQueryWrapper<FileObject>()
+                .eq(FileObject::getObjectKey, merging.getObjectKey()))).isZero();
+        assertThat(reviewMapper.selectCount(new LambdaQueryWrapper<VideoReview>()
+                .eq(VideoReview::getStudentId, 9001L)
+                .eq(VideoReview::getAssessmentYear, year))).isZero();
+
+        JsonNode resumed = initUpload(student.accessToken(), 9001L, year, fileName, "video/mp4",
+                content.length, VIDEO_PART_SIZE, fingerprint, 900);
+        assertMergingResume(resumed, uploadId, uploaded);
+        List<PresignedMultipartUploadTestClient.CompletedPart> recoveredParts =
+                completedPartsFromResume(resumed.at("/uploadedParts"));
+        JsonNode completed = complete(student.accessToken(), uploadId, 900, recoveredParts);
+        JsonNode retried = complete(student.accessToken(), uploadId, 900, recoveredParts);
+
+        assertThat(completed.at("/status").asText()).isEqualTo("WAIT_REVIEW");
+        assertThat(retried.at("/id").asLong()).isEqualTo(completed.at("/id").asLong());
+        VideoUploadSession finalized = uploadSession(uploadId);
+        assertThat(finalized.getStatus()).isEqualTo("MERGED");
+        assertThat(finalized.getFileId()).isNotNull();
+        assertThat(fileObjectMapper.selectCount(new LambdaQueryWrapper<FileObject>()
+                .eq(FileObject::getObjectKey, merging.getObjectKey()))).isEqualTo(1L);
+        assertThat(reviewMapper.selectCount(new LambdaQueryWrapper<VideoReview>()
+                .eq(VideoReview::getStudentId, 9001L)
+                .eq(VideoReview::getAssessmentYear, year))).isEqualTo(1L);
+    }
+
+    @Test
+    void directCompleteBusinessConflictFailsSessionDeletesObjectAndReleasesSlot() throws Exception {
+        LoginResult student = readyLogin("test_student");
+        String year = "P7-COMP-CONFLICT";
+        long reviewId = uploadValidatedVideo(student.accessToken(), 9001L, year);
+        VideoReview returned = reviewMapper.selectById(reviewId);
+        Long originalFileId = returned.getVideoFileId();
+        returned.setStatus("RETURNED");
+        returned.setLocked(0);
+        assertThat(reviewMapper.updateById(returned)).isEqualTo(1);
+
+        byte[] replacement = mp4("complete-conflict-replacement");
+        JsonNode init = initUpload(student.accessToken(), 9001L, year,
+                "complete-conflict-replacement.mp4", "video/mp4", replacement.length,
+                VIDEO_PART_SIZE, videoFingerprint(replacement), 900);
+        String uploadId = init.at("/uploadId").asText();
+        List<PresignedMultipartUploadTestClient.CompletedPart> uploaded =
+                PresignedMultipartUploadTestClient.putAll(init, replacement);
+        VideoUploadSession merging = forceMerging(uploadId, uploaded);
+        assertThat(multipartObjectService.findObject(merging.getObjectKey())).isEmpty();
+
+        VideoReviewTask conflictingTask = new VideoReviewTask();
+        conflictingTask.setVideoReviewId(reviewId);
+        conflictingTask.setStudentId(returned.getStudentId());
+        conflictingTask.setCollegeId(returned.getCollegeId());
+        conflictingTask.setReviewerId(REVIEWER_B_USER_ID);
+        conflictingTask.setReviewerRole("REVIEWER");
+        conflictingTask.setSubmitted(0);
+        assertThat(taskMapper.insert(conflictingTask)).isEqualTo(1);
+        returned.setStatus("REVIEWING");
+        assertThat(reviewMapper.updateById(returned)).isEqualTo(1);
+
+        ResponseEntity<String> rejected = exchange("/api/video/upload/complete", HttpMethod.POST,
+                student.accessToken(), completeBody(uploadId, 900, uploaded));
+        assertThat(json(rejected).at("/code").asInt()).isEqualTo(1000);
+        assertThat(json(rejected).at("/msg").asText()).contains("评审进行中不可重新上传");
+
+        VideoUploadSession failed = uploadSession(uploadId);
+        assertThat(failed.getStatus()).isEqualTo("FAILED");
+        assertThat(failed.getValidationMessage()).contains("评审进行中不可重新上传");
+        assertThat(failed.getFileId()).isNull();
+        assertThat(multipartObjectService.findObject(failed.getObjectKey())).isEmpty();
+        assertThat(fileObjectMapper.selectCount(new LambdaQueryWrapper<FileObject>()
+                .eq(FileObject::getBucket, minioProperties.getBucket())
+                .eq(FileObject::getObjectKey, failed.getObjectKey()))).isZero();
+        VideoReview unchanged = reviewMapper.selectById(reviewId);
+        assertThat(unchanged.getStatus()).isEqualTo("REVIEWING");
+        assertThat(unchanged.getVideoFileId()).isEqualTo(originalFileId);
+
+        assertThat(taskMapper.deleteById(conflictingTask.getId())).isEqualTo(1);
+        unchanged.setStatus("RETURNED");
+        assertThat(reviewMapper.updateById(unchanged)).isEqualTo(1);
+        byte[] recovery = mp4("complete-conflict-recovery");
+        JsonNode recovered = initUpload(student.accessToken(), 9001L, year,
+                "complete-conflict-recovery.mp4", "video/mp4", recovery.length,
+                VIDEO_PART_SIZE, videoFingerprint(recovery), 900);
+        String recoveredUploadId = recovered.at("/uploadId").asText();
+        assertThat(recoveredUploadId).isNotEqualTo(uploadId);
+        assertThat(uploadSession(recoveredUploadId).getStatus()).isEqualTo("UPLOADING");
+
+        ResponseEntity<String> cancelled = exchange("/api/video/upload/" + recoveredUploadId,
+                HttpMethod.DELETE, student.accessToken(), null);
+        assertThat(json(cancelled).at("/code").asInt()).isZero();
+    }
+
+    @Test
+    void serverChunkFallbackStillUploadsAndMergesWhenDirectUploadIsDisabled() throws Exception {
+        LoginResult student = readyLogin("test_student");
+        String year = "P7-SERVER-FALL";
+        byte[] content = mp4(year);
+        boolean originalDirectUploadEnabled = minioProperties.isDirectUploadEnabled();
+        JsonNode init;
+        try {
+            minioProperties.setDirectUploadEnabled(false);
+            init = initUpload(student.accessToken(), 9001L, year, "server-fallback.mp4", "video/mp4",
+                    content.length, VIDEO_PART_SIZE, videoFingerprint(content), 900);
+        } finally {
+            minioProperties.setDirectUploadEnabled(originalDirectUploadEnabled);
+        }
+
+        assertThat(init.at("/uploadMode").asText()).isEqualTo("SERVER_CHUNK");
+        assertThat(init.at("/instantHit").asBoolean()).isFalse();
+        assertThat(init.at("/parts")).isEmpty();
+        String uploadId = init.at("/uploadId").asText();
+        uploadServerChunk(student.accessToken(), uploadId, 0, content);
+        JsonNode merged = mergeServerChunks(student.accessToken(), uploadId, 900);
+
+        assertThat(merged.at("/status").asText()).isEqualTo("WAIT_REVIEW");
+        assertThat(uploadSession(uploadId).getStatus()).isEqualTo("MERGED");
+        FileObject file = fileObjectMapper.selectById(merged.at("/videoFileId").asLong());
+        assertThat(file).isNotNull();
+        try (InputStream in = minioClient.getObject(GetObjectArgs.builder()
+                .bucket(file.getBucket()).object(file.getObjectKey()).build())) {
+            assertThat(in.readAllBytes()).isEqualTo(content);
+        }
+    }
+
+    @Test
+    void largePresignedMultipartUploadCompletesWithExpectedObjectMetadataAndBytes() throws Exception {
+        // 两片浏览器直传：首片满足 S3 5MiB 下限，末片可小于下限；最终对象保留 multipart ETag。
         LoginResult studentLogin = readyLogin("test_student");
         Set<Long> preExistingVideoFiles = teachingVideoFileObjectIds();
-        String year = "P7-COMPOSE";
+        String year = "P7-MULTIPART";
         int partSize = 5 * 1024 * 1024;                      // 恰 MinIO 部件下限 MIN_MULTIPART_SIZE(=5MiB)
         byte[] content = filledMp4Payload(partSize + 4096);  // 2 片：首片 5MiB(≥下限)、末片 4096B(<下限，允许)
-        String hash = md5(content);
+        String hash = videoFingerprint(content);
 
         JsonNode init = initUpload(studentLogin.accessToken(), 9001L, year, "lesson-" + year + ".mp4",
                 "video/mp4", content.length, partSize, hash, 900);
+        assertThat(init.at("/parts").size()).isEqualTo(2);
         String uploadId = init.at("/uploadId").asText();
-        uploadAll(studentLogin.accessToken(), uploadId, content, partSize); // index0=5MiB, index1=4096B
+        List<PresignedMultipartUploadTestClient.CompletedPart> parts =
+                PresignedMultipartUploadTestClient.putAll(init, content);
 
-        JsonNode merged = merge(studentLogin.accessToken(), uploadId, 900);
-        assertThat(merged.at("/status").asText()).isEqualTo("WAIT_REVIEW");
-        assertThat(merged.at("/formatCheck").asText()).isEqualTo("PASS");
+        JsonNode completed = complete(studentLogin.accessToken(), uploadId, 900, parts);
+        assertThat(completed.at("/status").asText()).isEqualTo("WAIT_REVIEW");
+        assertThat(completed.at("/formatCheck").asText()).isEqualTo("PASS");
 
         // ② 本次合并恰新增一个 teaching-video file_object（WS-1：合并前后快照做差，对常驻 demo file_object 健壮）
         Set<Long> newVideoFiles = teachingVideoFileObjectIds();
@@ -776,11 +1152,11 @@ class Phase7VideoReviewIT {
         String bucket = minioProperties.getBucket();
         StatObjectResponse stat = minioClient.statObject(StatObjectArgs.builder()
                 .bucket(bucket).object(fileObject.getObjectKey()).build());
-        assertThat(stat.size()).isEqualTo((long) content.length);   // 合并大小 == 两片之和
-        assertThat(stat.contentType()).isEqualTo("video/mp4");      // ③ 快路径亦保留视频 content-type
-        assertThat(stat.etag()).contains("-");                      // ④ 多部件合并 ETag ⇒ 走服务端 compose 快路径
+        assertThat(stat.size()).isEqualTo((long) content.length);
+        assertThat(stat.contentType()).isEqualTo("video/mp4");
+        assertThat(stat.etag()).contains("-");
 
-        // ① 字节级正确：下载合并对象与原始拼接内容逐字节一致
+        // 字节级正确：下载最终对象与浏览器 PUT 的原始内容逐字节一致。
         try (InputStream in = minioClient.getObject(GetObjectArgs.builder()
                 .bucket(bucket).object(fileObject.getObjectKey()).build())) {
             assertThat(in.readAllBytes()).isEqualTo(content);
@@ -793,21 +1169,83 @@ class Phase7VideoReviewIT {
         return json(response).at("/code").asInt();
     }
 
-    private int mergeRaw(String token, String uploadId, int duration) throws Exception {
-        ResponseEntity<String> response = exchange("/api/video/upload/merge", HttpMethod.POST, token,
-                Map.of("uploadId", uploadId, "durationSeconds", duration));
-        return json(response).at("/code").asInt();
-    }
-
     private long uploadValidatedVideo(String token, long studentId, String year) throws Exception {
         byte[] content = mp4(year);
-        String hash = md5(content);
-        JsonNode init = initUpload(token, studentId, year, "lesson-" + year + ".mp4", "video/mp4", content.length, 4, hash, 900);
+        String hash = videoFingerprint(content);
+        JsonNode init = initUpload(token, studentId, year, "lesson-" + year + ".mp4", "video/mp4",
+                content.length, VIDEO_PART_SIZE, hash, 900);
         String uploadId = init.at("/uploadId").asText();
-        uploadAll(token, uploadId, content, 4);
-        JsonNode merged = merge(token, uploadId, 900);
-        assertThat(merged.at("/status").asText()).isEqualTo("WAIT_REVIEW");
-        return merged.at("/id").asLong();
+        List<PresignedMultipartUploadTestClient.CompletedPart> parts =
+                PresignedMultipartUploadTestClient.putAll(init, content);
+        JsonNode completed = complete(token, uploadId, 900, parts);
+        assertThat(completed.at("/status").asText()).isEqualTo("WAIT_REVIEW");
+        return completed.at("/id").asLong();
+    }
+
+    private VideoUploadSession forceMerging(
+            String uploadId, List<PresignedMultipartUploadTestClient.CompletedPart> parts) {
+        VideoUploadSession session = uploadSession(uploadId);
+        assertThat(session.getStatus()).isEqualTo("UPLOADING");
+        for (PresignedMultipartUploadTestClient.CompletedPart part : parts) {
+            VideoUploadChunk chunk = new VideoUploadChunk();
+            chunk.setUploadId(uploadId);
+            chunk.setChunkIndex(part.partNumber() - 1);
+            chunk.setPartNumber(part.partNumber());
+            chunk.setEtag(part.etag());
+            chunk.setChunkSize(part.size());
+            chunk.setObjectKey(session.getObjectKey());
+            chunk.setUploadedAt(LocalDateTime.now());
+            assertThat(chunkMapper.insert(chunk)).isEqualTo(1);
+        }
+        session.setUploadedChunks(parts.size());
+        session.setUploadedBytes(parts.stream()
+                .mapToLong(PresignedMultipartUploadTestClient.CompletedPart::size)
+                .sum());
+        session.setStatus("MERGING");
+        assertThat(sessionMapper.updateById(session)).isEqualTo(1);
+        return uploadSession(uploadId);
+    }
+
+    private VideoUploadSession uploadSession(String uploadId) {
+        VideoUploadSession session = sessionMapper.selectOne(new LambdaQueryWrapper<VideoUploadSession>()
+                .eq(VideoUploadSession::getUploadId, uploadId)
+                .last("LIMIT 1"));
+        assertThat(session).isNotNull();
+        return session;
+    }
+
+    private void assertMergingResume(JsonNode resumed, String uploadId,
+                                     List<PresignedMultipartUploadTestClient.CompletedPart> expectedParts) {
+        assertThat(resumed.at("/uploadId").asText()).isEqualTo(uploadId);
+        assertThat(resumed.at("/uploadMode").asText()).isEqualTo("PRESIGNED_MULTIPART");
+        assertThat(resumed.at("/status").asText()).isEqualTo("MERGING");
+        assertThat(resumed.at("/parts")).isEmpty();
+        assertThat(resumed.at("/uploadedChunks")).hasSize(expectedParts.size());
+        assertThat(resumed.at("/uploadedParts")).hasSize(expectedParts.size());
+        for (int index = 0; index < expectedParts.size(); index++) {
+            PresignedMultipartUploadTestClient.CompletedPart expected = expectedParts.get(index);
+            assertThat(resumed.at("/uploadedChunks/" + index).asInt()).isEqualTo(expected.partNumber() - 1);
+            JsonNode actual = resumed.at("/uploadedParts/" + index);
+            assertThat(actual.at("/partNumber").asInt()).isEqualTo(expected.partNumber());
+            assertThat(actual.at("/etag").asText()).isEqualTo(expected.etag());
+            assertThat(actual.at("/size").asLong()).isEqualTo(expected.size());
+        }
+    }
+
+    private List<PresignedMultipartUploadTestClient.CompletedPart> completedPartsFromResume(JsonNode parts) {
+        List<PresignedMultipartUploadTestClient.CompletedPart> completed = new ArrayList<>();
+        for (JsonNode part : parts) {
+            completed.add(new PresignedMultipartUploadTestClient.CompletedPart(
+                    part.at("/partNumber").asInt(), part.at("/etag").asText(), part.at("/size").asLong()));
+        }
+        return completed;
+    }
+
+    private List<MultipartUploadedPart> toMultipartUploadedParts(
+            List<PresignedMultipartUploadTestClient.CompletedPart> parts) {
+        return parts.stream()
+                .map(part -> new MultipartUploadedPart(part.partNumber(), part.etag(), part.size()))
+                .toList();
     }
 
     private JsonNode initUpload(String token, long studentId, String year, String fileName, String contentType,
@@ -834,20 +1272,31 @@ class Phase7VideoReviewIT {
         );
     }
 
-    private void uploadAll(String token, String uploadId, byte[] content, int chunkSize) throws Exception {
-        int index = 0;
-        for (int offset = 0; offset < content.length; offset += chunkSize) {
-            int length = Math.min(chunkSize, content.length - offset);
-            uploadChunk(token, uploadId, index++, slice(content, offset, length));
-        }
+    private JsonNode complete(String token, String uploadId, int duration,
+                              List<PresignedMultipartUploadTestClient.CompletedPart> parts) throws Exception {
+        ResponseEntity<String> response = exchange("/api/video/upload/complete", HttpMethod.POST, token,
+                completeBody(uploadId, duration, parts));
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode root = json(response);
+        assertThat(root.at("/code").asInt()).isEqualTo(0);
+        return root.at("/data");
     }
 
-    private void uploadChunk(String token, String uploadId, int index, byte[] content) throws Exception {
+    private Map<String, Object> completeBody(String uploadId, int duration,
+                                             List<PresignedMultipartUploadTestClient.CompletedPart> parts) {
+        return Map.of(
+                "uploadId", uploadId,
+                "durationSeconds", duration,
+                "parts", PresignedMultipartUploadTestClient.completionParts(parts)
+        );
+    }
+
+    private void uploadServerChunk(String token, String uploadId, int index, byte[] content) throws Exception {
         MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
         body.add("uploadId", uploadId);
         body.add("index", String.valueOf(index));
         body.add("md5", md5(content));
-        body.add("file", resource("chunk-" + index, "application/octet-stream", content));
+        body.add("file", multipartResource("chunk-" + index, "application/octet-stream", content));
         HttpHeaders headers = new HttpHeaders();
         headers.setBearerAuth(token);
         headers.setContentType(MediaType.MULTIPART_FORM_DATA);
@@ -857,7 +1306,7 @@ class Phase7VideoReviewIT {
         assertThat(json(response).at("/code").asInt()).isEqualTo(0);
     }
 
-    private JsonNode merge(String token, String uploadId, int duration) throws Exception {
+    private JsonNode mergeServerChunks(String token, String uploadId, int duration) throws Exception {
         ResponseEntity<String> response = exchange("/api/video/upload/merge", HttpMethod.POST, token,
                 Map.of("uploadId", uploadId, "durationSeconds", duration));
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
@@ -966,7 +1415,8 @@ class Phase7VideoReviewIT {
         return false;
     }
 
-    private HttpEntity<ByteArrayResource> resource(String filename, String contentType, byte[] content) {
+    private HttpEntity<ByteArrayResource> multipartResource(
+            String filename, String contentType, byte[] content) {
         ByteArrayResource resource = new ByteArrayResource(content) {
             @Override
             public String getFilename() {
@@ -1205,14 +1655,46 @@ class Phase7VideoReviewIT {
         return out;
     }
 
-    private byte[] slice(byte[] input, int offset, int length) {
-        byte[] out = new byte[length];
-        System.arraycopy(input, offset, out, 0, length);
-        return out;
+    private FileObject seedReadyVideoFile(String hash, byte[] content, String marker, Long uploaderId) {
+        String storedName = "phase7-" + marker + ".mp4";
+        FileObject file = new FileObject();
+        file.setOriginalName(storedName);
+        file.setStoredName(storedName);
+        file.setBucket(minioProperties.getBucket());
+        file.setObjectKey("teaching-video/" + storedName);
+        file.setSize((long) content.length);
+        file.setContentType("video/mp4");
+        file.setMd5(hash);
+        file.setBizType("teaching-video");
+        file.setStatus("READY");
+        file.setUploaderId(uploaderId);
+        file.setUploadTime(LocalDateTime.now());
+        assertThat(fileObjectMapper.insert(file)).isEqualTo(1);
+        return file;
+    }
+
+    private String videoFingerprint(byte[] bytes) throws Exception {
+        MessageDigest leafDigest = MessageDigest.getInstance("SHA-256");
+        List<byte[]> leafDigests = new ArrayList<>();
+        for (int offset = 0; offset < bytes.length; offset += VIDEO_PART_SIZE) {
+            int length = Math.min(VIDEO_PART_SIZE, bytes.length - offset);
+            leafDigest.update(bytes, offset, length);
+            leafDigests.add(leafDigest.digest());
+        }
+        ByteBuffer root = ByteBuffer.allocate(VIDEO_FINGERPRINT_MARKER.length + 24 + leafDigests.size() * 32);
+        root.put(VIDEO_FINGERPRINT_MARKER);
+        root.putLong(bytes.length);
+        root.putLong(VIDEO_PART_SIZE);
+        root.putLong(leafDigests.size());
+        leafDigests.forEach(root::put);
+        return hex(MessageDigest.getInstance("SHA-256").digest(root.array()));
     }
 
     private String md5(byte[] bytes) throws Exception {
-        byte[] digest = MessageDigest.getInstance("MD5").digest(bytes);
+        return hex(MessageDigest.getInstance("MD5").digest(bytes));
+    }
+
+    private String hex(byte[] digest) {
         StringBuilder sb = new StringBuilder();
         for (byte b : digest) {
             sb.append(String.format("%02x", b));

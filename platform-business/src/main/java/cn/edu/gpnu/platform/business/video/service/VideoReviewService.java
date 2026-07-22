@@ -7,6 +7,7 @@ import cn.edu.gpnu.platform.business.video.dto.VideoReturnRequest;
 import cn.edu.gpnu.platform.business.video.dto.VideoScoreRequest;
 import cn.edu.gpnu.platform.business.video.dto.VideoThirdReviewRequest;
 import cn.edu.gpnu.platform.business.video.dto.VideoUploadInitRequest;
+import cn.edu.gpnu.platform.business.video.dto.VideoUploadCompleteRequest;
 import cn.edu.gpnu.platform.business.video.dto.VideoUploadMergeRequest;
 import cn.edu.gpnu.platform.business.video.vo.ReviewerCandidateVO;
 import cn.edu.gpnu.platform.business.video.vo.VideoPlaybackVO;
@@ -24,6 +25,10 @@ public interface VideoReviewService {
     VideoUploadInitVO initUpload(VideoUploadInitRequest request);
 
     void uploadChunk(String uploadId, Integer index, String md5, InputStream input, long size);
+
+    VideoReviewVO complete(VideoUploadCompleteRequest request);
+
+    void cancelUpload(String uploadId);
 
     VideoReviewVO merge(VideoUploadMergeRequest request);
 
