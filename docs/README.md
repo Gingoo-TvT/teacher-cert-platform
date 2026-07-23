@@ -2,6 +2,7 @@
 
 > 配套 `../plan.md`（总体方案 + §15 增补）与 `../tasks.md`（114 原子任务）。
 > 本目录把 15 个 Phase 各自展开为**独立的详细设计 + 验收文档**，codex 每次领取一个 `phase-NN-*.md` 即可闭环开发与自检。
+> Phase 15 之后的重构、上线整改和审计工作统一从 `CURRENT-EXECUTION-PLAN.md` 进入；其它 `*-plan.md` 均作为历史来源保留。
 
 ## 1. 文档体系与关系
 | 文件 | 作用 |
@@ -9,6 +10,7 @@
 | `../AGENTS.md` | **开工前必读**：红线、代码/Git/测试规范、执行流程、进度与日志规范 |
 | `../plan.md` | 总体方案、数据模型、业务规则、§15 设计增补（**权威规格**） |
 | `../tasks.md` | 全量原子任务（T-001~T-114）、依赖、关键路径 |
+| `docs/CURRENT-EXECUTION-PLAN.md` | **当前唯一执行入口**：Phase 0–53 复核矩阵、审计 WS 状态、统一优先队列 |
 | `docs/phase-NN-*.md` | 每阶段：目标/数据库/接口/逻辑/前端/**详细验收**/**测试用例**/DoD |
 | `docs/待确认事项确认单.md` | 交学校书面确认的开放项（含证书序列作用域） |
 
@@ -16,7 +18,7 @@
 
 ## 2. 全局完成定义（Definition of Done，所有任务通用）
 一个任务/阶段"完成"必须同时满足：
-1. 编译通过，无新增 lint 错误（后端 Spotless/Checkstyle、前端 ESLint）。
+1. 编译与现有门禁通过；Spotless/Checkstyle、ESLint 尚未落地，作为 `CURRENT-EXECUTION-PLAN.md` 的 WS-6 欠账管理，不得虚报已执行。
 2. 单元测试覆盖核心规则；集成测试覆盖主接口；**关键校验规则与状态流转必须有反例用例**。
 3. Swagger/Knife4j 文档同步更新，接口可在 `/doc.html` 调通。
 4. 数据库变更走 Flyway 版本脚本（不手改库），脚本可重复执行（幂等种子用 `INSERT ... ON DUPLICATE` 或先判存在）。
@@ -25,8 +27,8 @@
 7. 不破坏既有阶段的回归用例。
 
 ## 3. 测试与验收规范
-- **后端**：JUnit5 + Mockito + Testcontainers（MySQL/Redis/MinIO）；命名 `XxxServiceTest`、`XxxControllerIT`。覆盖率目标：核心校验/状态/编号/导入导出 ≥ 80% 行覆盖。
-- **前端**：Vitest 组件单测 + 关键页面 E2E（Playwright，可选）。
+- **后端当前实现**：JUnit5 + Mockito；`*IT` 使用外部提供的真实 MySQL/Redis/MinIO（本机或 CI service），测试本身尚未使用 Testcontainers 创建隔离依赖。每次复核必须使用独立 schema/容器并记录连接端点；迁移到测试自管理容器列入统一计划。
+- **前端当前实现**：`vue-tsc --noEmit` + Vite production build；Vitest、Playwright、ESLint 尚未接入，由 WS-6 建立，未落地前不得把它们写成已执行门禁。
 - **验收用例**：每条以 `given/when/then` 描述，必含**正例 + 反例 + 边界**。验收勾选项以 `- [ ]` 列出，验收时逐条置 `- [x]` 并附证据（截图/日志/测试名）。
 - **AT 验收**：14 条验收标准（plan §10）在对应 Phase 内完成首验，Phase 14 做整体复验。
 

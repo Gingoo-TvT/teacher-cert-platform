@@ -37,14 +37,14 @@
 | 后端 | 版本 | 前端 | 版本 |
 |---|---|---|---|
 | JDK | 17 | Node | ≥18 LTS |
-| Spring Boot | 3.2.x | Vue | 3.4.x |
+| Spring Boot | 3.4.x | Vue | 3.5.x |
 | Maven | 3.9+ | Vite | 5.x |
 | MyBatis-Plus | 3.5.x | TypeScript | 5.x |
 | MySQL | 8.x | Naive UI | 2.x |
 | Redis | 7.x | Pinia / Vue Router | 2.x / 4.x |
 | MinIO | 最新稳定 | Axios | 1.x |
 | EasyExcel/FastExcel | 3.x | ECharts | 5.x |
-| Flyway | 10.x | 包管理 | pnpm |
+| Flyway | 随 Spring Boot 3.4.x（含 flyway-mysql） | 包管理 | npm |
 | Knife4j | 4.x | | |
 | jjwt | 0.12.x | | |
 
@@ -97,7 +97,7 @@
 ---
 
 ## 6. 测试规范
-- 详见 `docs/README.md` §2/§3。要点：核心规则（校验/状态/编号/导入导出）必须有**单元测试 + 反例**；主接口集成测试（Testcontainers）。
+- 详见 `docs/README.md` §2/§3。要点：核心规则（校验/状态/编号/导入导出）必须有**单元测试 + 反例**；主接口集成测试必须使用隔离的真实 MySQL/Redis/MinIO。当前存量 IT 由复核环境提供独立 Compose/schema；新增或改造测试优先使用 Testcontainers，迁移完成前不得虚报测试自带隔离。
 - 覆盖率：核心模块行覆盖 ≥80%。
 - CI（T-010）必过：lint + 编译 + 测试。**红灯不合并。**
 

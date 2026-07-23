@@ -1,5 +1,7 @@
 # 收官后重构计划 · UI 重建 + RBAC/流程调整（Phase 15–24）
 
+> **归档提示（2026-07-22）**：本计划对应工作已完成。当前状态、复核欠账与后续工作统一见 `CURRENT-EXECUTION-PLAN.md`；本文只保留历史规格与验收依据。
+
 > 基线：Phase 0–14 + T-115 已收官（`mvn verify` 75/75 绿，本地私有）。本计划为收官后的重构初始化，按既有节奏 **codex 实现一个 Phase → Claude 按 `docs/REVIEW-GATE.md` 复核 → `--ff-only` 合并 main → 放行下一 Phase**。git 全程本地私有、无 remote、不 push；验证一律 build-only 防卡死（`mvn -B -ntp verify` + 前端 `type-check`/`build`，不前台起 java-jar/vite/常驻容器）；codex 不自评 ✅（置「待复核」）。
 
 ## 0. 来源与依据
