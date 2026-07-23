@@ -11,7 +11,6 @@ import org.jcodec.containers.mp4.demuxer.MP4Demuxer;
 
 import java.io.IOException;
 import java.io.Writer;
-import java.nio.BufferUnderflowException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
@@ -34,6 +33,13 @@ public final class VideoProbeWorkerMain {
     }
 
     public static void main(String[] args) throws Exception {
+        try (VideoProbeParentWatchdog ignored =
+                     VideoProbeParentWatchdog.startFromSystemProperties()) {
+            run(args);
+        }
+    }
+
+    private static void run(String[] args) throws Exception {
         if (args.length != 5) {
             throw new IllegalArgumentException("视频探测工作进程参数不完整");
         }
@@ -57,8 +63,19 @@ public final class VideoProbeWorkerMain {
         if (!hasSaneTopLevelBoxes(mediaFile)) {
             return invalid("视频文件不是可解析的MP4媒体", null, null, null);
         }
-        try (SeekableByteChannel channel =
-                     org.jcodec.common.io.NIOUtils.readableChannel(mediaFile.toFile())) {
+        // 文件打开失败是本地基础设施 I/O；必须位于 JCodec 内容异常边界之外。
+        SeekableByteChannel source =
+                org.jcodec.common.io.NIOUtils.readableChannel(mediaFile.toFile());
+        try (TrackingSeekableByteChannel channel = new TrackingSeekableByteChannel(source)) {
+            return inspectParsedMedia(
+                    channel, allowedCodecs, timelineToleranceSeconds, maxPackets);
+        }
+    }
+
+    static VideoMediaWorker.TrackInspection inspectParsedMedia(
+            TrackingSeekableByteChannel channel, Set<String> allowedCodecs,
+            int timelineToleranceSeconds, int maxPackets) throws IOException {
+        try {
             MP4Demuxer demuxer = MP4Demuxer.createMP4Demuxer(channel);
             java.util.List<DemuxerTrack> videoTracks = demuxer.getVideoTracks();
             if (videoTracks.isEmpty()) {
@@ -72,14 +89,20 @@ public final class VideoProbeWorkerMain {
             if (!timeline.valid()) {
                 return timeline;
             }
-            Picture decodedFrame = FrameGrab.getFrameFromFile(mediaFile.toFile(), 0);
+            channel.setPosition(0L);
+            Picture decodedFrame = FrameGrab.getFrameFromChannel(channel, 0);
             if (decodedFrame == null || decodedFrame.getWidth() < 1 || decodedFrame.getHeight() < 1) {
                 return invalid("视频首帧无法解码", timeline.durationSeconds(),
                         timeline.codec(), timeline.frameCount());
             }
             return timeline;
-        } catch (JCodecException | BufferUnderflowException
-                 | IndexOutOfBoundsException | IllegalArgumentException e) {
+        } catch (IOException e) {
+            // 第三方解析器用 IOException 表示损坏的 box/track；真实底层通道 I/O 仍向父进程上抛。
+            if (channel.sourceIoFailed()) {
+                throw e;
+            }
+            return invalid("视频文件不是可解析的MP4媒体", null, null, null);
+        } catch (JCodecException | RuntimeException e) {
             return invalid("视频文件不是可解析的MP4媒体", null, null, null);
         }
     }
@@ -88,7 +111,7 @@ public final class VideoProbeWorkerMain {
      * 在进入第三方解析器前只读取固定长度 box 头，拒绝越界尺寸，避免畸形输入诱发巨额分配。
      * I/O 故障直接向上抛出，由主进程按可重试基础设施故障处理。
      */
-    private static boolean hasSaneTopLevelBoxes(Path mediaFile) throws IOException {
+    static boolean hasSaneTopLevelBoxes(Path mediaFile) throws IOException {
         long fileSize = Files.size(mediaFile);
         if (fileSize < 8L) {
             return false;
@@ -238,6 +261,100 @@ public final class VideoProbeWorkerMain {
     private static void put(Properties properties, String key, Object value) {
         if (value != null) {
             properties.setProperty(key, String.valueOf(value));
+        }
+    }
+
+    /**
+     * 标记 IOException 是否由真实文件通道产生，使 JCodec 自己抛出的内容异常不会污染基础设施语义。
+     */
+    static final class TrackingSeekableByteChannel implements SeekableByteChannel {
+
+        private final SeekableByteChannel delegate;
+        private boolean sourceIoFailed;
+
+        TrackingSeekableByteChannel(SeekableByteChannel delegate) {
+            this.delegate = delegate;
+        }
+
+        boolean sourceIoFailed() {
+            return sourceIoFailed;
+        }
+
+        @Override
+        public int read(ByteBuffer destination) throws IOException {
+            try {
+                return delegate.read(destination);
+            } catch (IOException e) {
+                sourceIoFailed = true;
+                throw e;
+            }
+        }
+
+        @Override
+        public int write(ByteBuffer source) throws IOException {
+            try {
+                return delegate.write(source);
+            } catch (IOException e) {
+                sourceIoFailed = true;
+                throw e;
+            }
+        }
+
+        @Override
+        public long position() throws IOException {
+            try {
+                return delegate.position();
+            } catch (IOException e) {
+                sourceIoFailed = true;
+                throw e;
+            }
+        }
+
+        @Override
+        public SeekableByteChannel setPosition(long newPosition) throws IOException {
+            try {
+                delegate.setPosition(newPosition);
+                return this;
+            } catch (IOException e) {
+                sourceIoFailed = true;
+                throw e;
+            }
+        }
+
+        @Override
+        public long size() throws IOException {
+            try {
+                return delegate.size();
+            } catch (IOException e) {
+                sourceIoFailed = true;
+                throw e;
+            }
+        }
+
+        @Override
+        public SeekableByteChannel truncate(long size) throws IOException {
+            try {
+                delegate.truncate(size);
+                return this;
+            } catch (IOException e) {
+                sourceIoFailed = true;
+                throw e;
+            }
+        }
+
+        @Override
+        public boolean isOpen() {
+            return delegate.isOpen();
+        }
+
+        @Override
+        public void close() throws IOException {
+            try {
+                delegate.close();
+            } catch (IOException e) {
+                sourceIoFailed = true;
+                throw e;
+            }
         }
     }
 }

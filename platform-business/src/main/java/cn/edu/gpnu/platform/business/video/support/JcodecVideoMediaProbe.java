@@ -27,7 +27,7 @@ import java.util.TreeSet;
 @Slf4j
 public class JcodecVideoMediaProbe implements VideoMediaProbe {
 
-    static final String PROBE_VERSION = "JCODEC_PROCESS_V3";
+    static final String PROBE_VERSION = "JCODEC_PROCESS_V4";
     private static final int FINGERPRINT_CHUNK_SIZE = 8 * 1024 * 1024;
     private static final byte[] FINGERPRINT_MARKER =
             "teacher-cert-file-sha256-tree-v1\0".getBytes(StandardCharsets.UTF_8);

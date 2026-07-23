@@ -35,16 +35,19 @@ class FatJarVideoProbeWorkerIT {
         Path stderr = tempDirectory.resolve("worker.stderr.log");
 
         assertThat(fatJar).isRegularFile();
-        List<String> command = List.of(
-                javaExecutable().toString(),
-                "-Dloader.main=" + VideoProbeWorkerMain.class.getName(),
-                "-cp", fatJar.toString(),
-                PROPERTIES_LAUNCHER,
-                media.toAbsolutePath().normalize().toString(),
-                result.toString(),
-                "H264",
-                "2",
-                "100000");
+        List<String> command = new java.util.ArrayList<>();
+        command.add(javaExecutable().toString());
+        command.addAll(VideoProbeParentWatchdog.jvmArgumentsForCurrentParent(
+                java.time.Duration.ofMillis(250)));
+        command.add("-Dloader.main=" + VideoProbeWorkerMain.class.getName());
+        command.add("-cp");
+        command.add(fatJar.toString());
+        command.add(PROPERTIES_LAUNCHER);
+        command.add(media.toAbsolutePath().normalize().toString());
+        command.add(result.toString());
+        command.add("H264");
+        command.add("2");
+        command.add("100000");
         Process process = new ProcessBuilder(command)
                 .redirectOutput(stdout.toFile())
                 .redirectError(stderr.toFile())

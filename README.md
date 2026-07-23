@@ -63,6 +63,14 @@ docker compose ps
 
 后端启动时由 Flyway 自动迁移并写入种子数据（字典、角色权限、参数等）。
 
+### 视频定稿可靠性发布（V32）
+
+V32 为视频定稿增加 `video_finalization_object_candidate` 持久候选台账：每个定稿 generation 使用独立对象键，FAILED/失权对象由生产环境每分钟的 reconciliation 持久重试；已确认删除的 `CLEANED` 墓碑也会周期复查，防止迟到的旧 generation 写入遗留对象。启动回填/对账投递到单线程后台执行器并防重入，不阻塞 `ApplicationReady` 与 readiness。
+
+发布 V32 必须按顺序执行：停止视频定稿写流量 → 停止全部旧后端节点与媒体 worker → 由新版本执行 Flyway V32 → 启动全部新二进制实例 → 健康检查与迁移核验通过后恢复写流量。禁止 V31 或更旧的稳定对象键实现与 V32 混部；V32 落库后禁止回滚到旧协议二进制，只能前向修复。
+
+媒体 worker 额外通过 `VIDEO_PROBE_PARENT_CHECK_INTERVAL`（默认 `PT1S`）核验父 JVM 的 PID 与启动时刻；父 JVM 异常退出后 worker 会自行退出。生产 Compose 已透传该变量。
+
 **仅 dev/测试（`db/testseed`，生产不加载）**的初始测试账号：`test_academic_admin`、`test_college_clerk`、`test_college_auditor`、`test_review_teacher`、`test_cert_issuer`、`test_student`，初始密码 `ChangeMe123!`，首次登录需修改。**这些是本地/联调便利账号，切勿用于生产。**
 
 **生产凭据（WS-2 凭据硬化，均为必配、缺失即 fail-fast 拒绝启动）**：

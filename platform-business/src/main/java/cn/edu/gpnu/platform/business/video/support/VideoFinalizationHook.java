@@ -12,6 +12,14 @@ public class VideoFinalizationHook {
         // 生产不注入行为。
     }
 
+    public void afterDirectStage(DirectStage stage, String uploadId) {
+        // 生产不注入行为。
+    }
+
+    public enum DirectStage {
+        CLAIMED
+    }
+
     public enum ServerChunkStage {
         CLAIMED,
         OBJECT_READY,

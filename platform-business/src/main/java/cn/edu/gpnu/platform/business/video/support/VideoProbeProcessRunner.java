@@ -93,6 +93,8 @@ public class VideoProbeProcessRunner {
         arguments.add("-Xms32m");
         arguments.add("-Xmx" + properties.getWorkerMaxHeapMb() + "m");
         arguments.add("-XX:+ExitOnOutOfMemoryError");
+        arguments.addAll(VideoProbeParentWatchdog.jvmArgumentsForCurrentParent(
+                properties.getParentCheckInterval()));
         if (isSpringBootArchive(classPath)) {
             arguments.add("-Dloader.main=" + mainClass);
             arguments.add("-cp");

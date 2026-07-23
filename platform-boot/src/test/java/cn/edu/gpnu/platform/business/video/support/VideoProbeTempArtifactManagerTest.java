@@ -88,6 +88,80 @@ class VideoProbeTempArtifactManagerTest {
     }
 
     @Test
+    void boundedCleanupRotatesPastLiveCandidatesAndPersistsProgressAcrossRestart()
+            throws Exception {
+        Instant started = Instant.parse("2026-07-23T10:00:00Z");
+        MutableClock clock = new MutableClock(started.plusSeconds(120));
+        VideoProbeProperties properties = properties();
+        properties.setArtifactCleanupScanLimit(1);
+        VideoProbeTempArtifactManager first =
+                new VideoProbeTempArtifactManager(properties, clock, LOCAL_OWNER);
+        first.initialize();
+        VideoProbeTempArtifactManager second = null;
+        try {
+            Path freshOwnerMarker = tempDirectory.resolve(
+                    ".video-probe-owner-v1-" + FRESH_REMOTE_OWNER + ".heartbeat");
+            Files.writeString(freshOwnerMarker, "alive");
+            Files.setLastModifiedTime(freshOwnerMarker, FileTime.from(clock.instant()));
+            Path liveOwnerArtifact = artifact(
+                    FRESH_REMOTE_OWNER, started, "media", "live.mp4");
+            Path expiredTail = artifact(
+                    STALE_REMOTE_OWNER, started, "result", "expired-tail.properties");
+
+            assertThat(first.cleanupOrphans()).isZero();
+            assertThat(first.cleanupOrphans()).isZero();
+            assertThat(freshOwnerMarker).exists();
+            assertThat(liveOwnerArtifact).exists();
+            assertThat(expiredTail).exists();
+
+            first.shutdown();
+            second = new VideoProbeTempArtifactManager(properties, clock, LOCAL_OWNER);
+            second.initialize();
+
+            assertThat(expiredTail).doesNotExist();
+            assertThat(freshOwnerMarker).exists();
+            assertThat(liveOwnerArtifact).exists();
+            assertThat(tempDirectory.resolve(".video-probe-cleanup-v1.cursor")).isNotEmptyFile();
+        } finally {
+            if (second != null) {
+                second.shutdown();
+            } else {
+                first.shutdown();
+            }
+        }
+    }
+
+    @Test
+    void boundedSelectionIsLexicallyFairWhenCreationOrderIsReversed()
+            throws Exception {
+        Instant started = Instant.parse("2026-07-23T10:00:00Z");
+        MutableClock clock = new MutableClock(started.plusSeconds(120));
+        VideoProbeProperties properties = properties();
+        properties.setArtifactCleanupScanLimit(2);
+        VideoProbeTempArtifactManager manager =
+                new VideoProbeTempArtifactManager(properties, clock, LOCAL_OWNER);
+        manager.initialize();
+        try {
+            Path ownerF = artifact("f".repeat(32), started, "media", "f.mp4");
+            Path ownerE = artifact("e".repeat(32), started, "media", "e.mp4");
+            Path ownerD = artifact("d".repeat(32), started, "media", "d.mp4");
+            Path ownerC = artifact("c".repeat(32), started, "media", "c.mp4");
+
+            assertThat(manager.cleanupOrphans()).isEqualTo(2);
+            assertThat(ownerC).doesNotExist();
+            assertThat(ownerD).doesNotExist();
+            assertThat(ownerE).exists();
+            assertThat(ownerF).exists();
+
+            assertThat(manager.cleanupOrphans()).isEqualTo(2);
+            assertThat(ownerE).doesNotExist();
+            assertThat(ownerF).doesNotExist();
+        } finally {
+            manager.shutdown();
+        }
+    }
+
+    @Test
     void sharedProbeDirectoryIsRejectedAcrossLiveManagers() {
         VideoProbeProperties properties = properties();
         VideoProbeTempArtifactManager first = new VideoProbeTempArtifactManager(properties);

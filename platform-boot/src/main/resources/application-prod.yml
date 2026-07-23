@@ -57,6 +57,10 @@ minio:
 # Phase 41.2（P0-6 真备份）：仅生产开启应用内定时全量备份（dev/测试默认关闭、不触发）。
 # 产物 = JDBC 逻辑导出→gzip→MinIO（默认复用业务桶 + db-backup/ 前缀；如需独立桶设 platform.backup.bucket）。
 platform:
+  video:
+    finalization-reconciliation:
+      # 正确性关键作业：不受 platform.cleanup.schedule.enabled 影响，prod profile 始终注册。
+      cron: "0 * * * * *"
   backup:
     schedule:
       enabled: true

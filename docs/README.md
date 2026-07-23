@@ -82,6 +82,11 @@
 | `video.allowedCodecs` | `H264` | 允许的视频编码，变更后既有秒传验证结果失效 | Phase 7 |
 | `video.timelineToleranceSeconds` | `2`(秒) | 容器头、样本跨度与样本累计时长的交叉核对容差 | Phase 7 |
 | `video.arbitrate.mode` | `thirdExpert` | 复评模式 | Phase 7 |
+| `video.finalizationCleanupSafetySeconds` | `60`(秒) | 失权对象静默期在对象存储总调用超时之外追加的安全时间 | Phase 7 / V32 |
+| `video.finalizationCleanupRetrySeconds` | `60`(秒) | 失败对象持久清理的重试间隔 | Phase 7 / V32 |
+| `video.finalizationCleanupClaimSeconds` | `1860`(秒) | 跨节点对象清理任务租约时长；运行时强制不低于 `2 × MINIO_CALL_TIMEOUT_SECONDS + safetySeconds`，极端组合饱和到整数上限 | Phase 7 / V32 |
+| `video.finalizationCleanupBatchSize` | `100` | 单轮对象对账的最大候选数 | Phase 7 / V32 |
+| `video.finalizationCleanupTombstoneCheckSeconds` | `3600`(秒) | `CLEANED` 墓碑再次确认对象仍不存在的间隔 | Phase 7 / V32 |
 | `video.required` | `true` | 视频是否必过才能发证 | Phase 9 |
 | `file.maxSize.video` | `2147483648`(2GB) | 视频单文件上限 | Phase 7 |
 | `file.maxSize.material` | `52428800`(50MB) | 材料单附件上限 | Phase 5 |
@@ -93,3 +98,5 @@
 | `current_assessment_year` | 当前年 | 当前考核年度 | 全局 |
 
 > 以上默认值若学校另有口径，改 `sys_param` 即可，无需改代码。开放项见 `待确认事项确认单.md`（**20 项已于 2026-06-14 确认**；原业务取值变更 `validate.name.mode`→`loose`，见 `V6__confirmed_params.sql`；#17/#18 后由 WS-2 安全整改取代为 `false/random`，见 `V27__ws02_credential_hardening_defaults.sql`）。
+
+> V32 新增 `video_finalization_object_candidate` 持久候选台账：每个视频定稿世代独立记录候选对象、清理租约、重试和 `CLEANED` 墓碑。生产环境每分钟执行一次独立对象 reconciliation；墓碑也按 `video.finalizationCleanupTombstoneCheckSeconds` 周期复查，避免迟到的旧 generation 写入重新遗留未登记对象。

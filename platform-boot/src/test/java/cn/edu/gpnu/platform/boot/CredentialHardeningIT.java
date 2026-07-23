@@ -48,16 +48,25 @@ class CredentialHardeningIT {
                     + "&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false"
                     : override;
         });
-        registry.add("spring.datasource.username", () -> "root");
-        registry.add("spring.datasource.password", () -> "root123");
-        registry.add("spring.data.redis.host", () -> "localhost");
-        registry.add("spring.data.redis.port", () -> 6379);
-        registry.add("spring.data.redis.password", () -> "");
+        registry.add("spring.datasource.username",
+                () -> setting("SPRING_DATASOURCE_USERNAME", "root"));
+        registry.add("spring.datasource.password",
+                () -> setting("SPRING_DATASOURCE_PASSWORD", "root123"));
+        registry.add("spring.data.redis.host",
+                () -> setting("SPRING_DATA_REDIS_HOST", "localhost"));
+        registry.add("spring.data.redis.port",
+                () -> Integer.parseInt(setting("SPRING_DATA_REDIS_PORT", "6379")));
+        registry.add("spring.data.redis.password",
+                () -> setting("SPRING_DATA_REDIS_PASSWORD", ""));
         registry.add("spring.flyway.locations", () -> "classpath:db/migration,classpath:db/testseed");
-        registry.add("minio.endpoint", () -> "http://localhost:9000");
-        registry.add("minio.access-key", () -> "minioadmin");
-        registry.add("minio.secret-key", () -> "minioadmin123");
-        registry.add("minio.bucket", () -> "teacher-cert");
+        registry.add("minio.endpoint",
+                () -> setting("MINIO_ENDPOINT", "http://localhost:9000"));
+        registry.add("minio.access-key",
+                () -> setting("MINIO_ACCESS_KEY", "minioadmin"));
+        registry.add("minio.secret-key",
+                () -> setting("MINIO_SECRET_KEY", "minioadmin123"));
+        registry.add("minio.bucket",
+                () -> setting("MINIO_BUCKET", "teacher-cert"));
         registry.add("platform.security.jwt.secret",
                 () -> "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
         registry.add("platform.security.initial-password", () -> "Staff-Initial-2026!");
@@ -65,6 +74,11 @@ class CredentialHardeningIT {
         registry.add("platform.security.admin.initial-password-hash", () -> BOOTSTRAP_HASH);
         registry.add("platform.backup.schedule.enabled", () -> false);
         registry.add("platform.cleanup.schedule.enabled", () -> false);
+    }
+
+    private static String setting(String name, String defaultValue) {
+        String value = System.getenv(name);
+        return value == null || value.isBlank() ? defaultValue : value;
     }
 
     @LocalServerPort

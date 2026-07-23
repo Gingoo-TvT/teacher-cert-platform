@@ -15,6 +15,23 @@
 
 ---
 
+## [2026-07-24] WS-3 第五轮退回整改与 T-VID-2L/2M 动态反例完成 — 待独立复核
+- 做了什么：按第四轮正式报告的 1 High / 1 Medium / 2 Low 完成第五轮整改。媒体 worker 升级为 V4：源文件打开置于内容解析边界之外，跟踪通道只把真实源读取 I/O 上抛为基础设施故障，JCodec 在损坏 movie/track 内部抛出的 `IOException` 转为结构化 `valid=false`/exit 0。V32 新增 `video_finalization_object_candidate` 持久台账和 5 个清理参数；每个 SERVER 世代使用独立 `/g-{generation}.mp4` 对象键，认领、失权、失败、登记与清理均留持久状态，`CLEANED` 作为周期复查墓碑捕获首次确认不存在后仍迟到生成的旧对象。生产 `prod` 在启动时回填遗留会话，并每分钟执行独立于普通 cleanup 开关的 reconciliation。
+- 关键决策与理由：对象存储写入无法与 MySQL 原子提交，故不能把一次 `removeObject` 成功或某时刻 HEAD 不存在当成永久事实；候选账本以数据库世代为身份，并让墓碑持续复查。普通到期清理与墓碑使用独立 batch，避免历史墓碑挤占故障恢复配额；删除前保护当前会话引用、同键 ACTIVE/REGISTERED 与 `file_object`。临时工件清扫用持久词法游标和两个不超过 scanLimit 的 max-heap，在 O(scanLimit) 内存下轮转覆盖；活跃/未过期/删除失败也推进游标。裸机 worker 接收父 PID + 精确 `startInstant` 并周期核验，父进程消失或 PID 复用即自行退出。
+- 问题与解决：第一次强化后的 Phase 7 定向运行失败 5 项均因未发布 V32 在本轮专用库中先后应用两个工作版本导致 Flyway checksum mismatch；仅重建 `teacher-cert-ws05` 专用临时数据卷后，V31→V32 迁移通过。Phase 7 全类首次运行 40/41，唯一失败是旧测试把 MinIO 公开端点固定为 `localhost:9000`；将断言改为当前 `MINIO_PUBLIC_ENDPOINT` 的协议/主机/端口，并让临时 MinIO 使用与正式 dev 编排相同的 CORS 白名单后该项通过，未放宽恶意 Origin 拒绝断言。最终静态复核又发现默认清理 claim 小于两次串行 MinIO 调用总上限，以及 direct 已认领后回退/取消/缺失 multipart 时 `ACTIVE` 候选可能滞留；前者改为运行时强制 `max(配置值, 2 × callTimeout + safety)`，极值饱和到整数上限，后者在会话行锁事务内同步退休候选并在提交后做对象清理，均补确定性反例。提交前交叉复核再发现同步 `ApplicationReady` 对账可能被对象存储超时长时间阻塞；现改为专用单线程执行器异步投递，`AtomicBoolean` 防重入且不排队，并以阻塞替身证明监听器在 500ms 内返回。
+- 与规格的偏差/疑问：无业务规则、权限点或状态机规格变更；新增 5 个清理参数属于可靠性边界并已写入 V32/参数文档。V32 是停机前向迁移：必须停写并停止全部旧节点/worker后执行，禁止 V31/旧稳定 key 协议混部或 V32 后回滚。第五轮只声明整改者完成，不自行改判 PASS；Phase 53 demo High 和真实 2GB/非允许编码/不可解码首帧证据债均不冒充闭环。
+- 测试：本轮专用空库成功执行 **33 个迁移至 V32**；V32 迁移 IT **1/1**，T-VID-2L/2M、ACTIVE/REGISTERED/file_object 保护与遗留 FAILED 回填 **5/5**，claim 安全下限/极值及 direct 回退、取消、缺失 multipart 终态反例 **3/3**，worker 内容/基础设施边界、父进程退出、清扫公平轮转/逆序目录和生产调度聚焦单测 **19/19**。修复 readiness 阻塞后重新从空库执行最终 `clean verify`：Surefire **148/148**、Failsafe **168/168**，合计 **316/316**，0 failure/error/skip；Phase 7 **44/44**。前端 type-check/build、dev/prod Compose config 与 `git diff --check` 均通过，仅保留既有大 chunk 警告。
+- 安全边界：遵照用户要求，未执行漏洞扫描、攻击性探测、凭据尝试、恶意载荷、fuzz、攻击性并发或针对既有服务的破坏操作。损坏媒体使用固定 44 字节结构夹具；故障交错仅在本轮专用隔离 MinIO 中确定性注入一次删除失败并创建测试对象。任何后续可能属于 cyber 的命令必须明确列出并交由用户亲自决定/执行。
+- 下一步：第五轮整改与 `docs/reviews/ws-03-fifth-remediation-submission-2026-07-23.md` 已归档提交，交独立复核者只核第四轮 1 High / 1 Medium / 2 Low。第五轮独立 PASS 前 WS-3/U-002 与全项目继续保持 CHANGES REQUESTED。
+
+## [2026-07-23] GOV-007 WS-3 第四轮整改独立重核退回
+- 做了什么：冻结 `df22e5b..ee190f3`，逐文件复核第四轮 44 个变更文件，并由媒体 worker/临时资源、并发状态机、迁移配置/测试真实性三个专项交叉检查；产出 `docs/reviews/ws-03-fourth-remediation-rereview-2026-07-23.md`。第三轮 4 High / 5 Medium 均可按原问题口径关闭，但总判定仍为 **CHANGES REQUESTED（1 High / 1 Medium / 2 Low）**。
+- 关键决策与理由：新 High 为 JCodec 在合法顶层 box 内解析损坏 movie/track 时可抛 IOException，worker 未输出结构化 invalid，父进程把非零退出统一判基础设施故障；最终对象已存在时 direct/server 都永久保留 MERGING。新 Medium 为 FAILED 后只尝试一次 `removeObject`，现有孤儿扫描看不到无 `file_object` 对象；SERVER 旧 owner 还可在 successor 删除后迟到 compose 并复活稳定 key。两个 Low 为有界临时工件扫描无轮转游标、裸机父 JVM 崩溃后 in-memory worker supervisor 不可恢复。
+- 问题与解决：不以整改者 299/299 绿灯替代未覆盖不变量。按用户明确安全限制，没有生成/执行畸形媒体、fuzz、破坏性 Redis/MinIO 故障、进程破坏或攻击性并发；JCodec 路径用源码与 0.2.5 bytecode/API 静态确认，竞争问题用 DB/Redis/MinIO 的 happens-before 序列确认。需要动态损坏媒体和故障交错时，已在 T-VID-2L/2M 与报告中明确交由开发者执行。
+- 与规格的偏差/疑问：未修改业务规则、权限点、应用源码、测试、依赖或运行配置；仅新增独立报告/元数据，并将第五轮范围合并进既有 `CURRENT-EXECUTION-PLAN.md`、`PROGRESS.md`、`HANDOFF.md`、Phase 7/14，不建立平行计划。Phase 53 demo High 继续归 U-003，真实 2GB/非允许编码/不可解码首帧证据债继续保留。
+- 测试：整改者全量 XML 在 clean 前经独立核对为 Surefire 140/140、Failsafe 159/159，合计 299/299，0 failure/error/skip；独立安全白名单 clean verify **17/17**（MinIO 配置、worker 结果分类、容量、临时工件、进程边界、V31 升级、fat-JAR），后端 package、前端 type-check/build、dev/prod Compose config、MinIO 依赖树、报告 lint 和 `git diff --check` 均通过。未启动常驻后端/前端；复核专用 `teacher-cert-ws03` MySQL/Redis/MinIO 容器、网络和数据卷已 `down -v`，无残留容器或该项目标签数据卷。
+- 下一步：第五轮先修内容型解析 IOException 的结构化错误域与 FAILED 对象持久 reconciliation，再补 SERVER generation candidate/迟到 compose、清扫公平性及裸机生命周期边界；开发者归档 T-VID-2L/2M 动态证据后重交独立增量复核。WS-3 PASS 后才继续 Phase 42 → 39 → 41 → 47 → 53 → 44 → 0，最终执行用户要求的全量审计。
+
 ## [2026-07-23] WS-3 第四轮退回整改完成 — 待独立重核
 - 做了什么：按第三轮正式报告的 4 High / 5 Medium 完成第四轮整改。V31 把 `video_upload_session.finalization_token` 迁为 `NOT NULL DEFAULT 0` 永久高水位，认领世代在数据库行锁内单调递增，Redis 仅使用随机 UUID owner；server finalize/assign、direct 丢失 multipart、server 源分片丢失均可收敛为 FAILED 并重新初始化。探测临时卷新增严格版本化工件、owner heartbeat、启动/周期 reaper 和目录独占锁；worker 将非零退出、I/O、缺失/畸形结果归为可重试基础设施异常，只有结构完整的显式无效结果才判内容失败。强杀后必须确认 PID 已退出，未退出进程登记为孤儿并阻止新准入。MinioClient 与 AWS S3Client 均使用显式正数连接/读写/完整调用超时；fat-JAR worker 已纳入 Failsafe。
 - 关键决策与理由：永久 fencing 真值必须来自事务内数据库世代，不能依赖会过期/被恢复的 Redis 数字序列。容量准入将受管媒体写入、实时 usable 与活跃字节快照放在同一锁内，按“总预留－已写字节”计算未来增长；取得并发槽位后再次检查活孤儿，闭合“首次检查后旧 worker 登记并释放槽位”的迟到准入竞态。容量预留仍是单实例状态，因此生产采用每实例独占且具有独立配额/文件系统的 probe 卷，并用目录锁 fail-fast，禁止共享卷。

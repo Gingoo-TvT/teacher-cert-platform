@@ -25,6 +25,7 @@ public class VideoProbeProperties {
     private Duration leaseDuration = Duration.ofMinutes(2);
     private Duration leaseRenewInterval = Duration.ofSeconds(30);
     private int workerMaxHeapMb = 256;
+    private Duration parentCheckInterval = Duration.ofSeconds(1);
     private Duration artifactHeartbeatInterval = Duration.ofSeconds(30);
     private Duration artifactOwnerStaleAfter = Duration.ofMinutes(2);
     private Duration artifactOrphanTtl = Duration.ofMinutes(30);

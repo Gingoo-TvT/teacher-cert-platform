@@ -26,23 +26,28 @@ M14 扩展点预留、后端/前端 Dockerfile、生产 docker-compose、兼容�
   - `CORS_ALLOWED_ORIGINS`（P1-7）：允许跨域的前端来源白名单，逗号分隔、含协议+端口、无末尾斜杠（如 `https://cert.gpnu.edu.cn`）。同源部署（前端 nginx 同域反代 `/api`）下 CORS 不参与、可留空；跨域独立前端域名时**必须**设为真实域名，否则被拦截。`allowCredentials=true` 下不可用通配 `*`。
   - `MINIO_CONNECTION_TIMEOUT_SECONDS` / `MINIO_READ_TIMEOUT_SECONDS` / `MINIO_CALL_TIMEOUT_SECONDS`：MinioClient 的建连、读写和完整调用上限；AWS S3Client 同时配置建连、套接字和完整 API 调用上限。三项必须为正数，`0` 会在启动期被拒绝，避免以“无限等待”绕过边界。
   - `VIDEO_PROBE_MAX_CONCURRENT` / `VIDEO_PROBE_MAX_RESERVED_BYTES` / `VIDEO_PROBE_MIN_FREE_BYTES`：媒体探测并发、累计预留与磁盘保底水位；独立 `video-probe-temp` 卷容量须至少为 `MAX_RESERVED_BYTES + MIN_FREE_BYTES`，并另留运维余量。
-  - `VIDEO_PROBE_MAX_DURATION` / `VIDEO_PROBE_MAX_PACKETS` / `VIDEO_PROBE_WORKER_MAX_HEAP_MB`：媒体探测墙钟、样本数及独立工作 JVM 堆上限；墙钟到期会强制终止工作进程。
+  - `VIDEO_PROBE_MAX_DURATION` / `VIDEO_PROBE_MAX_PACKETS` / `VIDEO_PROBE_WORKER_MAX_HEAP_MB` / `VIDEO_PROBE_PARENT_CHECK_INTERVAL`：媒体探测墙钟、样本数、独立工作 JVM 堆上限及父 JVM 身份复查周期；墙钟到期会强制终止工作进程，父 PID 或精确启动时刻不再匹配时 worker 自行退出。
   - `VIDEO_PROBE_LEASE_DURATION` / `VIDEO_PROBE_LEASE_RENEW_INTERVAL`：定稿分布式租约与续租周期，续租周期必须严格小于租约时长的一半。Redis 保存随机 owner；数据库 `finalization_token` 是 V31 永不回退的永久世代，阻止过期 owner 提交结果。
   - `VIDEO_PROBE_ARTIFACT_HEARTBEAT_INTERVAL` / `VIDEO_PROBE_ARTIFACT_OWNER_STALE_AFTER` / `VIDEO_PROBE_ARTIFACT_ORPHAN_TTL` / `VIDEO_PROBE_ARTIFACT_LEGACY_ORPHAN_TTL` / `VIDEO_PROBE_ARTIFACT_CLEANUP_INTERVAL` / `VIDEO_PROBE_ARTIFACT_CLEANUP_SCAN_LIMIT`：探测工件 owner 心跳、崩溃孤儿与历史文件的保守清扫边界；owner 失效阈值必须大于心跳周期的两倍，工件 TTL 必须大于单次探测硬时限的安全余量。
+  - `video.finalizationCleanupSafetySeconds` / `video.finalizationCleanupRetrySeconds` / `video.finalizationCleanupClaimSeconds` / `video.finalizationCleanupBatchSize` / `video.finalizationCleanupTombstoneCheckSeconds`：V32 的定稿对象静默期、失败重试、跨节点清理租约、单批上限和 `CLEANED` 墓碑复查周期，均由 `sys_param` 管理。claim 当前默认 `1860s`，运行时强制不低于 `2 × MINIO_CALL_TIMEOUT_SECONDS + safetySeconds`，覆盖串行 `remove + exists`；超出整数秒范围的极端组合饱和到整数上限，不能让对账任务因边界参数持续报错停摆。生产每分钟对账任务独立于普通 cleanup 开关，不得通过关闭 `platform.cleanup.schedule.enabled` 间接停用。
 - **媒体探测临时盘（硬部署约束）**：
   - 生产 Compose 将 `/var/lib/teacher-cert/video-probe` 挂载为独立 `video-probe-temp` volume，禁止退回容器 overlay。
   - 每个后端实例必须拥有**独占且具有独立配额/文件系统**的 probe 卷与目录；禁止 `docker compose --scale backend=N` 让副本共享该命名卷。Kubernetes/集群扩容必须使用 per-replica PVC 或等价独立文件系统。
   - 目录内只允许本组件的版本化工件、owner heartbeat 和锁文件，禁止放置业务文件或其它临时文件。目录独占锁获取失败会 fail-fast 拒绝启动，不能通过删除锁文件或关闭检查绕过。
-  - 启动和周期 reaper 只清理已超过 TTL 且 owner 已失效的已知工件；未知文件与活跃 owner 文件不删除。监控项至少包含卷可用空间、探测拒绝数、孤儿/清扫数量、工作进程超时数和租约丢失数。
-- **WS-3 / V31 停机切换协议（禁止滚动混部）**：
+  - 启动和周期 reaper 只清理已超过 TTL 且 owner 已失效的已知工件；未知文件与活跃 owner 文件不删除。持久游标确保低扫描上限下仍轮转覆盖目录。监控项至少包含卷可用空间、探测拒绝数、孤儿/清扫数量、工作进程超时数、父进程丢失自退出数和租约丢失数。
+- **V32 定稿对象对账（生产强制）**：
+  - `prod` profile 在应用 ready 时把历史 `MERGING/FAILED` 回填与首次对账投递到独立单线程执行器，事件线程立即返回，不得让对象存储超时阻塞 readiness；之后默认每分钟触发，同一实例已有任务运行时跳过本次触发而不排队。
+  - 监控 `video_finalization_object_candidate` 的 `CLEANUP_PENDING/CLEANING` 到期积压、最大 `next_retry_at` 延迟、`attempt_count/last_error`、`CLEANED` 墓碑数量及表增长率。该表是可靠性台账，不得批量物理清理；归档/保留策略须另行评审。
+  - 普通故障清理与墓碑复查使用各自 batch，避免大量长期墓碑占满批次；删除前必须保护当前会话、`ACTIVE/REGISTERED` 候选及 `file_object` 已登记对象。
+- **WS-3 / V31+V32 停机切换协议（禁止滚动混部）**：
   1. 停止视频上传定稿/合并写流量。
-  2. 停止全部 `df22e5b` 及更旧后端，排空或终止其 finalize 与媒体 worker。
+  2. 停止全部第五轮之前的后端，排空或终止其 finalize 与媒体 worker。
   3. 确认没有旧后端、旧 finalize 或旧 worker 进程存活。
-  4. 部署第四轮新二进制，由首个新实例执行 Flyway V31；确认 `video_upload_session.finalization_token` 已成为 `NOT NULL DEFAULT 0` 且历史正世代未回退。
-  5. 仅启动使用同一新协议的全部实例，并逐实例核对其 probe 独占卷/目录。
-  6. 健康检查和迁移核验通过后恢复写流量。
-  - 旧节点会覆盖或清空 V31 永久世代，因此禁止新旧二进制混部；V31 落库后禁止回滚到旧协议二进制，失败只能前向修复。
-- **当前 WS-3 发布闸门（2026-07-23）**：第三轮正式结论仍为 CHANGES REQUESTED。第四轮已实现 V31 永久世代、状态收敛、孤儿清扫/准入、严格错误分类、强杀确认、容量原子快照、双客户端超时和 verify 内 fat-JAR 门禁，并完成自测；当前仅可标记“整改完成、待独立复核”，独立报告 PASS 前不得发布。
+  4. 使用第五轮新二进制执行 Flyway 至 V32；确认 V31 永久世代约束、V32 候选表/索引与 5 个清理参数均存在。
+  5. 仅启动同一第五轮协议的全部实例，逐实例核对 probe 独占卷/目录，并确认启动对象回填/对账已执行。
+  6. 确认 `SERVER_CHUNK` 新对象键带 `/g-{generation}.mp4`、没有旧稳定 key 写入者；健康检查和迁移核验通过后恢复写流量。
+  - V31/旧节点会覆盖或清空永久世代，V32 之前节点还会继续写稳定 object key；因此禁止新旧二进制混部。V32 落库后禁止回滚旧协议二进制，失败只能前向修复。
+- **当前 WS-3 发布闸门（2026-07-23）**：第五轮已完成第四轮报告 1 High / 1 Medium / 2 Low 的开发者整改与 T-VID-2L/2M 动态反例，提交材料见 `reviews/ws-03-fifth-remediation-submission-2026-07-23.md`；正式结论仍沿用第四轮 **CHANGES REQUESTED**，第五轮独立报告 PASS 前不得发布。
 - **WS-2 发布切换**：新版 JWT 含毫秒级签发时间 `iatMs`、口令凭据版本 `credentialVersion` 和 Redis 持久会话代次 `sessionGeneration`；缺少或不匹配任一新 claim 的存量 token 会被拒绝，logout 通过原子增代使旧 access/refresh 立即失效。发布时必须同时替换/重启全部后端实例并通知用户重新登录；禁止旧实例在滚动窗口继续签发旧格式 token。
 
 ## 4. 非功能收口（plan §十二）
@@ -55,7 +60,7 @@ M14 扩展点预留、后端/前端 Dockerfile、生产 docker-compose、兼容�
 - [x] 导出文件机检为文本格式，证件号/前导零/编号/有效期不被转换；Excel/WPS 双端人工核对要求已归档到复验矩阵。
 - [x] 主流程 E2E 贯通：导入→确认→培养→材料→初复审→免考→视频→测试→教务处确认→证书生成→签发→导出/归档。
 - [x] 主流浏览器（Chrome/Edge/Firefox）回归目标已记录；前端 type-check/build 作为自动验收门禁。
-- [x] 媒体探测临时目录使用每实例独占数据卷；S3/MinIO 完整调用、工作进程墙钟/堆与死亡确认、累计磁盘预留、孤儿清扫及数据库永久 fencing 世代均有显式生产配置和自动反例。
+- [x] 媒体探测临时目录使用每实例独占数据卷；S3/MinIO 完整调用、工作进程墙钟/堆/父身份与死亡确认、累计磁盘预留、公平孤儿清扫、数据库永久 fencing 世代及 V32 对象台账/墓碑均有显式生产配置和自动反例。
 
 ## 6. AT 整体复验矩阵
 逐条执行 `README.md` §4 矩阵中每个 AT 的首验用例 + 跨阶段联动用例，归档执行记录（测试名/截图/日志）。
@@ -74,5 +79,6 @@ M14 扩展点预留、后端/前端 Dockerfile、生产 docker-compose、兼容�
 ## 9. 风险
 - E2E 依赖前序所有 Phase；建议 Phase 9/10 完成后即开始搭主流程冒烟，避免末期集中暴露集成问题。
 - 兼容性（WPS/Excel 文本一致）是 AT-01 的最终关卡，需用真实 Office 与 WPS 双端核对。
-- `video-probe-temp` 是持久卷，JVM/容器崩溃会绕过 finally。当前 owner/TTL reaper 可回收已知孤儿，但容量预留仍是单实例内状态；共享卷会绕过总预留不变量，必须坚持 per-replica 独占卷和独立配额。
-- V31 是不可与旧定稿协议混部的单向迁移；未执行上述停机切换、V31 后回滚旧二进制，均会破坏永久世代并导致定稿失败或旧执行者晚提交。
+- `video-probe-temp` 是持久卷，JVM/容器崩溃会绕过 finally。当前 owner/TTL、公平游标和父身份 watchdog 可回收已知工件并终止失去父进程的 worker，但容量预留仍是单实例内状态；共享卷会绕过总预留不变量，必须坚持 per-replica 独占卷和独立配额。
+- V31/V32 是不可与旧定稿协议混部的单向迁移；未执行上述停机切换、V32 后回滚旧二进制，均会破坏永久世代/候选台账或重新写入旧稳定 key。
+- `CLEANED` 墓碑为应对任意迟到对象写而持续存在，会使候选表单调增长；必须监控增长和索引健康，任何压缩、分区或归档方案都需保持仍可能迟到世代的复查能力。

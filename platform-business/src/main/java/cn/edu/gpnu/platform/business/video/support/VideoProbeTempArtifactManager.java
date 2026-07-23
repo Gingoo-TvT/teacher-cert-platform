@@ -17,12 +17,17 @@ import java.nio.file.StandardOpenOption;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.attribute.FileTime;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.PriorityQueue;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
@@ -46,6 +51,7 @@ public class VideoProbeTempArtifactManager {
     private static final String OWNER_MARKER_PREFIX = ".video-probe-owner-v1-";
     private static final String OWNER_MARKER_SUFFIX = ".heartbeat";
     private static final String DIRECTORY_LOCK_NAME = ".video-probe-owner-v1.lock";
+    private static final String CLEANUP_CURSOR_NAME = ".video-probe-cleanup-v1.cursor";
     private static final String ARTIFACT_PREFIX = "video-probe-v1-";
     private static final Pattern ARTIFACT_PATTERN = Pattern.compile(
             "^video-probe-v1-([a-f0-9]{32})-(\\d{1,19})-(media|result|args)-.+$");
@@ -62,6 +68,8 @@ public class VideoProbeTempArtifactManager {
     private final ScheduledExecutorService scheduler;
     private Path directory;
     private Path ownerMarker;
+    private Path cleanupCursorFile;
+    private volatile String cleanupCursor;
     private FileChannel directoryLockChannel;
     private FileLock directoryLock;
 
@@ -83,9 +91,11 @@ public class VideoProbeTempArtifactManager {
         validateConfiguration();
         directory = properties.getTempDirectory().toAbsolutePath().normalize();
         ownerMarker = directory.resolve(OWNER_MARKER_PREFIX + ownerId + OWNER_MARKER_SUFFIX);
+        cleanupCursorFile = directory.resolve(CLEANUP_CURSOR_NAME);
         try {
             Files.createDirectories(directory);
             acquireDirectoryLock();
+            loadCleanupCursor();
             heartbeat();
             cleanupOrphans();
         } catch (IOException | RuntimeException e) {
@@ -140,55 +150,17 @@ public class VideoProbeTempArtifactManager {
             return 0;
         }
         int deleted = 0;
-        int scanned = 0;
-        try (DirectoryStream<Path> stream = Files.newDirectoryStream(directory)) {
-            for (Path candidate : stream) {
-                Path normalized = candidate.toAbsolutePath().normalize();
-                if (activePaths.containsKey(normalized)
-                        || Files.isSymbolicLink(normalized)
-                        || !Files.isRegularFile(normalized, LinkOption.NOFOLLOW_LINKS)) {
-                    continue;
-                }
-                if (normalized.equals(ownerMarker)) {
-                    continue;
-                }
-                String name = normalized.getFileName().toString();
-                Matcher matcher = ARTIFACT_PATTERN.matcher(name);
-                boolean versionedArtifact = matcher.matches();
-                boolean legacyArtifact = isLegacyArtifact(name);
-                boolean ownerHeartbeat =
-                        name.startsWith(OWNER_MARKER_PREFIX) && name.endsWith(OWNER_MARKER_SUFFIX);
-                // 未知/用户文件不消耗扫描预算，避免大量保留文件永久饿死后续可清理孤儿。
-                if (!versionedArtifact && !legacyArtifact && !ownerHeartbeat) {
-                    continue;
-                }
-                if (++scanned > properties.getArtifactCleanupScanLimit()) {
-                    break;
-                }
-                if (versionedArtifact) {
-                    String artifactOwner = matcher.group(1);
-                    long createdMillis;
-                    try {
-                        createdMillis = Long.parseLong(matcher.group(2));
-                    } catch (NumberFormatException ignored) {
-                        continue;
-                    }
-                    if (isExpired(normalized, Instant.ofEpochMilli(createdMillis),
-                            properties.getArtifactOrphanTtl())
-                            && ownerCanBeReaped(artifactOwner)) {
-                        deleted += deleteKnownArtifact(normalized);
-                    }
-                    continue;
-                }
-                if (legacyArtifact
-                        && isExpired(normalized, Files.getLastModifiedTime(normalized).toInstant(),
-                        properties.getArtifactLegacyOrphanTtl())) {
-                    deleted += deleteKnownArtifact(normalized);
-                    continue;
-                }
-                if (ownerHeartbeat
-                        && olderThan(normalized, properties.getArtifactOrphanTtl())) {
-                    deleted += deleteKnownArtifact(normalized);
+        try {
+            List<Path> candidates = nextCleanupCandidates();
+            for (Path candidate : candidates) {
+                String name = candidate.getFileName().toString();
+                try {
+                    deleted += processKnownCandidate(candidate);
+                } catch (IOException | RuntimeException e) {
+                    log.warn("检查视频探测孤儿文件失败: file={}, message={}",
+                            name, e.getMessage());
+                } finally {
+                    advanceCleanupCursor(name);
                 }
             }
         } finally {
@@ -198,6 +170,119 @@ public class VideoProbeTempArtifactManager {
             log.info("视频探测临时卷孤儿清扫完成: deleted={}", deleted);
         }
         return deleted;
+    }
+
+    /**
+     * 单次目录元数据遍历只保留游标之后与回绕区各最多 limit 个最小文件名，
+     * 保证跨轮字典序进度的同时，将内存与实际处理数限制为 O(limit)，避免脏卷全量 materialize/sort。
+     */
+    private List<Path> nextCleanupCandidates() throws IOException {
+        int limit = properties.getArtifactCleanupScanLimit();
+        Comparator<Path> byName =
+                Comparator.comparing(path -> path.getFileName().toString());
+        PriorityQueue<Path> afterCursor =
+                new PriorityQueue<>(limit, byName.reversed());
+        PriorityQueue<Path> wrapAround =
+                new PriorityQueue<>(limit, byName.reversed());
+        String cursor = cleanupCursor;
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(directory)) {
+            for (Path candidate : stream) {
+                Path normalized = candidate.toAbsolutePath().normalize();
+                if (activePaths.containsKey(normalized)
+                        || normalized.equals(ownerMarker)
+                        || normalized.equals(cleanupCursorFile)
+                        || Files.isSymbolicLink(normalized)
+                        || !Files.isRegularFile(normalized, LinkOption.NOFOLLOW_LINKS)) {
+                    continue;
+                }
+                if (isKnownCleanupCandidate(normalized.getFileName().toString())) {
+                    String name = normalized.getFileName().toString();
+                    PriorityQueue<Path> target =
+                            cursor == null || name.compareTo(cursor) > 0
+                                    ? afterCursor : wrapAround;
+                    offerSmallest(target, normalized, limit, byName);
+                }
+            }
+        }
+        List<Path> selected = new ArrayList<>(afterCursor);
+        selected.sort(byName);
+        if (selected.size() < limit) {
+            List<Path> wrapped = new ArrayList<>(wrapAround);
+            wrapped.sort(byName);
+            selected.addAll(wrapped.subList(
+                    0, Math.min(limit - selected.size(), wrapped.size())));
+        }
+        return selected;
+    }
+
+    private void offerSmallest(PriorityQueue<Path> queue, Path candidate, int limit,
+                               Comparator<Path> comparator) {
+        if (queue.size() < limit) {
+            queue.offer(candidate);
+            return;
+        }
+        Path largestSelected = queue.peek();
+        if (largestSelected != null && comparator.compare(candidate, largestSelected) < 0) {
+            queue.poll();
+            queue.offer(candidate);
+        }
+    }
+
+    private boolean isKnownCleanupCandidate(String name) {
+        return ARTIFACT_PATTERN.matcher(name).matches()
+                || isLegacyArtifact(name)
+                || name.startsWith(OWNER_MARKER_PREFIX) && name.endsWith(OWNER_MARKER_SUFFIX);
+    }
+
+    private int processKnownCandidate(Path candidate) throws IOException {
+        Path normalized = candidate.toAbsolutePath().normalize();
+        if (activePaths.containsKey(normalized)
+                || Files.isSymbolicLink(normalized)
+                || !Files.isRegularFile(normalized, LinkOption.NOFOLLOW_LINKS)) {
+            return 0;
+        }
+        String name = normalized.getFileName().toString();
+        Matcher matcher = ARTIFACT_PATTERN.matcher(name);
+        if (matcher.matches()) {
+            long createdMillis = Long.parseLong(matcher.group(2));
+            if (isExpired(normalized, Instant.ofEpochMilli(createdMillis),
+                    properties.getArtifactOrphanTtl())
+                    && ownerCanBeReaped(matcher.group(1))) {
+                return deleteKnownArtifact(normalized);
+            }
+            return 0;
+        }
+        if (isLegacyArtifact(name)
+                && isExpired(normalized, Files.getLastModifiedTime(normalized).toInstant(),
+                properties.getArtifactLegacyOrphanTtl())) {
+            return deleteKnownArtifact(normalized);
+        }
+        if (name.startsWith(OWNER_MARKER_PREFIX) && name.endsWith(OWNER_MARKER_SUFFIX)
+                && olderThan(normalized, properties.getArtifactOrphanTtl())) {
+            return deleteKnownArtifact(normalized);
+        }
+        return 0;
+    }
+
+    private void loadCleanupCursor() throws IOException {
+        if (!Files.isRegularFile(cleanupCursorFile, LinkOption.NOFOLLOW_LINKS)) {
+            cleanupCursor = null;
+            return;
+        }
+        String value = Files.readString(cleanupCursorFile, StandardCharsets.UTF_8).trim();
+        cleanupCursor = value.isEmpty() || value.length() > 255
+                || value.contains("/") || value.contains("\\") ? null : value;
+    }
+
+    private void advanceCleanupCursor(String name) {
+        cleanupCursor = name;
+        try {
+            Files.writeString(cleanupCursorFile, name, StandardCharsets.UTF_8,
+                    StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING,
+                    StandardOpenOption.WRITE);
+        } catch (IOException e) {
+            log.warn("持久化视频探测孤儿清扫游标失败: message={}", e.getMessage());
+        }
     }
 
     @PreDestroy
@@ -365,7 +450,10 @@ public class VideoProbeTempArtifactManager {
 
     private void validateConfiguration() {
         Duration safetyFloor = properties.getMaxDuration().plusSeconds(10);
-        if (properties.getArtifactHeartbeatInterval() == null
+        if (properties.getParentCheckInterval() == null
+                || properties.getParentCheckInterval().isZero()
+                || properties.getParentCheckInterval().isNegative()
+                || properties.getArtifactHeartbeatInterval() == null
                 || properties.getArtifactHeartbeatInterval().isZero()
                 || properties.getArtifactHeartbeatInterval().isNegative()
                 || properties.getArtifactOwnerStaleAfter() == null
