@@ -9,15 +9,21 @@ public record VideoMediaInspection(
         String fingerprint,
         Integer durationSeconds,
         String codec,
-        Integer frameCount) {
+        Integer frameCount,
+        String policyHash,
+        String probeVersion) {
 
     public static VideoMediaInspection valid(String fingerprint, int durationSeconds,
-                                             String codec, int frameCount) {
-        return new VideoMediaInspection(true, null, fingerprint, durationSeconds, codec, frameCount);
+                                             String codec, int frameCount,
+                                             String policyHash, String probeVersion) {
+        return new VideoMediaInspection(true, null, fingerprint, durationSeconds, codec, frameCount,
+                policyHash, probeVersion);
     }
 
     public static VideoMediaInspection invalid(String message, String fingerprint,
-                                               Integer durationSeconds, String codec, Integer frameCount) {
-        return new VideoMediaInspection(false, message, fingerprint, durationSeconds, codec, frameCount);
+                                               Integer durationSeconds, String codec, Integer frameCount,
+                                               String policyHash, String probeVersion) {
+        return new VideoMediaInspection(false, message, fingerprint, durationSeconds, codec, frameCount,
+                policyHash, probeVersion);
     }
 }

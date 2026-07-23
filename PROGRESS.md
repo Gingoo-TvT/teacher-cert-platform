@@ -5,18 +5,18 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**WS-03 三项 Major 与 CI 门禁整改完成，待独立重核**；整体仍为 CHANGES REQUESTED，统一入口为 `docs/CURRENT-EXECUTION-PLAN.md`。
-- 当前结论：WS-1/WS-2/WS-10/WS-13 PASS；WS-3 原复核结论为退回，当前修复包只置“待独立重核”，不得在重核前标记 PASS。Phase 29、35b、36–38、40、43、45–46、48–52 PASS，Phase 0、39、41、42、44、47、53 复核退回。
-- P0 放行项：先独立重核 WS-3 的服务端可信媒体探测、服务端内容指纹/秒传边界和 CI 零状态契约，再处理 Phase 42/39/41/47/53/44 与 Phase 0 报告中的退回项。
-- 最近更新：2026-07-23（全新 schema 执行 Flyway V1–V29 与全量门禁：Surefire 121/121、Failsafe 145/145，合计 266/266；Phase 7 为 25/25；前端 type-check/build 通过；CI 已补 MinIO 桶初始化与 type-check；临时容器/网络/卷和相关端口均已清理）。
-- 下一步：对 U-001/U-002 做独立增量重核；通过后按 Phase 42 → 39 → 41 → 47 → 53 → 44 → 0 顺序修复并逐项重核，全部清零后进入 WS-4 D0 UI 基线。
+- 当前阶段：**WS-03 第二轮整改完成，待独立重核**；整体仍为 CHANGES REQUESTED，统一入口为 `docs/CURRENT-EXECUTION-PLAN.md`。
+- 当前结论：WS-1/WS-2/WS-10/WS-13 PASS；U-001 CI 零状态契约 PASS；WS-3/U-002 的 5 项 High 已完成第二轮实现与自测，但未经独立 PASS。Phase 29、35b、36–38、40、43、45–46、48–52 PASS，Phase 0、39、41、42、44、47、53 复核退回。
+- P0 放行项：先独立重核 WS-3 第二轮增量；本批另 1 项 demo High 归 Phase 53/U-003，不在本次 WS-3 范围。WS-3 PASS 后按 Phase 42/39/41/47/53/44 与 Phase 0 顺序处理。
+- 最近更新：2026-07-23（全新数据卷 Flyway V1–V29；Surefire 121/121、Failsafe 150/150，合计 271/271；Phase 7 为 29/29；前端 type-check/build 通过；新增 5 类确定性反例全部通过）。
+- 下一步：由独立复核者只复核 WS-3 第二轮增量及 Phase 7/14/24/全量回归；PASS 后再按 Phase 42 → 39 → 41 → 47 → 53 → 44 → 0 顺序逐项闭环。
 
 ## 审计整改工作流
 | WS | 内容 | 状态 |
 |---|---|---|
 | WS-1 | IT 计数按自身 fixture 隔离 | `[x]` **独立复核 PASS**（2026-07-23） |
 | WS-2 | prod admin bootstrap + STAFF/学生初始口令硬化 | `[x]` **独立复核 PASS**（2026-07-23） |
-| WS-3 | MinIO 预签名直传、独立端点与浏览器并行分片 | `[x]` **3 项 Major 修复完成，待独立重核**（2026-07-23） |
+| WS-3 | MinIO 预签名直传、独立端点与浏览器并行分片 | `[x]` **第二轮整改完成，待独立重核**（2026-07-23；Phase 53 demo High 未计入） |
 | WS-10 | 移除默认 dev profile + profile fail-fast | `[x]` **独立复核 PASS**（2026-07-23） |
 | WS-13 | RBAC 授权天花板（防自提权守卫） | `[x]` **独立复核 PASS**（2026-07-23） |
 
@@ -32,7 +32,7 @@
 | Phase 30–35 | 已完成 | 逐阶段报告齐全 | ✅ 保持已复核 |
 | Phase 35b | 已合并 | `phase-35b-review.md` PASS | ✅ 已复核 |
 | Phase 36–38、40、43、45–46、48–52 | 已合并 | 逐阶段 PASS 报告齐全 | ✅ 已复核 |
-| Phase 39、41、42、44、47、53 | 已合并 | 逐阶段 CHANGES REQUESTED 报告齐全 | ❌ 复核退回 |
+| Phase 39、41、42、44、47、53 | 已合并 | 逐阶段 CHANGES REQUESTED 报告齐全；Phase 53 另有 WS-3 重核补充证据 | ❌ 复核退回 |
 
 逐 Phase 结论、报告路径与后续顺序以 `docs/CURRENT-EXECUTION-PLAN.md` 为准。
 
@@ -138,6 +138,7 @@
 - [x] T-056 免考审核页
 
 ## Phase 7 · 视频评审 — 11/11 ✅ 已复核（Claude 2026-06-17，PASS·2轮 · docs/reviews/phase-07-review.md）
+> 历史 Phase 7 结论保留；当前分支叠加的 WS-3 首批整改已于 2026-07-23 独立重核退回，上传/媒体校验相关发布闸门重新打开，见 `docs/reviews/ws-03-remediation-rereview-2026-07-23.md`。
 > 轮次1退回 B1（重传未挂可编辑态守卫）+ B2（reviewerCount>2 结算卡死）；轮次2 单提交 `75b7fa7` 已闭环：B1 三入口重传守卫（已有任务/REVIEWING/NEED_REVIEW/已结算 拒绝，不串分不卡死）、B2 `settleIfReady` 泛化 N 评委（N=2 不变、N=3 结算 82）、of() 改 fail-closed；`Phase7VideoReviewIT` 7/7 含重传拒绝 + 3 评委结算反例，`mvn verify` 29/29、前端绿。Minor 维持 backlog。
 - [x] T-057 分片上传服务（init/chunk/merge）（分支：`feature/phase07-T057-video-review`）
 - [x] T-058 视频校验（格式/大小/时长）

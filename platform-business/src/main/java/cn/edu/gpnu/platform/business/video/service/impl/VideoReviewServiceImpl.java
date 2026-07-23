@@ -26,8 +26,10 @@ import cn.edu.gpnu.platform.business.video.mapper.VideoUploadChunkMapper;
 import cn.edu.gpnu.platform.business.video.mapper.VideoUploadSessionMapper;
 import cn.edu.gpnu.platform.business.video.service.VideoReviewService;
 import cn.edu.gpnu.platform.business.video.support.VideoReviewStatus;
+import cn.edu.gpnu.platform.business.video.support.VideoFinalizeSingleFlight;
 import cn.edu.gpnu.platform.business.video.support.VideoMediaInspection;
 import cn.edu.gpnu.platform.business.video.support.VideoMediaProbe;
+import cn.edu.gpnu.platform.business.video.support.VideoProbeCapacityGuard;
 import cn.edu.gpnu.platform.business.video.support.VideoUploadStatus;
 import cn.edu.gpnu.platform.business.video.vo.ReviewerCandidateVO;
 import cn.edu.gpnu.platform.business.video.vo.VideoPlaybackVO;
@@ -137,6 +139,8 @@ public class VideoReviewServiceImpl implements VideoReviewService {
     private final FileService fileService;
     private final MultipartObjectService multipartObjectService;
     private final VideoMediaProbe videoMediaProbe;
+    private final VideoProbeCapacityGuard videoProbeCapacityGuard;
+    private final VideoFinalizeSingleFlight videoFinalizeSingleFlight;
     private final DataScopeService dataScopeService;
     private final ParamService paramService;
     private final MinioClient minioClient;
@@ -212,7 +216,8 @@ public class VideoReviewServiceImpl implements VideoReviewService {
         if (instantHit != null) {
             FileObject existingFile = instantHit.file();
             VideoMediaInspection inspection = VideoMediaInspection.valid(
-                    existingFile.getMd5(), instantHit.durationSeconds(), null, 1);
+                    existingFile.getMd5(), instantHit.durationSeconds(), existingFile.getMediaCodec(), 1,
+                    existingFile.getMediaValidationPolicyHash(), existingFile.getMediaProbeVersion());
             VideoReview review = transactionTemplate.execute(status -> upsertReviewAfterValidation(
                     student, assessmentYear, existingFile, inspection, true, null));
             VideoUploadInitVO vo = new VideoUploadInitVO();
@@ -360,6 +365,24 @@ public class VideoReviewServiceImpl implements VideoReviewService {
         if (initialStatus == VideoUploadStatus.FAILED) {
             throw new BizException("上传会话已失效，请重新发起上传");
         }
+        VideoFinalizeSingleFlight.Lease singleFlight =
+                videoFinalizeSingleFlight.tryAcquire(session.getUploadId());
+        if (singleFlight == null) {
+            return handleNonClaimableMerge(session);
+        }
+        try (singleFlight;
+             VideoProbeCapacityGuard.Lease ignored =
+                     videoProbeCapacityGuard.acquire(session.getFileSize())) {
+            // 无活跃租约的 MERGING 表示上次执行者已退出/崩溃，允许本次接管并从
+            // MinIO 对象或已持久化 part 元数据恢复；活跃并发请求已在租约处被挡住。
+            return completeWithReservedCapacity(request, requireSession(session.getUploadId()), student);
+        }
+    }
+
+    private VideoReviewVO completeWithReservedCapacity(VideoUploadCompleteRequest request,
+                                                       VideoUploadSession session,
+                                                       Student student) {
+        VideoUploadStatus initialStatus = VideoUploadStatus.of(session.getStatus());
         boolean claimed = false;
         if (initialStatus == VideoUploadStatus.UPLOADING) {
             List<MultipartUploadedPart> s3Parts = multipartObjectService.listUploadedParts(
@@ -383,6 +406,9 @@ public class VideoReviewServiceImpl implements VideoReviewService {
             });
             claimed = Boolean.TRUE.equals(claimResult);
             session = requireSession(session.getUploadId());
+            if (!claimed) {
+                return handleNonClaimableMerge(session);
+            }
         }
         VideoUploadStatus activeStatus = VideoUploadStatus.of(session.getStatus());
         if (activeStatus == VideoUploadStatus.MERGED || activeStatus == VideoUploadStatus.VALIDATION_FAILED) {
@@ -452,6 +478,14 @@ public class VideoReviewServiceImpl implements VideoReviewService {
         if (chunks.size() != session.getTotalChunks()) {
             throw new BizException("分片尚未全部上传");
         }
+        try (VideoProbeCapacityGuard.Lease ignored =
+                     videoProbeCapacityGuard.acquire(session.getFileSize())) {
+            return mergeWithReservedCapacity(session, student, chunks);
+        }
+    }
+
+    private VideoReviewVO mergeWithReservedCapacity(VideoUploadSession session, Student student,
+                                                    List<VideoUploadChunk> chunks) {
         // 幂等认领（§7.1 merge 无幂等守卫）：会话 UPLOADING→MERGING 原子翻转。merge 无环绕事务、该 update
         // 立即自动提交、对并发调用者立即可见（InnoDB 行锁串行化），仅首个 claimed=1 者继续 compose+register，
         // 杜绝重试/并发合并产生重复 file_object 行 + MinIO 孤儿对象 + 重指 videoFileId。
@@ -479,7 +513,9 @@ public class VideoReviewServiceImpl implements VideoReviewService {
             // MinIO 合并已在事务外完成；元数据落库（文件对象 + 评审 + 会话状态）单独短事务（P0-11）
             Long reviewId = transactionTemplate.execute(txStatus -> {
                 FileObject file = registerComposedFile(session, objectKey, inspection);
-                session.setFileMd5(inspection.fingerprint());
+                if (StringUtils.hasText(inspection.fingerprint())) {
+                    session.setFileMd5(inspection.fingerprint());
+                }
                 session.setDurationSeconds(inspection.durationSeconds());
                 session.setFileId(file.getId());
                 VideoReview review = upsertReviewAfterValidation(student, session.getAssessmentYear(), file,
@@ -575,7 +611,8 @@ public class VideoReviewServiceImpl implements VideoReviewService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void assign(Long reviewId, VideoAssignRequest request) {
-        VideoReview review = requireReview(reviewId);
+        // 分配与上传定稿共用 review 行锁，禁止任务已创建后被旧定稿快照覆盖回 WAIT_REVIEW。
+        VideoReview review = lockReview(reviewId);
         ensureCanWriteReview(review, "video:assign");
         VideoReviewStatus status = VideoReviewStatus.of(review.getStatus());
         if (status != VideoReviewStatus.WAIT_REVIEW && status != VideoReviewStatus.REVIEWING) {
@@ -1026,7 +1063,9 @@ public class VideoReviewServiceImpl implements VideoReviewService {
             if (file == null) {
                 file = registerComposedFile(locked, objectInfo.objectKey(), inspection);
             }
-            locked.setFileMd5(inspection.fingerprint());
+            if (StringUtils.hasText(inspection.fingerprint())) {
+                locked.setFileMd5(inspection.fingerprint());
+            }
             locked.setDurationSeconds(inspection.durationSeconds());
             locked.setFileId(file.getId());
             VideoReview review = upsertReviewAfterValidation(student, locked.getAssessmentYear(), file,
@@ -1268,7 +1307,10 @@ public class VideoReviewServiceImpl implements VideoReviewService {
     private VideoReview upsertReviewAfterValidation(Student student, String year, FileObject file,
                                                      VideoMediaInspection inspection,
                                                      boolean instantHit, String currentUploadId) {
-        VideoReview review = existingReview(student.getId(), year);
+        // review 尚不存在时无行可锁，先锁学生作为 (student, year) 创建互斥点；存在时再锁 review，
+        // 与 assign/评分等状态迁移共享同一行锁，杜绝整实体旧快照覆盖。
+        student = lockStudentForVideo(student.getId());
+        VideoReview review = existingReviewForUpdate(student.getId(), year);
         boolean returnedReupload = false;
         if (review == null) {
             review = new VideoReview();
@@ -1459,6 +1501,13 @@ public class VideoReviewServiceImpl implements VideoReviewService {
             review.setValidationMessage("视频大小超过限制");
             return;
         }
+        if (!Objects.equals(inspection.probeVersion(), videoMediaProbe.probeVersion())
+                || !Objects.equals(inspection.policyHash(), videoMediaProbe.currentPolicyHash())) {
+            review.setFormatCheck("FAIL");
+            review.setStatus(VideoReviewStatus.VALIDATION_FAILED.name());
+            review.setValidationMessage("视频校验策略已变化，请重新提交");
+            return;
+        }
         if (!inspection.valid()) {
             review.setFormatCheck("FAIL");
             review.setStatus(VideoReviewStatus.VALIDATION_FAILED.name());
@@ -1497,8 +1546,12 @@ public class VideoReviewServiceImpl implements VideoReviewService {
         file.setMd5(inspection.fingerprint());
         file.setBizType(VIDEO_BIZ_TYPE);
         file.setStatus("READY");
-        file.setChecksumAlgorithm(VideoMediaProbe.CHECKSUM_ALGORITHM);
-        file.setContentHashVerified(1);
+        boolean hashVerified = StringUtils.hasText(inspection.fingerprint());
+        file.setChecksumAlgorithm(hashVerified ? VideoMediaProbe.CHECKSUM_ALGORITHM : null);
+        file.setContentHashVerified(hashVerified ? 1 : 0);
+        file.setMediaCodec(inspection.codec());
+        file.setMediaValidationPolicyHash(inspection.policyHash());
+        file.setMediaProbeVersion(inspection.probeVersion());
         file.setUploaderId(UserContext.getUserIdOrSystem());
         file.setUploadTime(LocalDateTime.now());
         fileObjectMapper.insert(file);
@@ -1506,26 +1559,39 @@ public class VideoReviewServiceImpl implements VideoReviewService {
     }
 
     private VerifiedInstantHit findVerifiedInstantHit(Student student, String fingerprint) {
-        FileObject file = fileObjectMapper.selectOne(new LambdaQueryWrapper<FileObject>()
-                .eq(FileObject::getBizType, VIDEO_BIZ_TYPE)
-                .eq(FileObject::getMd5, fingerprint)
-                .eq(FileObject::getUploaderId, UserContext.getUserIdOrSystem())
-                .eq(FileObject::getChecksumAlgorithm, VideoMediaProbe.CHECKSUM_ALGORITHM)
-                .eq(FileObject::getContentHashVerified, 1)
-                .eq(FileObject::getStatus, "READY")
-                .orderByDesc(FileObject::getId)
-                .last("LIMIT 1"));
-        if (file == null) {
-            return null;
-        }
-        VideoReview source = reviewMapper.selectOne(new LambdaQueryWrapper<VideoReview>()
+        String currentPolicyHash = videoMediaProbe.currentPolicyHash();
+        List<VideoReview> sources = reviewMapper.selectList(new LambdaQueryWrapper<VideoReview>()
                 .eq(VideoReview::getStudentId, student.getId())
-                .eq(VideoReview::getVideoFileId, file.getId())
+                .eq(VideoReview::getFileMd5, fingerprint)
                 .eq(VideoReview::getFormatCheck, "PASS")
                 .isNotNull(VideoReview::getDurationSeconds)
-                .orderByDesc(VideoReview::getId)
-                .last("LIMIT 1"));
-        return source == null ? null : new VerifiedInstantHit(file, source.getDurationSeconds());
+                .orderByDesc(VideoReview::getId));
+        for (VideoReview source : sources) {
+            if (source.getVideoFileId() == null) {
+                continue;
+            }
+            FileObject file = fileObjectMapper.selectOne(new LambdaQueryWrapper<FileObject>()
+                    .eq(FileObject::getId, source.getVideoFileId())
+                    .eq(FileObject::getBizType, VIDEO_BIZ_TYPE)
+                    .eq(FileObject::getMd5, fingerprint)
+                    .eq(FileObject::getUploaderId, UserContext.getUserIdOrSystem())
+                    .eq(FileObject::getChecksumAlgorithm, VideoMediaProbe.CHECKSUM_ALGORITHM)
+                    .eq(FileObject::getContentHashVerified, 1)
+                    .eq(FileObject::getMediaValidationPolicyHash, currentPolicyHash)
+                    .eq(FileObject::getMediaProbeVersion, videoMediaProbe.probeVersion())
+                    .eq(FileObject::getStatus, "READY")
+                    .last("LIMIT 1"));
+            if (file == null || !StringUtils.hasText(file.getMediaCodec())
+                    || !Objects.equals(file.getBucket(), minioProperties.getBucket())
+                    || !StringUtils.hasText(file.getObjectKey())) {
+                continue;
+            }
+            MultipartObjectInfo object = multipartObjectService.findObject(file.getObjectKey()).orElse(null);
+            if (object != null && Objects.equals(file.getSize(), object.size())) {
+                return new VerifiedInstantHit(file, source.getDurationSeconds());
+            }
+        }
+        return null;
     }
 
     /**
@@ -2148,6 +2214,25 @@ public class VideoReviewServiceImpl implements VideoReviewService {
                 .eq(VideoReview::getStudentId, studentId)
                 .eq(VideoReview::getAssessmentYear, requiredTrim(assessmentYear, "考核年度不能为空"))
                 .last("LIMIT 1"));
+    }
+
+    private VideoReview existingReviewForUpdate(Long studentId, String assessmentYear) {
+        return reviewMapper.selectOne(new LambdaQueryWrapper<VideoReview>()
+                .eq(VideoReview::getStudentId, studentId)
+                .eq(VideoReview::getAssessmentYear, requiredTrim(assessmentYear, "考核年度不能为空"))
+                // (student_id, assessment_year) 有唯一索引，无需 LIMIT；避免 MP 将
+                // “LIMIT 1 FOR UPDATE” 重排为 MySQL 不接受的 “FOR UPDATE LIMIT 1”。
+                .last("FOR UPDATE"));
+    }
+
+    private Student lockStudentForVideo(Long studentId) {
+        Student student = studentMapper.selectOne(new LambdaQueryWrapper<Student>()
+                .eq(Student::getId, studentId)
+                .last("FOR UPDATE"));
+        if (student == null) {
+            throw new BizException(ResultCode.NOT_FOUND.getCode(), "学生不存在");
+        }
+        return student;
     }
 
     private List<Integer> uploadedIndexes(String uploadId) {

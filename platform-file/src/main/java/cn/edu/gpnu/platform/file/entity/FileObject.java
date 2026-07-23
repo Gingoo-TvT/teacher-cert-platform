@@ -32,6 +32,9 @@ public class FileObject extends BaseEntity {
     private String uploadMetadataHash;
     private String checksumAlgorithm;
     private Integer contentHashVerified;
+    private String mediaCodec;
+    private String mediaValidationPolicyHash;
+    private String mediaProbeVersion;
     private Long uploaderId;
     private LocalDateTime uploadTime;
 }

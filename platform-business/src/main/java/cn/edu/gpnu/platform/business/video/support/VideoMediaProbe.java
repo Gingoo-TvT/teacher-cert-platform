@@ -5,4 +5,8 @@ public interface VideoMediaProbe {
     String CHECKSUM_ALGORITHM = "SHA256_TREE_V1";
 
     VideoMediaInspection inspect(String objectKey, long expectedSize, String declaredFingerprint);
+
+    String currentPolicyHash();
+
+    String probeVersion();
 }

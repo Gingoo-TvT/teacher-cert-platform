@@ -9,11 +9,11 @@
 ## 0. 当前接力快照（2026-07-23）
 - 当前分支 `feature/ws03-minio-presign`，基于 WS-13 提交 `acfc3b6`；WS-3 原实现提交为 `338bc91`，当前整改提交见 `git log -1`。`main` 仍为 `e4f8228`，无 remote，禁止 push/擅自 merge。
 - WS-3 原有预签名直传能力保持不变；整改包新增服务端逐字节读取最终 MinIO 对象、计算受信 SHA-256 tree 指纹并用 JCodec 校验实际 MP4/H.264/时长/首帧，校验失败关闭。秒传只允许同 uploader、同 student、同一受信对象及已有合格视频记录复用，普通响应不再暴露内部内容指纹。
-- 2026-07-23 用户在 Claude 不可用期间明确授权 Codex 独立复核。原复核结论：WS-1/WS-2/WS-10/WS-13 PASS；WS-3 因 3 个 Major 退回。当前三项已完成修复并自测，状态仅为“待独立重核”，原报告 `docs/reviews/ws-03-review-2026-07-23.md` 不改写。
+- 2026-07-23 用户在 Claude 不可用期间明确授权 Codex 独立复核。WS-3 首批整改 `ca400f1` 的独立重核报告 `docs/reviews/ws-03-remediation-rereview-2026-07-23.md` 结论为 **CHANGES REQUESTED**；第二轮已修复其中 5 项 WS-3 High，当前状态是“整改完成，待新的独立重核”，不得提前写 PASS。Phase 53 demo 元数据失配是 U-003 的独立 High，未混入本次提交。
 - Phase 0、29、35b、36–53 的缺失报告已补齐：14 个阶段 PASS；Phase 0、39、41、42、44、47、53 复核退回。阶段总审计为 `docs/reviews/phase-gap-audit-2026-07-23.md`，逐阶段报告为 `docs/reviews/phase-*-review.md`。
-- 整改后全新 schema 门禁：Flyway V1–V29 成功，Surefire 121/121、Failsafe 145/145，合计 266/266；Phase 7 25/25；前端 type-check/build 通过。GitHub Actions 已补固定版本 MinIO、桶初始化和前端 type-check。临时复核容器/网络/卷已清理，8080/5173/3306/6379/9000/9001 无遗留监听。
-- 后续近端顺序为：先独立重核 U-001/U-002；通过后按风险修 Phase 42 → 39 → 41 → 47 → 53 → 44 → 0。可播放视频样本已随 WS-3 整改替换，但 Phase 53 仍须按自己的退回报告完成独立浏览器复核，不能顺带标 PASS。
-- 2026-07-22 的“缺阶段报告”证据债务已在 2026-07-23 清零；其发现的 CI MinIO/type-check 门禁已在当前整改包补齐，待独立重核。历史结论保留于 `docs/reviews/progress-review-2026-07-22.md`。
+- 第二轮门禁：全新数据卷 Flyway V1–V29 成功，Surefire 121/121、Failsafe 150/150，合计 271/271；Phase 7 29/29；前端 type-check/build 通过。新增反例覆盖媒体头/样本时间线不一致、重复定稿单飞、策略/对象失效、定稿/分配竞态和 V29 部分 DDL 恢复。GitHub Actions 的固定版本 MinIO、桶初始化和前端 type-check 已在 U-001 独立 PASS；`teacher-cert-ws03` 已 `down -v`，3306/6379/9000/9001/8080/5173 无监听且无遗留 Java 进程。
+- 后续近端顺序为：先独立重核 WS-3 第二轮增量；PASS 后按风险修 Phase 42 → 39 → 41 → 47 → Phase 53 的 demo 元数据/旧对象 reconcile → 44 → 0。可播放视频资源虽已替换，但 demo SQL 仍记录 528B/旧摘要，且旧同名 MinIO 对象不会升级替换，故仍单列 Phase 53 High。
+- 2026-07-22 的“缺阶段报告”证据债务已在 2026-07-23 清零；其发现的 CI MinIO/type-check 门禁已在当前整改包补齐并独立重核 PASS。历史结论保留于 `docs/reviews/progress-review-2026-07-22.md`。
 - `.claude/audits/`、审计 HTML、`docs/audit-remediation-plan.md`、`docs/prompts/` 是本地未跟踪审计资料，不得纳入功能提交。
 
 > 下方 §1 是 2026-06-14 的历史交接快照，保留用于环境与早期实现追溯；当前状态以上述 §0、`PROGRESS.md` 与 `DEVLOG.md` 顶部为准。
@@ -124,12 +124,12 @@ git -C "$REPO" add -A && git -C "$REPO" commit -m "feat(T-0xx): ..."
 - 实体继承 `BaseEntity`（id/审计字段/逻辑删除自动）；Mapper 放 `**/mapper`（已 `@MapperScan("cn.edu.gpnu.platform.**.mapper")`）；统一返回 `Result`；写操作 `@AuditLog`；列表/导出/统计查询 `@DataScope`；当前用户取 `UserContext`。
 - **文本化字段全链路 String + Excel `@`**（学校代码/学号/证件号/出生日期/证书编号/有效期限）——AT-01 生命线，勿用数值/日期类型。
 
-## 5. 当前整改入口 → WS-3 修复完成，待独立重核
-1. 读 `AGENTS.md` → `docs/REVIEW-GATE.md` → `docs/CURRENT-EXECUTION-PLAN.md` → `docs/reviews/ws-03-review-2026-07-23.md`。
-2. Major-1 已修：`JcodecVideoMediaProbe` 从最终对象读取真实字节，核对长度、MP4 容器、配置化编码、实际时长与首帧可解码性；伪 MP4 和伪时长均有真实 MinIO 反例。
-3. Major-2 已修：服务端绑定 `SHA256_TREE_V1` 指纹并落可信标记；同 uploader/student 且已有合格视频才允许秒传，跨账户重放不命中；普通 `VideoReviewVO` 已移除 `fileMd5`。旧 8/32 位会话哈希只保留完成兼容，不可进入秒传。
-4. Major-3 已修：GitHub Actions 增加 MinIO 服务、健康检查和桶初始化，前端增加 type-check；本机隔离零状态已执行 V1–V29 与 266/266。
-5. 独立重核只复核上述增量 + Phase 5/7 与全量回归，确认 3 个 Major 清零后才可更新原报告结论。若需要启动后端/前端做运行期验证，仍必须遵守 `AGENTS.md §6.1`，Codex/headless exec 不启动常驻服务。
+## 5. 当前整改入口 → WS-3 第二轮整改待独立重核
+1. 读 `AGENTS.md` → `docs/REVIEW-GATE.md` → `docs/CURRENT-EXECUTION-PLAN.md` → 原报告 `docs/reviews/ws-03-review-2026-07-23.md` → 重核报告 `docs/reviews/ws-03-remediation-rereview-2026-07-23.md`。
+2. 已闭环：服务端 `SHA256_TREE_V1` 可信指纹；同 uploader/student + 既有 PASS 的秒传边界；普通 VO 去 `fileMd5`；GitHub Actions 真实 MinIO/桶初始化与前端 type-check。U-001 可视为 PASS。
+3. 第二轮闭环：JCodec 完整扫描并交叉核验容器头/样本跨度/样本累计时长，且要求恰好一个视频轨道；Redis 令牌租约实现跨节点定稿单飞与 TTL 恢复，容量守卫限制并发、临时文件预留、磁盘余量、时长和媒体包；fast-hit 校验当前策略哈希/探测器版本及 MinIO HEAD；定稿与 assign 共用 review 行锁；V29 逐项检测 DDL 后可恢复执行。
+4. 自测证据：Phase 7 29/29、关联 Phase 14/24 + V29 恢复 18/18、全新数据卷全量 271/271、前端 type-check/build 通过；首批重核时发现的 MyBatis-Plus `FOR UPDATE LIMIT 1` 方言顺序问题已改为唯一键行锁，陈旧 MERGING 的恢复语义改由 Redis TTL 租约判定。
+5. 下一轮只做独立增量重核，未经新报告 PASS 不得改变 CHANGES REQUESTED。Phase 53 的 1 项 demo High 归 U-003。若需要启动后端/前端做运行期验证，仍必须遵守 `AGENTS.md §6.1`，Codex/headless exec 不启动常驻服务。
 
 ## 6. 已知坑与规避（别重复踩）
 - Lombok `optional` 不向子模块传递 → 已在父 POM 解决。

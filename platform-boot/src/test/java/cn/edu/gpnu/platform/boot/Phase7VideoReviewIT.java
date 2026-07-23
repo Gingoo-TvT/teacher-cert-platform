@@ -11,6 +11,9 @@ import cn.edu.gpnu.platform.business.video.mapper.VideoReviewMapper;
 import cn.edu.gpnu.platform.business.video.mapper.VideoReviewTaskMapper;
 import cn.edu.gpnu.platform.business.video.mapper.VideoUploadChunkMapper;
 import cn.edu.gpnu.platform.business.video.mapper.VideoUploadSessionMapper;
+import cn.edu.gpnu.platform.business.video.support.JcodecVideoMediaProbe;
+import cn.edu.gpnu.platform.business.video.support.VideoMediaInspection;
+import cn.edu.gpnu.platform.business.video.support.VideoMediaProbe;
 import cn.edu.gpnu.platform.file.config.MinioProperties;
 import cn.edu.gpnu.platform.file.entity.FileObject;
 import cn.edu.gpnu.platform.file.mapper.FileObjectMapper;
@@ -36,8 +39,11 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -48,6 +54,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.context.annotation.Import;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 
@@ -68,14 +75,18 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(classes = PlatformApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@Import(Phase7VideoReviewIT.ProbeTestConfiguration.class)
 @TestPropertySource(properties = {
         "platform.security.jwt.secret=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
         "platform.security.jwt.access-ttl-seconds=30"
@@ -159,6 +170,9 @@ class Phase7VideoReviewIT {
     @Autowired
     private MultipartObjectService multipartObjectService;
 
+    @Autowired
+    private CountingVideoMediaProbe countingVideoMediaProbe;
+
     @BeforeEach
     @AfterEach
     void resetSeedUsers() {
@@ -171,6 +185,8 @@ class Phase7VideoReviewIT {
         resetParam("file.maxSize.video", "2147483648");
         resetParam("video.durationTarget", "900");
         resetParam("video.durationTolerance", "60");
+        resetParam("video.allowedCodecs", "H264");
+        resetParam("video.timelineToleranceSeconds", "2");
         resetParam("video.passLine", "60");
         resetParam("video.diffThreshold", "12");
         resetParam("video.reviewerCount", "2");
@@ -184,6 +200,7 @@ class Phase7VideoReviewIT {
         resetUser("test_review_teacher_b", true);
         resetUser("test_review_teacher_c", true);
         resetUser("test_review_teacher_d", true);
+        countingVideoMediaProbe.reset();
     }
 
     @Test
@@ -343,6 +360,124 @@ class Phase7VideoReviewIT {
         assertThat(stored.getMd5()).isEqualTo(actualHash);
         assertThat(stored.getChecksumAlgorithm()).isEqualTo("SHA256_TREE_V1");
         assertThat(stored.getContentHashVerified()).isEqualTo(1);
+    }
+
+    @Test
+    void mediaHeaderDurationMustMatchDecodedSampleTimeline() throws Exception {
+        LoginResult student = readyLogin("test_student");
+        byte[] inconsistent = withTrackHeaderDuration(shortVideo(), 900);
+        JsonNode init = initUpload(student.accessToken(), 9001L, "P7-TIMELINE",
+                "timeline.mp4", "video/mp4", inconsistent.length, VIDEO_PART_SIZE,
+                videoFingerprint(inconsistent), 900);
+        List<PresignedMultipartUploadTestClient.CompletedPart> parts =
+                PresignedMultipartUploadTestClient.putAll(init, inconsistent);
+
+        JsonNode completed = complete(student.accessToken(), init.at("/uploadId").asText(), 900, parts);
+
+        assertThat(completed.at("/status").asText()).isEqualTo("VALIDATION_FAILED");
+        assertThat(completed.at("/validationMessage").asText()).contains("样本时间线");
+    }
+
+    @Test
+    void duplicateCompleteRunsExactlyOneProbe() throws Exception {
+        LoginResult student = readyLogin("test_student");
+        byte[] content = mp4("single-flight");
+        JsonNode init = initUpload(student.accessToken(), 9001L, "P7-SINGLE-FLIGHT",
+                "single-flight.mp4", "video/mp4", content.length, VIDEO_PART_SIZE,
+                videoFingerprint(content), 900);
+        List<PresignedMultipartUploadTestClient.CompletedPart> parts =
+                PresignedMultipartUploadTestClient.putAll(init, content);
+        String uploadId = init.at("/uploadId").asText();
+        countingVideoMediaProbe.arm();
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        try {
+            Future<ResponseEntity<String>> first = pool.submit(() ->
+                    exchange("/api/video/upload/complete", HttpMethod.POST, student.accessToken(),
+                            completeBody(uploadId, 900, parts)));
+            assertThat(countingVideoMediaProbe.awaitEntered()).isTrue();
+
+            ResponseEntity<String> duplicate = exchange("/api/video/upload/complete", HttpMethod.POST,
+                    student.accessToken(), completeBody(uploadId, 900, parts));
+
+            assertThat(json(duplicate).at("/code").asInt()).isEqualTo(1000);
+            assertThat(json(duplicate).at("/msg").asText()).contains("正在合并");
+            assertThat(countingVideoMediaProbe.invocations()).isEqualTo(1);
+            countingVideoMediaProbe.release();
+            assertThat(json(first.get(15, TimeUnit.SECONDS)).at("/data/status").asText())
+                    .isEqualTo("WAIT_REVIEW");
+            assertThat(countingVideoMediaProbe.invocations()).isEqualTo(1);
+        } finally {
+            countingVideoMediaProbe.release();
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    void currentCodecPolicyAndObjectExistenceInvalidateFastHit() throws Exception {
+        LoginResult student = readyLogin("test_student");
+        String year = "P7-POLICY-SOURCE";
+        long reviewId = uploadValidatedVideo(student.accessToken(), 9001L, year);
+        VideoReview source = reviewMapper.selectById(reviewId);
+        FileObject sourceFile = fileObjectMapper.selectById(source.getVideoFileId());
+        byte[] content = mp4(year);
+        String fingerprint = videoFingerprint(content);
+        assertThat(sourceFile.getMediaCodec()).isEqualTo("H264");
+        assertThat(sourceFile.getMediaValidationPolicyHash()).hasSize(64);
+        assertThat(sourceFile.getMediaProbeVersion()).isEqualTo("JCODEC_TIMELINE_V2");
+
+        resetParam("video.allowedCodecs", "VP8");
+        JsonNode policyMiss = initUpload(student.accessToken(), 9001L, "P7-POLICY-MISS",
+                "policy.mp4", "video/mp4", content.length, VIDEO_PART_SIZE, fingerprint, 900);
+        assertThat(policyMiss.at("/instantHit").asBoolean()).isFalse();
+        assertThat(json(exchange("/api/video/upload/" + policyMiss.at("/uploadId").asText(),
+                HttpMethod.DELETE, student.accessToken(), null)).at("/code").asInt()).isEqualTo(0);
+
+        resetParam("video.allowedCodecs", "H264");
+        minioClient.removeObject(io.minio.RemoveObjectArgs.builder()
+                .bucket(sourceFile.getBucket()).object(sourceFile.getObjectKey()).build());
+        JsonNode missingObject = initUpload(student.accessToken(), 9001L, "P7-OBJECT-MISS",
+                "missing.mp4", "video/mp4", content.length, VIDEO_PART_SIZE, fingerprint, 900);
+        assertThat(missingObject.at("/instantHit").asBoolean()).isFalse();
+        assertThat(json(exchange("/api/video/upload/" + missingObject.at("/uploadId").asText(),
+                HttpMethod.DELETE, student.accessToken(), null)).at("/code").asInt()).isEqualTo(0);
+    }
+
+    @Test
+    void assigningWhileProbeRunsCannotBeOverwrittenByFinalize() throws Exception {
+        LoginResult student = readyLogin("test_student");
+        LoginResult auditor = readyLogin("test_college_auditor");
+        String year = "P7-FIN-ASGN";
+        long reviewId = uploadValidatedVideo(student.accessToken(), 9001L, year);
+        VideoReview original = reviewMapper.selectById(reviewId);
+
+        byte[] replacement = mp4("replacement-" + year);
+        JsonNode init = initUpload(student.accessToken(), 9001L, year,
+                "replacement.mp4", "video/mp4", replacement.length, VIDEO_PART_SIZE,
+                videoFingerprint(replacement), 900);
+        List<PresignedMultipartUploadTestClient.CompletedPart> parts =
+                PresignedMultipartUploadTestClient.putAll(init, replacement);
+        countingVideoMediaProbe.arm();
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        try {
+            Future<ResponseEntity<String>> completing = pool.submit(() ->
+                    exchange("/api/video/upload/complete", HttpMethod.POST, student.accessToken(),
+                            completeBody(init.at("/uploadId").asText(), 900, parts)));
+            assertThat(countingVideoMediaProbe.awaitEntered()).isTrue();
+
+            assign(auditor.accessToken(), reviewId, 800000000000003005L, REVIEWER_B_USER_ID);
+            countingVideoMediaProbe.release();
+            ResponseEntity<String> completion = completing.get(15, TimeUnit.SECONDS);
+
+            assertThat(json(completion).at("/code").asInt()).isEqualTo(1000);
+            assertThat(json(completion).at("/msg").asText()).contains("评审进行中");
+            VideoReview after = reviewMapper.selectById(reviewId);
+            assertThat(after.getStatus()).isEqualTo("REVIEWING");
+            assertThat(after.getVideoFileId()).isEqualTo(original.getVideoFileId());
+            assertThat(taskCount(reviewId)).isEqualTo(2);
+        } finally {
+            countingVideoMediaProbe.release();
+            pool.shutdownNow();
+        }
     }
 
     @Test
@@ -1735,6 +1870,24 @@ class Phase7VideoReviewIT {
         }
     }
 
+    private byte[] withTrackHeaderDuration(byte[] source, int durationSeconds) {
+        byte[] result = Arrays.copyOf(source, source.length);
+        for (int index = 4; index + 24 <= result.length; index++) {
+            if (result[index] == 'm' && result[index + 1] == 'd'
+                    && result[index + 2] == 'h' && result[index + 3] == 'd') {
+                ByteBuffer box = ByteBuffer.wrap(result);
+                int timescale = box.getInt(index + 16);
+                long durationUnits = (long) timescale * durationSeconds;
+                if (timescale < 1 || durationUnits > 0xffff_ffffL) {
+                    throw new IllegalStateException("测试视频mdhd时间尺度不合法");
+                }
+                box.putInt(index + 20, (int) durationUnits);
+                return result;
+            }
+        }
+        throw new IllegalStateException("测试视频缺少mdhd轨道头");
+    }
+
     private FileObject seedReadyVideoFile(String hash, byte[] content, String marker, Long uploaderId) {
         String storedName = "phase7-" + marker + ".mp4";
         FileObject file = new FileObject();
@@ -1780,6 +1933,82 @@ class Phase7VideoReviewIT {
             sb.append(String.format("%02x", b));
         }
         return sb.toString();
+    }
+
+    @TestConfiguration(proxyBeanMethods = false)
+    static class ProbeTestConfiguration {
+
+        @Bean
+        @Primary
+        CountingVideoMediaProbe countingVideoMediaProbe(JcodecVideoMediaProbe delegate) {
+            return new CountingVideoMediaProbe(delegate);
+        }
+    }
+
+    static final class CountingVideoMediaProbe implements VideoMediaProbe {
+
+        private final JcodecVideoMediaProbe delegate;
+        private final AtomicInteger invocationCount = new AtomicInteger();
+        private volatile CountDownLatch entered = new CountDownLatch(0);
+        private volatile CountDownLatch release = new CountDownLatch(0);
+
+        private CountingVideoMediaProbe(JcodecVideoMediaProbe delegate) {
+            this.delegate = delegate;
+        }
+
+        void arm() {
+            invocationCount.set(0);
+            entered = new CountDownLatch(1);
+            release = new CountDownLatch(1);
+        }
+
+        boolean awaitEntered() throws InterruptedException {
+            return entered.await(10, TimeUnit.SECONDS);
+        }
+
+        void release() {
+            release.countDown();
+        }
+
+        int invocations() {
+            return invocationCount.get();
+        }
+
+        void reset() {
+            release();
+            invocationCount.set(0);
+            entered = new CountDownLatch(0);
+            release = new CountDownLatch(0);
+        }
+
+        @Override
+        public VideoMediaInspection inspect(String objectKey, long expectedSize, String declaredFingerprint) {
+            invocationCount.incrementAndGet();
+            CountDownLatch currentEntered = entered;
+            CountDownLatch currentRelease = release;
+            if (currentEntered.getCount() > 0) {
+                currentEntered.countDown();
+                try {
+                    if (!currentRelease.await(10, TimeUnit.SECONDS)) {
+                        throw new IllegalStateException("测试媒体探测闸门等待超时");
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException("测试媒体探测闸门被中断", e);
+                }
+            }
+            return delegate.inspect(objectKey, expectedSize, declaredFingerprint);
+        }
+
+        @Override
+        public String currentPolicyHash() {
+            return delegate.currentPolicyHash();
+        }
+
+        @Override
+        public String probeVersion() {
+            return delegate.probeVersion();
+        }
     }
 
     private record LoginResult(String accessToken, String refreshToken, boolean mustChangePwd) {

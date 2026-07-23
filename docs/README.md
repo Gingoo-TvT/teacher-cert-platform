@@ -79,6 +79,8 @@
 | `video.diffThreshold` | `12` | 两评委分差阈值 | Phase 7 |
 | `video.reviewerCount` | `2` | 评审教师数 | Phase 7 |
 | `video.durationTolerance` | `60`(秒) | 时长容差 | Phase 7 |
+| `video.allowedCodecs` | `H264` | 允许的视频编码，变更后既有秒传验证结果失效 | Phase 7 |
+| `video.timelineToleranceSeconds` | `2`(秒) | 容器头、样本跨度与样本累计时长的交叉核对容差 | Phase 7 |
 | `video.arbitrate.mode` | `thirdExpert` | 复评模式 | Phase 7 |
 | `video.required` | `true` | 视频是否必过才能发证 | Phase 9 |
 | `file.maxSize.video` | `2147483648`(2GB) | 视频单文件上限 | Phase 7 |

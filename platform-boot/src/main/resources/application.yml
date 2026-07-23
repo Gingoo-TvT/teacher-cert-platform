@@ -28,6 +28,15 @@ logging:
     cn.edu.gpnu.platform: info
 
 platform:
+  video:
+    probe:
+      # 媒体真实性校验在主进程中的临时资源硬上限；生产可用同名环境变量覆盖。
+      temp-directory: ${VIDEO_PROBE_TEMP_DIR:${java.io.tmpdir}/teacher-cert-video-probe}
+      max-concurrent: ${VIDEO_PROBE_MAX_CONCURRENT:2}
+      max-reserved-bytes: ${VIDEO_PROBE_MAX_RESERVED_BYTES:4294967296}
+      min-free-bytes: ${VIDEO_PROBE_MIN_FREE_BYTES:1073741824}
+      max-duration: ${VIDEO_PROBE_MAX_DURATION:10m}
+      max-packets: ${VIDEO_PROBE_MAX_PACKETS:2000000}
   security:
     jwt:
       secret: ${JWT_SECRET:}

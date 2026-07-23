@@ -15,6 +15,22 @@
 
 ---
 
+## [2026-07-23] WS-3 首批整改退回 — 第二轮 5 High 修复完成，待独立重核
+- 做了什么：按 `docs/reviews/ws-03-remediation-rereview-2026-07-23.md` 只修 WS-3 的 5 项 High。媒体探测改为完整扫描唯一视频轨道，将 MP4 头时长、样本时间线跨度和样本时长累计值两两交叉核验；新增 Redis 令牌租约实现 uploadId 跨节点单飞与 TTL 崩溃恢复，并以容量守卫限制并发探测、临时文件总预留量、磁盘余量、探测时长和媒体包数；fast-hit 增加当前策略哈希、探测器版本、编码和 MinIO HEAD 精确大小校验；定稿 upsert 与 assign 对同一 `video_review` 行加锁串行化；V29 每项列/索引 DDL 先查 `information_schema` 后动态执行，支持 MySQL 部分 DDL 已提交后的安全重跑。
+- 关键决策与理由：媒体可信时长不能来自单一容器头，必须与实际样本时间线相互证明；重复定稿使用 Redis `SET NX` + token-safe Lua release，既覆盖多实例又保留进程崩溃后的 TTL 恢复，不把永久 MERGING 当作锁；秒传验证结果绑定策略规范化哈希和探测器版本，配置变化即失效；评审状态竞争使用数据库行锁建立同一原子顺序，避免探测完成覆盖已分配状态。按小范围 fail-closed 原则拒绝多视频轨道文件。
+- 问题与解决：第一次专项环境误用 MinIO 密码导致所有媒体用例失败，改回 Compose 契约 `minioadmin123` 后恢复；最初把 MyBatis-Plus 尾 SQL 写成 `LIMIT 1 FOR UPDATE`，框架重排为 MySQL 非法的 `FOR UPDATE LIMIT 1`，利用 student/year 唯一键移除 LIMIT 后通过；把“MERGING 一律拒绝”会破坏陈旧会话恢复，因此改为“有效 Redis 租约拒绝、无租约 MERGING 可恢复”。
+- 与规格的偏差/疑问：同步更新 `plan.md`、`tasks.md`、`docs/README.md` 与 Phase 7 文档。真实 2GB 上传、非允许编码和不可解码首帧仍缺专项自动化证据，所以 Phase 7 两个宽泛验收项继续保持未勾选；Phase 53 demo SQL/旧对象升级 High 明确留在 U-003，本轮未修改、未宣称闭环。
+- 测试：新增 4 个 Phase 7 对抗性用例和 `V29MigrationRecoveryIT`；Phase 7 **29/29**，关联 Phase 14/24 + V29 恢复 **18/18**。全新 MySQL/Redis/MinIO 数据卷执行 `mvn -B -ntp clean verify`，Flyway V1–V29 成功，Surefire **121/121**、Failsafe **150/150**，合计 **271/271**、0 failure/error/skip；前端 `type-check` 与生产 `build` PASS（仅既有大 chunk 警告）；未启动常驻后端/前端。`teacher-cert-ws03` 已 `down -v`，3306/6379/9000/9001/8080/5173 无监听且无遗留 Java 进程。
+- 下一步：提交第二轮增量并交独立复核者复核 5 项 High、Phase 7/14/24 与全量回归；新报告 PASS 前 WS-3/U-002 仍按 CHANGES REQUESTED 管理。之后再进入 U-003，优先 Phase 42。
+
+## [2026-07-23] GOV-004 WS-3 首批整改独立重核退回
+- 做了什么：冻结 `37f6cdb..ca400f1`，对 27 个变更文件及受影响的 demo 初始化、review 状态机和 JCodec 0.2.5 关键行为做独立增量复核；产出 `docs/reviews/ws-03-remediation-rereview-2026-07-23.md`。确认 U-001 CI 零状态契约 PASS；确认跨 uploader/student 秒传、服务端真实内容指纹和普通 VO 去指纹已修复；WS-3/U-002 总结论仍为 **CHANGES REQUESTED**。
+- 关键决策与理由：不以 266/266 绿灯替代静态不变量审查。当前时长取自单一媒体头字段，没有与样本时间线核对，故原“实际媒体时长可信”Major 未闭环；另确认同一 MERGING 会话可重复整对象探测、fast-hit 不按当前 `video.allowedCodecs` 失效、定稿与 assign 普通读写同一 review 可覆盖状态、V29 多条非幂等 MySQL DDL 部分失败后不可重跑、demo 视频资源与 SQL/升级对象不一致，合计 6 项 High。用户要求不触发任何可能涉及 cyber 的限制，因此没有执行畸形媒体构造、模糊测试、攻击性并发或漏洞利用，结论只使用本地静态证据和标准门禁。
+- 问题与解决：独立全量复验第一次把 MinIO public endpoint 临时设为 `127.0.0.1`，触发 Phase7 对预签名 host=`localhost` 的环境契约断言 1 项失败；按 CI 默认 endpoint 在另一全新 schema 重跑后 266/266 全绿，确认首轮失败不是产品回归。报告按审计 skill 模板生成，并通过 `report_lint.py`。
+- 与规格的偏差/疑问：`docs/phase-07-视频评审.md` 已勾选 2GB、非允许编码、不可解码首帧等项，但现有自动化“大文件”仅 5MiB+4096B，且缺少编码/首帧专项反例；保持为 Medium 证据债。Phase 53 的新样本虽可播放，demo SQL 仍写 528B/旧摘要且初始化器跳过旧对象，因此阶段继续退回。
+- 测试：独立 CI 等价全新 schema `mvn -B -ntp verify` BUILD SUCCESS，Surefire **121/121**、Failsafe **145/145**，合计 **266/266**、0 failure/error/skip；Phase7 25/25、Phase14 14/14、Phase24 3/3；`npm --prefix frontend run type-check` PASS；`npm --prefix frontend run build` PASS（仅既有大 chunk 警告）；审计报告 lint PASS。没有启动常驻后端/前端；`teacher-cert-ws03` Compose 已 `down -v`，容器列表为空，3306/6379/9000/9001 与 8080/5173 无监听。
+- 下一步：按报告顺序修媒体时间线交叉验证、complete 单飞/资源上限、review 行锁/CAS、V29 可恢复性，再修 fast-hit 策略版本和 demo reconcile；补确定性反例后只重核增量 + Phase7/14/24 + 全量门禁。未经再次独立 PASS 不得标记 WS-3 完成。
+
 ## [2026-07-23] WS-3 复核退回整改 — 修复完成，待独立重核
 - 做了什么：闭环 `docs/reviews/ws-03-review-2026-07-23.md` 的 3 个 Major。新增 `VideoMediaProbe`/`JcodecVideoMediaProbe`，服务端从 MinIO 最终对象逐字节核对长度、计算前端同契约的 `SHA256_TREE_V1` 指纹，并用 JCodec 校验真实 MP4、配置化 H.264 编码、媒体时长与首帧可解码性；视频定稿与兼容分片合并均改用实际探测结果。`file_object` 经 V29 增加算法与可信标记，秒传仅允许同 uploader、同 student、同一可信 READY 对象且已有格式/时长合格视频记录复用；普通 `VideoReviewVO` 与前端响应类型移除 `fileMd5`。CI 增加固定版本 MinIO、健康检查、桶初始化及前端 type-check。528B 空轨 demo 已替换为可解码 900 秒 H.264 MP4，并补 3 秒测试视频与可重复生成脚本。
 - 关键决策与理由：内容真值只能来自服务端读取的最终对象，文件名、Content-Type、客户端时长与客户端指纹均不作为媒体合格依据。服务端指纹仍采用前端既有 8 MiB tree-hash 契约，避免重新上传；但只有 64 位新指纹可严格比较并参与秒传，历史 8/32 位滚动哈希仅兼容旧会话完成且不进入秒传。`contentHashVerified` 只表达“摘要与真实字节绑定”，媒体是否合法仍由合格 `video_review` 双重约束，避免无效媒体成为复用源。

@@ -9,7 +9,7 @@
 ## 2. 数据库（V13__video.sql / V28 / V29）
 - `video_review`：student_id, assessment_year, video_file_id, duration_seconds, format_check, status, final_score, final_conclusion, arbitrate_reviewer, arbitrate_mode。
 - `video_review_task`：video_review_id, reviewer_id, score, dimension_scores_json, comment, conclusion(合格/不合格), submitted, submit_time。唯一 `(video_review_id, reviewer_id)`。
-- `file_object`：V29 增加 `checksum_algorithm/content_hash_verified`，区分客户端声明摘要与服务端读取对象后验真的内容指纹。
+- `file_object`：V29 增加 `checksum_algorithm/content_hash_verified/media_codec/media_validation_policy_hash/media_probe_version`，区分客户端声明摘要与服务端读取对象后验真的内容指纹，并记录验证时的编码、策略版本与探测器版本。V29 每个列/索引变更均先查 `information_schema` 再动态执行，允许 MySQL 非事务 DDL 部分成功后安全重跑。
 
 ## 3. 分片上传（MinIO multipart）
 | 方法 | 路径 | 说明 |
@@ -20,10 +20,11 @@
 | GET | `/api/video/upload/progress?uploadId=` | 进度 |
 
 - 单文件上限 `file.maxSize.video`（默认 2GB，可配）；分片失败可重传。
-- 秒传只命中 `content_hash_verified=1` 且属于同一上传人、同一学生的对象；8/32 位旧摘要只用于同一会话兼容恢复，不参与秒传。普通 `VideoReviewVO` 不返回内部去重指纹。
+- 秒传只命中 `content_hash_verified=1` 且属于同一上传人、同一学生的对象；还必须匹配当前 `video.allowedCodecs` 等媒体策略哈希与探测器版本，并通过 MinIO HEAD 确认对象存在且大小精确一致。8/32 位旧摘要只用于同一会话兼容恢复，不参与秒传。普通 `VideoReviewVO` 不返回内部去重指纹。
+- 定稿由 Redis `SET NX` 租约实现跨节点单飞；租约带令牌校验释放和 TTL，进程中断后陈旧 `MERGING` 会话可恢复。探测前还通过容量守卫限制并发数、临时文件总预留量和磁盘余量，并限制单次探测时长与媒体包数量。
 
 ## 4. 视频校验（§6.11）
-定稿/合并后由服务端流式读取最终对象并计算 SHA-256 分片树指纹，再以 JCodec 探测实际 MP4 容器、视频轨道、`video.allowedCodecs`（默认 H264）、可解码首帧和媒体轨道时长。实际大小必须与会话严格一致，实际时长必须满足 `video.durationTarget`（默认 900s）± `video.durationTolerance`（默认 60s）。客户端声明的 MIME、摘要和时长均不能单独使校验通过；失败置"校验失败"并提示，可重传。
+定稿/合并后由服务端流式读取最终对象并计算 SHA-256 分片树指纹，再以 JCodec 探测实际 MP4 容器，要求恰好一个视频轨道并校验 `video.allowedCodecs`（默认 H264）与可解码首帧。探测器完整扫描样本，将容器头时长、样本时间线跨度和样本时长累计值按 `video.timelineToleranceSeconds`（默认 2s）两两交叉核对；三者一致后，可信实际时长才可继续校验 `video.durationTarget`（默认 900s）± `video.durationTolerance`（默认 60s）。实际大小必须与会话严格一致；客户端声明的 MIME、摘要和时长均不能单独使校验通过。失败置"校验失败"并提示，可重传。
 
 ## 5. 评审流程与结算（§15.2-B / §15.5）
 - 分配 `video.reviewerCount`（默认 2）位教师 → "评审中"，任务下发，**提交前互不可见**他人分数/意见。
@@ -46,8 +47,10 @@
 - 学院管理页：分配、进度看板、复评/仲裁、结果确认。
 
 ## 8. 验收清单（AT-08）
-- [x] 2GB MP4 分片上传成功；中断后续传成功；同上传人/同学生且服务端验真指纹相同可秒传。
-- [x] 伪 MP4、非允许编码、不可解码首帧、超大小、实际媒体时长超容差、客户端指纹不匹配 → 校验失败并提示，可重传。
+> 2026-07-23 WS-3 首批整改独立重核退回；第二轮已修复报告中的 5 项 WS-3 High 并完成自测，当前**待独立重核**，不得视为 PASS。下列两项仍因真实 2GB 传输及非允许编码/不可解码首帧的专项自动化证据债保持未完成，详见 `reviews/ws-03-remediation-rereview-2026-07-23.md`。
+
+- [ ] 2GB MP4 分片上传成功；中断后续传成功；同上传人/同学生且服务端验真指纹相同可秒传。
+- [ ] 伪 MP4、非允许编码、不可解码首帧、超大小、实际媒体时长超容差、客户端指纹不匹配 → 校验失败并提示，可重传。
 - [x] 一个视频由 ≥2 位教师独立评审；**教师 A 提交后教师 B 仍看不到 A 的分与意见**。
 - [x] 分差 ≤ 阈值且结论一致 → 终分=均分，自动判合格线。
 - [x] **分差 > 阈值 或 一合格一不合格 → 进入"需复评"**（AT-08 关键）。
@@ -59,17 +62,22 @@
 - T-VID-1：2GB 文件分 N 片上传，断网后 `init` 返回已传分片并续传成功。
 - T-VID-2（反例）：上传 avi、伪 MP4、短视频却声明 15min、指纹不匹配 → 服务端按真实对象校验失败。
 - T-VID-2A（越权反例）：学生 B 重放学生 A 的已知指纹 → 不得秒传；正常详情响应不含内部去重指纹。
+- T-VID-2B（时间线反例）：篡改 MP4 头部时长但保留原样本时间线 → 容器头、样本跨度与样本累计时长不一致，校验失败。
+- T-VID-2C（策略/对象反例）：改变 `video.allowedCodecs` 或删除已有 MinIO 对象 → 旧验证结果不得秒传命中。
+- T-VID-2D（并发/恢复反例）：同一 uploadId 并发 complete → 只执行一次全对象探测；无有效租约的陈旧 MERGING 会话可恢复。
 - T-VID-3：教师 A(85,合格) 提交 → 教师 B 查看任务看不到 A 的分。
 - T-VID-4：A=85 B=80（差 5，均合格）→ 终分 83 合格。
 - T-VID-5（关键）：A=85 B=60（差 25 > 12）→ 需复评。
 - T-VID-6（关键）：A=85合格 B=58不合格 → 需复评（结论冲突）。
 - T-VID-7：`thirdExpert` 模式 s3=81，三分 85/60/81 → 取 85 与 81 均值 83（两两分差最小对 |85−81|=4）。
 - T-VID-8（反例）：未登录用预签名链接播放 → 失败。
+- T-VID-9（并发反例）：媒体探测尚未提交 review 更新时并发分配评委 → 行锁串行化，定稿不得把已进入评审的状态覆盖回待评审。
+- T-VID-10（迁移恢复反例）：V29 前两条 DDL 已落库但 Flyway 尚未记成功 → 重跑 V29 可补齐剩余列/索引/参数并成功记录历史。
 
 ## 10. DoD
 分片上传 + 校验 + 双盲评审 + 分差/复评结算 + 鉴权水印播放全部可用；AT-08 自测（含两类需复评反例）通过。
 
 ## 11. 风险
 - "提交前互不可见"必须在**接口层**屏蔽（不能只前端隐藏），否则可绕过——T-VID-3 专门覆盖。
-- 大文件上传的内存/超时：分片走流式、合并用 MinIO 服务端 ComposeObject，避免后端 OOM。
+- 大文件上传的内存/磁盘/超时：分片走流式、合并用 MinIO 服务端 ComposeObject；媒体探测以跨节点单飞 + 容量守卫 + 临时目录余量检查 + 时长/包数上限控制，避免重复下载、临时盘耗尽或无限探测。
 - 复评结算 `thirdExpert` 的"两两分差最小对"算法要单测，避免边界取错对。
