@@ -22,4 +22,7 @@ public class VideoProbeProperties {
     private long minFreeBytes = 1_073_741_824L;
     private Duration maxDuration = Duration.ofMinutes(10);
     private int maxPackets = 2_000_000;
+    private Duration leaseDuration = Duration.ofMinutes(2);
+    private Duration leaseRenewInterval = Duration.ofSeconds(30);
+    private int workerMaxHeapMb = 256;
 }

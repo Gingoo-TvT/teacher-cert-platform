@@ -37,6 +37,9 @@ platform:
       min-free-bytes: ${VIDEO_PROBE_MIN_FREE_BYTES:1073741824}
       max-duration: ${VIDEO_PROBE_MAX_DURATION:10m}
       max-packets: ${VIDEO_PROBE_MAX_PACKETS:2000000}
+      lease-duration: ${VIDEO_PROBE_LEASE_DURATION:2m}
+      lease-renew-interval: ${VIDEO_PROBE_LEASE_RENEW_INTERVAL:30s}
+      worker-max-heap-mb: ${VIDEO_PROBE_WORKER_MAX_HEAP_MB:256}
   security:
     jwt:
       secret: ${JWT_SECRET:}

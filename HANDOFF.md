@@ -9,10 +9,11 @@
 ## 0. 当前接力快照（2026-07-23）
 - 当前分支 `feature/ws03-minio-presign`，基于 WS-13 提交 `acfc3b6`；WS-3 原实现提交为 `338bc91`，当前整改提交见 `git log -1`。`main` 仍为 `e4f8228`，无 remote，禁止 push/擅自 merge。
 - WS-3 原有预签名直传能力保持不变；整改包新增服务端逐字节读取最终 MinIO 对象、计算受信 SHA-256 tree 指纹并用 JCodec 校验实际 MP4/H.264/时长/首帧，校验失败关闭。秒传只允许同 uploader、同 student、同一受信对象及已有合格视频记录复用，普通响应不再暴露内部内容指纹。
-- 2026-07-23 用户在 Claude 不可用期间明确授权 Codex 独立复核。WS-3 首批整改 `ca400f1` 的独立重核报告 `docs/reviews/ws-03-remediation-rereview-2026-07-23.md` 结论为 **CHANGES REQUESTED**；第二轮已修复其中 5 项 WS-3 High，当前状态是“整改完成，待新的独立重核”，不得提前写 PASS。Phase 53 demo 元数据失配是 U-003 的独立 High，未混入本次提交。
+- 2026-07-23 用户在 Claude 不可用期间明确授权 Codex 独立复核。WS-3 第二轮 `32da735` 的独立报告 `docs/reviews/ws-03-second-remediation-rereview-2026-07-23.md` 仍为 **CHANGES REQUESTED**：时间线、fast-hit、review 行锁和 V29 已闭环，但 `SERVER_CHUNK` 崩溃恢复、并发总磁盘预留、可终止探测时限仍有 3 High，另有 lease 续租/生产配置/资源测试 3 Medium。Phase 53 demo 元数据失配是 U-003 的独立 High，未混入本次报告。
+- 第三轮已完成上述 3 High / 3 Medium 的实现与自测：complete/merge 共用可续租 Redis lease + 数据库 fencing token；server-chunk 持久化稳定 object key 并覆盖三处崩溃接管；容量守卫按累计预留准入；JCodec 移入受限堆、可强杀的独立 JVM；S3 超时、正式 Compose/.env/专用临时卷和低阈值确定性反例已补齐。当前状态仅为**待独立重核**，第二轮报告结论在新报告 PASS 前继续有效。
 - Phase 0、29、35b、36–53 的缺失报告已补齐：14 个阶段 PASS；Phase 0、39、41、42、44、47、53 复核退回。阶段总审计为 `docs/reviews/phase-gap-audit-2026-07-23.md`，逐阶段报告为 `docs/reviews/phase-*-review.md`。
-- 第二轮门禁：全新数据卷 Flyway V1–V29 成功，Surefire 121/121、Failsafe 150/150，合计 271/271；Phase 7 29/29；前端 type-check/build 通过。新增反例覆盖媒体头/样本时间线不一致、重复定稿单飞、策略/对象失效、定稿/分配竞态和 V29 部分 DDL 恢复。GitHub Actions 的固定版本 MinIO、桶初始化和前端 type-check 已在 U-001 独立 PASS；`teacher-cert-ws03` 已 `down -v`，3306/6379/9000/9001/8080/5173 无监听且无遗留 Java 进程。
-- 后续近端顺序为：先独立重核 WS-3 第二轮增量；PASS 后按风险修 Phase 42 → 39 → 41 → 47 → Phase 53 的 demo 元数据/旧对象 reconcile → 44 → 0。可播放视频资源虽已替换，但 demo SQL 仍记录 528B/旧摘要，且旧同名 MinIO 对象不会升级替换，故仍单列 Phase 53 High。
+- 第三轮自测门禁：全新数据卷 Flyway V1–V30 成功，Surefire 125/125、Failsafe 152/152，合计 277/277；Phase 7 31/31；前端 type-check/build、生产 Compose config 与生产 fat-JAR worker 均通过。GitHub Actions 的固定版本 MinIO、桶初始化和前端 type-check 已在 U-001 独立 PASS；`teacher-cert-ws03` 已 `down -v`，隔离测试数据不可恢复且无需保留。
+- 后续近端顺序为：先对 WS-3 第三轮做独立增量重核；PASS 后按风险修 Phase 42 → 39 → 41 → 47 → Phase 53 的 demo 元数据/旧对象 reconcile → 44 → 0。可播放视频资源虽已替换，但 demo SQL 仍记录 528B/旧摘要，且旧同名 MinIO 对象不会升级替换，故仍单列 Phase 53 High。
 - 2026-07-22 的“缺阶段报告”证据债务已在 2026-07-23 清零；其发现的 CI MinIO/type-check 门禁已在当前整改包补齐并独立重核 PASS。历史结论保留于 `docs/reviews/progress-review-2026-07-22.md`。
 - `.claude/audits/`、审计 HTML、`docs/audit-remediation-plan.md`、`docs/prompts/` 是本地未跟踪审计资料，不得纳入功能提交。
 
@@ -124,12 +125,12 @@ git -C "$REPO" add -A && git -C "$REPO" commit -m "feat(T-0xx): ..."
 - 实体继承 `BaseEntity`（id/审计字段/逻辑删除自动）；Mapper 放 `**/mapper`（已 `@MapperScan("cn.edu.gpnu.platform.**.mapper")`）；统一返回 `Result`；写操作 `@AuditLog`；列表/导出/统计查询 `@DataScope`；当前用户取 `UserContext`。
 - **文本化字段全链路 String + Excel `@`**（学校代码/学号/证件号/出生日期/证书编号/有效期限）——AT-01 生命线，勿用数值/日期类型。
 
-## 5. 当前整改入口 → WS-3 第二轮整改待独立重核
-1. 读 `AGENTS.md` → `docs/REVIEW-GATE.md` → `docs/CURRENT-EXECUTION-PLAN.md` → 原报告 `docs/reviews/ws-03-review-2026-07-23.md` → 重核报告 `docs/reviews/ws-03-remediation-rereview-2026-07-23.md`。
+## 5. 当前整改入口 → WS-3 第三轮整改完成，待独立重核
+1. 读 `AGENTS.md` → `docs/REVIEW-GATE.md` → `docs/CURRENT-EXECUTION-PLAN.md` → 原报告 `docs/reviews/ws-03-review-2026-07-23.md` → 首批重核 `docs/reviews/ws-03-remediation-rereview-2026-07-23.md` → 第二轮重核 `docs/reviews/ws-03-second-remediation-rereview-2026-07-23.md`。
 2. 已闭环：服务端 `SHA256_TREE_V1` 可信指纹；同 uploader/student + 既有 PASS 的秒传边界；普通 VO 去 `fileMd5`；GitHub Actions 真实 MinIO/桶初始化与前端 type-check。U-001 可视为 PASS。
-3. 第二轮闭环：JCodec 完整扫描并交叉核验容器头/样本跨度/样本累计时长，且要求恰好一个视频轨道；Redis 令牌租约实现跨节点定稿单飞与 TTL 恢复，容量守卫限制并发、临时文件预留、磁盘余量、时长和媒体包；fast-hit 校验当前策略哈希/探测器版本及 MinIO HEAD；定稿与 assign 共用 review 行锁；V29 逐项检测 DDL 后可恢复执行。
-4. 自测证据：Phase 7 29/29、关联 Phase 14/24 + V29 恢复 18/18、全新数据卷全量 271/271、前端 type-check/build 通过；首批重核时发现的 MyBatis-Plus `FOR UPDATE LIMIT 1` 方言顺序问题已改为唯一键行锁，陈旧 MERGING 的恢复语义改由 Redis TTL 租约判定。
-5. 下一轮只做独立增量重核，未经新报告 PASS 不得改变 CHANGES REQUESTED。Phase 53 的 1 项 demo High 归 U-003。若需要启动后端/前端做运行期验证，仍必须遵守 `AGENTS.md §6.1`，Codex/headless exec 不启动常驻服务。
+3. 第二轮已闭环：JCodec 三时长交叉核验与唯一视频轨；当前策略/探测器版本 + MinIO HEAD 的 fast-hit；定稿与 assign 共用 review 行锁；V29 逐项检测恢复。
+4. 第三轮已实现：`SERVER_CHUNK /merge` 使用可续租 lease、稳定 object key 和数据库 fencing token；磁盘按活跃任务累计总预留准入；JCodec 在受限堆独立 JVM 内运行且墙钟到期可强杀；S3 建连/读取超时、官方 Compose/.env/专用临时卷一并落地。
+5. 自测证据：容量/释放、TTL 续租与递增 token、maxPackets、多视频轨、工作进程强杀、server merge 三处崩溃恢复均有确定性反例；Phase 7 31/31、全新数据卷 V1–V30 全量 277/277、前端 type-check/build、生产 Compose config、fat-JAR worker 通过。下一步只做独立增量重核；未经新报告 PASS 不得改变 CHANGES REQUESTED。若需要启动后端/前端做运行期验证，仍必须遵守 `AGENTS.md §6.1`，Codex/headless exec 不启动常驻服务。
 
 ## 6. 已知坑与规避（别重复踩）
 - Lombok `optional` 不向子模块传递 → 已在父 POM 解决。

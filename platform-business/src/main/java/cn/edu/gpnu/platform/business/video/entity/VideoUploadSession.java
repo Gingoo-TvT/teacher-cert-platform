@@ -31,4 +31,5 @@ public class VideoUploadSession extends BaseEntity {
     private String status;
     private Long fileId;
     private String validationMessage;
+    private Long finalizationToken;
 }

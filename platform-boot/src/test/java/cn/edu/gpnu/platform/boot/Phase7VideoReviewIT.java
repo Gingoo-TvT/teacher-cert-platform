@@ -12,6 +12,8 @@ import cn.edu.gpnu.platform.business.video.mapper.VideoReviewTaskMapper;
 import cn.edu.gpnu.platform.business.video.mapper.VideoUploadChunkMapper;
 import cn.edu.gpnu.platform.business.video.mapper.VideoUploadSessionMapper;
 import cn.edu.gpnu.platform.business.video.support.JcodecVideoMediaProbe;
+import cn.edu.gpnu.platform.business.video.support.VideoFinalizationHook;
+import cn.edu.gpnu.platform.business.video.support.VideoFinalizeSingleFlight;
 import cn.edu.gpnu.platform.business.video.support.VideoMediaInspection;
 import cn.edu.gpnu.platform.business.video.support.VideoMediaProbe;
 import cn.edu.gpnu.platform.file.config.MinioProperties;
@@ -82,6 +84,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -89,7 +92,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 @Import(Phase7VideoReviewIT.ProbeTestConfiguration.class)
 @TestPropertySource(properties = {
         "platform.security.jwt.secret=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-        "platform.security.jwt.access-ttl-seconds=30"
+        "platform.security.jwt.access-ttl-seconds=30",
+        "platform.video.probe.lease-duration=PT1S",
+        "platform.video.probe.lease-renew-interval=PT0.2S"
 })
 class Phase7VideoReviewIT {
 
@@ -173,6 +178,12 @@ class Phase7VideoReviewIT {
     @Autowired
     private CountingVideoMediaProbe countingVideoMediaProbe;
 
+    @Autowired
+    private ControlledVideoFinalizationHook controlledVideoFinalizationHook;
+
+    @Autowired
+    private VideoFinalizeSingleFlight videoFinalizeSingleFlight;
+
     @BeforeEach
     @AfterEach
     void resetSeedUsers() {
@@ -201,6 +212,7 @@ class Phase7VideoReviewIT {
         resetUser("test_review_teacher_c", true);
         resetUser("test_review_teacher_d", true);
         countingVideoMediaProbe.reset();
+        controlledVideoFinalizationHook.reset();
     }
 
     @Test
@@ -423,7 +435,7 @@ class Phase7VideoReviewIT {
         String fingerprint = videoFingerprint(content);
         assertThat(sourceFile.getMediaCodec()).isEqualTo("H264");
         assertThat(sourceFile.getMediaValidationPolicyHash()).hasSize(64);
-        assertThat(sourceFile.getMediaProbeVersion()).isEqualTo("JCODEC_TIMELINE_V2");
+        assertThat(sourceFile.getMediaProbeVersion()).isEqualTo("JCODEC_PROCESS_V3");
 
         resetParam("video.allowedCodecs", "VP8");
         JsonNode policyMiss = initUpload(student.accessToken(), 9001L, "P7-POLICY-MISS",
@@ -1297,6 +1309,74 @@ class Phase7VideoReviewIT {
     }
 
     @Test
+    void serverChunkFinalizationRecoversAfterEveryDurableCrashBoundary() throws Exception {
+        LoginResult student = readyLogin("test_student");
+        for (VideoFinalizationHook.ServerChunkStage stage
+                : VideoFinalizationHook.ServerChunkStage.values()) {
+            String year = "P7-SR-" + stage.ordinal();
+            byte[] content = mp4(year);
+            JsonNode init;
+            boolean originalDirectUploadEnabled = minioProperties.isDirectUploadEnabled();
+            try {
+                minioProperties.setDirectUploadEnabled(false);
+                init = initUpload(student.accessToken(), 9001L, year,
+                        "server-recovery-" + stage.name().toLowerCase() + ".mp4", "video/mp4",
+                        content.length, VIDEO_PART_SIZE, videoFingerprint(content), 900);
+            } finally {
+                minioProperties.setDirectUploadEnabled(originalDirectUploadEnabled);
+            }
+            String uploadId = init.at("/uploadId").asText();
+            uploadServerChunk(student.accessToken(), uploadId, 0, content);
+
+            controlledVideoFinalizationHook.arm(uploadId, stage);
+            ResponseEntity<String> interrupted = exchange("/api/video/upload/merge", HttpMethod.POST,
+                    student.accessToken(), Map.of("uploadId", uploadId, "durationSeconds", 900));
+            assertThat(json(interrupted).at("/code").asInt()).isNotZero();
+
+            VideoUploadSession recoveryPoint = uploadSession(uploadId);
+            assertThat(recoveryPoint.getStatus()).isEqualTo("MERGING");
+            assertThat(recoveryPoint.getFinalizationToken()).isPositive();
+            assertThat(recoveryPoint.getObjectKey())
+                    .isEqualTo("teaching-video/server-finalized/" + uploadId + ".mp4");
+
+            JsonNode recovered = mergeServerChunks(student.accessToken(), uploadId, 900);
+            JsonNode idempotentRetry = mergeServerChunks(student.accessToken(), uploadId, 900);
+            assertThat(recovered.at("/status").asText()).isEqualTo("WAIT_REVIEW");
+            assertThat(idempotentRetry.at("/id").asLong()).isEqualTo(recovered.at("/id").asLong());
+
+            VideoUploadSession completed = uploadSession(uploadId);
+            assertThat(completed.getStatus()).isEqualTo("MERGED");
+            assertThat(completed.getFinalizationToken()).isNull();
+            assertThat(completed.getObjectKey()).isEqualTo(recoveryPoint.getObjectKey());
+            assertThat(fileObjectMapper.selectCount(new LambdaQueryWrapper<FileObject>()
+                    .eq(FileObject::getObjectKey, completed.getObjectKey()))).isEqualTo(1L);
+            assertThat(reviewMapper.selectCount(new LambdaQueryWrapper<VideoReview>()
+                    .eq(VideoReview::getStudentId, 9001L)
+                    .eq(VideoReview::getAssessmentYear, year))).isEqualTo(1L);
+        }
+    }
+
+    @Test
+    void activeFinalizationLeaseRenewsAndReleasedLeaseGetsHigherFencingToken()
+            throws InterruptedException {
+        String uploadId = "P7-LEASE-" + System.nanoTime();
+        long firstToken;
+        try (VideoFinalizeSingleFlight.Lease first = videoFinalizeSingleFlight.tryAcquire(uploadId)) {
+            assertThat(first).isNotNull();
+            firstToken = first.token();
+            Thread.sleep(1_500L);
+            first.assertOwned();
+            assertThat(videoFinalizeSingleFlight.tryAcquire(uploadId)).isNull();
+        }
+
+        try (VideoFinalizeSingleFlight.Lease successor = videoFinalizeSingleFlight.tryAcquire(uploadId)) {
+            assertThat(successor).isNotNull();
+            successor.assertOwned();
+            assertThat(successor.token()).isGreaterThan(firstToken);
+        }
+    }
+
+    @Test
     void largePresignedMultipartUploadCompletesWithExpectedObjectMetadataAndBytes() throws Exception {
         // 两片浏览器直传：首片满足 S3 5MiB 下限，末片可小于下限；最终对象保留 multipart ETag。
         LoginResult studentLogin = readyLogin("test_student");
@@ -1942,6 +2022,44 @@ class Phase7VideoReviewIT {
         @Primary
         CountingVideoMediaProbe countingVideoMediaProbe(JcodecVideoMediaProbe delegate) {
             return new CountingVideoMediaProbe(delegate);
+        }
+
+        @Bean
+        @Primary
+        ControlledVideoFinalizationHook controlledVideoFinalizationHook() {
+            return new ControlledVideoFinalizationHook();
+        }
+    }
+
+    static final class ControlledVideoFinalizationHook extends VideoFinalizationHook {
+
+        private final AtomicReference<Failpoint> armed = new AtomicReference<>();
+
+        void arm(String uploadId, ServerChunkStage stage) {
+            armed.set(new Failpoint(uploadId, stage));
+        }
+
+        void reset() {
+            armed.set(null);
+        }
+
+        @Override
+        public void afterServerChunkStage(ServerChunkStage stage, String uploadId) {
+            Failpoint failpoint = armed.get();
+            if (failpoint != null && failpoint.uploadId().equals(uploadId)
+                    && failpoint.stage() == stage && armed.compareAndSet(failpoint, null)) {
+                throw new SimulatedNodeExitException("模拟节点退出: " + stage);
+            }
+        }
+
+        private record Failpoint(String uploadId, ServerChunkStage stage) {
+        }
+    }
+
+    static final class SimulatedNodeExitException extends RuntimeException {
+
+        private SimulatedNodeExitException(String message) {
+            super(message);
         }
     }
 

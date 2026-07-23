@@ -17,6 +17,7 @@ import software.amazon.awssdk.services.s3.S3Configuration;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 
 import java.net.URI;
+import java.time.Duration;
 
 /**
  * MinIO 客户端 + 启动时确保 bucket 存在。
@@ -43,7 +44,9 @@ public class MinioConfig {
                 .credentialsProvider(credentialsProvider())
                 .region(Region.of(props.getRegion()))
                 .serviceConfiguration(s3Configuration())
-                .httpClientBuilder(UrlConnectionHttpClient.builder())
+                .httpClientBuilder(UrlConnectionHttpClient.builder()
+                        .connectionTimeout(Duration.ofSeconds(props.getConnectionTimeoutSeconds()))
+                        .socketTimeout(Duration.ofSeconds(props.getReadTimeoutSeconds())))
                 .build();
     }
 

@@ -24,6 +24,11 @@ M14 扩展点预留、后端/前端 Dockerfile、生产 docker-compose、兼容�
   - `STAFF_INITIAL_PASSWORD`（**必须**，12-64 位且含大小写字母、数字、特殊字符；不得使用公开 dev/示例口令）。
   - `DB_PASSWORD` / `REDIS_PASSWORD`（**必须**强口令）。
   - `CORS_ALLOWED_ORIGINS`（P1-7）：允许跨域的前端来源白名单，逗号分隔、含协议+端口、无末尾斜杠（如 `https://cert.gpnu.edu.cn`）。同源部署（前端 nginx 同域反代 `/api`）下 CORS 不参与、可留空；跨域独立前端域名时**必须**设为真实域名，否则被拦截。`allowCredentials=true` 下不可用通配 `*`。
+  - `MINIO_CONNECTION_TIMEOUT_SECONDS` / `MINIO_READ_TIMEOUT_SECONDS`：媒体对象读取的显式建连/套接字超时，避免对象存储单次读取永久占用探测任务。
+  - `VIDEO_PROBE_MAX_CONCURRENT` / `VIDEO_PROBE_MAX_RESERVED_BYTES` / `VIDEO_PROBE_MIN_FREE_BYTES`：媒体探测并发、累计预留与磁盘保底水位；独立 `video-probe-temp` 卷容量须至少为 `MAX_RESERVED_BYTES + MIN_FREE_BYTES`，并另留运维余量。
+  - `VIDEO_PROBE_MAX_DURATION` / `VIDEO_PROBE_MAX_PACKETS` / `VIDEO_PROBE_WORKER_MAX_HEAP_MB`：媒体探测墙钟、样本数及独立工作 JVM 堆上限；墙钟到期会强制终止工作进程。
+  - `VIDEO_PROBE_LEASE_DURATION` / `VIDEO_PROBE_LEASE_RENEW_INTERVAL`：定稿分布式租约与续租周期，续租周期必须严格小于租约时长的一半；数据库 fencing token 阻止过期 owner 提交结果。
+- **媒体探测临时盘**：生产 Compose 将 `/var/lib/teacher-cert/video-probe` 挂载为独立 `video-probe-temp` volume，禁止退回容器 overlay；监控项至少包含卷可用空间、探测拒绝数、工作进程超时数和租约丢失数。
 - **WS-2 发布切换**：新版 JWT 含毫秒级签发时间 `iatMs`、口令凭据版本 `credentialVersion` 和 Redis 持久会话代次 `sessionGeneration`；缺少或不匹配任一新 claim 的存量 token 会被拒绝，logout 通过原子增代使旧 access/refresh 立即失效。发布时必须同时替换/重启全部后端实例并通知用户重新登录；禁止旧实例在滚动窗口继续签发旧格式 token。
 
 ## 4. 非功能收口（plan §十二）
@@ -36,6 +41,7 @@ M14 扩展点预留、后端/前端 Dockerfile、生产 docker-compose、兼容�
 - [x] 导出文件机检为文本格式，证件号/前导零/编号/有效期不被转换；Excel/WPS 双端人工核对要求已归档到复验矩阵。
 - [x] 主流程 E2E 贯通：导入→确认→培养→材料→初复审→免考→视频→测试→教务处确认→证书生成→签发→导出/归档。
 - [x] 主流浏览器（Chrome/Edge/Firefox）回归目标已记录；前端 type-check/build 作为自动验收门禁。
+- [x] 媒体探测临时目录使用独立数据卷；S3 读取、工作进程墙钟/堆、累计磁盘预留与可续租 fencing lease 均有显式生产配置。
 
 ## 6. AT 整体复验矩阵
 逐条执行 `README.md` §4 矩阵中每个 AT 的首验用例 + 跨阶段联动用例，归档执行记录（测试名/截图/日志）。

@@ -4,14 +4,6 @@ import cn.edu.gpnu.platform.file.service.MultipartObjectService;
 import cn.edu.gpnu.platform.system.service.ParamService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.jcodec.api.FrameGrab;
-import org.jcodec.api.JCodecException;
-import org.jcodec.common.DemuxerTrack;
-import org.jcodec.common.DemuxerTrackMeta;
-import org.jcodec.common.io.SeekableByteChannel;
-import org.jcodec.common.model.Packet;
-import org.jcodec.common.model.Picture;
-import org.jcodec.containers.mp4.demuxer.MP4Demuxer;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -24,6 +16,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -35,7 +28,7 @@ import java.util.TreeSet;
 @Slf4j
 public class JcodecVideoMediaProbe implements VideoMediaProbe {
 
-    static final String PROBE_VERSION = "JCODEC_TIMELINE_V2";
+    static final String PROBE_VERSION = "JCODEC_PROCESS_V3";
     private static final int FINGERPRINT_CHUNK_SIZE = 8 * 1024 * 1024;
     private static final byte[] FINGERPRINT_MARKER =
             "teacher-cert-file-sha256-tree-v1\0".getBytes(StandardCharsets.UTF_8);
@@ -45,6 +38,7 @@ public class JcodecVideoMediaProbe implements VideoMediaProbe {
     private final MultipartObjectService multipartObjectService;
     private final ParamService paramService;
     private final VideoProbeProperties properties;
+    private final VideoMediaWorker mediaWorker;
 
     @Override
     public VideoMediaInspection inspect(String objectKey, long expectedSize, String declaredFingerprint) {
@@ -67,7 +61,14 @@ public class JcodecVideoMediaProbe implements VideoMediaProbe {
                 return invalid(policy, "视频指纹与服务端对象内容不一致",
                         fingerprint, null, null, null);
             }
-            return inspectMp4(temporaryFile, fingerprint, policy, deadlineNanos);
+            VideoMediaWorker.TrackInspection track = mediaWorker.inspect(
+                    temporaryFile, policy.allowedCodecs(), policy.timelineToleranceSeconds(),
+                    properties.getMaxPackets(), remainingDuration(deadlineNanos));
+            return track.valid()
+                    ? VideoMediaInspection.valid(fingerprint, track.durationSeconds(), track.codec(),
+                            track.frameCount(), policy.hash(), PROBE_VERSION)
+                    : invalid(policy, track.message(), fingerprint, track.durationSeconds(),
+                            track.codec(), track.frameCount());
         } catch (ProbeLimitException e) {
             return invalid(policy, e.getMessage(), fingerprint, null, null, null);
         } catch (IOException | RuntimeException e) {
@@ -142,102 +143,6 @@ public class JcodecVideoMediaProbe implements VideoMediaProbe {
         return new FingerprintResult(hex(sha256().digest(root.array())));
     }
 
-    private VideoMediaInspection inspectMp4(Path file, String fingerprint, MediaPolicy policy,
-                                            long deadlineNanos) {
-        try (SeekableByteChannel channel = org.jcodec.common.io.NIOUtils.readableChannel(file.toFile())) {
-            ensureWithinDeadline(deadlineNanos);
-            MP4Demuxer demuxer = MP4Demuxer.createMP4Demuxer(channel);
-            List<DemuxerTrack> videoTracks = demuxer.getVideoTracks();
-            if (videoTracks.isEmpty()) {
-                return invalid(policy, "MP4中不存在视频轨道", fingerprint, null, null, null);
-            }
-            if (videoTracks.size() != 1) {
-                return invalid(policy, "MP4必须且只能包含一个视频轨道", fingerprint, null, null, null);
-            }
-            TrackTimeline timeline = inspectTimeline(videoTracks.get(0), policy, deadlineNanos);
-            if (!timeline.valid()) {
-                return invalid(policy, timeline.message(), fingerprint, timeline.durationSeconds(),
-                        timeline.codec(), timeline.frameCount());
-            }
-            ensureWithinDeadline(deadlineNanos);
-            Picture decodedFrame = FrameGrab.getFrameFromFile(file.toFile(), 0);
-            ensureWithinDeadline(deadlineNanos);
-            if (decodedFrame == null || decodedFrame.getWidth() < 1 || decodedFrame.getHeight() < 1) {
-                return invalid(policy, "视频首帧无法解码", fingerprint, timeline.durationSeconds(),
-                        timeline.codec(), timeline.frameCount());
-            }
-            return VideoMediaInspection.valid(fingerprint, timeline.durationSeconds(),
-                    timeline.codec(), timeline.frameCount(), policy.hash(), PROBE_VERSION);
-        } catch (ProbeLimitException e) {
-            return invalid(policy, e.getMessage(), fingerprint, null, null, null);
-        } catch (IOException | JCodecException | RuntimeException e) {
-            log.warn("MP4媒体探测失败: {}", e.getClass().getSimpleName());
-            return invalid(policy, "视频文件不是可解析的MP4媒体", fingerprint, null, null, null);
-        }
-    }
-
-    private TrackTimeline inspectTimeline(DemuxerTrack videoTrack, MediaPolicy policy, long deadlineNanos)
-            throws IOException {
-        DemuxerTrackMeta metadata = videoTrack.getMeta();
-        String codec = metadata.getCodec() == null
-                ? null : metadata.getCodec().name().toUpperCase(Locale.ROOT);
-        int declaredFrames = metadata.getTotalFrames();
-        double headerDuration = metadata.getTotalDuration();
-        if (!policy.allowedCodecs().contains(codec)) {
-            return TrackTimeline.invalid("视频编码不在允许范围", codec, safeDuration(headerDuration),
-                    declaredFrames);
-        }
-        if (!validPositiveDuration(headerDuration)) {
-            return TrackTimeline.invalid("视频头时长不可解析", codec, null, declaredFrames);
-        }
-
-        int packetCount = 0;
-        double earliestStart = Double.POSITIVE_INFINITY;
-        double latestEnd = Double.NEGATIVE_INFINITY;
-        double sampleDuration = 0D;
-        Packet packet;
-        while ((packet = videoTrack.nextFrame()) != null) {
-            ensureWithinDeadline(deadlineNanos);
-            packetCount++;
-            if (packetCount > properties.getMaxPackets()) {
-                throw new ProbeLimitException("视频帧数超过媒体探测安全上限");
-            }
-            if (packet.getData() == null || !packet.getData().hasRemaining()
-                    || packet.getTimescale() <= 0 || packet.getDuration() <= 0) {
-                return TrackTimeline.invalid("视频轨道包含无效样本", codec, null, packetCount);
-            }
-            double start = packet.getPtsD();
-            double duration = packet.getDurationD();
-            double end = start + duration;
-            if (!Double.isFinite(start) || !validPositiveDuration(duration) || !Double.isFinite(end)) {
-                return TrackTimeline.invalid("视频样本时间线不可解析", codec, null, packetCount);
-            }
-            earliestStart = Math.min(earliestStart, start);
-            latestEnd = Math.max(latestEnd, end);
-            sampleDuration += duration;
-        }
-        if (packetCount < 1) {
-            return TrackTimeline.invalid("视频轨道不包含可读取帧", codec,
-                    safeDuration(headerDuration), packetCount);
-        }
-        if (declaredFrames > 0 && declaredFrames != packetCount) {
-            return TrackTimeline.invalid("视频头帧数与实际样本数不一致", codec,
-                    safeDuration(headerDuration), packetCount);
-        }
-        double timelineDuration = latestEnd - earliestStart;
-        if (!validPositiveDuration(timelineDuration) || !validPositiveDuration(sampleDuration)) {
-            return TrackTimeline.invalid("视频样本时间线不可解析", codec, null, packetCount);
-        }
-        double tolerance = policy.timelineToleranceSeconds();
-        if (Math.abs(headerDuration - timelineDuration) > tolerance
-                || Math.abs(headerDuration - sampleDuration) > tolerance
-                || Math.abs(timelineDuration - sampleDuration) > tolerance) {
-            return TrackTimeline.invalid("视频头时长与样本时间线不一致", codec,
-                    safeDuration(timelineDuration), packetCount);
-        }
-        return TrackTimeline.valid(codec, Math.max(1, (int) Math.round(timelineDuration)), packetCount);
-    }
-
     private MediaPolicy currentPolicy() {
         Set<String> codecs = new TreeSet<>();
         String configured = paramService.getString("video.allowedCodecs", DEFAULT_ALLOWED_CODECS);
@@ -279,15 +184,9 @@ public class JcodecVideoMediaProbe implements VideoMediaProbe {
         }
     }
 
-    private boolean validPositiveDuration(double duration) {
-        return Double.isFinite(duration) && duration > 0 && duration <= Integer.MAX_VALUE;
-    }
-
-    private Integer safeDuration(double duration) {
-        if (!validPositiveDuration(duration)) {
-            return null;
-        }
-        return Math.max(1, (int) Math.round(duration));
+    private Duration remainingDuration(long deadlineNanos) {
+        ensureWithinDeadline(deadlineNanos);
+        return Duration.ofNanos(Math.max(1L, deadlineNanos - System.nanoTime()));
     }
 
     private MessageDigest sha256() {
@@ -310,19 +209,6 @@ public class JcodecVideoMediaProbe implements VideoMediaProbe {
     }
 
     private record MediaPolicy(Set<String> allowedCodecs, int timelineToleranceSeconds, String hash) {
-    }
-
-    private record TrackTimeline(boolean valid, String message, String codec,
-                                 Integer durationSeconds, int frameCount) {
-
-        private static TrackTimeline valid(String codec, int durationSeconds, int frameCount) {
-            return new TrackTimeline(true, null, codec, durationSeconds, frameCount);
-        }
-
-        private static TrackTimeline invalid(String message, String codec,
-                                             Integer durationSeconds, int frameCount) {
-            return new TrackTimeline(false, message, codec, durationSeconds, frameCount);
-        }
     }
 
     private static final class ProbeLimitException extends RuntimeException {

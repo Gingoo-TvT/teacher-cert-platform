@@ -15,6 +15,22 @@
 
 ---
 
+## [2026-07-23] WS-3 第三轮退回整改完成 — 待独立重核
+- 做了什么：闭环第二轮报告的 3 High / 3 Medium。direct complete 与 server-chunk merge 统一使用可续租 Redis lease，并经 V30 把递增 fencing token 写入 `video_upload_session`；server-chunk 在认领事务内持久化稳定最终 object key，支持 CLAIMED / OBJECT_READY / PROBED 三处退出后的接管恢复。容量守卫改为按全部活跃任务累计预留与真实可用空间准入。JCodec 解复用、逐包扫描和首帧解码迁入受限堆独立 JVM，墙钟到期由父进程强杀；S3 客户端补显式建连/读取超时。生产 Compose/.env 增加全部探测配置和独立 `video-probe-temp` 卷。
+- 关键决策与理由：数据库 `MERGING` 只作为持久恢复点，不能充当永不失效的锁；Redis lease 负责活跃 owner，数据库 token 负责阻止旧 owner 晚提交，两者缺一不可。最终对象 key 必须在外部 compose 前持久化，接管者才能复用已完成对象。对 JCodec 的单次阻塞无法靠线程中 cooperative deadline 安全终止，因此使用独立进程隔离堆并提供可强杀边界；磁盘准入使用累计预留，避免两个各自看似可容纳的任务合计打穿保底水位。
+- 问题与解决：首次 Phase 7 回归发现旧探测器版本断言、测试年度过长和畸形媒体在 64MiB worker 中 OOM 退出；分别更新断言/短年度，并把工作进程非零退出按“不可解析 MP4” fail closed。崩溃恢复测试还发现 MyBatis-Plus `updateById` 默认忽略 null，导致完成后 fencing token 未清空；改为带 token 条件的显式 `SET finalization_token = NULL`，定向和全量回归均通过。
+- 与规格的偏差/疑问：无新增业务规则或权限点。真实 2GB 传输、非允许编码和不可解码首帧的专项证据债仍保留，Phase 7 两个宽泛验收项不补勾；Phase 53 demo 元数据/旧对象 High 仍归 U-003。第二轮正式报告仍为 CHANGES REQUESTED，本条只声明“整改完成、待独立重核”。
+- 测试：新增累计容量/释放、250ms 工作进程硬终止、`maxPackets=1`、双视频轨、1s TTL 自动续租与递增 token、server merge 三处退出接管反例。Phase 7 **31/31**；全新 MySQL/Redis/MinIO 数据卷执行 `mvn -B -ntp clean verify`，Flyway V1–V30 成功，Surefire **125/125**、Failsafe **152/152**，合计 **277/277**，0 failure/error/skip；前端 type-check/build PASS（仅既有大 chunk 警告）；生产 Compose config、打包 fat-JAR worker、`git diff --check` PASS。未启动常驻后端/前端。
+- 下一步：提交第三轮增量并交独立复核者只核 3 High / 3 Medium + Phase 7/14/24 + 全量门禁；新报告 PASS 前 WS-3/U-002 继续按 CHANGES REQUESTED 管理。
+
+## [2026-07-23] GOV-005 WS-3 第二轮整改独立重核退回
+- 做了什么：冻结 `ca400f1..32da735`，逐文件复核第二轮 21 个变更文件及关联调用方，产出 `docs/reviews/ws-03-second-remediation-rereview-2026-07-23.md`。确认媒体三时长交叉核验、唯一视频轨、fast-hit 当前策略/探测器版本与 MinIO HEAD、定稿/assign 行锁和 V29 结构恢复已闭环；总判定仍为 **CHANGES REQUESTED（3 High / 3 Medium）**。
+- 关键决策与理由：不以 271/271 绿灯替代恢复和资源不变量。`SERVER_CHUNK /merge` 只有数据库 CAS，认领后进程退出会永久卡 `MERGING`；容量守卫的磁盘检查只比较单任务大小而非累计总预留；JCodec deadline 只能在阻塞调用返回后检查，不能兑现硬时限。direct lease 无续租/fencing、生产 Compose 未转发新参数、资源边界无反例分别记 Medium。
+- 问题与解决：V29 在 `ca400f1` 后被改写会改变 checksum；复核确认仓库无 remote、V29 未进入 main、已知旧测试卷已销毁，因此不把“本地未发布 feature 脚本变更”误判为现存 High，但要求合并前确认不存在未披露长寿命旧 V29 库。用户要求不触发任何可能涉及 cyber 的操作，本轮没有新增或单独执行畸形载荷、模糊测试、压测、利用或攻击性并发，只运行项目既有标准门禁。
+- 与规格的偏差/疑问：`plan.md §6.11`、T-057 和 Phase 7 声明“定稿崩溃超时恢复、临时盘总预留、探测时长上限”，当前实现只在 direct 正常租约期内部分成立，已同步 `PROGRESS.md`、统一执行计划、Phase 7 和 `HANDOFF.md`，未修改业务规格。
+- 测试：独立全新 MySQL/Redis/MinIO 执行 `mvn -B -ntp clean verify`，BUILD SUCCESS；Surefire **121/121**、Failsafe **150/150**，合计 **271/271**，0 failure/error/skip；Phase 7 **29/29**、V29 恢复 **1/1**。前端 type-check/build PASS（仅既有大 chunk 警告）。未启动常驻应用，`teacher-cert-ws03` 已 `down -v`。
+- 下一步：第三轮只修 3 High，再闭环 3 Medium：统一 complete/merge 可恢复 lease + fencing、累计磁盘 admission、可终止媒体 worker、生产配置入口及安全低阈值反例；完成后只重核增量 + Phase 7/14/24 + 全量门禁。
+
 ## [2026-07-23] WS-3 首批整改退回 — 第二轮 5 High 修复完成，待独立重核
 - 做了什么：按 `docs/reviews/ws-03-remediation-rereview-2026-07-23.md` 只修 WS-3 的 5 项 High。媒体探测改为完整扫描唯一视频轨道，将 MP4 头时长、样本时间线跨度和样本时长累计值两两交叉核验；新增 Redis 令牌租约实现 uploadId 跨节点单飞与 TTL 崩溃恢复，并以容量守卫限制并发探测、临时文件总预留量、磁盘余量、探测时长和媒体包数；fast-hit 增加当前策略哈希、探测器版本、编码和 MinIO HEAD 精确大小校验；定稿 upsert 与 assign 对同一 `video_review` 行加锁串行化；V29 每项列/索引 DDL 先查 `information_schema` 后动态执行，支持 MySQL 部分 DDL 已提交后的安全重跑。
 - 关键决策与理由：媒体可信时长不能来自单一容器头，必须与实际样本时间线相互证明；重复定稿使用 Redis `SET NX` + token-safe Lua release，既覆盖多实例又保留进程崩溃后的 TTL 恢复，不把永久 MERGING 当作锁；秒传验证结果绑定策略规范化哈希和探测器版本，配置变化即失效；评审状态竞争使用数据库行锁建立同一原子顺序，避免探测完成覆盖已分配状态。按小范围 fail-closed 原则拒绝多视频轨道文件。

@@ -22,6 +22,8 @@ public class MinioProperties {
     private boolean directUploadEnabled = true;
     private int directUploadInitTimeoutSeconds = 120;
     private int directUploadCompleteTimeoutSeconds = 300;
+    private int connectionTimeoutSeconds = 10;
+    private int readTimeoutSeconds = 30;
 
     public String browserEndpoint() {
         return publicEndpoint == null || publicEndpoint.isBlank() ? endpoint : publicEndpoint;
