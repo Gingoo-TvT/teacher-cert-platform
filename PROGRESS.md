@@ -5,24 +5,41 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**审计整改 WS-3（MinIO 预签名直传与独立端点）自测完成、待复核**——分支 `feature/ws03-minio-presign`；WS-1/WS-2/WS-10/WS-13 同样保持待外部复核。
-- 阻塞项：无；材料与视频已支持浏览器直传 MinIO，服务端只签名、校验与提交，旧服务端分片路径保留为配置化回退。
-- 最近更新：2026-07-22（V28、S3 multipart presigner、内外双端点、CORS、并行 5 分片与 Worker 指纹已落地；空库 `mvn clean verify`：Surefire 121/121、Failsafe 144/144；前端 type-check/build、生产/dev Compose config 均通过）。
-- 下一步：保持 WS-3 单提交并交主控独立复核；不得自行置 ✅，不 merge/push。复核通过后再进入 WS-4 D0 UI 基线。
+- 当前阶段：**WS-03 三项 Major 与 CI 门禁整改完成，待独立重核**；整体仍为 CHANGES REQUESTED，统一入口为 `docs/CURRENT-EXECUTION-PLAN.md`。
+- 当前结论：WS-1/WS-2/WS-10/WS-13 PASS；WS-3 原复核结论为退回，当前修复包只置“待独立重核”，不得在重核前标记 PASS。Phase 29、35b、36–38、40、43、45–46、48–52 PASS，Phase 0、39、41、42、44、47、53 复核退回。
+- P0 放行项：先独立重核 WS-3 的服务端可信媒体探测、服务端内容指纹/秒传边界和 CI 零状态契约，再处理 Phase 42/39/41/47/53/44 与 Phase 0 报告中的退回项。
+- 最近更新：2026-07-23（全新 schema 执行 Flyway V1–V29 与全量门禁：Surefire 121/121、Failsafe 145/145，合计 266/266；Phase 7 为 25/25；前端 type-check/build 通过；CI 已补 MinIO 桶初始化与 type-check；临时容器/网络/卷和相关端口均已清理）。
+- 下一步：对 U-001/U-002 做独立增量重核；通过后按 Phase 42 → 39 → 41 → 47 → 53 → 44 → 0 顺序修复并逐项重核，全部清零后进入 WS-4 D0 UI 基线。
 
 ## 审计整改工作流
 | WS | 内容 | 状态 |
 |---|---|---|
-| WS-1 | IT 计数按自身 fixture 隔离 | `[x]` 单提交完成，待主控复核/合并 |
-| WS-2 | prod admin bootstrap + STAFF/学生初始口令硬化 | `[x]` **待复核**（2026-07-15） |
-| WS-3 | MinIO 预签名直传、独立端点与浏览器并行分片 | `[x]` **待复核**（2026-07-22） |
-| WS-10 | 移除默认 dev profile + profile fail-fast | `[x]` **待复核**（2026-07-20） |
-| WS-13 | RBAC 授权天花板（防自提权守卫） | `[x]` **待复核**（2026-07-20） |
+| WS-1 | IT 计数按自身 fixture 隔离 | `[x]` **独立复核 PASS**（2026-07-23） |
+| WS-2 | prod admin bootstrap + STAFF/学生初始口令硬化 | `[x]` **独立复核 PASS**（2026-07-23） |
+| WS-3 | MinIO 预签名直传、独立端点与浏览器并行分片 | `[x]` **3 项 Major 修复完成，待独立重核**（2026-07-23） |
+| WS-10 | 移除默认 dev profile + profile fail-fast | `[x]` **独立复核 PASS**（2026-07-23） |
+| WS-13 | RBAC 授权天花板（防自提权守卫） | `[x]` **独立复核 PASS**（2026-07-23） |
+
+## 收官后阶段复核总览（本轮新增）
+
+| 范围 | 实现状态 | 正式复核状态 | 本轮结论 |
+|---|---|---|---|
+| Phase 0 | 10/10 | `phase-00-review.md` | ❌ 复核退回（验收基线/门禁欠账） |
+| Phase 1–14 | 已完成 | 逐阶段 PASS 报告齐全 | ✅ 保持已复核 |
+| Phase 15–18 | WP-A/B/C/D 已完成 | WP 报告齐全 | ✅ 保持已复核 |
+| Phase 19–28 | 已完成 | 逐阶段 PASS 报告齐全 | ✅ 保持已复核（已纠正 26/28 滞后状态） |
+| Phase 29 | 已合并 | `phase-29-review.md` PASS | ✅ 已复核 |
+| Phase 30–35 | 已完成 | 逐阶段报告齐全 | ✅ 保持已复核 |
+| Phase 35b | 已合并 | `phase-35b-review.md` PASS | ✅ 已复核 |
+| Phase 36–38、40、43、45–46、48–52 | 已合并 | 逐阶段 PASS 报告齐全 | ✅ 已复核 |
+| Phase 39、41、42、44、47、53 | 已合并 | 逐阶段 CHANGES REQUESTED 报告齐全 | ❌ 复核退回 |
+
+逐 Phase 结论、报告路径与后续顺序以 `docs/CURRENT-EXECUTION-PLAN.md` 为准。
 
 ## 阶段汇总
 | Phase | 名称 | 优先级 | 任务数 | 完成 | 状态 |
 |---|---|---|---|---|---|
-| 0 | 工程脚手架与基础设施 | P0 | 10 | 10 | ✅ 已复核(自建自验) |
+| 0 | 工程脚手架与基础设施 | P0 | 10 | 10 | ❌ 复核退回(2026-07-23) |
 | 1 | 基础数据与字典 | P0 | 12 | 12 | ✅ 已复核(Claude 06-14) |
 | 2 | 账号角色权限 | P0 | 7 | 7 | ✅ 已复核(Claude 06-16) |
 | 3 | 基本信息 | P0 | 9 | 9 | ✅ 已复核(Claude 06-16) |
@@ -41,7 +58,7 @@
 
 ---
 
-## Phase 0 · 工程脚手架与基础设施 — 10/10 ✅
+## Phase 0 · 工程脚手架与基础设施 — 10/10 实现完成，❌ 复核退回
 - [x] T-001 创建 Maven 父工程与 8 子模块骨架
 - [x] T-002 platform-common 基础设施（Result/异常/枚举/注解/上下文）
 - [x] T-003 platform-boot 启动与全局配置（MyBatis-Plus/Jackson Long→String/数据源）
@@ -298,7 +315,7 @@
 - 验证：`npm --prefix frontend run type-check` 通过；`npm --prefix frontend run build` 通过（仅既有 Vite chunk-size warning）。Claude 06-18 复核 PASS 并合并 main；Major backlog 转 Phase 27。
 
 ## 收官后 · Phase 26 / UI 设计提升·按 DESIGN.md
-- Phase 26 `UI 设计提升·按 frontend/DESIGN.md`：**待复核**（分支：`feature/phase26-ui-uplift`）。纯前端视觉/排版层提升，不改路由、接口、权限、状态机或迁移；目标是政务·教育级专业后台质感，色板/字阶/间距/圆角/阴影/表格/表单/登录页按 `frontend/DESIGN.md` 收口。
+- Phase 26 `UI 设计提升·按 frontend/DESIGN.md`：**✅ 已复核（Claude PASS，一轮；`docs/reviews/phase-26-review.md`）**（分支：`feature/phase26-ui-uplift`）。纯前端视觉/排版层提升，不改路由、接口、权限、状态机或迁移；目标是政务·教育级专业后台质感，色板/字阶/间距/圆角/阴影/表格/表单/登录页按 `frontend/DESIGN.md` 收口。
 - [x] T-166 主题 token 收口：`frontend/src/theme/global.css` 扩展设计 token；新增 `frontend/src/theme/naive.ts` 集中 `themeOverrides`(common/Button/DataTable/Menu/Tag/Card/Input/Form 等)；`ChartBox` 改用 `theme/tokens.ts` 色板；页面/组件层不再写散落硬编码色。
 - [x] T-167 外壳导航：`MainLayout` 调整为 240/64 侧栏、白底右边线、分组选中 soft 底 + 左 3px 色条、顶栏 60、内容区 24 留白；`PageContainer` 统一页标题/描述/操作区和响应式。
 - [x] T-168 列表表格：全局 DataTable 表头浅底 sticky、行高/hover/分页右对齐；`.mono/.numeric` 在表格内右对齐；操作列新增 `renderTableActions`，多于 3 个动作收进“更多”，主行动作实心、次动作文字。
@@ -314,7 +331,7 @@
 - 验证：定向 `mvn -B -ntp -pl platform-boot -am "-Dit.test=Phase7VideoReviewIT" "-Dfailsafe.failIfNoSpecifiedTests=false" "-Dspring-boot.repackage.skip=true" verify` **11/11** 通过；全量 `mvn -B -ntp verify` **83/83** 通过；`npm --prefix frontend run type-check` 通过；`npm --prefix frontend run build` 通过（仅既有 Vite chunk-size warning）。未启动常驻前端/后端服务；等待 Claude 复核，未自行置 ✅。
 
 ## 收官后 · Phase 28 / UI 视觉重做·明亮圆润(青绿/友好 SaaS)
-- Phase 28 `UI 视觉重做·按新 frontend/DESIGN.md`：**待复核**（分支：`feature/phase28-ui-bright-rounded`）。纯前端视觉/排版层重做，不改路由、接口、权限、状态机、业务逻辑、后端或迁移；目标是从 Phase 26 政务克制蓝/小圆角明显切换到青绿主色、大圆角、宽松留白、柔和阴影的友好 SaaS 风。
+- Phase 28 `UI 视觉重做·按新 frontend/DESIGN.md`：**✅ 已复核（Claude PASS，一轮；`docs/reviews/phase-28-review.md`）**（分支：`feature/phase28-ui-bright-rounded`）。纯前端视觉/排版层重做，不改路由、接口、权限、状态机、业务逻辑、后端或迁移；目标是从 Phase 26 政务克制蓝/小圆角明显切换到青绿主色、大圆角、宽松留白、柔和阴影的友好 SaaS 风。
 - [x] T-175 主题 token 重写：`theme/global.css` 改为青绿/暖中性变量、`--page-bg:#f6f8f7`、控件 10px、卡片/表格 14px、柔和阴影和更宽间距；`theme/naive.ts` 重写 common/Button/DataTable/Menu/Tag/Card/Input/Form/Select/Pagination/Empty；`theme/tokens.ts` 改明快图表色板。
 - [x] T-176 外壳/导航：`MainLayout` 侧栏 248/64，选中态改青绿圆角 pill（无左色条），项间距加宽；顶栏页标题 20px、学年/通知青绿角标、青绿圆形头像；内容区 28 留白，`PageContainer` 间距加宽。
 - [x] T-177 列表/表格：全局 DataTable 圆角 14px 卡片化，表头浅青底、sticky、行高约 50、hover 青绿浅底、分页右对齐；操作列继续保持 ≤3/更多 popover；筛选条控件 34px 等高、10px 圆角。

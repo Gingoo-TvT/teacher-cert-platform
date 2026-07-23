@@ -18,6 +18,7 @@ import software.amazon.awssdk.services.s3.model.CompletedMultipartUpload;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadResponse;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListPartsRequest;
@@ -29,6 +30,7 @@ import software.amazon.awssdk.services.s3.presigner.model.UploadPartPresignReque
 
 import java.time.Duration;
 import java.time.Instant;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -152,6 +154,18 @@ public class S3MultipartObjectService implements MultipartObjectService {
                 return Optional.empty();
             }
             throw minioFailure("读取对象元数据失败", e);
+        }
+    }
+
+    @Override
+    public InputStream openObject(String objectKey) {
+        try {
+            return s3Client.getObject(GetObjectRequest.builder()
+                    .bucket(properties.getBucket())
+                    .key(requireObjectKey(objectKey))
+                    .build());
+        } catch (S3Exception e) {
+            throw minioFailure("读取对象内容失败", e);
         }
     }
 

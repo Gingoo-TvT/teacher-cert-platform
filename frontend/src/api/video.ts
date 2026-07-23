@@ -31,7 +31,6 @@ export interface VideoReview {
   assessmentYear: string
   videoFileId?: string | null
   videoFileName?: string | null
-  fileMd5?: string | null
   durationSeconds?: number | null
   formatCheck?: string | null
   validationMessage?: string | null

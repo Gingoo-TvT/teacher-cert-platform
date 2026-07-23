@@ -59,8 +59,14 @@ import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.UncheckedIOException;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.LocalDateTime;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -777,7 +783,21 @@ class Phase14E2EIT {
     }
 
     private byte[] mp4(String text) {
-        return ("....ftypmp42" + text + "-mdat").getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        try (InputStream input = getClass().getResourceAsStream("/db/demo/sample-video.mp4")) {
+            if (input == null) {
+                throw new IllegalStateException("测试样例视频不存在");
+            }
+            byte[] source = input.readAllBytes();
+            byte[] marker = text.getBytes(StandardCharsets.UTF_8);
+            byte[] result = Arrays.copyOf(source, source.length + 8 + marker.length);
+            ByteBuffer.wrap(result, source.length, 8 + marker.length)
+                    .putInt(8 + marker.length)
+                    .put("free".getBytes(StandardCharsets.US_ASCII))
+                    .put(marker);
+            return result;
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
     }
 
     private String md5(byte[] bytes) throws Exception {

@@ -1,15 +1,19 @@
 # HANDOFF.md — 交接说明（接手必读）
 
 > 目的：让后续 codex / Claude 在**本机（Windows + Git Bash）** 无障碍接手。
-> 顺序：先读本文件 → 再按 `AGENTS.md` §0 读其余文档。当前审计整改 WS-1、WS-2、WS-3、WS-10、WS-13 已由 Codex 自测完成，均待主控复核。
+> 顺序：先读本文件 → 再按 `AGENTS.md` §0 读其余文档。当前 WS 链与缺失阶段均已独立复核；整体仍为 CHANGES REQUESTED。
+> 当前排期、逐阶段复核矩阵与所有历史计划的合并入口：`docs/CURRENT-EXECUTION-PLAN.md`。
 
 ---
 
-## 0. 当前接力快照（2026-07-22）
-- 当前分支 `feature/ws03-minio-presign`，基于 WS-13 提交 `acfc3b6`；WS-3 由本分支唯一提交交付（具体哈希见 `git log -1`）。`main` 仍为 `e4f8228`，无 remote，禁止 push/擅自 merge。
-- WS-3 已落地：材料/视频通过 S3 multipart 预签名 URL 从浏览器直传 MinIO；服务端负责属主/业务上下文、对象前缀、Content-Length、连续分片、ETag、最终对象元数据与状态 CAS 校验。前端 5 路并发、Worker 指纹、刷新续传；内外 endpoint 与 CORS 分离；旧服务端分片路径保留为配置化回退。WS-10 的显式 profile 与 WS-13 的 RBAC 天花板保持不变。
-- 最终 0 表 schema `teacher_cert_ws3_final_20260722_1052` 门禁：9 模块 `BUILD SUCCESS`，Surefire 121/121、Failsafe 144/144；前端 type-check/build、生产/dev Compose config 通过。WS-1/WS-2/WS-3/WS-10/WS-13 均保持“待复核”，不得自行置为已复核。
-- 后续近端顺序为主控复核 WS-3，再进入 WS-4 D0 UI 基线。WS-4 缺 D0 规范/截图工具，禁止直接跳到铺开阶段。
+## 0. 当前接力快照（2026-07-23）
+- 当前分支 `feature/ws03-minio-presign`，基于 WS-13 提交 `acfc3b6`；WS-3 原实现提交为 `338bc91`，当前整改提交见 `git log -1`。`main` 仍为 `e4f8228`，无 remote，禁止 push/擅自 merge。
+- WS-3 原有预签名直传能力保持不变；整改包新增服务端逐字节读取最终 MinIO 对象、计算受信 SHA-256 tree 指纹并用 JCodec 校验实际 MP4/H.264/时长/首帧，校验失败关闭。秒传只允许同 uploader、同 student、同一受信对象及已有合格视频记录复用，普通响应不再暴露内部内容指纹。
+- 2026-07-23 用户在 Claude 不可用期间明确授权 Codex 独立复核。原复核结论：WS-1/WS-2/WS-10/WS-13 PASS；WS-3 因 3 个 Major 退回。当前三项已完成修复并自测，状态仅为“待独立重核”，原报告 `docs/reviews/ws-03-review-2026-07-23.md` 不改写。
+- Phase 0、29、35b、36–53 的缺失报告已补齐：14 个阶段 PASS；Phase 0、39、41、42、44、47、53 复核退回。阶段总审计为 `docs/reviews/phase-gap-audit-2026-07-23.md`，逐阶段报告为 `docs/reviews/phase-*-review.md`。
+- 整改后全新 schema 门禁：Flyway V1–V29 成功，Surefire 121/121、Failsafe 145/145，合计 266/266；Phase 7 25/25；前端 type-check/build 通过。GitHub Actions 已补固定版本 MinIO、桶初始化和前端 type-check。临时复核容器/网络/卷已清理，8080/5173/3306/6379/9000/9001 无遗留监听。
+- 后续近端顺序为：先独立重核 U-001/U-002；通过后按风险修 Phase 42 → 39 → 41 → 47 → 53 → 44 → 0。可播放视频样本已随 WS-3 整改替换，但 Phase 53 仍须按自己的退回报告完成独立浏览器复核，不能顺带标 PASS。
+- 2026-07-22 的“缺阶段报告”证据债务已在 2026-07-23 清零；其发现的 CI MinIO/type-check 门禁已在当前整改包补齐，待独立重核。历史结论保留于 `docs/reviews/progress-review-2026-07-22.md`。
 - `.claude/audits/`、审计 HTML、`docs/audit-remediation-plan.md`、`docs/prompts/` 是本地未跟踪审计资料，不得纳入功能提交。
 
 > 下方 §1 是 2026-06-14 的历史交接快照，保留用于环境与早期实现追溯；当前状态以上述 §0、`PROGRESS.md` 与 `DEVLOG.md` 顶部为准。
@@ -70,7 +74,7 @@
 
 - **坑①（PATH）**：`mvn`/`java`/`git` 已写入用户级 PATH，但旧进程继承旧环境 → **新开终端**才直接可用；脚本里用全路径最稳（见 §3）。
 - **坑②（GBK 控制台）**：中文 Windows 控制台默认 GBK，java/mvn 的**中文告警会显示乱码**（如 `δ֪`），**不影响编译**（源码已 UTF-8，父 POM 强制）；HTTP/DB 中文正常。
-- **坑③（Docker）**：依赖容器需 Docker Desktop 引擎运行；常规容器名 `tcp-mysql`/`tcp-redis`/`tcp-minio`。本机 `hdp11` 占用宿主 3306/8080，不得误停或误写其数据库；WS-13 验收使用独立 Compose 和 MySQL `localhost:33306`。
+- **坑③（Docker）**：依赖容器需 Docker Desktop 引擎运行；常规容器名 `tcp-mysql`/`tcp-redis`/`tcp-minio`。用户已明确弃用 bigdata 环境：`hdp11/hdp12/hdp13` 容器于 2026-07-22 删除，`bigdata:3.3.0` 镜像及 9 个 `bigdata_*` 数据卷于 2026-07-23 删除；复核仍应使用独立 Compose 和独立 schema，避免污染共享 dev 数据。
 
 ## 3. 一键操作命令（本机已验证，Git Bash 复制即用）
 ```bash
@@ -114,17 +118,18 @@ git -C "$REPO" add -A && git -C "$REPO" commit -m "feat(T-0xx): ..."
 - 基础包 `cn.edu.gpnu.platform`；groupId `cn.edu.gpnu`；version `1.0.0-SNAPSHOT`。
 - 8 模块：业务模块均依赖 `platform-common`；`platform-boot` 聚合 common/system/security/file（business/exchange/statistics 待各自 Phase 接入 boot 依赖）。
 - **Lombok 已在父 POM 统一声明**——新模块用 Lombok 无需再加依赖。
-- 版本锁定在**父 pom**：Spring Boot 3.2.11 / MyBatis-Plus 3.5.7 / Knife4j 4.5.0 / FastExcel 1.1.0 / MinIO 8.5.12 / jjwt 0.12.6；Flyway 随 Boot = 9.22.x（MySQL 原生支持）。
+- 版本锁定在**父 pom**：Spring Boot 3.4.13 / MyBatis-Plus 3.5.16 / Knife4j 4.5.0 + springdoc 2.8.17 / FastExcel 1.1.0 / MinIO 8.5.12 / jjwt 0.12.6；Flyway 由 Boot 3.4.13 管理并显式引入 `flyway-mysql`。前端使用 npm + `package-lock.json`。
 - DB：库 `teacher_cert`，`root`/`root123`；MinIO `minioadmin`/`minioadmin123`，bucket `teacher-cert`。
 - **Flyway 迁移**：`platform-boot/src/main/resources/db/migration/`，**V1~V8 已用**（V1 base / V2 dict / V3 dict_seed / V4 region_seed / V5 subject_seed / V6 confirmed_params / V7 rbac / V8 rbac_seed）→ **后续从 `V9__student.sql` 起**（Phase 3）；版本号以**磁盘 max+1** 为准、不改已发布脚本、种子幂等。
 - 实体继承 `BaseEntity`（id/审计字段/逻辑删除自动）；Mapper 放 `**/mapper`（已 `@MapperScan("cn.edu.gpnu.platform.**.mapper")`）；统一返回 `Result`；写操作 `@AuditLog`；列表/导出/统计查询 `@DataScope`；当前用户取 `UserContext`。
 - **文本化字段全链路 String + Excel `@`**（学校代码/学号/证件号/出生日期/证书编号/有效期限）——AT-01 生命线，勿用数值/日期类型。
 
-## 5. 当前复核入口 → WS-3（MinIO 预签名直传与独立端点）
-1. 读 `AGENTS.md` → `docs/REVIEW-GATE.md` → `docs/launch-readiness-plan.md §11`，再检查 `S3MultipartObjectService`、材料/视频 direct-upload service、V28、`Phase5MaterialIT` 与 `Phase7VideoReviewIT`。
-2. 复核重点：签名 URL 是否使用浏览器可达 public endpoint；签名与完成阶段是否验证属主、业务上下文、object key 前缀、Content-Length、连续 part number、ETag 与最终对象大小/类型；状态 CAS、重复 complete/cancel、同学生同年度活动会话唯一性及旧上传路径回退是否成立。
-3. 必做反例：跨用户/跨业务 complete 或 cancel、伪造/遗漏/重复分片、错误 ETag/大小、过期或失败会话均拒绝且不绑定业务记录；合法材料和视频分片能跳过已上传 part 续传并幂等完成。浏览器侧另核 public endpoint/CORS、5 路并发与 Worker 指纹不经过应用字节中转。
-4. 若需要启动后端/前端做运行期验证，必须在 Codex 外部终端或 Claude 复核 harness 中启动；Codex/headless exec 禁止执行 `java -jar`、`npm run dev`、`vite dev` 或 `scripts/dev-serve.*`。
+## 5. 当前整改入口 → WS-3 修复完成，待独立重核
+1. 读 `AGENTS.md` → `docs/REVIEW-GATE.md` → `docs/CURRENT-EXECUTION-PLAN.md` → `docs/reviews/ws-03-review-2026-07-23.md`。
+2. Major-1 已修：`JcodecVideoMediaProbe` 从最终对象读取真实字节，核对长度、MP4 容器、配置化编码、实际时长与首帧可解码性；伪 MP4 和伪时长均有真实 MinIO 反例。
+3. Major-2 已修：服务端绑定 `SHA256_TREE_V1` 指纹并落可信标记；同 uploader/student 且已有合格视频才允许秒传，跨账户重放不命中；普通 `VideoReviewVO` 已移除 `fileMd5`。旧 8/32 位会话哈希只保留完成兼容，不可进入秒传。
+4. Major-3 已修：GitHub Actions 增加 MinIO 服务、健康检查和桶初始化，前端增加 type-check；本机隔离零状态已执行 V1–V29 与 266/266。
+5. 独立重核只复核上述增量 + Phase 5/7 与全量回归，确认 3 个 Major 清零后才可更新原报告结论。若需要启动后端/前端做运行期验证，仍必须遵守 `AGENTS.md §6.1`，Codex/headless exec 不启动常驻服务。
 
 ## 6. 已知坑与规避（别重复踩）
 - Lombok `optional` 不向子模块传递 → 已在父 POM 解决。

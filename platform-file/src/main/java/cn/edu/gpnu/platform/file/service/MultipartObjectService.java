@@ -4,6 +4,7 @@ import cn.edu.gpnu.platform.file.model.MultipartObjectInfo;
 import cn.edu.gpnu.platform.file.model.MultipartUploadPlan;
 import cn.edu.gpnu.platform.file.model.MultipartUploadedPart;
 
+import java.io.InputStream;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -22,6 +23,8 @@ public interface MultipartObjectService {
                                        List<MultipartUploadedPart> clientParts);
 
     Optional<MultipartObjectInfo> findObject(String objectKey);
+
+    InputStream openObject(String objectKey);
 
     void abortUpload(String objectKey, String multipartUploadId);
 }

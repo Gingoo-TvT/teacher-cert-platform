@@ -38,10 +38,37 @@ jobs:
           distribution: temurin
           java-version: '17'
           cache: maven
+      - name: 启动并等待 MinIO
+        run: |
+          docker run --detach --name teacher-cert-ci-minio \
+            --publish 9000:9000 \
+            --env MINIO_ROOT_USER=minioadmin \
+            --env MINIO_ROOT_PASSWORD=minioadmin123 \
+            --env MINIO_API_CORS_ALLOW_ORIGIN=http://localhost:5173,http://127.0.0.1:5173 \
+            minio/minio:RELEASE.2025-04-22T22-12-26Z server /data
+          ready=false
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:9000/minio/health/live >/dev/null; then
+              ready=true
+              break
+            fi
+            sleep 2
+          done
+          if [ "$ready" != "true" ]; then
+            docker logs teacher-cert-ci-minio
+            exit 1
+          fi
+          docker run --rm --network container:teacher-cert-ci-minio \
+            --env MC_HOST_ci=http://minioadmin:minioadmin123@127.0.0.1:9000 \
+            minio/mc:RELEASE.2025-04-08T15-39-49Z \
+            mb --ignore-existing ci/teacher-cert
       - name: mvn verify
         env:
           JWT_SECRET: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
         run: mvn -B -ntp verify
+      - name: 清理 MinIO
+        if: always()
+        run: docker rm --force teacher-cert-ci-minio || true
 
   frontend:
     name: 前端构建
@@ -53,8 +80,9 @@ jobs:
           node-version: '20'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - name: npm ci & build
+      - name: npm ci、type-check 与 build
         working-directory: frontend
         run: |
           npm ci
+          npm run type-check
           npm run build

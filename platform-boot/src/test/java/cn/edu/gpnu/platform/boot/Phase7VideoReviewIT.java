@@ -51,13 +51,16 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 
+import java.io.IOException;
 import java.io.InputStream;
+import java.io.UncheckedIOException;
 import java.net.URI;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -229,6 +232,15 @@ class Phase7VideoReviewIT {
         JsonNode completed = complete(student.accessToken(), uploadId, 900, List.of(uploaded));
         assertThat(completed.at("/status").asText()).isEqualTo("WAIT_REVIEW");
         assertThat(completed.at("/formatCheck").asText()).isEqualTo("PASS");
+        assertThat(completed.has("fileMd5")).isFalse();
+
+        LoginResult otherStudent = readyLogin("test_student_b");
+        JsonNode crossUserReplay = initUpload(otherStudent.accessToken(), 9002L, "P7-CROSS-FP",
+                "lesson.mp4", "video/mp4", content.length, VIDEO_PART_SIZE, fingerprint, 900);
+        assertThat(crossUserReplay.at("/instantHit").asBoolean()).isFalse();
+        assertThat(crossUserReplay.at("/uploadMode").asText()).isEqualTo("PRESIGNED_MULTIPART");
+        assertThat(json(exchange("/api/video/upload/" + crossUserReplay.at("/uploadId").asText(),
+                HttpMethod.DELETE, otherStudent.accessToken(), null)).at("/code").asInt()).isEqualTo(0);
 
         JsonNode instant = initUpload(student.accessToken(), 9001L, "P7-INSTANT", "lesson.mp4", "video/mp4",
                 content.length, VIDEO_PART_SIZE, fingerprint, 900);
@@ -276,9 +288,9 @@ class Phase7VideoReviewIT {
         assertThat(json(excessiveMerge).at("/code").asInt()).isEqualTo(400);
         assertThat(json(excessiveMerge).at("/msg").asText()).contains("视频时长不能超过86400秒");
 
-        byte[] content = mp4("duration");
+        byte[] content = shortVideo();
         JsonNode init = initUpload(student.accessToken(), 9001L, "P7-DURATION", "duration.mp4", "video/mp4",
-                content.length, VIDEO_PART_SIZE, videoFingerprint(content), 1200);
+                content.length, VIDEO_PART_SIZE, videoFingerprint(content), 900);
         String uploadId = init.at("/uploadId").asText();
         List<PresignedMultipartUploadTestClient.CompletedPart> parts =
                 PresignedMultipartUploadTestClient.putAll(init, content);
@@ -294,9 +306,43 @@ class Phase7VideoReviewIT {
                 .eq(VideoUploadSession::getUploadId, uploadId)
                 .last("LIMIT 1")).getStatus()).isEqualTo("UPLOADING");
 
-        JsonNode completed = complete(student.accessToken(), uploadId, 1200, parts);
+        JsonNode completed = complete(student.accessToken(), uploadId, 900, parts);
         assertThat(completed.at("/status").asText()).isEqualTo("VALIDATION_FAILED");
         assertThat(completed.at("/validationMessage").asText()).contains("视频时长超出容差");
+        assertThat(completed.at("/durationSeconds").asInt()).isEqualTo(3);
+    }
+
+    @Test
+    void fakeMediaAndFingerprintMismatchFailClosedWithServerHash() throws Exception {
+        LoginResult student = readyLogin("test_student");
+        byte[] fakeMedia = "....ftypmp42-not-a-real-video-mdat".getBytes(StandardCharsets.UTF_8);
+        String fakeHash = videoFingerprint(fakeMedia);
+        JsonNode fakeInit = initUpload(student.accessToken(), 9001L, "P7-FAKE-MEDIA",
+                "fake.mp4", "video/mp4", fakeMedia.length, VIDEO_PART_SIZE, fakeHash, 900);
+        List<PresignedMultipartUploadTestClient.CompletedPart> fakeParts =
+                PresignedMultipartUploadTestClient.putAll(fakeInit, fakeMedia);
+        JsonNode fakeCompleted = complete(student.accessToken(), fakeInit.at("/uploadId").asText(), 900, fakeParts);
+        assertThat(fakeCompleted.at("/status").asText()).isEqualTo("VALIDATION_FAILED");
+        assertThat(fakeCompleted.at("/formatCheck").asText()).isEqualTo("FAIL");
+        assertThat(fakeCompleted.at("/validationMessage").asText()).contains("可解析的MP4");
+
+        byte[] actualMedia = mp4("fingerprint-mismatch");
+        byte[] declaredOther = mp4("declared-other-content");
+        String actualHash = videoFingerprint(actualMedia);
+        JsonNode mismatchInit = initUpload(student.accessToken(), 9001L, "P7-HASH-MISMATCH",
+                "mismatch.mp4", "video/mp4", actualMedia.length, VIDEO_PART_SIZE,
+                videoFingerprint(declaredOther), 900);
+        List<PresignedMultipartUploadTestClient.CompletedPart> mismatchParts =
+                PresignedMultipartUploadTestClient.putAll(mismatchInit, actualMedia);
+        JsonNode mismatchCompleted = complete(student.accessToken(),
+                mismatchInit.at("/uploadId").asText(), 900, mismatchParts);
+        assertThat(mismatchCompleted.at("/status").asText()).isEqualTo("VALIDATION_FAILED");
+        assertThat(mismatchCompleted.at("/validationMessage").asText()).contains("指纹");
+        VideoReview mismatchReview = reviewMapper.selectById(mismatchCompleted.at("/id").asLong());
+        FileObject stored = fileObjectMapper.selectById(mismatchReview.getVideoFileId());
+        assertThat(stored.getMd5()).isEqualTo(actualHash);
+        assertThat(stored.getChecksumAlgorithm()).isEqualTo("SHA256_TREE_V1");
+        assertThat(stored.getContentHashVerified()).isEqualTo(1);
     }
 
     @Test
@@ -1641,18 +1687,52 @@ class Phase7VideoReviewIT {
     }
 
     private byte[] mp4(String text) {
-        return ("....ftypmp42" + text + "-mdat").getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        byte[] source = sampleVideo();
+        byte[] marker = text.getBytes(StandardCharsets.UTF_8);
+        byte[] result = Arrays.copyOf(source, source.length + 8 + marker.length);
+        ByteBuffer atom = ByteBuffer.wrap(result, source.length, 8 + marker.length);
+        atom.putInt(8 + marker.length);
+        atom.put("free".getBytes(StandardCharsets.US_ASCII));
+        atom.put(marker);
+        return result;
     }
 
-    /** 生成指定大小的确定性字节载荷（首部带 ftypmp42 特征；服务端校验只看扩展名/contentType，不解析真实 mp4 结构）。 */
+    /** 在真实 H.264 MP4 后追加合法 free box，构造指定大小的多分片媒体。 */
     private byte[] filledMp4Payload(int size) {
-        byte[] out = new byte[size];
-        for (int i = 0; i < size; i++) {
-            out[i] = (byte) ((i * 31 + 7) & 0xff);
+        byte[] source = sampleVideo();
+        if (size < source.length + 8) {
+            throw new IllegalArgumentException("目标大小不足以容纳样例视频");
         }
-        byte[] head = "ftypmp42".getBytes(java.nio.charset.StandardCharsets.UTF_8);
-        System.arraycopy(head, 0, out, 0, Math.min(head.length, size));
+        byte[] out = Arrays.copyOf(source, size);
+        ByteBuffer atom = ByteBuffer.wrap(out, source.length, size - source.length);
+        atom.putInt(size - source.length);
+        atom.put("free".getBytes(StandardCharsets.US_ASCII));
+        for (int index = source.length + 8; index < out.length; index++) {
+            out[index] = (byte) ((index * 31 + 7) & 0xff);
+        }
         return out;
+    }
+
+    private byte[] sampleVideo() {
+        try (InputStream input = getClass().getResourceAsStream("/db/demo/sample-video.mp4")) {
+            if (input == null) {
+                throw new IllegalStateException("测试样例视频不存在");
+            }
+            return input.readAllBytes();
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    private byte[] shortVideo() {
+        try (InputStream input = getClass().getResourceAsStream("/media/short-video.mp4")) {
+            if (input == null) {
+                throw new IllegalStateException("短视频测试样例不存在");
+            }
+            return input.readAllBytes();
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
     }
 
     private FileObject seedReadyVideoFile(String hash, byte[] content, String marker, Long uploaderId) {

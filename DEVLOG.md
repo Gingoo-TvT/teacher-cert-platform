@@ -15,6 +15,46 @@
 
 ---
 
+## [2026-07-23] WS-3 复核退回整改 — 修复完成，待独立重核
+- 做了什么：闭环 `docs/reviews/ws-03-review-2026-07-23.md` 的 3 个 Major。新增 `VideoMediaProbe`/`JcodecVideoMediaProbe`，服务端从 MinIO 最终对象逐字节核对长度、计算前端同契约的 `SHA256_TREE_V1` 指纹，并用 JCodec 校验真实 MP4、配置化 H.264 编码、媒体时长与首帧可解码性；视频定稿与兼容分片合并均改用实际探测结果。`file_object` 经 V29 增加算法与可信标记，秒传仅允许同 uploader、同 student、同一可信 READY 对象且已有格式/时长合格视频记录复用；普通 `VideoReviewVO` 与前端响应类型移除 `fileMd5`。CI 增加固定版本 MinIO、健康检查、桶初始化及前端 type-check。528B 空轨 demo 已替换为可解码 900 秒 H.264 MP4，并补 3 秒测试视频与可重复生成脚本。
+- 关键决策与理由：内容真值只能来自服务端读取的最终对象，文件名、Content-Type、客户端时长与客户端指纹均不作为媒体合格依据。服务端指纹仍采用前端既有 8 MiB tree-hash 契约，避免重新上传；但只有 64 位新指纹可严格比较并参与秒传，历史 8/32 位滚动哈希仅兼容旧会话完成且不进入秒传。`contentHashVerified` 只表达“摘要与真实字节绑定”，媒体是否合法仍由合格 `video_review` 双重约束，避免无效媒体成为复用源。
+- 问题与解决：原测试 MP4 只是空轨/伪头字节，真实解码校验会正确拒绝。新增 JCodec 生成器和真实 H.264 测试资源，并以合法 `free` box 扩展对象来保留各用例唯一字节与大分片边界。全量 Maven 命令在桌面包装器 375 秒上限处返回 124，但 Maven 已明确打印 `BUILD SUCCESS`；随后独立汇总 Surefire/Failsafe XML 确认 121/121 + 145/145、Failures/Errors=0，并确认无 Java 进程和依赖容器残留。
+- 与规格的偏差/疑问：已同步 `plan.md`、`tasks.md`、`docs/phase-07-视频评审.md`、`PROGRESS.md`、`HANDOFF.md` 与统一执行计划，无新增业务决策。Phase 53 的可播放样本缺陷随资源替换得到实现层修正，但仍须按 Phase 53 报告独立完成浏览器证据，当前不得顺带标记 PASS。
+- 测试：`Phase7VideoReviewIT` 25/25（含伪 MP4、伪时长、指纹不匹配、跨账户重放与同账户正常秒传）；隔离全新 MySQL/Redis/MinIO 执行 Flyway V1–V29，Surefire 121/121、Failsafe 145/145，合计 266/266；`npm --prefix frontend run type-check` PASS；`npm --prefix frontend run build` PASS（仅既有大 chunk 警告）；仅依赖 `jcodec-0.2.5.jar` 编译并运行 `GenerateDemoVideo` 生成 3 秒 MP4，生成器自解码首帧通过；`git diff --check` PASS。复核容器/网络/卷已 `down -v`，8080/5173/3306/6379/9000/9001 无监听。
+- 下一步：交独立复核者按原报告重核 3 个 Major 与 CI 零状态契约；PASS 后更新 WS-3 报告/状态，再按统一计划处理 Phase 42 → 39 → 41 → 47 → 53 → 44 → 0。
+
+## [2026-07-23] GOV-003 Phase 0、29、35b、36–53 独立复核闭环
+- 做了什么：在用户明确授权 Codex 代行独立复核的前提下，补齐此前缺失的 21 份逐阶段报告，新增 `docs/reviews/phase-gap-audit-2026-07-23.md` 总审计，并同步 `CURRENT-EXECUTION-PLAN.md`、`PROGRESS.md`、`HANDOFF.md`。Phase 29、35b、36–38、40、43、45–46、48–52 判 PASS；Phase 0、39、41、42、44、47、53 判 CHANGES REQUESTED。
+- 关键决策与理由：严格区分“实现存在/回归绿”和“阶段不变量已闭环”。本轮不复用历史提交说明作为结论，重点反查恢复、并发、失败和真实媒体路径：Phase 39 的学院 count-then-delete 与子创建无共享锁；Phase 41 备份普通 INSERT 无法回放到含 Flyway 种子的 schema；Phase 42 IMPORTING 可回滚但导入者仍能晚提交；Phase 53 视频是 528B 空样本轨占位。Phase 44 的通知批量插入已被 44f 合理回退，故完成声明需改为诚实推迟；Phase 47 生命周期读取失败不得按空规则覆盖。
+- 问题与解决：Phase 0 原 REVIEW-GATE 尾注允许历史自建自验，但用户本轮要求“每个阶段都复核”，因此仍按当前权威清单独立复核；发现 pnpm/mock/lint 条款与当前栈漂移且清单未闭环，诚实退回而不是补勾。没有修改业务源码、测试、依赖或历史计划正文，只更新现行治理入口和报告。
+- 与规格的偏差/疑问：Phase 44f 的正确性回退与当时锁等待证据合理，但 `launch-readiness-plan` 仍写 P1-5 已完成，形成状态偏差；按统一计划 U-003 修复时应选择“诚实推迟”或真正同连接批量写。Claude 替代复核仍是本轮应急授权，不永久修改 `REVIEW-GATE` 角色规则。
+- 测试：复用本轮独立 fresh schema `mvn -B -ntp clean verify` **265/265**、目标单测 **105/105**、专项真实依赖 **50/50**、demo 常驻 Phase2+7 双跑各 **27/27**、前端 type-check/build、dev/prod Compose config；新增发现来自代码/规格/测试载荷交叉验证。总审计将通过 skill report lint，全部文档再执行 `git diff --check` 和状态一致性检查。
+- 下一步：按 U-001–U-004 修复并逐阶段重核，优先 Phase 42 → Phase 39 → Phase 41，再处理 Phase 47/53/44/0 与 WS-3；全部退回项 PASS 后再进入 WS-4，最终执行用户要求的全量审计。
+
+## [2026-07-23] GOV-002 WS-1/2/10/13/3 独立复核与统一计划回填
+- 做了什么：在 Claude 不可用、用户明确授权 Codex 代行独立复核的前提下，冻结 `e4f8228..338bc91`，逐提交复核 WS-1、WS-2、WS-10、WS-13、WS-3；产出 5 份 WS 复核记录和 `docs/reviews/current-ws-chain-audit-2026-07-23.md` 统一风险报告，并把结论与剩余整改全部回填 `docs/CURRENT-EXECUTION-PLAN.md`、`PROGRESS.md`、`HANDOFF.md`，没有新增平行排期文档。
+- 关键决策与理由：不采信实现自报或“全量测试绿”作为直接 PASS 依据；分别检查 fixture 语义、凭据边界、profile 启动时序、RBAC 并发授权天花板、预签名直传的客户端→服务端可信边界。WS-1/2/10/13 无 Blocker/Major，判 PASS；WS-3 因 3 个 Major 退回：①未解析真实媒体/时长，②跨用户秒传信任未验证客户端指纹，③ CI 缺 MinIO 且前端 job 缺 type-check。
+- 问题与解决：本机原有工作树包含未提交治理文档和审计资料，复核全程保留这些用户改动，只新增报告并更新现行治理入口；隔离环境使用两套新 schema 与临时 MySQL/Redis/MinIO，结束后已执行 compose down -v，未遗留 8080/5173 监听。
+- 与规格的偏差/疑问：`docs/phase-07-视频评审.md` 明确要求合并后校验 MP4/大小/时长，当前实现只校验元数据和客户端时长，属于规格偏差，已在 WS-3 退回记录中定位。Claude 替代复核是用户针对当前不可用状态的明确授权，不自动修改长期 `REVIEW-GATE` 角色约定。
+- 测试：目标单测 **105/105**；真实依赖专项 `CredentialHardeningIT + Ws13RbacCeilingIT + Phase2SecurityIT + Phase5MaterialIT + Phase7VideoReviewIT` **50/50**；导入 demo 后 Phase2+7 连续两轮各 **27/27**；全新 schema `mvn -B -ntp clean verify` Surefire **121/121** + Failsafe **144/144** = **265/265**；前端 type-check/build、dev/prod Compose `config --quiet` 均通过。
+- 下一步：按统一计划 U-001/U-002 只修 WS-3 三个 Major 并补反例，重交增量 + Phase5/7 + 全量回归；PASS 后再进入 WS-4。Phase 0、29、35b、36–53 仍需逐阶段补正式复核，最终再做全量审计。
+
+## [2026-07-23] OPS-001 清理已弃用 bigdata Docker 资源
+- 做了什么：按用户明确授权删除 `bigdata:3.3.0` 镜像，以及 `bigdata_flume-data-hdp11`、`bigdata_hdfs-data`、3 个 Kafka 日志卷、MySQL 卷、VS Code root 卷、YARN 日志卷、ZooKeeper 数据卷，共 9 个 `bigdata_*` 命名卷；再次核验 bigdata 镜像、卷和 hdp 容器均为空。
+- 关键决策与理由：只删除名称和来源可明确归属于 bigdata 的资源。保留 6 个匿名卷，因为其创建时间呈两组 MySQL/Redis/MinIO 各 3 个的项目隔离复核环境特征，不能证明属于 bigdata；同时未触碰 `teacher-cert-platform_*` 卷、`tcp-*` 容器及 mysql/redis/minio 镜像。
+- 问题与解决：无阻塞。bigdata 镜像标称 10.6GB；实际宿主磁盘回收量还受 Docker Desktop/WSL 虚拟磁盘压缩和共享层影响。
+- 与规格的偏差/疑问：无业务或代码变更；这是用户授权的本机环境清理，已同步 `HANDOFF.md`。
+- 测试：`docker images bigdata`、`docker volume ls --filter name=bigdata`、`docker ps -a --filter name=hdp` 均返回空。
+- 下一步：无；若未来恢复 bigdata，需要重新构建/拉取镜像并重建数据，原卷内容不可恢复。
+
+## [2026-07-22] GOV-001 Phase 0–53 进度复核与分散计划收口
+- 做了什么：按 `AGENTS.md`、`docs/REVIEW-GATE.md`、Phase 文档、`PROGRESS.md`、Git 历史和 `docs/reviews` 逐阶段核对 Phase 0–53（含 35b）及当前 WS-1/2/3/10/13；新增 `docs/CURRENT-EXECUTION-PLAN.md` 作为当前唯一执行入口，新增 `docs/reviews/progress-review-2026-07-22.md` 保存证据与结论；给 6 份历史计划加归档提示并把开放项统一排入 U-001–U-004、WS-4–WS-15。纠正 Phase 26/28 在 `PROGRESS.md` 中仍写“待复核”的滞后状态。
+- 关键决策与理由：严格区分“已实现/已合并/当前回归通过”和“独立阶段复核 PASS”。Phase 1–28（除 Phase 0 的历史自验）、30–35 有正式报告的状态予以保留；Phase 29、35b、36–53 没有标准报告，统一标为“证据欠账”，不因一次全量回归而越权补标 ✅。业务规格权威顺序不变，统一计划只管理排期和证据。
+- 问题与解决：首次在现有 localhost:3306 环境跑全量测试命中数据库连接失败，确认是本机容器/端口环境碰撞而非代码回归；改用独立 Compose（MySQL 33306 + 独立空 schema、Redis、MinIO）后从零执行 V1–V28 与全量测试。发现 GitHub Actions 仅提供 MySQL/Redis、缺 MinIO，而当前 Phase5/7/41 与 WS-3 测试使用真实 MinIO，故整体判定 CHANGES REQUESTED 并列 U-001。发现 Phase 0 文档 10 项验收仍全未勾选，列 U-004，不直接补勾。同步修正最高规范中已过时的 Spring Boot 3.2/pnpm/Testcontainers/Vitest 描述，使其与 POM、lockfile 和真实门禁一致。
+- 与规格的偏差/疑问：无业务规格变化。技术基线按已合并的 Phase 40 实际值更新为 Spring Boot 3.4.13、MyBatis-Plus 3.5.16、npm；测试文档改为如实描述“外部真实依赖 + 前端仅 type-check/build”，未来目标仍由 WS-6/U-001 管理。未把本轮复核冒充最终全量审计。
+- 测试：隔离空库 `mvn -B -ntp clean verify` 9 模块 BUILD SUCCESS，Surefire 121/121、Failsafe 144/144，合计 265/265，Failures/Errors/Skipped=0；`npm --prefix frontend run type-check` PASS；`npm --prefix frontend run build` PASS（仅既有 echarts/naive chunk warning）；dev/prod Compose `config --quiet` PASS；`docker compose -f .tmp/ws13-compose.yml down` 已清理复核专用容器/网络。经用户明确授权删除 `hdp11/hdp12/hdp13` bigdata 容器，镜像与数据卷保留。
+- 下一步：先做 U-001（CI MinIO + frontend type-check）并独立复核 WS-1/2/10/13/3；再补 Phase 0、29、35b、36–53 阶段复核账，随后进入 WS-4 D0。最终全量审计在上述证据债务闭环后执行。
+
 ## [2026-07-22] WS-3 MinIO 预签名直传与独立端点 — 自测完成，待主控复核
 - 做了什么：新增 V28，把 `file_object` 补齐 `object_key`/`storage_status`/对象校验元数据，扩展视频上传会话与分片持久化，并为材料业务绑定增加唯一约束；`platform-file` 接入 AWS S3 v2 presigner 与 multipart API。材料和视频均新增 init/list-parts/complete/cancel 流程，浏览器凭服务端签发的限时 URL 直接 PUT MinIO，服务端完成属主、业务上下文、对象前缀、分片连续性、精确长度、ETag 与最终对象元数据校验后才绑定业务记录。前端以 5 路并发上传，Web Worker 计算视频指纹，刷新后可按服务端已上传分片续传；原服务端分片上传作为配置化兼容回退保留。
 - 关键决策与理由：MinIO 使用内部 endpoint 执行服务端 API、public endpoint 生成浏览器可达 URL，避免把 Docker 内部主机名签入前端；签名覆盖 `Content-Length`，完成时以服务端 `ListParts`/`HeadObject` 为准，不信任客户端自报。材料绑定携带业务版本摘要，避免上传过程中业务上下文变化后误绑；视频状态采用 `INITIATING → UPLOADING → COMPLETING → READY/FAILED` 条件更新和同学生同年度唯一活动会话，重复 complete 保持幂等。下载继续走既有材料/免考/视频业务鉴权后签发 GET URL，不恢复通用 file-id 下载端点。

@@ -26,6 +26,8 @@ import cn.edu.gpnu.platform.business.video.mapper.VideoUploadChunkMapper;
 import cn.edu.gpnu.platform.business.video.mapper.VideoUploadSessionMapper;
 import cn.edu.gpnu.platform.business.video.service.VideoReviewService;
 import cn.edu.gpnu.platform.business.video.support.VideoReviewStatus;
+import cn.edu.gpnu.platform.business.video.support.VideoMediaInspection;
+import cn.edu.gpnu.platform.business.video.support.VideoMediaProbe;
 import cn.edu.gpnu.platform.business.video.support.VideoUploadStatus;
 import cn.edu.gpnu.platform.business.video.vo.ReviewerCandidateVO;
 import cn.edu.gpnu.platform.business.video.vo.VideoPlaybackVO;
@@ -134,6 +136,7 @@ public class VideoReviewServiceImpl implements VideoReviewService {
     private final FileObjectMapper fileObjectMapper;
     private final FileService fileService;
     private final MultipartObjectService multipartObjectService;
+    private final VideoMediaProbe videoMediaProbe;
     private final DataScopeService dataScopeService;
     private final ParamService paramService;
     private final MinioClient minioClient;
@@ -203,12 +206,15 @@ public class VideoReviewServiceImpl implements VideoReviewService {
                 throw new BizException("该视频正在定稿，请稍后刷新结果");
             }
         }
-        // 跨用户秒传只接受新版 256-bit 指纹；8位 rolling hash/旧32位 MD5 仅可恢复同学生年度会话。
-        FileObject existingFile = fileHash.length() == 64
-                ? fileService.getByMd5(fileHash, VIDEO_BIZ_TYPE) : null;
-        if (existingFile != null) {
+        // 秒传仅复用服务端已验真的对象，并绑定同一上传人 + 同一学生；客户端指纹不是跨主体的持有证明。
+        VerifiedInstantHit instantHit = fileHash.length() == 64
+                ? findVerifiedInstantHit(student, fileHash) : null;
+        if (instantHit != null) {
+            FileObject existingFile = instantHit.file();
+            VideoMediaInspection inspection = VideoMediaInspection.valid(
+                    existingFile.getMd5(), instantHit.durationSeconds(), null, 1);
             VideoReview review = transactionTemplate.execute(status -> upsertReviewAfterValidation(
-                    student, assessmentYear, existingFile, fileHash, request.getDurationSeconds(), true, null));
+                    student, assessmentYear, existingFile, inspection, true, null));
             VideoUploadInitVO vo = new VideoUploadInitVO();
             vo.setUploadId(null);
             vo.setUploadMode("FAST_HIT");
@@ -416,9 +422,9 @@ public class VideoReviewServiceImpl implements VideoReviewService {
                     : multipartObjectService.completeUpload(
                             activeSession.getObjectKey(), activeSession.getS3UploadId(), verifiedParts);
             validateCompletedVideoObject(activeSession, objectInfo);
-            Integer duration = request.getDurationSeconds() == null
-                    ? activeSession.getDurationSeconds() : request.getDurationSeconds();
-            return finalizeDirectUpload(activeSession.getUploadId(), student, objectInfo, duration);
+            VideoMediaInspection inspection = videoMediaProbe.inspect(
+                    objectInfo.objectKey(), objectInfo.size(), activeSession.getFileMd5());
+            return finalizeDirectUpload(activeSession.getUploadId(), student, objectInfo, inspection);
         } catch (RuntimeException e) {
             boolean objectExists = multipartObjectService.findObject(activeSession.getObjectKey()).isPresent();
             if (e instanceof DirectUploadTerminalException && objectExists) {
@@ -457,10 +463,6 @@ public class VideoReviewServiceImpl implements VideoReviewService {
             return handleNonClaimableMerge(session);
         }
         try {
-            Integer duration = request.getDurationSeconds() == null ? session.getDurationSeconds() : request.getDurationSeconds();
-            if (duration != null) {
-                session.setDurationSeconds(duration);
-            }
             String objectKey = VIDEO_BIZ_TYPE + "/" + UUID.randomUUID().toString().replace("-", "") + ".mp4";
             List<VideoUploadChunk> sortedChunks = chunks.stream()
                     .sorted(Comparator.comparing(VideoUploadChunk::getChunkIndex))
@@ -472,12 +474,16 @@ public class VideoReviewServiceImpl implements VideoReviewService {
             } else {
                 streamComposeForSmallChunks(sortedChunks, objectKey, session.getFileSize());
             }
+            VideoMediaInspection inspection = videoMediaProbe.inspect(
+                    objectKey, session.getFileSize(), session.getFileMd5());
             // MinIO 合并已在事务外完成；元数据落库（文件对象 + 评审 + 会话状态）单独短事务（P0-11）
             Long reviewId = transactionTemplate.execute(txStatus -> {
-                FileObject file = registerComposedFile(session, objectKey);
+                FileObject file = registerComposedFile(session, objectKey, inspection);
+                session.setFileMd5(inspection.fingerprint());
+                session.setDurationSeconds(inspection.durationSeconds());
                 session.setFileId(file.getId());
                 VideoReview review = upsertReviewAfterValidation(student, session.getAssessmentYear(), file,
-                        session.getFileMd5(), duration, false, session.getUploadId());
+                        inspection, false, session.getUploadId());
                 session.setStatus(VideoReviewStatus.of(review.getStatus()) == VideoReviewStatus.VALIDATION_FAILED
                         ? VideoUploadStatus.VALIDATION_FAILED.name()
                         : VideoUploadStatus.MERGED.name());
@@ -998,7 +1004,8 @@ public class VideoReviewServiceImpl implements VideoReviewService {
     }
 
     private VideoReviewVO finalizeDirectUpload(String uploadId, Student student,
-                                               MultipartObjectInfo objectInfo, Integer durationSeconds) {
+                                               MultipartObjectInfo objectInfo,
+                                               VideoMediaInspection inspection) {
         Long reviewId = transactionTemplate.execute(status -> {
             VideoUploadSession locked = lockUploadSession(uploadId);
             VideoUploadStatus uploadStatus = VideoUploadStatus.of(locked.getStatus());
@@ -1017,12 +1024,13 @@ public class VideoReviewServiceImpl implements VideoReviewService {
                     .eq(FileObject::getObjectKey, objectInfo.objectKey())
                     .last("LIMIT 1"));
             if (file == null) {
-                file = registerComposedFile(locked, objectInfo.objectKey());
+                file = registerComposedFile(locked, objectInfo.objectKey(), inspection);
             }
-            locked.setDurationSeconds(durationSeconds);
+            locked.setFileMd5(inspection.fingerprint());
+            locked.setDurationSeconds(inspection.durationSeconds());
             locked.setFileId(file.getId());
             VideoReview review = upsertReviewAfterValidation(student, locked.getAssessmentYear(), file,
-                    locked.getFileMd5(), durationSeconds, false, locked.getUploadId());
+                    inspection, false, locked.getUploadId());
             locked.setStatus(VideoReviewStatus.of(review.getStatus()) == VideoReviewStatus.VALIDATION_FAILED
                     ? VideoUploadStatus.VALIDATION_FAILED.name()
                     : VideoUploadStatus.MERGED.name());
@@ -1257,8 +1265,9 @@ public class VideoReviewServiceImpl implements VideoReviewService {
         }
     }
 
-    private VideoReview upsertReviewAfterValidation(Student student, String year, FileObject file, String fileMd5,
-                                                     Integer durationSeconds, boolean instantHit, String currentUploadId) {
+    private VideoReview upsertReviewAfterValidation(Student student, String year, FileObject file,
+                                                     VideoMediaInspection inspection,
+                                                     boolean instantHit, String currentUploadId) {
         VideoReview review = existingReview(student.getId(), year);
         boolean returnedReupload = false;
         if (review == null) {
@@ -1276,11 +1285,11 @@ public class VideoReviewServiceImpl implements VideoReviewService {
         }
         review.setVideoFileId(file.getId());
         review.setVideoFileName(file.getOriginalName());
-        review.setFileMd5(fileMd5 == null ? file.getMd5() : fileMd5.toLowerCase(Locale.ROOT));
-        review.setDurationSeconds(durationSeconds);
+        review.setFileMd5(file.getMd5());
+        review.setDurationSeconds(inspection.durationSeconds());
         review.setStatus(VideoReviewStatus.VALIDATING.name());
         review.setLocked(0);
-        validateMergedVideo(review, file, durationSeconds, instantHit);
+        validateMergedVideo(review, file, inspection, instantHit);
         if (review.getId() == null) {
             reviewMapper.insert(review);
         } else {
@@ -1435,7 +1444,8 @@ public class VideoReviewServiceImpl implements VideoReviewService {
         sessionMapper.update(null, sessionUpdate);
     }
 
-    private void validateMergedVideo(VideoReview review, FileObject file, Integer durationSeconds, boolean instantHit) {
+    private void validateMergedVideo(VideoReview review, FileObject file,
+                                     VideoMediaInspection inspection, boolean instantHit) {
         String normalized = normalizeContentType(file.getOriginalName(), file.getContentType());
         if (!"video/mp4".equals(normalized)) {
             review.setFormatCheck("FAIL");
@@ -1449,6 +1459,13 @@ public class VideoReviewServiceImpl implements VideoReviewService {
             review.setValidationMessage("视频大小超过限制");
             return;
         }
+        if (!inspection.valid()) {
+            review.setFormatCheck("FAIL");
+            review.setStatus(VideoReviewStatus.VALIDATION_FAILED.name());
+            review.setValidationMessage(inspection.message());
+            return;
+        }
+        Integer durationSeconds = inspection.durationSeconds();
         if (durationSeconds == null) {
             review.setFormatCheck("FAIL");
             review.setStatus(VideoReviewStatus.VALIDATION_FAILED.name());
@@ -1468,7 +1485,8 @@ public class VideoReviewServiceImpl implements VideoReviewService {
         review.setValidationMessage(instantHit ? "文件秒传命中，校验通过" : "校验通过");
     }
 
-    private FileObject registerComposedFile(VideoUploadSession session, String objectKey) {
+    private FileObject registerComposedFile(VideoUploadSession session, String objectKey,
+                                            VideoMediaInspection inspection) {
         FileObject file = new FileObject();
         file.setOriginalName(session.getFileName());
         file.setStoredName(objectKey.substring(objectKey.indexOf('/') + 1));
@@ -1476,13 +1494,38 @@ public class VideoReviewServiceImpl implements VideoReviewService {
         file.setObjectKey(objectKey);
         file.setSize(session.getFileSize());
         file.setContentType("video/mp4");
-        file.setMd5(session.getFileMd5());
+        file.setMd5(inspection.fingerprint());
         file.setBizType(VIDEO_BIZ_TYPE);
         file.setStatus("READY");
+        file.setChecksumAlgorithm(VideoMediaProbe.CHECKSUM_ALGORITHM);
+        file.setContentHashVerified(1);
         file.setUploaderId(UserContext.getUserIdOrSystem());
         file.setUploadTime(LocalDateTime.now());
         fileObjectMapper.insert(file);
         return file;
+    }
+
+    private VerifiedInstantHit findVerifiedInstantHit(Student student, String fingerprint) {
+        FileObject file = fileObjectMapper.selectOne(new LambdaQueryWrapper<FileObject>()
+                .eq(FileObject::getBizType, VIDEO_BIZ_TYPE)
+                .eq(FileObject::getMd5, fingerprint)
+                .eq(FileObject::getUploaderId, UserContext.getUserIdOrSystem())
+                .eq(FileObject::getChecksumAlgorithm, VideoMediaProbe.CHECKSUM_ALGORITHM)
+                .eq(FileObject::getContentHashVerified, 1)
+                .eq(FileObject::getStatus, "READY")
+                .orderByDesc(FileObject::getId)
+                .last("LIMIT 1"));
+        if (file == null) {
+            return null;
+        }
+        VideoReview source = reviewMapper.selectOne(new LambdaQueryWrapper<VideoReview>()
+                .eq(VideoReview::getStudentId, student.getId())
+                .eq(VideoReview::getVideoFileId, file.getId())
+                .eq(VideoReview::getFormatCheck, "PASS")
+                .isNotNull(VideoReview::getDurationSeconds)
+                .orderByDesc(VideoReview::getId)
+                .last("LIMIT 1"));
+        return source == null ? null : new VerifiedInstantHit(file, source.getDurationSeconds());
     }
 
     /**
@@ -1859,7 +1902,6 @@ public class VideoReviewServiceImpl implements VideoReviewService {
         vo.setAssessmentYear(entity.getAssessmentYear());
         vo.setVideoFileId(entity.getVideoFileId());
         vo.setVideoFileName(entity.getVideoFileName());
-        vo.setFileMd5(entity.getFileMd5());
         vo.setDurationSeconds(entity.getDurationSeconds());
         vo.setFormatCheck(entity.getFormatCheck());
         vo.setValidationMessage(entity.getValidationMessage());
@@ -1879,6 +1921,9 @@ public class VideoReviewServiceImpl implements VideoReviewService {
                 .map(task -> toTaskVO(task, managementView, reviewers.get(task.getReviewerId())))
                 .toList());
         return vo;
+    }
+
+    private record VerifiedInstantHit(FileObject file, Integer durationSeconds) {
     }
 
     private String videoTarget(VideoReview entity) {

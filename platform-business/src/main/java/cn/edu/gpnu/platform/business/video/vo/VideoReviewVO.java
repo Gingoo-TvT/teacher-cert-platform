@@ -16,7 +16,6 @@ public class VideoReviewVO {
     private String assessmentYear;
     private Long videoFileId;
     private String videoFileName;
-    private String fileMd5;
     private Integer durationSeconds;
     private String formatCheck;
     private String validationMessage;

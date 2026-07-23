@@ -30,6 +30,8 @@ public class FileObject extends BaseEntity {
     private LocalDateTime uploadExpiresAt;
     private String uploadContextHash;
     private String uploadMetadataHash;
+    private String checksumAlgorithm;
+    private Integer contentHashVerified;
     private Long uploaderId;
     private LocalDateTime uploadTime;
 }

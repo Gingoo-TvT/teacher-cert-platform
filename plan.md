@@ -44,7 +44,7 @@
 ## 2. 技术栈与架构决策
 
 ### 2.1 后端
-- **Java 17 + Spring Boot 3.2.x + Maven**（多模块）。
+- **Java 17 + Spring Boot 3.4.x + Maven**（多模块；Phase 40 已因安全基线升级到 3.4.13）。
 - **MyBatis-Plus 3.5.x** 作为 ORM（字典/CRUD/复杂报表密集，配合分页插件与逻辑删除）。
 - **Spring Security + JWT** 认证授权；预留 CAS/OAuth2 对接统一身份认证（M14）。
 - **MySQL 8.x**，字符集 `utf8mb4`，排序 `utf8mb4_0900_ai_ci`。
@@ -60,7 +60,7 @@
 - **Vue 3 + Vite + TypeScript + Naive UI**。
 - **Pinia**（状态）、**Vue Router**（路由+权限守卫）、**Axios**（封装拦截器、统一错误、token 刷新）。
 - **@vueuse/core**；图表用 **ECharts**（统计报表）。
-- 大文件分片上传组件（自研，基于 `Blob.slice` + 并发 + MD5 秒传 + 断点续传）。
+- 大文件分片上传组件（自研，基于 `Blob.slice` + 并发 + 服务端验真的 SHA-256 分片树指纹秒传 + 断点续传）。
 - 视频在线播放加动态用户水印（用户名+工号+时间戳浮层）。
 - 角色化菜单与按钮级权限指令 `v-perm`。
 
@@ -218,7 +218,7 @@ platform-parent/
 - `import_export_batch` 导入/导出批次：type[import/export], file_name, batch_no, operator_id, operate_time, total, success_count, fail_count, error_report_file_id, scope_json 范围/筛选条件, strategy 覆盖策略, status
 - `import_error_detail` 导入异常明细：batch_id, row_no 行号, field 字段, error_value 错误值, error_reason 错误原因, suggestion 建议处理方式
 - `audit_log` 审核日志：biz_type 业务类型, biz_id, target 审核对象, operator_id, operate_time, comment 意见, old_status 原状态, new_status 新状态, operation 操作, ip 操作IP
-- `file_object` 文件登记：original_name, stored_name, bucket, object_key, size, content_type, md5, biz_type, uploader_id, upload_time（MinIO 元数据）
+- `file_object` 文件登记：original_name, stored_name, bucket, object_key, size, content_type, md5（兼容字段名，视频存服务端 SHA-256 分片树指纹）, checksum_algorithm, content_hash_verified, biz_type, uploader_id, upload_time（MinIO 元数据）
 - `notification` 通知：user_id, type, title, content, read_flag, created_at
 - `cert_sequence` 证书序列：scope_key（school+year[+segment]）, current_seq（带分布式锁，保证连续不间断递增）
 
@@ -315,7 +315,8 @@ else:                       validUntil = f"{issueYear+3}/12/31"    # 下半年�
 ### 6.11 视频评审规则（6.6 / AT-08）
 - 视频内容：5分钟说课 + 10分钟课堂教学展示，总时长约15分钟，容差 ±1 分钟（可配置）。
 - 格式/大小：MP4，支持**至少 2GB 单文件**，分片上传、断点续传、进度显示、失败重传。
-- 校验：上传后校验格式、大小、时长，不符自动提示重传。
+- 校验：上传后由服务端读取最终对象，校验实际 MP4 容器、`video.allowedCodecs` 编码、可解码首帧、大小及媒体轨道时长；客户端声明只作上传体验信息，不作为通过依据，不符自动提示重传。
+- 秒传：仅复用服务端已验证摘要的对象，并绑定同一上传人、同一学生；普通查询响应不得暴露内部去重指纹。
 - 安全播放：在线播放不强制下载，播放页加用户水印，访问需鉴权（预签名/鉴权代理），未登录复制链接不可访问。
 - 评审：一个视频由**两位**专业教师独立评审（可配多专家），提交前互不可见评分与意见；100分制（合格线可配置）；维度见字典 `video_score_dimension`。
 - 分差处理：两教师分差超阈值（建议 10-15 分，可配）或一合格一不合格 → 自动进入第三专家评审或学院仲裁（`需复评`）。
