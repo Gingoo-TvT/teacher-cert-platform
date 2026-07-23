@@ -9,34 +9,37 @@ import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * 视频定稿分布式单飞租约。
  *
  * <p>数据库 MERGING 状态需要允许崩溃后的请求接管，不能单独充当“正在执行”的依据；
- * Redis 短租约用于区分活跃执行者与无人处理的遗留 MERGING 会话。递增 token 同时写入数据库，
- * 过期 owner 即使恢复运行也不能提交旧结果。</p>
+ * Redis 短租约使用不可重复的随机 owner 标识，仅用于区分活跃执行者与无人处理的遗留 MERGING 会话；
+ * 不可回退的 fencing 世代由数据库会话行在认领事务内生成并永久保留。Redis 丢失或恢复旧快照时，
+ * 随机 owner 与数据库高水位仍能共同拒绝旧执行者。</p>
  */
 @Component
 @RequiredArgsConstructor
 public class VideoFinalizeSingleFlight {
 
     private static final String KEY_PREFIX = "video:finalize:";
-    private static final long TOKEN_RETENTION_MILLIS = Duration.ofDays(7).toMillis();
     private static final DefaultRedisScript<Long> ACQUIRE_SCRIPT = new DefaultRedisScript<>("""
             if redis.call('EXISTS', KEYS[1]) == 1 then
-                return nil
+                return 0
             end
-            local token = redis.call('INCR', KEYS[2])
-            redis.call('PEXPIRE', KEYS[2], ARGV[2])
-            redis.call('SET', KEYS[1], tostring(token), 'PX', ARGV[1])
-            return token
+            local acquired = redis.call('SET', KEYS[1], ARGV[1], 'PX', ARGV[2], 'NX')
+            if acquired then
+                return 1
+            end
+            return 0
             """, Long.class);
     private static final DefaultRedisScript<Long> RENEW_SCRIPT = new DefaultRedisScript<>("""
             if redis.call('GET', KEYS[1]) == ARGV[1] then
@@ -68,16 +71,18 @@ public class VideoFinalizeSingleFlight {
     public Lease tryAcquire(String uploadId) {
         String baseKey = KEY_PREFIX + "{" + uploadId + "}";
         String lockKey = baseKey + ":lock";
-        String sequenceKey = baseKey + ":sequence";
+        String ownerId = UUID.randomUUID().toString();
         Duration ttl = properties.getLeaseDuration();
-        Long token;
+        Long acquired;
         try {
-            token = redisTemplate.execute(ACQUIRE_SCRIPT, List.of(lockKey, sequenceKey),
-                    String.valueOf(ttl.toMillis()), String.valueOf(TOKEN_RETENTION_MILLIS));
+            acquired = redisTemplate.execute(ACQUIRE_SCRIPT, List.of(lockKey),
+                    ownerId, String.valueOf(ttl.toMillis()));
         } catch (RuntimeException e) {
             throw new BizException("视频定稿协调服务暂不可用，请稍后重试");
         }
-        return token == null ? null : new Lease(lockKey, token, ttl, properties.getLeaseRenewInterval());
+        return Long.valueOf(1L).equals(acquired)
+                ? new Lease(lockKey, ownerId, ttl, properties.getLeaseRenewInterval())
+                : null;
     }
 
     @PreDestroy
@@ -88,23 +93,44 @@ public class VideoFinalizeSingleFlight {
     public final class Lease implements AutoCloseable {
 
         private final String key;
-        private final long token;
+        private final String ownerId;
         private final Duration ttl;
         private final AtomicBoolean closed = new AtomicBoolean();
         private final AtomicBoolean lost = new AtomicBoolean();
+        private final AtomicLong generation = new AtomicLong();
         private final ScheduledFuture<?> renewal;
 
-        private Lease(String key, long token, Duration ttl, Duration renewInterval) {
+        private Lease(String key, String ownerId, Duration ttl, Duration renewInterval) {
             this.key = key;
-            this.token = token;
+            this.ownerId = ownerId;
             this.ttl = ttl;
             long intervalMillis = renewInterval.toMillis();
             this.renewal = renewer.scheduleWithFixedDelay(
                     this::renewQuietly, intervalMillis, intervalMillis, TimeUnit.MILLISECONDS);
         }
 
-        public long token() {
-            return token;
+        /**
+         * 认领事务锁住上传会话并递增持久高水位后，将本次数据库世代绑定到租约。
+         */
+        public void bindGeneration(long value) {
+            if (value < 1) {
+                throw new IllegalArgumentException("视频定稿世代必须为正数");
+            }
+            long current = generation.get();
+            if (current == value) {
+                return;
+            }
+            if (current != 0L || !generation.compareAndSet(0L, value)) {
+                throw new IllegalStateException("视频定稿租约不能重复绑定不同世代");
+            }
+        }
+
+        public long generation() {
+            long value = generation.get();
+            if (value < 1) {
+                throw new IllegalStateException("视频定稿租约尚未绑定数据库世代");
+            }
+            return value;
         }
 
         /**
@@ -115,7 +141,7 @@ public class VideoFinalizeSingleFlight {
             final Long renewed;
             try {
                 renewed = redisTemplate.execute(RENEW_SCRIPT, List.of(key),
-                        String.valueOf(token), String.valueOf(ttl.toMillis()));
+                        ownerId, String.valueOf(ttl.toMillis()));
             } catch (RuntimeException e) {
                 lost.set(true);
                 throw new BizException("视频定稿租约续期失败，请稍后重试");
@@ -133,7 +159,7 @@ public class VideoFinalizeSingleFlight {
             ensureOpen();
             final Long owned;
             try {
-                owned = redisTemplate.execute(OWNER_SCRIPT, List.of(key), String.valueOf(token));
+                owned = redisTemplate.execute(OWNER_SCRIPT, List.of(key), ownerId);
             } catch (RuntimeException e) {
                 lost.set(true);
                 throw new BizException("视频定稿租约校验失败，请稍后重试");
@@ -150,7 +176,7 @@ public class VideoFinalizeSingleFlight {
             }
             try {
                 Long renewed = redisTemplate.execute(RENEW_SCRIPT, List.of(key),
-                        String.valueOf(token), String.valueOf(ttl.toMillis()));
+                        ownerId, String.valueOf(ttl.toMillis()));
                 if (!Long.valueOf(1L).equals(renewed)) {
                     lost.set(true);
                 }
@@ -172,9 +198,9 @@ public class VideoFinalizeSingleFlight {
             }
             renewal.cancel(false);
             try {
-                redisTemplate.execute(RELEASE_SCRIPT, List.of(key), String.valueOf(token));
+                redisTemplate.execute(RELEASE_SCRIPT, List.of(key), ownerId);
             } catch (RuntimeException ignored) {
-                // 释放失败由 TTL 兜底；不能用无 token 的 DEL 误删新执行者的租约。
+                // 释放失败由 TTL 兜底；不能用无 owner 的 DEL 误删新执行者的租约。
             }
         }
     }

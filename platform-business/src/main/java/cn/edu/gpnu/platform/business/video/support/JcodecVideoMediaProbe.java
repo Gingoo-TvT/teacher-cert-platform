@@ -12,7 +12,6 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -39,6 +38,7 @@ public class JcodecVideoMediaProbe implements VideoMediaProbe {
     private final ParamService paramService;
     private final VideoProbeProperties properties;
     private final VideoMediaWorker mediaWorker;
+    private final VideoProbeTempArtifactManager artifactManager;
 
     @Override
     public VideoMediaInspection inspect(String objectKey, long expectedSize, String declaredFingerprint) {
@@ -46,14 +46,13 @@ public class JcodecVideoMediaProbe implements VideoMediaProbe {
         if (expectedSize < 1) {
             return invalid(policy, "视频对象大小不合法", null, null, null, null);
         }
-        Path temporaryFile = null;
         String fingerprint = null;
         long deadlineNanos = deadlineNanos();
-        try {
-            Path directory = properties.getTempDirectory().toAbsolutePath().normalize();
-            Files.createDirectories(directory);
-            temporaryFile = Files.createTempFile(directory, "video-probe-", ".mp4");
-            fingerprint = downloadAndFingerprint(objectKey, expectedSize, temporaryFile, deadlineNanos).value();
+        try (VideoProbeTempArtifactManager.Artifact artifact =
+                     artifactManager.create(VideoProbeTempArtifactManager.ArtifactKind.MEDIA, ".mp4")) {
+            Path temporaryFile = artifact.path();
+            fingerprint = downloadAndFingerprint(
+                    objectKey, expectedSize, artifact, deadlineNanos).value();
             // 旧 8/32 位摘要仅用于同一会话恢复且不参与秒传；新版 64 位摘要必须与服务端计算值一致。
             if (StringUtils.hasText(declaredFingerprint)
                     && declaredFingerprint.trim().length() == 64
@@ -69,19 +68,15 @@ public class JcodecVideoMediaProbe implements VideoMediaProbe {
                             track.frameCount(), policy.hash(), PROBE_VERSION)
                     : invalid(policy, track.message(), fingerprint, track.durationSeconds(),
                             track.codec(), track.frameCount());
+        } catch (VideoProbeTimeoutException | VideoProbeInfrastructureException e) {
+            throw e;
         } catch (ProbeLimitException e) {
             return invalid(policy, e.getMessage(), fingerprint, null, null, null);
-        } catch (IOException | RuntimeException e) {
-            log.warn("视频对象探测失败: {}", e.getClass().getSimpleName());
-            return invalid(policy, "读取或解析视频对象失败", fingerprint, null, null, null);
-        } finally {
-            if (temporaryFile != null) {
-                try {
-                    Files.deleteIfExists(temporaryFile);
-                } catch (IOException e) {
-                    log.warn("清理视频探测临时文件失败");
-                }
-            }
+        } catch (IOException e) {
+            throw new VideoProbeInfrastructureException("视频对象或临时目录读取失败，请稍后重试", e);
+        } catch (RuntimeException e) {
+            log.warn("视频对象探测基础设施异常: {}", e.getClass().getSimpleName());
+            throw new VideoProbeInfrastructureException("视频媒体探测服务异常，请稍后重试", e);
         }
     }
 
@@ -95,15 +90,17 @@ public class JcodecVideoMediaProbe implements VideoMediaProbe {
         return PROBE_VERSION;
     }
 
-    private FingerprintResult downloadAndFingerprint(String objectKey, long expectedSize, Path target,
-                                                     long deadlineNanos) throws IOException {
+    private FingerprintResult downloadAndFingerprint(
+            String objectKey, long expectedSize,
+            VideoProbeTempArtifactManager.Artifact artifact,
+            long deadlineNanos) throws IOException {
         MessageDigest leafDigest = sha256();
         List<byte[]> leafDigests = new ArrayList<>();
         long totalBytes = 0L;
         int currentLeafBytes = 0;
         byte[] buffer = new byte[64 * 1024];
         try (InputStream input = multipartObjectService.openObject(objectKey);
-             OutputStream output = Files.newOutputStream(target)) {
+             OutputStream output = artifact.openOutputStream()) {
             int read;
             while ((read = input.read(buffer)) != -1) {
                 ensureWithinDeadline(deadlineNanos);
@@ -180,7 +177,7 @@ public class JcodecVideoMediaProbe implements VideoMediaProbe {
 
     private void ensureWithinDeadline(long deadlineNanos) {
         if (System.nanoTime() - deadlineNanos >= 0) {
-            throw new ProbeLimitException("视频媒体探测超过系统时限");
+            throw new VideoProbeTimeoutException("视频媒体探测超过系统时限，请稍后重试");
         }
     }
 

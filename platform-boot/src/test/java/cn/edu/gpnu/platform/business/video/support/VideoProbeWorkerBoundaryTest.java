@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
+import java.io.OutputStream;
 import java.net.URISyntaxException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -12,8 +13,10 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class VideoProbeWorkerBoundaryTest {
 
@@ -23,16 +26,44 @@ class VideoProbeWorkerBoundaryTest {
     @Test
     void wallClockDeadlineForciblyTerminatesBlockedWorkerProcess() {
         VideoProbeProperties properties = properties();
-        VideoProbeProcessRunner runner = new VideoProbeProcessRunner(properties);
+        VideoProbeTempArtifactManager artifacts = artifacts(properties);
+        VideoProbeProcessRunner runner = new VideoProbeProcessRunner(
+                properties, artifacts, new DefaultVideoProbeProcessFactory(),
+                new VideoProbeProcessSupervisor());
 
-        long started = System.nanoTime();
-        VideoProbeProcessRunner.ProcessResult result = runner.execute(
-                BlockingWorkerMain.class.getName(), List.of(), Duration.ofMillis(250));
-        long elapsedMillis = Duration.ofNanos(System.nanoTime() - started).toMillis();
+        try {
+            long started = System.nanoTime();
+            VideoProbeProcessRunner.ProcessResult result = runner.execute(
+                    BlockingWorkerMain.class.getName(), List.of(), Duration.ofMillis(250));
+            long elapsedMillis = Duration.ofNanos(System.nanoTime() - started).toMillis();
 
-        assertThat(result.timedOut()).isTrue();
-        assertThat(result.exitCode()).isEqualTo(-1);
-        assertThat(elapsedMillis).isLessThan(5_000L);
+            assertThat(result.timedOut()).isTrue();
+            assertThat(result.exitCode()).isEqualTo(-1);
+            assertThat(ProcessHandle.of(result.processId()).map(ProcessHandle::isAlive).orElse(false)).isFalse();
+            assertThat(elapsedMillis).isLessThan(5_000L);
+        } finally {
+            artifacts.shutdown();
+        }
+    }
+
+    @Test
+    void unconfirmedTerminationIsRegisteredAndReportedAsInfrastructureFailure() {
+        VideoProbeProperties properties = properties();
+        VideoProbeTempArtifactManager artifacts = artifacts(properties);
+        VideoProbeProcessSupervisor supervisor = new VideoProbeProcessSupervisor();
+        Process refusingProcess = new RefusingTerminationProcess();
+        VideoProbeProcessRunner runner = new VideoProbeProcessRunner(
+                properties, artifacts, command -> refusingProcess, supervisor);
+
+        try {
+            assertThatThrownBy(() -> runner.execute(
+                    BlockingWorkerMain.class.getName(), List.of(), Duration.ofMillis(1)))
+                    .isInstanceOf(VideoProbeInfrastructureException.class)
+                    .hasMessageContaining("无法终止");
+            assertThat(supervisor.hasLiveOrphans()).isTrue();
+        } finally {
+            artifacts.shutdown();
+        }
     }
 
     @Test
@@ -57,6 +88,19 @@ class VideoProbeWorkerBoundaryTest {
 
         assertThat(result.valid()).isFalse();
         assertThat(result.message()).contains("只能包含一个视频轨道");
+    }
+
+    @Test
+    void malformedMp4IsReportedAsStructuredContentFailure() throws IOException {
+        Path malformed = Files.write(tempDirectory.resolve("malformed.mp4"),
+                "....ftypmp42-not-a-real-video-mdat"
+                        .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+
+        VideoMediaWorker.TrackInspection result = VideoProbeWorkerMain.inspectTrack(
+                malformed, Set.of("H264"), 2, 100_000);
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.message()).contains("可解析的MP4");
     }
 
     private Path sampleVideo() throws URISyntaxException {
@@ -116,6 +160,12 @@ class VideoProbeWorkerBoundaryTest {
         return properties;
     }
 
+    private VideoProbeTempArtifactManager artifacts(VideoProbeProperties properties) {
+        VideoProbeTempArtifactManager manager = new VideoProbeTempArtifactManager(properties);
+        manager.initialize();
+        return manager;
+    }
+
     private record Box(int offset, int size, int headerSize) {
     }
 
@@ -126,6 +176,59 @@ class VideoProbeWorkerBoundaryTest {
 
         public static void main(String[] args) throws InterruptedException {
             Thread.sleep(Duration.ofMinutes(5).toMillis());
+        }
+    }
+
+    private static final class RefusingTerminationProcess extends Process {
+
+        @Override
+        public OutputStream getOutputStream() {
+            return OutputStream.nullOutputStream();
+        }
+
+        @Override
+        public java.io.InputStream getInputStream() {
+            return java.io.InputStream.nullInputStream();
+        }
+
+        @Override
+        public java.io.InputStream getErrorStream() {
+            return java.io.InputStream.nullInputStream();
+        }
+
+        @Override
+        public int waitFor() {
+            return 0;
+        }
+
+        @Override
+        public boolean waitFor(long timeout, TimeUnit unit) {
+            return false;
+        }
+
+        @Override
+        public int exitValue() {
+            throw new IllegalThreadStateException("still running");
+        }
+
+        @Override
+        public void destroy() {
+            // 模拟运行时拒绝终止。
+        }
+
+        @Override
+        public Process destroyForcibly() {
+            return this;
+        }
+
+        @Override
+        public boolean isAlive() {
+            return true;
+        }
+
+        @Override
+        public long pid() {
+            return Long.MAX_VALUE;
         }
     }
 }

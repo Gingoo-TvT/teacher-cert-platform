@@ -10,12 +10,13 @@
 - Claude 当前不可用；用户于 2026-07-23 明确授权 Codex 作为本轮独立复核者。复核者未采信实现自报，重新读码并在隔离真实依赖环境重跑反例和全量门禁；该应急授权只适用于本轮记录，不自动改写 `REVIEW-GATE` 的长期角色约定。
 - 原复核隔离空库基线：`mvn -B -ntp clean verify` 通过，Surefire **121/121**、Failsafe **144/144**，合计 **265/265**，Flyway V1–V28 与 `R__testseed` 成功。
 - WS-3 第二轮整改独立门禁：全新数据卷执行 Flyway V1–V29 成功，Surefire **121/121**、Failsafe **150/150**，合计 **271/271**；Phase 7 为 **29/29**；前端 type-check/build 通过。独立复核确认时间线、fast-hit、review 行锁和 V29 已闭环，但静态不变量仍发现 3 High / 3 Medium。
-- WS-3 第三轮整改已实现并自测：全新数据卷 Flyway V1–V30 成功，Surefire **125/125**、Failsafe **152/152**，合计 **277/277**；Phase 7 **31/31**；前端 type-check/build、生产 Compose config 与 fat-JAR worker 通过。3 High / 3 Medium 均有对应实现和确定性反例，但当前只置“待独立重核”。
+- WS-3 第三轮整改独立重核：全新数据卷 Flyway V1–V30 成功，Surefire **125/125**、Failsafe **152/152**，合计 **277/277**；Phase 7 **31/31**；前端 type-check/build、生产 Compose config 与 fat-JAR worker 通过。独立复核确认前轮正常路径有实质闭环，但仍发现 **4 High / 5 Medium**：Redis fencing token 可 ABA、server finalize/assign 竞态永久 MERGING、direct 丢失 multipart 接管永久 MERGING、持久临时卷无崩溃孤儿清扫，以及错误分类/强杀确认/容量公式/MinIO 双 client 超时/fat-JAR 自动化缺口。结论为 **CHANGES REQUESTED**，见 `reviews/ws-03-third-remediation-rereview-2026-07-23.md`。
+- WS-3 第四轮整改自测：V31 数据库永久世代、随机 Redis owner、三类不可恢复 MERGING 收敛、临时卷 owner/reaper/独占锁、严格 worker 结果分类、强杀死亡确认、孤儿准入与容量原子快照、MinIO 双 client 正数有界超时、verify 内 fat-JAR 门禁均已落地。专用全新环境 Flyway V1–V31，Surefire **140/140**、Failsafe **159/159**，合计 **299/299**；Phase 7 **36/36**；前端 type-check/build 与 dev/prod Compose config 通过。此为实现者自测，尚未产生第四轮独立 PASS 报告。
 - 前端：`npm --prefix frontend run type-check`、`npm --prefix frontend run build` 通过；构建仍有 `echarts`/`naive` 大 chunk 警告。
 - 编排：`docker-compose.dev.yml` 与生产 `docker-compose.yml + .env.example` 均通过 `config --quiet`。
-- 当前 WS 链判定：**WS-1、WS-2、WS-10、WS-13 PASS；WS-3 第三轮整改完成、待独立重核**。第二轮正式结论仍见 `reviews/ws-03-second-remediation-rereview-2026-07-23.md`；新独立报告 PASS 前不得自行覆盖其 CHANGES REQUESTED。
+- 当前 WS 链判定：**WS-1、WS-2、WS-10、WS-13 PASS；WS-3 第四轮整改完成、待独立重核**。第三轮正式结论见 `reviews/ws-03-third-remediation-rereview-2026-07-23.md`；不得以 299/299 自测覆盖其 CHANGES REQUESTED。
 - 缺失阶段账已完成独立复核：**Phase 29、35b、36–38、40、43、45–46、48–52 PASS；Phase 0、39、41、42、44、47、53 CHANGES REQUESTED**。阶段总审计见 `reviews/phase-gap-audit-2026-07-23.md`。
-- 全项目仍为 **CHANGES REQUESTED**：WS-3 第三轮等待独立重核；此外仍有学院删除并发孤儿、备份不可按手册恢复、导入/回滚竞态、Phase 44 完成声明与实现不一致、MinIO 生命周期失败覆盖、Phase 53 demo 对象/元数据升级不一致及 Phase 0 验收基线欠账。
+- 全项目仍为 **CHANGES REQUESTED**：WS-3 第四轮待独立重核；此外仍有学院删除并发孤儿、备份不可按手册恢复、导入/回滚竞态、Phase 44 完成声明与实现不一致、MinIO 生命周期失败覆盖、Phase 53 demo 对象/元数据升级不一致及 Phase 0 验收基线欠账。
 - 本轮是“逐阶段进度真实性 + 测试真实性 + 发布门禁”的复核，不替代最后的全量安全、业务规则、数据一致性、性能与运行期审计。
 
 ## 2. 逐阶段复核矩阵
@@ -35,7 +36,7 @@
 | Phase 4 | 已完成 | `reviews/phase-04-review.md` PASS | ✅ 已复核；当前全量回归通过 |
 | Phase 5 | 已完成 | `reviews/phase-05-review.md` PASS | ✅ 已复核；当前全量回归通过 |
 | Phase 6 | 已完成 | `reviews/phase-06-review.md` PASS | ✅ 已复核；当前全量回归通过 |
-| Phase 7 | 历史阶段已完成；当前叠加 WS-3 第三轮增量 | `reviews/phase-07-review.md` 历史 PASS；`reviews/ws-03-second-remediation-rereview-2026-07-23.md` | 🟦 第三轮整改待独立重核；历史阶段 PASS 结论保留 |
+| Phase 7 | 历史阶段已完成；当前叠加 WS-3 第四轮增量 | `reviews/phase-07-review.md` 历史 PASS；`reviews/ws-03-third-remediation-rereview-2026-07-23.md` | 🟦 第四轮整改完成、待独立重核；历史阶段 PASS 结论保留 |
 | Phase 8 | 已完成 | `reviews/phase-08-review.md` PASS | ✅ 已复核；当前全量回归通过 |
 | Phase 9 | 已完成 | `reviews/phase-09-review.md` PASS | ✅ 已复核；当前全量回归通过 |
 | Phase 10 | 已完成 | `reviews/phase-10-review.md` PASS | ✅ 已复核；当前全量回归通过 |
@@ -92,7 +93,7 @@
 | WS-2 凭据硬化 | `9bdee8f` | 目标单测 105/105；专项真实依赖组合 50/50；纳入 265/265 | ✅ 独立复核 PASS；`reviews/ws-02-review-2026-07-23.md` |
 | WS-10 profile fail-fast | `32905a5` | 启动型单测、Compose；纳入 265/265 | ✅ 独立复核 PASS；`reviews/ws-10-review-2026-07-23.md` |
 | WS-13 RBAC 授权天花板 | `acfc3b6` | WS13 IT 4/4、授权矩阵单测；纳入 265/265 | ✅ 独立复核 PASS；`reviews/ws-13-review-2026-07-23.md` |
-| WS-3 MinIO 预签名直传 | 原实现 `338bc91`；首批整改 `ca400f1`；第二轮整改 `32da735`；第三轮为本次提交 | Phase 7 31/31；全新数据卷 V1–V30 全量 277/277；前端/Compose/fat-JAR worker 通过 | 🟦 第三轮整改完成、待独立重核；Phase 53 的 demo High 仍留 U-003 |
+| WS-3 MinIO 预签名直传 | 原实现 `338bc91`；首批整改 `ca400f1`；第二轮整改 `32da735`；第三轮 `df22e5b`；第四轮本次增量 | Phase 7 36/36；全新数据卷 V1–V31 全量 299/299；前端/Compose/verify fat-JAR worker 通过 | 🟦 第四轮整改完成、待独立重核；第三轮 4 High / 5 Medium 正式退回状态保留；Phase 53 demo High 仍留 U-003 |
 
 统一风险证据与修复顺序见 `reviews/current-ws-chain-audit-2026-07-23.md`。
 
@@ -101,7 +102,7 @@
 ### P0：复核与发布门禁
 
 1. **U-001 CI 可复现性（WS-3 Major-3）—✅ 独立重核 PASS**：后端 job 的固定版本 MinIO、健康检查、桶初始化与前端 `npm run type-check` 已静态核对；独立 CI 等价环境全量 266/266、前端 type-check/build 通过。WS-6 仍负责 ESLint、Vitest、Playwright。
-2. **U-002 WS-3 退回整改—🟦 第三轮整改完成、待独立重核**：已补 `SERVER_CHUNK` 可接管恢复点、累计磁盘准入、可强杀媒体 worker、direct/merge 续租与 fencing、生产 Compose/.env/专用临时卷，以及容量/TTL/包数/多轨/三阶段崩溃恢复反例。第二轮报告仍为 `reviews/ws-03-second-remediation-rereview-2026-07-23.md`，新独立报告 PASS 前不改判。
+2. **U-002 WS-3 退回整改—🟦 第四轮整改完成，待独立重核**：已按 `reviews/ws-03-third-remediation-rereview-2026-07-23.md` 修复 4 High / 5 Medium，并补 V31 升级保值、server 源分片丢失和孤儿登记/准入交错反例。发布必须停写、停全部旧节点/worker、迁移 V31、全量启动新实例后再放流；禁止混部与 V31 后旧二进制回滚。每实例 probe 卷必须独占且有独立配额。
 3. **U-003 阶段退回整改**：按依赖/风险顺序修 Phase 42 导入回滚状态机 → Phase 39 父子记录串行化 → Phase 41 可恢复备份与安全初始化 → Phase 47 生命周期 fail-closed → Phase 53 demo 真实元数据/旧对象 reconcile + 浏览器播放 → Phase 44 状态诚实化/缓存事务后逐出。每项只修报告中的 Major，并补对应反例。
 4. **U-004 Phase 0 复核退回整改**：逐项处理 `docs/phase-00-脚手架.md` 的 10 个验收项；被现架构取代的旧要求要记录替代依据，补 lint/Swagger/预签名过期等可重复证据后重交。
 
@@ -139,4 +140,4 @@
 2. 业务规格变化仍必须先改 `plan.md`/对应 phase 文档，并按 R10 写 `DEVLOG.md`；本文件只同步执行项。
 3. 阶段实现完成只能置“待复核”；独立复核报告 PASS 后，才能在本文件与 `PROGRESS.md` 同步置“✅ 已复核”。
 4. 每次复核同时记录：代码提交、测试命令/计数、运行环境、反例、未覆盖项、结论。
-5. 最终全量审计前，U-001–U-004 必须全部闭环；U-001 已独立重核 PASS，U-002 第三轮待独立重核，U-003/U-004 均已有逐阶段退回报告。未闭环前不得宣称稳定发布就绪。
+5. 最终全量审计前，U-001–U-004 必须全部闭环；U-001 已独立重核 PASS，U-002 第四轮整改待独立重核，U-003/U-004 均已有逐阶段退回报告。未闭环前不得宣称稳定发布就绪。

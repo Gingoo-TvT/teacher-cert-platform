@@ -15,6 +15,22 @@
 
 ---
 
+## [2026-07-23] WS-3 第四轮退回整改完成 — 待独立重核
+- 做了什么：按第三轮正式报告的 4 High / 5 Medium 完成第四轮整改。V31 把 `video_upload_session.finalization_token` 迁为 `NOT NULL DEFAULT 0` 永久高水位，认领世代在数据库行锁内单调递增，Redis 仅使用随机 UUID owner；server finalize/assign、direct 丢失 multipart、server 源分片丢失均可收敛为 FAILED 并重新初始化。探测临时卷新增严格版本化工件、owner heartbeat、启动/周期 reaper 和目录独占锁；worker 将非零退出、I/O、缺失/畸形结果归为可重试基础设施异常，只有结构完整的显式无效结果才判内容失败。强杀后必须确认 PID 已退出，未退出进程登记为孤儿并阻止新准入。MinioClient 与 AWS S3Client 均使用显式正数连接/读写/完整调用超时；fat-JAR worker 已纳入 Failsafe。
+- 关键决策与理由：永久 fencing 真值必须来自事务内数据库世代，不能依赖会过期/被恢复的 Redis 数字序列。容量准入将受管媒体写入、实时 usable 与活跃字节快照放在同一锁内，按“总预留－已写字节”计算未来增长；取得并发槽位后再次检查活孤儿，闭合“首次检查后旧 worker 登记并释放槽位”的迟到准入竞态。容量预留仍是单实例状态，因此生产采用每实例独占且具有独立配额/文件系统的 probe 卷，并用目录锁 fail-fast，禁止共享卷。
+- 问题与解决：最终只读审查额外发现三个可能导致再次退回的边界并已收口：①同一 Failsafe fork 缓存多个 Spring Context 会争用默认 probe 目录，测试配置改为每 Context 随机独立目录；②旧 worker 登记孤儿与新请求准入存在检查/取槽竞态，增加取槽后二次检查和确定性交错反例；③SERVER_CHUNK 崩溃后源分片被生命周期策略清理会永久 MERGING，增加源对象存在/大小确认及失败收敛反例。V31 发布协议同步规定停写、停止全部旧节点/worker、迁移、全量新节点启动后再放流，禁止混部和 V31 后回滚旧二进制。
+- 与规格的偏差/疑问：未新增业务规则、权限点或可配置业务默认值。第三轮报告仍是当前正式结论，本条只声明“第四轮整改完成、待独立重核”，不自行改判 PASS。真实 2GB 传输、非允许编码/不可解码首帧证据债继续保留；Phase 53 demo High 仍归 U-003。
+- 测试：专用全新 MySQL/Redis/MinIO 数据卷执行 `mvn -B -ntp clean verify`，Flyway V1–V31 成功；Surefire **140/140**、Failsafe **159/159**，合计 **299/299**，0 failure/error/skip；Phase 7 **36/36**；V31 从 V30 升级对 `NULL→0`、正世代保值、列约束和 Flyway 历史均通过；定向资源/超时/结果分类/MinIO 配置 **19/19**，新增 server 缺片与孤儿准入交错反例通过；前端 type-check/build、dev/prod Compose config、verify 内 fat-JAR worker、`git diff --check` 通过。未由 Codex 启动常驻后端或前端；`teacher-cert-ws04` 专用容器、网络和数据卷已 `down -v`，临时编排文件已删除。
+- 下一步：提交第四轮增量并交独立复核者只核第三轮 4 High / 5 Medium、V31 停机切换和新增恢复/准入边界；新报告 PASS 前 WS-3/U-002 与整体项目继续按 CHANGES REQUESTED 管理。
+
+## [2026-07-23] GOV-006 WS-3 第三轮整改独立重核退回
+- 做了什么：冻结 `32da735..df22e5b`，逐文件复核第三轮 31 个变更文件及相关状态机/对象存储调用方，并由三个独立专项分别检查并发 fencing、媒体 worker/临时资源、V30/配置/测试真实性；产出 `docs/reviews/ws-03-third-remediation-rereview-2026-07-23.md`。确认续租 lease、稳定 server object key、受限堆子 JVM、生产参数/专用卷、V30 和新增正常路径反例均有实质进展，但总判定仍为 **CHANGES REQUESTED（4 High / 5 Medium）**。
+- 关键决策与理由：不以 277/277 绿灯替代持久恢复不变量。4 High 为：① Redis token 序列 7 天过期/数据恢复后可 ABA，数据库无永久 high-water；② server finalize 输给 assign 后只重抛，session 永久 MERGING；③ direct 接管陈旧 MERGING 时 multipart/final object 均已不存在，因 `claimed=false` 不复位；④持久 `video-probe-temp` 只靠进程内 finally，无崩溃孤儿清扫。5 Medium 为基础设施故障误判内容失败、强杀未确认退出、磁盘 reservation 与实时 usable 双重计数、MinioClient 未受新超时控制、fat-JAR worker 缺自动化门禁。
+- 问题与解决：生产 fat-JAR worker 首次复验因本机 PowerShell 不支持 `New-Item -LiteralPath`，临时目录未创建而报结果文件不存在；改用兼容 `-Path` 后同一合法样本 exit 0，返回 H264/3 秒/3 帧，确认是复核脚本问题而非产品缺陷。遵守用户安全限制，没有新增或执行畸形载荷、fuzz、压测、漏洞利用或攻击性并发；发现全部来自本地静态不变量和项目既有一次性门禁。
+- 与规格的偏差/疑问：未修改业务规则、权限点、应用源码、测试、依赖或运行配置；只新增独立报告/元数据，并把退回状态和第四轮范围合并进 `CURRENT-EXECUTION-PLAN.md`、`PROGRESS.md`、`HANDOFF.md`、Phase 7/14，不建立平行计划。真实 2GB、非允许编码和不可解码首帧证据债继续保留；Phase 53 demo High 仍归 U-003。
+- 测试：隔离全新 MySQL/Redis/MinIO 执行 `mvn -B -ntp clean verify` BUILD SUCCESS，Flyway V1–V30，Surefire **125/125**、Failsafe **152/152**，合计 **277/277**，0 failure/error/skip；Phase 7 **31/31**；前端 type-check/build PASS（仅既有大 chunk warning）；生产 Compose config PASS；生产 fat-JAR worker PASS。复核专用 `teacher-cert-ws03` 容器/网络/卷已 `down -v`，3306/6379/9000/9001/8080/5173 无监听，未启动常驻应用。
+- 下一步：第四轮仅修报告 4 High / 5 Medium并补 T-VID-2H～2K 的安全确定性反例；重跑同一 fresh-schema 全量门禁并做增量独立重核。PASS 后再进入 Phase 42 → 39 → 41 → 47 → 53 → 44 → 0，最终执行用户要求的全量审计。
+
 ## [2026-07-23] WS-3 第三轮退回整改完成 — 待独立重核
 - 做了什么：闭环第二轮报告的 3 High / 3 Medium。direct complete 与 server-chunk merge 统一使用可续租 Redis lease，并经 V30 把递增 fencing token 写入 `video_upload_session`；server-chunk 在认领事务内持久化稳定最终 object key，支持 CLAIMED / OBJECT_READY / PROBED 三处退出后的接管恢复。容量守卫改为按全部活跃任务累计预留与真实可用空间准入。JCodec 解复用、逐包扫描和首帧解码迁入受限堆独立 JVM，墙钟到期由父进程强杀；S3 客户端补显式建连/读取超时。生产 Compose/.env 增加全部探测配置和独立 `video-probe-temp` 卷。
 - 关键决策与理由：数据库 `MERGING` 只作为持久恢复点，不能充当永不失效的锁；Redis lease 负责活跃 owner，数据库 token 负责阻止旧 owner 晚提交，两者缺一不可。最终对象 key 必须在外部 compose 前持久化，接管者才能复用已完成对象。对 JCodec 的单次阻塞无法靠线程中 cooperative deadline 安全终止，因此使用独立进程隔离堆并提供可强杀边界；磁盘准入使用累计预留，避免两个各自看似可容纳的任务合计打穿保底水位。

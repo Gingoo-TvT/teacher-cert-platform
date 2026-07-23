@@ -21,6 +21,8 @@ public class VideoProbeCapacityGuard {
 
     private final VideoProbeProperties properties;
     private final VideoProbeDiskSpace diskSpace;
+    private final VideoProbeTempArtifactManager artifactManager;
+    private final VideoProbeProcessSupervisor processSupervisor;
     private final AtomicLong reservedBytes = new AtomicLong();
     private Semaphore permits;
 
@@ -48,11 +50,20 @@ public class VideoProbeCapacityGuard {
     }
 
     public Lease acquire(long expectedBytes) {
+        if (processSupervisor.hasLiveOrphans()) {
+            throw new BizException("视频校验工作进程仍在清理，请稍后重试");
+        }
         if (expectedBytes < 1 || expectedBytes > properties.getMaxReservedBytes()) {
             throw new BizException("视频校验所需临时空间超过系统配额");
         }
         if (!permits.tryAcquire()) {
             throw new BizException("视频校验任务繁忙，请稍后重试");
+        }
+        // 首次检查与信号量获取之间，旧 worker 可能刚登记为孤儿并释放其租约。
+        // 取得槽位后必须再次确认，避免迟到请求复用该槽位启动第二个实际进程。
+        if (processSupervisor.hasLiveOrphans()) {
+            permits.release();
+            throw new BizException("视频校验工作进程仍在清理，请稍后重试");
         }
         boolean reserved = false;
         try {
@@ -60,10 +71,16 @@ public class VideoProbeCapacityGuard {
             reserved = true;
             Path directory = properties.getTempDirectory().toAbsolutePath().normalize();
             Files.createDirectories(directory);
-            long usable = diskSpace.usableSpace(directory);
+            VideoProbeTempArtifactManager.DiskSnapshot diskSnapshot =
+                    artifactManager.diskSnapshot(directory, diskSpace);
+            long writtenByActiveProbes = diskSnapshot.activeMediaBytes();
+            long usable = diskSnapshot.usableBytes();
             long usableForProbes = usable <= properties.getMinFreeBytes()
                     ? 0L : usable - properties.getMinFreeBytes();
-            if (totalReserved > usableForProbes) {
+            // usable 已扣除活跃媒体文件的已写字节；只比较尚未落盘的未来增长，避免同一字节重复计数。
+            long futureGrowth = totalReserved <= writtenByActiveProbes
+                    ? 0L : totalReserved - writtenByActiveProbes;
+            if (futureGrowth > usableForProbes) {
                 throw new BizException("视频校验临时空间不足，请稍后重试");
             }
             return new Lease(this, expectedBytes);

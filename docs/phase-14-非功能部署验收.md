@@ -24,11 +24,25 @@ M14 扩展点预留、后端/前端 Dockerfile、生产 docker-compose、兼容�
   - `STAFF_INITIAL_PASSWORD`（**必须**，12-64 位且含大小写字母、数字、特殊字符；不得使用公开 dev/示例口令）。
   - `DB_PASSWORD` / `REDIS_PASSWORD`（**必须**强口令）。
   - `CORS_ALLOWED_ORIGINS`（P1-7）：允许跨域的前端来源白名单，逗号分隔、含协议+端口、无末尾斜杠（如 `https://cert.gpnu.edu.cn`）。同源部署（前端 nginx 同域反代 `/api`）下 CORS 不参与、可留空；跨域独立前端域名时**必须**设为真实域名，否则被拦截。`allowCredentials=true` 下不可用通配 `*`。
-  - `MINIO_CONNECTION_TIMEOUT_SECONDS` / `MINIO_READ_TIMEOUT_SECONDS`：媒体对象读取的显式建连/套接字超时，避免对象存储单次读取永久占用探测任务。
+  - `MINIO_CONNECTION_TIMEOUT_SECONDS` / `MINIO_READ_TIMEOUT_SECONDS` / `MINIO_CALL_TIMEOUT_SECONDS`：MinioClient 的建连、读写和完整调用上限；AWS S3Client 同时配置建连、套接字和完整 API 调用上限。三项必须为正数，`0` 会在启动期被拒绝，避免以“无限等待”绕过边界。
   - `VIDEO_PROBE_MAX_CONCURRENT` / `VIDEO_PROBE_MAX_RESERVED_BYTES` / `VIDEO_PROBE_MIN_FREE_BYTES`：媒体探测并发、累计预留与磁盘保底水位；独立 `video-probe-temp` 卷容量须至少为 `MAX_RESERVED_BYTES + MIN_FREE_BYTES`，并另留运维余量。
   - `VIDEO_PROBE_MAX_DURATION` / `VIDEO_PROBE_MAX_PACKETS` / `VIDEO_PROBE_WORKER_MAX_HEAP_MB`：媒体探测墙钟、样本数及独立工作 JVM 堆上限；墙钟到期会强制终止工作进程。
-  - `VIDEO_PROBE_LEASE_DURATION` / `VIDEO_PROBE_LEASE_RENEW_INTERVAL`：定稿分布式租约与续租周期，续租周期必须严格小于租约时长的一半；数据库 fencing token 阻止过期 owner 提交结果。
-- **媒体探测临时盘**：生产 Compose 将 `/var/lib/teacher-cert/video-probe` 挂载为独立 `video-probe-temp` volume，禁止退回容器 overlay；监控项至少包含卷可用空间、探测拒绝数、工作进程超时数和租约丢失数。
+  - `VIDEO_PROBE_LEASE_DURATION` / `VIDEO_PROBE_LEASE_RENEW_INTERVAL`：定稿分布式租约与续租周期，续租周期必须严格小于租约时长的一半。Redis 保存随机 owner；数据库 `finalization_token` 是 V31 永不回退的永久世代，阻止过期 owner 提交结果。
+  - `VIDEO_PROBE_ARTIFACT_HEARTBEAT_INTERVAL` / `VIDEO_PROBE_ARTIFACT_OWNER_STALE_AFTER` / `VIDEO_PROBE_ARTIFACT_ORPHAN_TTL` / `VIDEO_PROBE_ARTIFACT_LEGACY_ORPHAN_TTL` / `VIDEO_PROBE_ARTIFACT_CLEANUP_INTERVAL` / `VIDEO_PROBE_ARTIFACT_CLEANUP_SCAN_LIMIT`：探测工件 owner 心跳、崩溃孤儿与历史文件的保守清扫边界；owner 失效阈值必须大于心跳周期的两倍，工件 TTL 必须大于单次探测硬时限的安全余量。
+- **媒体探测临时盘（硬部署约束）**：
+  - 生产 Compose 将 `/var/lib/teacher-cert/video-probe` 挂载为独立 `video-probe-temp` volume，禁止退回容器 overlay。
+  - 每个后端实例必须拥有**独占且具有独立配额/文件系统**的 probe 卷与目录；禁止 `docker compose --scale backend=N` 让副本共享该命名卷。Kubernetes/集群扩容必须使用 per-replica PVC 或等价独立文件系统。
+  - 目录内只允许本组件的版本化工件、owner heartbeat 和锁文件，禁止放置业务文件或其它临时文件。目录独占锁获取失败会 fail-fast 拒绝启动，不能通过删除锁文件或关闭检查绕过。
+  - 启动和周期 reaper 只清理已超过 TTL 且 owner 已失效的已知工件；未知文件与活跃 owner 文件不删除。监控项至少包含卷可用空间、探测拒绝数、孤儿/清扫数量、工作进程超时数和租约丢失数。
+- **WS-3 / V31 停机切换协议（禁止滚动混部）**：
+  1. 停止视频上传定稿/合并写流量。
+  2. 停止全部 `df22e5b` 及更旧后端，排空或终止其 finalize 与媒体 worker。
+  3. 确认没有旧后端、旧 finalize 或旧 worker 进程存活。
+  4. 部署第四轮新二进制，由首个新实例执行 Flyway V31；确认 `video_upload_session.finalization_token` 已成为 `NOT NULL DEFAULT 0` 且历史正世代未回退。
+  5. 仅启动使用同一新协议的全部实例，并逐实例核对其 probe 独占卷/目录。
+  6. 健康检查和迁移核验通过后恢复写流量。
+  - 旧节点会覆盖或清空 V31 永久世代，因此禁止新旧二进制混部；V31 落库后禁止回滚到旧协议二进制，失败只能前向修复。
+- **当前 WS-3 发布闸门（2026-07-23）**：第三轮正式结论仍为 CHANGES REQUESTED。第四轮已实现 V31 永久世代、状态收敛、孤儿清扫/准入、严格错误分类、强杀确认、容量原子快照、双客户端超时和 verify 内 fat-JAR 门禁，并完成自测；当前仅可标记“整改完成、待独立复核”，独立报告 PASS 前不得发布。
 - **WS-2 发布切换**：新版 JWT 含毫秒级签发时间 `iatMs`、口令凭据版本 `credentialVersion` 和 Redis 持久会话代次 `sessionGeneration`；缺少或不匹配任一新 claim 的存量 token 会被拒绝，logout 通过原子增代使旧 access/refresh 立即失效。发布时必须同时替换/重启全部后端实例并通知用户重新登录；禁止旧实例在滚动窗口继续签发旧格式 token。
 
 ## 4. 非功能收口（plan §十二）
@@ -41,7 +55,7 @@ M14 扩展点预留、后端/前端 Dockerfile、生产 docker-compose、兼容�
 - [x] 导出文件机检为文本格式，证件号/前导零/编号/有效期不被转换；Excel/WPS 双端人工核对要求已归档到复验矩阵。
 - [x] 主流程 E2E 贯通：导入→确认→培养→材料→初复审→免考→视频→测试→教务处确认→证书生成→签发→导出/归档。
 - [x] 主流浏览器（Chrome/Edge/Firefox）回归目标已记录；前端 type-check/build 作为自动验收门禁。
-- [x] 媒体探测临时目录使用独立数据卷；S3 读取、工作进程墙钟/堆、累计磁盘预留与可续租 fencing lease 均有显式生产配置。
+- [x] 媒体探测临时目录使用每实例独占数据卷；S3/MinIO 完整调用、工作进程墙钟/堆与死亡确认、累计磁盘预留、孤儿清扫及数据库永久 fencing 世代均有显式生产配置和自动反例。
 
 ## 6. AT 整体复验矩阵
 逐条执行 `README.md` §4 矩阵中每个 AT 的首验用例 + 跨阶段联动用例，归档执行记录（测试名/截图/日志）。
@@ -60,3 +74,5 @@ M14 扩展点预留、后端/前端 Dockerfile、生产 docker-compose、兼容�
 ## 9. 风险
 - E2E 依赖前序所有 Phase；建议 Phase 9/10 完成后即开始搭主流程冒烟，避免末期集中暴露集成问题。
 - 兼容性（WPS/Excel 文本一致）是 AT-01 的最终关卡，需用真实 Office 与 WPS 双端核对。
+- `video-probe-temp` 是持久卷，JVM/容器崩溃会绕过 finally。当前 owner/TTL reaper 可回收已知孤儿，但容量预留仍是单实例内状态；共享卷会绕过总预留不变量，必须坚持 per-replica 独占卷和独立配额。
+- V31 是不可与旧定稿协议混部的单向迁移；未执行上述停机切换、V31 后回滚旧二进制，均会破坏永久世代并导致定稿失败或旧执行者晚提交。

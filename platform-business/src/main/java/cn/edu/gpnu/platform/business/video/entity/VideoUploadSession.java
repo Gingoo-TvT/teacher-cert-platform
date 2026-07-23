@@ -31,5 +31,8 @@ public class VideoUploadSession extends BaseEntity {
     private String status;
     private Long fileId;
     private String validationMessage;
-    private Long finalizationToken;
+    /**
+     * 数据库权威的定稿 fencing 世代高水位；认领时在行锁内递增，完成或失败后也不回退。
+     */
+    private Long finalizationToken = 0L;
 }

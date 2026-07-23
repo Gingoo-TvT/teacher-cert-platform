@@ -11,9 +11,14 @@ import org.jcodec.containers.mp4.demuxer.MP4Demuxer;
 
 import java.io.IOException;
 import java.io.Writer;
+import java.nio.BufferUnderflowException;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.Arrays;
 import java.util.Locale;
 import java.util.Properties;
@@ -47,7 +52,11 @@ public final class VideoProbeWorkerMain {
     }
 
     static VideoMediaWorker.TrackInspection inspectTrack(Path mediaFile, Set<String> allowedCodecs,
-                                                         int timelineToleranceSeconds, int maxPackets) {
+                                                         int timelineToleranceSeconds, int maxPackets)
+            throws IOException {
+        if (!hasSaneTopLevelBoxes(mediaFile)) {
+            return invalid("视频文件不是可解析的MP4媒体", null, null, null);
+        }
         try (SeekableByteChannel channel =
                      org.jcodec.common.io.NIOUtils.readableChannel(mediaFile.toFile())) {
             MP4Demuxer demuxer = MP4Demuxer.createMP4Demuxer(channel);
@@ -69,9 +78,74 @@ public final class VideoProbeWorkerMain {
                         timeline.codec(), timeline.frameCount());
             }
             return timeline;
-        } catch (IOException | JCodecException | RuntimeException | AssertionError e) {
+        } catch (JCodecException | BufferUnderflowException
+                 | IndexOutOfBoundsException | IllegalArgumentException e) {
             return invalid("视频文件不是可解析的MP4媒体", null, null, null);
         }
+    }
+
+    /**
+     * 在进入第三方解析器前只读取固定长度 box 头，拒绝越界尺寸，避免畸形输入诱发巨额分配。
+     * I/O 故障直接向上抛出，由主进程按可重试基础设施故障处理。
+     */
+    private static boolean hasSaneTopLevelBoxes(Path mediaFile) throws IOException {
+        long fileSize = Files.size(mediaFile);
+        if (fileSize < 8L) {
+            return false;
+        }
+        boolean ftyp = false;
+        boolean moov = false;
+        boolean mdat = false;
+        long offset = 0L;
+        int boxCount = 0;
+        try (FileChannel channel = FileChannel.open(mediaFile, StandardOpenOption.READ)) {
+            while (offset + 8L <= fileSize && boxCount++ < 100_000) {
+                ByteBuffer header = ByteBuffer.allocate(16).order(ByteOrder.BIG_ENDIAN);
+                if (!readFully(channel, header, offset, 8)) {
+                    return false;
+                }
+                header.flip();
+                long declaredSize = Integer.toUnsignedLong(header.getInt());
+                byte[] typeBytes = new byte[4];
+                header.get(typeBytes);
+                String type = new String(typeBytes, StandardCharsets.US_ASCII);
+                int headerSize = 8;
+                long boxSize = declaredSize;
+                if (declaredSize == 1L) {
+                    header.clear();
+                    if (!readFully(channel, header, offset + 8L, 8)) {
+                        return false;
+                    }
+                    header.flip();
+                    boxSize = header.getLong();
+                    headerSize = 16;
+                } else if (declaredSize == 0L) {
+                    boxSize = fileSize - offset;
+                }
+                if (boxSize < headerSize || boxSize > fileSize - offset) {
+                    return false;
+                }
+                ftyp |= "ftyp".equals(type);
+                moov |= "moov".equals(type);
+                mdat |= "mdat".equals(type);
+                offset += boxSize;
+            }
+        }
+        return offset == fileSize && boxCount <= 100_000 && ftyp && moov && mdat;
+    }
+
+    private static boolean readFully(
+            FileChannel channel, ByteBuffer target, long offset, int length) throws IOException {
+        target.limit(length);
+        int read = 0;
+        while (target.hasRemaining()) {
+            int current = channel.read(target, offset + read);
+            if (current < 0) {
+                return false;
+            }
+            read += current;
+        }
+        return true;
     }
 
     private static VideoMediaWorker.TrackInspection inspectTimeline(

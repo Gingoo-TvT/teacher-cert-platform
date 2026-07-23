@@ -356,7 +356,6 @@ public class VideoReviewServiceImpl implements VideoReviewService {
     @Override
     public VideoReviewVO complete(VideoUploadCompleteRequest request) {
         VideoUploadSession session = requireSession(request.getUploadId());
-        requirePresignedSession(session);
         Student student = requireStudent(session.getStudentId());
         ensureCanWriteStudent(student, "video:upload");
 
@@ -367,6 +366,7 @@ public class VideoReviewServiceImpl implements VideoReviewService {
         if (initialStatus == VideoUploadStatus.FAILED) {
             throw new BizException("上传会话已失效，请重新发起上传");
         }
+        requirePresignedSession(session);
         VideoFinalizeSingleFlight.Lease singleFlight =
                 videoFinalizeSingleFlight.tryAcquire(session.getUploadId());
         if (singleFlight == null) {
@@ -402,7 +402,7 @@ public class VideoReviewServiceImpl implements VideoReviewService {
                 ensureReviewReuploadable(locked.getStudentId(), locked.getAssessmentYear());
                 persistDirectParts(locked, verified);
                 locked.setStatus(VideoUploadStatus.MERGING.name());
-                locked.setFinalizationToken(lease.token());
+                advanceFinalizationGeneration(locked, lease);
                 if (request.getDurationSeconds() != null) {
                     locked.setDurationSeconds(request.getDurationSeconds());
                 }
@@ -421,7 +421,7 @@ public class VideoReviewServiceImpl implements VideoReviewService {
                 if (VideoUploadStatus.of(locked.getStatus()) != VideoUploadStatus.MERGING) {
                     return false;
                 }
-                locked.setFinalizationToken(lease.token());
+                advanceFinalizationGeneration(locked, lease);
                 sessionMapper.updateById(locked);
                 lease.assertOwned();
                 return true;
@@ -481,16 +481,18 @@ public class VideoReviewServiceImpl implements VideoReviewService {
             return finalizeDirectUpload(activeSession.getUploadId(), student, objectInfo, inspection, lease);
         } catch (RuntimeException e) {
             if (stillOwns(lease)) {
-                boolean objectExists = multipartObjectService.findObject(activeSession.getObjectKey()).isPresent();
-                if (e instanceof DirectUploadTerminalException && objectExists) {
-                    failCompletedDirectSession(activeSession, e.getMessage(), lease.token());
-                } else if (claimed && !objectExists) {
+                Boolean objectExists = finalObjectExists(activeSession.getObjectKey());
+                if (e instanceof MultipartUploadNotFoundException && Boolean.FALSE.equals(objectExists)) {
+                    convergeFailedFinalization(activeSession, "直传分片已过期，请重新发起上传",
+                            lease, true, false);
+                } else if (e instanceof DirectUploadTerminalException && Boolean.TRUE.equals(objectExists)) {
+                    convergeFailedFinalization(activeSession, e.getMessage(), lease, true, true);
+                } else if (claimed && Boolean.FALSE.equals(objectExists)) {
                     sessionMapper.update(null, new LambdaUpdateWrapper<VideoUploadSession>()
                             .eq(VideoUploadSession::getUploadId, activeSession.getUploadId())
                             .eq(VideoUploadSession::getStatus, VideoUploadStatus.MERGING.name())
-                            .eq(VideoUploadSession::getFinalizationToken, lease.token())
-                            .set(VideoUploadSession::getStatus, VideoUploadStatus.UPLOADING.name())
-                            .set(VideoUploadSession::getFinalizationToken, null));
+                            .eq(VideoUploadSession::getFinalizationToken, lease.generation())
+                            .set(VideoUploadSession::getStatus, VideoUploadStatus.UPLOADING.name()));
                 }
             }
             throw e;
@@ -509,7 +511,12 @@ public class VideoReviewServiceImpl implements VideoReviewService {
         if (initialStatus == VideoUploadStatus.MERGED || initialStatus == VideoUploadStatus.VALIDATION_FAILED) {
             return handleNonClaimableMerge(session);
         }
-        ensureReviewReuploadable(student.getId(), session.getAssessmentYear());
+        if (initialStatus == VideoUploadStatus.FAILED) {
+            throw new BizException("上传会话已失效，请重新发起上传");
+        }
+        if (initialStatus == VideoUploadStatus.UPLOADING) {
+            ensureReviewReuploadable(student.getId(), session.getAssessmentYear());
+        }
         List<VideoUploadChunk> chunks = chunks(session.getUploadId());
         if (chunks.size() != session.getTotalChunks()) {
             throw new BizException("分片尚未全部上传");
@@ -536,15 +543,20 @@ public class VideoReviewServiceImpl implements VideoReviewService {
             if (current == VideoUploadStatus.MERGED || current == VideoUploadStatus.VALIDATION_FAILED) {
                 return locked;
             }
+            if (current == VideoUploadStatus.FAILED) {
+                throw new BizException("上传会话已失效，请重新发起上传");
+            }
             if (current != VideoUploadStatus.UPLOADING && current != VideoUploadStatus.MERGING) {
                 throw new BizException("视频上传会话状态已变化，请刷新后重试");
             }
-            ensureReviewReuploadable(locked.getStudentId(), locked.getAssessmentYear());
+            if (current == VideoUploadStatus.UPLOADING) {
+                ensureReviewReuploadable(locked.getStudentId(), locked.getAssessmentYear());
+            }
             locked.setStatus(VideoUploadStatus.MERGING.name());
             if (!StringUtils.hasText(locked.getObjectKey())) {
                 locked.setObjectKey(stableServerObjectKey(locked.getUploadId()));
             }
-            locked.setFinalizationToken(lease.token());
+            advanceFinalizationGeneration(locked, lease);
             sessionMapper.updateById(locked);
             lease.assertOwned();
             return locked;
@@ -554,18 +566,19 @@ public class VideoReviewServiceImpl implements VideoReviewService {
                 || VideoUploadStatus.of(claimedSession.getStatus()) == VideoUploadStatus.VALIDATION_FAILED) {
             return handleNonClaimableMerge(session);
         }
+        String objectKey = claimedSession.getObjectKey();
+        List<VideoUploadChunk> sortedChunks = chunks.stream()
+                .sorted(Comparator.comparing(VideoUploadChunk::getChunkIndex))
+                .toList();
         try {
             videoFinalizationHook.afterServerChunkStage(
                     VideoFinalizationHook.ServerChunkStage.CLAIMED, claimedSession.getUploadId());
             lease.renewOrThrow();
-            String objectKey = claimedSession.getObjectKey();
-            List<VideoUploadChunk> sortedChunks = chunks.stream()
-                    .sorted(Comparator.comparing(VideoUploadChunk::getChunkIndex))
-                    .toList();
             MultipartObjectInfo existingObject = multipartObjectService.findObject(objectKey).orElse(null);
             lease.assertOwned();
             if (existingObject == null || existingObject.size() != claimedSession.getFileSize()) {
                 // objectKey 已在认领事务持久化；节点退出后接管者可重用已合并对象，或以同一 key 安全重合并。
+                requireServerChunkSources(sortedChunks);
                 if (canServerSideCompose(sortedChunks)) {
                     composeServerSide(sortedChunks, objectKey);
                 } else {
@@ -599,14 +612,27 @@ public class VideoReviewServiceImpl implements VideoReviewService {
                         : VideoUploadStatus.MERGED.name());
                 locked.setValidationMessage(review.getValidationMessage());
                 sessionMapper.updateById(locked);
-                clearFinalizationToken(locked, lease);
                 lease.assertOwned();
                 return review.getId();
             });
             return detail(reviewId);
         } catch (RuntimeException e) {
-            // MERGING + 持久 objectKey 是恢复点。异常或节点退出后租约释放/到期，
-            // 后续请求取得更高 fencing token 接管；旧 owner 不能再落库。
+            String terminalReason = null;
+            if (e instanceof DirectUploadTerminalException
+                    || e instanceof ServerChunkTerminalException) {
+                terminalReason = e.getMessage();
+            } else if (stillOwns(lease)
+                    && Boolean.FALSE.equals(finalServerObjectReady(
+                    objectKey, claimedSession.getFileSize()))
+                    && Boolean.TRUE.equals(serverChunkSourcesMissing(sortedChunks))) {
+                // 分片可能在预检后、compose 期间被清理；二次确认最终对象也不可用后才能判为不可恢复。
+                terminalReason = "已上传分片不存在或不完整，请重新发起上传";
+            }
+            if (terminalReason != null && stillOwns(lease)) {
+                // 确定性业务终态必须释放活跃槽位，不能永久停在 MERGING。
+                convergeFailedFinalization(claimedSession, terminalReason, lease, false, true);
+            }
+            // 其它基础设施异常保留 MERGING + 持久 objectKey，后续请求可取得更高世代接管。
             throw e;
         }
     }
@@ -1151,7 +1177,6 @@ public class VideoReviewServiceImpl implements VideoReviewService {
                     : VideoUploadStatus.MERGED.name());
             locked.setValidationMessage(review.getValidationMessage());
             sessionMapper.updateById(locked);
-            clearFinalizationToken(locked, lease);
             lease.assertOwned();
             return review.getId();
         });
@@ -1262,17 +1287,49 @@ public class VideoReviewServiceImpl implements VideoReviewService {
         }
     }
 
-    private void failCompletedDirectSession(VideoUploadSession session, String reason, long finalizationToken) {
-        int changed = sessionMapper.update(null, new LambdaUpdateWrapper<VideoUploadSession>()
-                .eq(VideoUploadSession::getUploadId, session.getUploadId())
-                .eq(VideoUploadSession::getStatus, VideoUploadStatus.MERGING.name())
-                .eq(VideoUploadSession::getFinalizationToken, finalizationToken)
-                .set(VideoUploadSession::getStatus, VideoUploadStatus.FAILED.name())
-                .set(VideoUploadSession::getValidationMessage, reason)
-                .set(VideoUploadSession::getFinalizationToken, null));
-        if (changed != 1) {
+    private void convergeFailedFinalization(VideoUploadSession session, String reason,
+                                            VideoFinalizeSingleFlight.Lease lease,
+                                            boolean clearDirectState, boolean cleanupObject) {
+        Boolean changed = transactionTemplate.execute(status -> {
+            VideoUploadSession locked = lockUploadSession(session.getUploadId());
+            if (VideoUploadStatus.of(locked.getStatus()) != VideoUploadStatus.MERGING
+                    || !Objects.equals(locked.getFinalizationToken(), lease.generation())) {
+                return false;
+            }
+            lease.assertOwned();
+            locked.setStatus(VideoUploadStatus.FAILED.name());
+            locked.setValidationMessage(reason);
+            if (clearDirectState) {
+                locked.setS3UploadId(null);
+                locked.setPresignExpiresAt(null);
+                locked.setUploadedChunks(0);
+                locked.setUploadedBytes(0L);
+            }
+            sessionMapper.updateById(locked);
+            if (clearDirectState) {
+                // MyBatis-Plus 默认忽略实体中的 null；失效直传会话必须显式清空上传凭据。
+                sessionMapper.update(null, new LambdaUpdateWrapper<VideoUploadSession>()
+                        .eq(VideoUploadSession::getUploadId, locked.getUploadId())
+                        .eq(VideoUploadSession::getStatus, VideoUploadStatus.FAILED.name())
+                        .eq(VideoUploadSession::getFinalizationToken, lease.generation())
+                        .set(VideoUploadSession::getS3UploadId, null)
+                        .set(VideoUploadSession::getPresignExpiresAt, null));
+            }
+            chunkMapper.update(null, new LambdaUpdateWrapper<VideoUploadChunk>()
+                    .eq(VideoUploadChunk::getUploadId, locked.getUploadId())
+                    .set(VideoUploadChunk::getUpdatedBy, UserContext.getUserIdOrSystem())
+                    .set(VideoUploadChunk::getUpdatedAt, LocalDateTime.now())
+                    .setSql("deleted = 1"));
+            lease.assertOwned();
+            return true;
+        });
+        if (!Boolean.TRUE.equals(changed) || !cleanupObject) {
             return;
         }
+        cleanupUnregisteredFinalizationObject(session);
+    }
+
+    private void cleanupUnregisteredFinalizationObject(VideoUploadSession session) {
         FileObject registered = fileObjectMapper.selectOne(new LambdaQueryWrapper<FileObject>()
                 .eq(FileObject::getBucket, minioProperties.getBucket())
                 .eq(FileObject::getObjectKey, session.getObjectKey())
@@ -1290,6 +1347,16 @@ public class VideoReviewServiceImpl implements VideoReviewService {
         } catch (Exception cleanupFailure) {
             log.warn("终态失败的视频对象删除失败，孤儿扫描将兜底: uploadId={}, message={}",
                     session.getUploadId(), cleanupFailure.getMessage());
+        }
+    }
+
+    private Boolean finalObjectExists(String objectKey) {
+        try {
+            return multipartObjectService.findObject(objectKey).isPresent();
+        } catch (RuntimeException lookupFailure) {
+            log.warn("视频定稿异常后无法确认最终对象状态，保留会话供后续接管: objectKey={}, message={}",
+                    objectKey, lookupFailure.getMessage());
+            return null;
         }
     }
 
@@ -1351,22 +1418,21 @@ public class VideoReviewServiceImpl implements VideoReviewService {
     private void requireFinalizationOwner(VideoUploadSession session,
                                           VideoFinalizeSingleFlight.Lease lease) {
         if (VideoUploadStatus.of(session.getStatus()) != VideoUploadStatus.MERGING
-                || !Objects.equals(session.getFinalizationToken(), lease.token())) {
+                || !Objects.equals(session.getFinalizationToken(), lease.generation())) {
             throw new BizException("视频定稿执行权已转移，本次结果已丢弃");
         }
         lease.assertOwned();
     }
 
-    private void clearFinalizationToken(VideoUploadSession session,
-                                        VideoFinalizeSingleFlight.Lease lease) {
-        int changed = sessionMapper.update(null, new LambdaUpdateWrapper<VideoUploadSession>()
-                .eq(VideoUploadSession::getId, session.getId())
-                .eq(VideoUploadSession::getFinalizationToken, lease.token())
-                .set(VideoUploadSession::getFinalizationToken, null));
-        if (changed != 1) {
-            throw new BizException("视频定稿执行权已转移，本次结果已丢弃");
+    private void advanceFinalizationGeneration(VideoUploadSession session,
+                                               VideoFinalizeSingleFlight.Lease lease) {
+        long current = session.getFinalizationToken() == null ? 0L : session.getFinalizationToken();
+        if (current == Long.MAX_VALUE) {
+            throw new BizException("视频定稿世代已耗尽，请联系管理员");
         }
-        session.setFinalizationToken(null);
+        long next = current + 1L;
+        session.setFinalizationToken(next);
+        lease.bindGeneration(next);
     }
 
     private boolean stillOwns(VideoFinalizeSingleFlight.Lease lease) {
@@ -1482,6 +1548,13 @@ public class VideoReviewServiceImpl implements VideoReviewService {
     private static final class DirectUploadTerminalException extends BizException {
 
         private DirectUploadTerminalException(String message) {
+            super(message);
+        }
+    }
+
+    private static final class ServerChunkTerminalException extends BizException {
+
+        private ServerChunkTerminalException(String message) {
             super(message);
         }
     }
@@ -1725,6 +1798,46 @@ public class VideoReviewServiceImpl implements VideoReviewService {
             }
         }
         return true;
+    }
+
+    private void requireServerChunkSources(List<VideoUploadChunk> chunks) {
+        for (VideoUploadChunk chunk : chunks) {
+            MultipartObjectInfo object = multipartObjectService.findObject(chunk.getObjectKey())
+                    .orElseThrow(() -> new ServerChunkTerminalException(
+                            "已上传分片不存在或不完整，请重新发起上传"));
+            if (!Objects.equals(chunk.getChunkSize(), object.size())) {
+                throw new ServerChunkTerminalException(
+                        "已上传分片不存在或不完整，请重新发起上传");
+            }
+        }
+    }
+
+    private Boolean serverChunkSourcesMissing(List<VideoUploadChunk> chunks) {
+        try {
+            for (VideoUploadChunk chunk : chunks) {
+                MultipartObjectInfo object = multipartObjectService.findObject(chunk.getObjectKey())
+                        .orElse(null);
+                if (object == null || !Objects.equals(chunk.getChunkSize(), object.size())) {
+                    return true;
+                }
+            }
+            return false;
+        } catch (RuntimeException lookupFailure) {
+            log.warn("视频合并异常后无法确认源分片状态，保留会话供后续接管: message={}",
+                    lookupFailure.getMessage());
+            return null;
+        }
+    }
+
+    private Boolean finalServerObjectReady(String objectKey, long expectedSize) {
+        try {
+            MultipartObjectInfo object = multipartObjectService.findObject(objectKey).orElse(null);
+            return object != null && object.size() == expectedSize;
+        } catch (RuntimeException lookupFailure) {
+            log.warn("视频合并异常后无法确认最终对象状态，保留会话供后续接管: objectKey={}, message={}",
+                    objectKey, lookupFailure.getMessage());
+            return null;
+        }
     }
 
     /**

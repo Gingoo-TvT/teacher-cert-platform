@@ -44,6 +44,7 @@ minio:
   direct-upload-complete-timeout-seconds: ${MINIO_DIRECT_UPLOAD_COMPLETE_TIMEOUT_SECONDS:300}
   connection-timeout-seconds: ${MINIO_CONNECTION_TIMEOUT_SECONDS:10}
   read-timeout-seconds: ${MINIO_READ_TIMEOUT_SECONDS:30}
+  call-timeout-seconds: ${MINIO_CALL_TIMEOUT_SECONDS:900}
 
 # 安全（platform-security）—— 仅 dev 的 JWT 密钥默认值；显式选择 dev 后，本地启动无需另配 JWT_SECRET。
 # base application.yml 为 `secret: ${JWT_SECRET:}`（空默认、全 profile）；未注入 JWT_SECRET 时 JwtService.init

@@ -1,6 +1,5 @@
 package cn.edu.gpnu.platform.business.video.support;
 
-import cn.edu.gpnu.platform.common.exception.BizException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -27,47 +26,62 @@ public class VideoProbeProcessRunner {
             "org/springframework/boot/loader/launch/PropertiesLauncher.class";
 
     private final VideoProbeProperties properties;
+    private final VideoProbeTempArtifactManager artifactManager;
+    private final VideoProbeProcessFactory processFactory;
+    private final VideoProbeProcessSupervisor processSupervisor;
 
     public ProcessResult execute(String mainClass, List<String> arguments, Duration timeout) {
-        Path argumentFile = null;
         Process process = null;
-        try {
-            Path directory = properties.getTempDirectory().toAbsolutePath().normalize();
-            Files.createDirectories(directory);
-            argumentFile = Files.createTempFile(directory, "video-worker-", ".args");
-            Files.writeString(argumentFile, argumentFileContent(mainClass), StandardCharsets.UTF_8);
+        try (VideoProbeTempArtifactManager.Artifact artifact =
+                     artifactManager.create(VideoProbeTempArtifactManager.ArtifactKind.ARGS, ".args")) {
+            Path argumentFile = artifact.path();
+            java.nio.file.Files.writeString(
+                    argumentFile, argumentFileContent(mainClass), StandardCharsets.UTF_8);
 
             List<String> command = new ArrayList<>();
             command.add(javaExecutable().toString());
             command.add("@" + argumentFile);
             command.addAll(arguments);
-            process = new ProcessBuilder(command)
-                    .redirectOutput(ProcessBuilder.Redirect.DISCARD)
-                    .redirectError(ProcessBuilder.Redirect.DISCARD)
-                    .start();
+            process = processFactory.start(command);
             boolean finished = process.waitFor(timeout.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS);
             if (!finished) {
-                process.destroyForcibly();
-                process.waitFor(TERMINATION_GRACE.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS);
-                return new ProcessResult(-1, true);
+                if (!terminateAndConfirm(process)) {
+                    artifact.preserveForReaper();
+                    processSupervisor.registerOrphan(process);
+                    throw new VideoProbeInfrastructureException(
+                            "视频媒体探测工作进程无法终止，请稍后重试");
+                }
+                return new ProcessResult(-1, true, process.pid());
             }
-            return new ProcessResult(process.exitValue(), false);
+            return new ProcessResult(process.exitValue(), false, process.pid());
         } catch (InterruptedException e) {
             if (process != null) {
-                process.destroyForcibly();
-            }
-            Thread.currentThread().interrupt();
-            throw new BizException("视频媒体探测被中断");
-        } catch (IOException e) {
-            throw new BizException("无法启动视频媒体探测工作进程");
-        } finally {
-            if (argumentFile != null) {
-                try {
-                    Files.deleteIfExists(argumentFile);
-                } catch (IOException ignored) {
-                    // 独立临时卷由生命周期清理兜底。
+                if (!terminateAndConfirmAfterInterrupt(process)) {
+                    processSupervisor.registerOrphan(process);
                 }
             }
+            Thread.currentThread().interrupt();
+            throw new VideoProbeInfrastructureException("视频媒体探测被中断，请稍后重试", e);
+        } catch (IOException e) {
+            throw new VideoProbeInfrastructureException("无法启动视频媒体探测工作进程，请稍后重试", e);
+        }
+    }
+
+    private boolean terminateAndConfirm(Process process) throws InterruptedException {
+        process.destroyForcibly();
+        boolean exited = process.waitFor(
+                TERMINATION_GRACE.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS);
+        return exited && !process.isAlive();
+    }
+
+    private boolean terminateAndConfirmAfterInterrupt(Process process) {
+        process.destroyForcibly();
+        try {
+            boolean exited = process.waitFor(
+                    TERMINATION_GRACE.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS);
+            return exited && !process.isAlive();
+        } catch (InterruptedException secondInterrupt) {
+            return !process.isAlive();
         }
     }
 
@@ -118,6 +132,6 @@ public class VideoProbeProcessRunner {
         return Path.of(System.getProperty("java.home"), "bin", executable);
     }
 
-    public record ProcessResult(int exitCode, boolean timedOut) {
+    public record ProcessResult(int exitCode, boolean timedOut, long processId) {
     }
 }

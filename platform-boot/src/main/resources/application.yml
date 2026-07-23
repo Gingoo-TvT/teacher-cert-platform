@@ -40,6 +40,12 @@ platform:
       lease-duration: ${VIDEO_PROBE_LEASE_DURATION:2m}
       lease-renew-interval: ${VIDEO_PROBE_LEASE_RENEW_INTERVAL:30s}
       worker-max-heap-mb: ${VIDEO_PROBE_WORKER_MAX_HEAP_MB:256}
+      artifact-heartbeat-interval: ${VIDEO_PROBE_ARTIFACT_HEARTBEAT_INTERVAL:30s}
+      artifact-owner-stale-after: ${VIDEO_PROBE_ARTIFACT_OWNER_STALE_AFTER:2m}
+      artifact-orphan-ttl: ${VIDEO_PROBE_ARTIFACT_ORPHAN_TTL:30m}
+      artifact-legacy-orphan-ttl: ${VIDEO_PROBE_ARTIFACT_LEGACY_ORPHAN_TTL:24h}
+      artifact-cleanup-interval: ${VIDEO_PROBE_ARTIFACT_CLEANUP_INTERVAL:5m}
+      artifact-cleanup-scan-limit: ${VIDEO_PROBE_ARTIFACT_CLEANUP_SCAN_LIMIT:10000}
   security:
     jwt:
       secret: ${JWT_SECRET:}

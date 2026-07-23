@@ -16,6 +16,7 @@ import cn.edu.gpnu.platform.business.video.support.VideoFinalizationHook;
 import cn.edu.gpnu.platform.business.video.support.VideoFinalizeSingleFlight;
 import cn.edu.gpnu.platform.business.video.support.VideoMediaInspection;
 import cn.edu.gpnu.platform.business.video.support.VideoMediaProbe;
+import cn.edu.gpnu.platform.business.video.support.VideoProbeInfrastructureException;
 import cn.edu.gpnu.platform.file.config.MinioProperties;
 import cn.edu.gpnu.platform.file.entity.FileObject;
 import cn.edu.gpnu.platform.file.mapper.FileObjectMapper;
@@ -54,6 +55,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.context.annotation.Import;
@@ -87,6 +89,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @SpringBootTest(classes = PlatformApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Import(Phase7VideoReviewIT.ProbeTestConfiguration.class)
@@ -183,6 +186,9 @@ class Phase7VideoReviewIT {
 
     @Autowired
     private VideoFinalizeSingleFlight videoFinalizeSingleFlight;
+
+    @Autowired
+    private StringRedisTemplate stringRedisTemplate;
 
     @BeforeEach
     @AfterEach
@@ -482,6 +488,92 @@ class Phase7VideoReviewIT {
 
             assertThat(json(completion).at("/code").asInt()).isEqualTo(1000);
             assertThat(json(completion).at("/msg").asText()).contains("评审进行中");
+            VideoReview after = reviewMapper.selectById(reviewId);
+            assertThat(after.getStatus()).isEqualTo("REVIEWING");
+            assertThat(after.getVideoFileId()).isEqualTo(original.getVideoFileId());
+            assertThat(taskCount(reviewId)).isEqualTo(2);
+        } finally {
+            countingVideoMediaProbe.release();
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    void probeInfrastructureFailureRemainsRetryableInsteadOfBecomingValidationFailure() throws Exception {
+        LoginResult student = readyLogin("test_student");
+        String year = "P7-PROBE-INFRA";
+        byte[] content = mp4(year);
+        JsonNode init = initUpload(student.accessToken(), 9001L, year,
+                "probe-infrastructure.mp4", "video/mp4", content.length, VIDEO_PART_SIZE,
+                videoFingerprint(content), 900);
+        String uploadId = init.at("/uploadId").asText();
+        List<PresignedMultipartUploadTestClient.CompletedPart> parts =
+                PresignedMultipartUploadTestClient.putAll(init, content);
+
+        countingVideoMediaProbe.failInfrastructureOnce();
+        ResponseEntity<String> interrupted = exchange("/api/video/upload/complete", HttpMethod.POST,
+                student.accessToken(), completeBody(uploadId, 900, parts));
+        assertThat(json(interrupted).at("/code").asInt()).isNotZero();
+        assertThat(json(interrupted).at("/msg").asText()).contains("探测基础设施");
+
+        VideoUploadSession retryable = uploadSession(uploadId);
+        assertThat(retryable.getStatus()).isEqualTo("MERGING");
+        assertThat(retryable.getValidationMessage()).isNull();
+        assertThat(retryable.getFinalizationToken()).isPositive();
+        assertThat(multipartObjectService.findObject(retryable.getObjectKey())).isPresent();
+        assertThat(reviewMapper.selectCount(new LambdaQueryWrapper<VideoReview>()
+                .eq(VideoReview::getStudentId, 9001L)
+                .eq(VideoReview::getAssessmentYear, year))).isZero();
+
+        JsonNode recovered = complete(student.accessToken(), uploadId, 900, parts);
+        assertThat(recovered.at("/status").asText()).isEqualTo("WAIT_REVIEW");
+        assertThat(uploadSession(uploadId).getStatus()).isEqualTo("MERGED");
+    }
+
+    @Test
+    void serverChunkAssignConflictConvergesSessionInsteadOfLeavingMerging() throws Exception {
+        LoginResult student = readyLogin("test_student");
+        LoginResult auditor = readyLogin("test_college_auditor");
+        String year = "P7-SRV-ASGN";
+        long reviewId = uploadValidatedVideo(student.accessToken(), 9001L, year);
+        VideoReview original = reviewMapper.selectById(reviewId);
+
+        byte[] replacement = mp4("server-replacement-" + year);
+        JsonNode init;
+        boolean directEnabled = minioProperties.isDirectUploadEnabled();
+        try {
+            minioProperties.setDirectUploadEnabled(false);
+            init = initUpload(student.accessToken(), 9001L, year,
+                    "server-replacement.mp4", "video/mp4", replacement.length, VIDEO_PART_SIZE,
+                    videoFingerprint(replacement), 900);
+        } finally {
+            minioProperties.setDirectUploadEnabled(directEnabled);
+        }
+        String uploadId = init.at("/uploadId").asText();
+        uploadServerChunk(student.accessToken(), uploadId, 0, replacement);
+
+        countingVideoMediaProbe.arm();
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        try {
+            Future<ResponseEntity<String>> merging = pool.submit(() ->
+                    exchange("/api/video/upload/merge", HttpMethod.POST, student.accessToken(),
+                            Map.of("uploadId", uploadId, "durationSeconds", 900)));
+            assertThat(countingVideoMediaProbe.awaitEntered()).isTrue();
+
+            assign(auditor.accessToken(), reviewId, 800000000000003005L, REVIEWER_B_USER_ID);
+            countingVideoMediaProbe.release();
+            ResponseEntity<String> completion = merging.get(15, TimeUnit.SECONDS);
+
+            assertThat(json(completion).at("/code").asInt()).isEqualTo(1000);
+            assertThat(json(completion).at("/msg").asText()).contains("评审进行中");
+            VideoUploadSession failed = uploadSession(uploadId);
+            assertThat(failed.getStatus()).isEqualTo("FAILED");
+            assertThat(failed.getValidationMessage()).contains("评审进行中");
+            assertThat(failed.getFinalizationToken()).isPositive();
+            assertThat(multipartObjectService.findObject(failed.getObjectKey())).isEmpty();
+            assertThat(fileObjectMapper.selectCount(new LambdaQueryWrapper<FileObject>()
+                    .eq(FileObject::getObjectKey, failed.getObjectKey()))).isZero();
+
             VideoReview after = reviewMapper.selectById(reviewId);
             assertThat(after.getStatus()).isEqualTo("REVIEWING");
             assertThat(after.getVideoFileId()).isEqualTo(original.getVideoFileId());
@@ -1346,7 +1438,8 @@ class Phase7VideoReviewIT {
 
             VideoUploadSession completed = uploadSession(uploadId);
             assertThat(completed.getStatus()).isEqualTo("MERGED");
-            assertThat(completed.getFinalizationToken()).isNull();
+            assertThat(completed.getFinalizationToken())
+                    .isGreaterThan(recoveryPoint.getFinalizationToken());
             assertThat(completed.getObjectKey()).isEqualTo(recoveryPoint.getObjectKey());
             assertThat(fileObjectMapper.selectCount(new LambdaQueryWrapper<FileObject>()
                     .eq(FileObject::getObjectKey, completed.getObjectKey()))).isEqualTo(1L);
@@ -1357,23 +1450,195 @@ class Phase7VideoReviewIT {
     }
 
     @Test
-    void activeFinalizationLeaseRenewsAndReleasedLeaseGetsHigherFencingToken()
+    void staleServerChunkSessionWithMissingSourceConvergesAndCanBeReinitialized()
+            throws Exception {
+        LoginResult student = readyLogin("test_student");
+        String year = "P7-SR-MISSING";
+        byte[] content = mp4(year);
+        String fingerprint = videoFingerprint(content);
+        JsonNode init;
+        boolean originalDirectUploadEnabled = minioProperties.isDirectUploadEnabled();
+        try {
+            minioProperties.setDirectUploadEnabled(false);
+            init = initUpload(student.accessToken(), 9001L, year, "server-missing.mp4",
+                    "video/mp4", content.length, VIDEO_PART_SIZE, fingerprint, 900);
+        } finally {
+            minioProperties.setDirectUploadEnabled(originalDirectUploadEnabled);
+        }
+        String uploadId = init.at("/uploadId").asText();
+        uploadServerChunk(student.accessToken(), uploadId, 0, content);
+        VideoUploadChunk source = chunkMapper.selectOne(new LambdaQueryWrapper<VideoUploadChunk>()
+                .eq(VideoUploadChunk::getUploadId, uploadId)
+                .eq(VideoUploadChunk::getChunkIndex, 0));
+        assertThat(source).isNotNull();
+
+        controlledVideoFinalizationHook.arm(
+                uploadId, VideoFinalizationHook.ServerChunkStage.CLAIMED);
+        ResponseEntity<String> interrupted = exchange("/api/video/upload/merge", HttpMethod.POST,
+                student.accessToken(), Map.of("uploadId", uploadId, "durationSeconds", 900));
+        assertThat(json(interrupted).at("/code").asInt()).isNotZero();
+        assertThat(uploadSession(uploadId).getStatus()).isEqualTo("MERGING");
+
+        minioClient.removeObject(io.minio.RemoveObjectArgs.builder()
+                .bucket(minioProperties.getBucket())
+                .object(source.getObjectKey())
+                .build());
+        ResponseEntity<String> rejected = exchange("/api/video/upload/merge", HttpMethod.POST,
+                student.accessToken(), Map.of("uploadId", uploadId, "durationSeconds", 900));
+        assertThat(json(rejected).at("/code").asInt()).isNotZero();
+
+        VideoUploadSession failed = uploadSession(uploadId);
+        assertThat(failed.getStatus()).isEqualTo("FAILED");
+        assertThat(failed.getValidationMessage()).contains("重新发起上传");
+        assertThat(failed.getFinalizationToken()).isPositive();
+        assertThat(chunkMapper.selectCount(new LambdaQueryWrapper<VideoUploadChunk>()
+                .eq(VideoUploadChunk::getUploadId, uploadId))).isZero();
+        assertThat(multipartObjectService.findObject(failed.getObjectKey())).isEmpty();
+
+        JsonNode restarted;
+        originalDirectUploadEnabled = minioProperties.isDirectUploadEnabled();
+        try {
+            minioProperties.setDirectUploadEnabled(false);
+            restarted = initUpload(student.accessToken(), 9001L, year, "server-missing.mp4",
+                    "video/mp4", content.length, VIDEO_PART_SIZE, fingerprint, 900);
+        } finally {
+            minioProperties.setDirectUploadEnabled(originalDirectUploadEnabled);
+        }
+        assertThat(restarted.at("/uploadId").asText()).isNotEqualTo(uploadId);
+        assertThat(restarted.at("/status").asText()).isEqualTo("UPLOADING");
+        ResponseEntity<String> cancelled = exchange("/api/video/upload/" + restarted.at("/uploadId").asText(),
+                HttpMethod.DELETE, student.accessToken(), null);
+        assertThat(json(cancelled).at("/code").asInt()).isZero();
+    }
+
+    @Test
+    void redisLeaseOwnerCannotAbaAfterLockStateIsLost()
             throws InterruptedException {
         String uploadId = "P7-LEASE-" + System.nanoTime();
-        long firstToken;
-        try (VideoFinalizeSingleFlight.Lease first = videoFinalizeSingleFlight.tryAcquire(uploadId)) {
+        String lockKey = "video:finalize:{" + uploadId + "}:lock";
+        VideoFinalizeSingleFlight.Lease first = videoFinalizeSingleFlight.tryAcquire(uploadId);
+        VideoFinalizeSingleFlight.Lease successor = null;
+        try {
             assertThat(first).isNotNull();
-            firstToken = first.token();
             Thread.sleep(1_500L);
             first.assertOwned();
             assertThat(videoFinalizeSingleFlight.tryAcquire(uploadId)).isNull();
-        }
 
-        try (VideoFinalizeSingleFlight.Lease successor = videoFinalizeSingleFlight.tryAcquire(uploadId)) {
+            assertThat(stringRedisTemplate.delete(lockKey)).isTrue();
+            successor = videoFinalizeSingleFlight.tryAcquire(uploadId);
             assertThat(successor).isNotNull();
             successor.assertOwned();
-            assertThat(successor.token()).isGreaterThan(firstToken);
+            assertThatThrownBy(first::renewOrThrow)
+                    .hasMessageContaining("执行权已转移");
+            assertThatThrownBy(first::assertOwned)
+                    .hasMessageContaining("执行权已失效");
+
+            first.close();
+            successor.assertOwned();
+            assertThat(videoFinalizeSingleFlight.tryAcquire(uploadId)).isNull();
+        } finally {
+            first.close();
+            if (successor != null) {
+                successor.close();
+            }
         }
+    }
+
+    @Test
+    void successorDatabaseGenerationFencesOldFinalizerAfterRedisStateLoss() throws Exception {
+        LoginResult student = readyLogin("test_student");
+        String year = "P7-DB-FENCE";
+        byte[] content = mp4(year);
+        JsonNode init = initUpload(student.accessToken(), 9001L, year,
+                "database-fence.mp4", "video/mp4", content.length, VIDEO_PART_SIZE,
+                videoFingerprint(content), 900);
+        String uploadId = init.at("/uploadId").asText();
+        List<PresignedMultipartUploadTestClient.CompletedPart> parts =
+                PresignedMultipartUploadTestClient.putAll(init, content);
+        String lockKey = "video:finalize:{" + uploadId + "}:lock";
+
+        countingVideoMediaProbe.arm();
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            Future<ResponseEntity<String>> oldFinalizer = pool.submit(() ->
+                    exchange("/api/video/upload/complete", HttpMethod.POST, student.accessToken(),
+                            completeBody(uploadId, 900, parts)));
+            assertThat(countingVideoMediaProbe.awaitEntered()).isTrue();
+            long oldGeneration = uploadSession(uploadId).getFinalizationToken();
+            assertThat(oldGeneration).isPositive();
+
+            assertThat(stringRedisTemplate.delete(lockKey)).isTrue();
+            Future<ResponseEntity<String>> successor = pool.submit(() ->
+                    exchange("/api/video/upload/complete", HttpMethod.POST, student.accessToken(),
+                            completeBody(uploadId, 900, parts)));
+            long successorGeneration = awaitGenerationAfter(uploadId, oldGeneration);
+            assertThat(successorGeneration).isGreaterThan(oldGeneration);
+
+            countingVideoMediaProbe.release();
+            List<ResponseEntity<String>> responses =
+                    List.of(oldFinalizer.get(20, TimeUnit.SECONDS), successor.get(20, TimeUnit.SECONDS));
+            List<Integer> responseCodes = new ArrayList<>();
+            for (ResponseEntity<String> response : responses) {
+                responseCodes.add(json(response).at("/code").asInt());
+            }
+            assertThat(responseCodes.stream()
+                    .filter(code -> code == 0)
+                    .count()).isEqualTo(1L);
+            assertThat(responseCodes.stream()
+                    .filter(code -> code != 0)
+                    .count()).isEqualTo(1L);
+
+            VideoUploadSession completed = uploadSession(uploadId);
+            assertThat(completed.getStatus()).isEqualTo("MERGED");
+            assertThat(completed.getFinalizationToken()).isEqualTo(successorGeneration);
+            assertThat(countingVideoMediaProbe.invocations()).isEqualTo(2);
+            assertThat(reviewMapper.selectCount(new LambdaQueryWrapper<VideoReview>()
+                    .eq(VideoReview::getStudentId, 9001L)
+                    .eq(VideoReview::getAssessmentYear, year))).isEqualTo(1L);
+            assertThat(fileObjectMapper.selectCount(new LambdaQueryWrapper<FileObject>()
+                    .eq(FileObject::getObjectKey, completed.getObjectKey()))).isEqualTo(1L);
+        } finally {
+            countingVideoMediaProbe.release();
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    void staleDirectSessionWithMissingMultipartConvergesAndCanBeReinitialized() throws Exception {
+        LoginResult student = readyLogin("test_student");
+        String year = "P7-REC-MISSING";
+        byte[] content = mp4(year);
+        String fingerprint = videoFingerprint(content);
+        JsonNode init = initUpload(student.accessToken(), 9001L, year, "missing-multipart.mp4",
+                "video/mp4", content.length, VIDEO_PART_SIZE, fingerprint, 900);
+        String uploadId = init.at("/uploadId").asText();
+        List<PresignedMultipartUploadTestClient.CompletedPart> uploaded =
+                PresignedMultipartUploadTestClient.putAll(init, content);
+        VideoUploadSession merging = forceMerging(uploadId, uploaded);
+        multipartObjectService.abortUpload(merging.getObjectKey(), merging.getS3UploadId());
+        assertThat(multipartObjectService.findObject(merging.getObjectKey())).isEmpty();
+
+        ResponseEntity<String> rejected = exchange("/api/video/upload/complete", HttpMethod.POST,
+                student.accessToken(), completeBody(uploadId, 900, uploaded));
+        assertThat(json(rejected).at("/code").asInt()).isNotZero();
+
+        VideoUploadSession failed = uploadSession(uploadId);
+        assertThat(failed.getStatus()).isEqualTo("FAILED");
+        assertThat(failed.getValidationMessage()).contains("重新发起上传");
+        assertThat(failed.getS3UploadId()).isNull();
+        assertThat(failed.getUploadedChunks()).isZero();
+        assertThat(failed.getUploadedBytes()).isZero();
+        assertThat(failed.getFinalizationToken()).isPositive();
+        assertThat(chunkMapper.selectCount(new LambdaQueryWrapper<VideoUploadChunk>()
+                .eq(VideoUploadChunk::getUploadId, uploadId))).isZero();
+
+        JsonNode restarted = initUpload(student.accessToken(), 9001L, year, "missing-multipart.mp4",
+                "video/mp4", content.length, VIDEO_PART_SIZE, fingerprint, 900);
+        assertThat(restarted.at("/uploadId").asText()).isNotEqualTo(uploadId);
+        assertThat(restarted.at("/status").asText()).isEqualTo("UPLOADING");
+        ResponseEntity<String> cancelled = exchange("/api/video/upload/" + restarted.at("/uploadId").asText(),
+                HttpMethod.DELETE, student.accessToken(), null);
+        assertThat(json(cancelled).at("/code").asInt()).isZero();
     }
 
     @Test
@@ -1473,6 +1738,19 @@ class Phase7VideoReviewIT {
                 .last("LIMIT 1"));
         assertThat(session).isNotNull();
         return session;
+    }
+
+    private long awaitGenerationAfter(String uploadId, long previousGeneration)
+            throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+        while (System.nanoTime() < deadline) {
+            Long generation = uploadSession(uploadId).getFinalizationToken();
+            if (generation != null && generation > previousGeneration) {
+                return generation;
+            }
+            Thread.sleep(25L);
+        }
+        throw new AssertionError("接管者未在期限内取得更高数据库定稿世代");
     }
 
     private void assertMergingResume(JsonNode resumed, String uploadId,
@@ -2067,6 +2345,7 @@ class Phase7VideoReviewIT {
 
         private final JcodecVideoMediaProbe delegate;
         private final AtomicInteger invocationCount = new AtomicInteger();
+        private final AtomicReference<RuntimeException> nextFailure = new AtomicReference<>();
         private volatile CountDownLatch entered = new CountDownLatch(0);
         private volatile CountDownLatch release = new CountDownLatch(0);
 
@@ -2092,9 +2371,15 @@ class Phase7VideoReviewIT {
             return invocationCount.get();
         }
 
+        void failInfrastructureOnce() {
+            nextFailure.set(new VideoProbeInfrastructureException(
+                    "测试探测基础设施故障，请稍后重试"));
+        }
+
         void reset() {
             release();
             invocationCount.set(0);
+            nextFailure.set(null);
             entered = new CountDownLatch(0);
             release = new CountDownLatch(0);
         }
@@ -2114,6 +2399,10 @@ class Phase7VideoReviewIT {
                     Thread.currentThread().interrupt();
                     throw new IllegalStateException("测试媒体探测闸门被中断", e);
                 }
+            }
+            RuntimeException failure = nextFailure.getAndSet(null);
+            if (failure != null) {
+                throw failure;
             }
             return delegate.inspect(objectKey, expectedSize, declaredFingerprint);
         }
