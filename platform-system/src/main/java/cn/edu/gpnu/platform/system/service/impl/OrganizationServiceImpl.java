@@ -126,6 +126,16 @@ public class OrganizationServiceImpl implements OrganizationService {
         if (studentCount > 0) {
             throw new BizException("学院下存在学生，不能删除");
         }
+        // 历史导入回滚按 ref 独立判冲突，可能出现学生保持原学院、培养/证书快照先恢复的部分回滚。
+        // 删除守卫必须直接覆盖三类带 college_id 的补偿目标，不能把完整性间接寄托在学生行上。
+        Long trainingCount = collegeMapper.countActiveTrainingProfilesByCollegeId(id);
+        if (trainingCount > 0) {
+            throw new BizException("学院下存在培养信息，不能删除");
+        }
+        Long certificateCount = collegeMapper.countActiveCertificatesByCollegeId(id);
+        if (certificateCount > 0) {
+            throw new BizException("学院下存在证书，不能删除");
+        }
         collegeMapper.deleteById(id);
     }
 

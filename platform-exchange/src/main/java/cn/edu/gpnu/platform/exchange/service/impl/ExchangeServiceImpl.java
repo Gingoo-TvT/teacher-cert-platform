@@ -68,6 +68,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -334,13 +335,20 @@ public class ExchangeServiceImpl implements ExchangeService {
                 .ne(ImportRecordRef::getAction, "SKIP")
                 .last("FOR UPDATE"));
         refs.sort(Comparator.comparing(ImportRecordRef::getId).reversed());
+        // 历史版本允许导入把既有记录跨学院迁移；持久 before_json 不受当前在线校验保护。
+        // 因此必须在任何业务子行锁之前一次性预锁全部恢复目标，固定顺序为
+        // batch → refs → college IDs 升序 → business child。
+        RollbackParentPlan parentPlan = prepareRollbackParentLocks(refs);
         int rolledBack = 0;
         int conflicts = 0;
         RollbackResultVO vo = new RollbackResultVO();
         vo.setBatchId(batch.getId());
         vo.setBatchNo(batch.getBatchNo());
         for (ImportRecordRef ref : refs) {
-            RollbackDecision decision = rollbackOne(ref);
+            RollbackDecision decision = parentPlan.conflictFor(ref);
+            if (decision == null) {
+                decision = rollbackOne(ref);
+            }
             if (decision.success()) {
                 rolledBack++;
             } else {
@@ -349,7 +357,7 @@ public class ExchangeServiceImpl implements ExchangeService {
             }
         }
         batch.setStatus(conflicts > 0 ? ExchangeBatchStatus.PARTIAL_ROLLBACK.name() : ExchangeBatchStatus.ROLLED_BACK.name());
-        batch.setRemark(conflicts > 0 ? "部分记录已被后续修改，跳过回滚" : "已回滚");
+        batch.setRemark(conflicts > 0 ? "部分记录回滚冲突（后续修改或目标学院无效），已跳过" : "已回滚");
         batchMapper.updateById(batch);
         auditLogService.record("exchange", batch.getId(), batch.getBatchNo(), "rollback",
                 oldStatus, batch.getStatus(), batch.getRemark());
@@ -357,6 +365,79 @@ public class ExchangeServiceImpl implements ExchangeService {
         vo.setConflictCount(conflicts);
         vo.setStatus(batch.getStatus());
         return vo;
+    }
+
+    private RollbackParentPlan prepareRollbackParentLocks(List<ImportRecordRef> refs) {
+        Map<Long, Long> targetCollegeByRefId = new LinkedHashMap<>();
+        Map<Long, RollbackDecision> conflictByRefId = new LinkedHashMap<>();
+        Map<Long, ImportRecordRef> refById = refs.stream()
+                .collect(Collectors.toMap(ImportRecordRef::getId, Function.identity()));
+        for (ImportRecordRef ref : refs) {
+            if (!"UPDATE".equals(ref.getAction()) || !hasRollbackCollegeParent(ref.getTableName())) {
+                continue;
+            }
+            Long targetCollegeId = rollbackTargetCollegeId(ref.getBeforeJson());
+            if (targetCollegeId == null) {
+                conflictByRefId.put(ref.getId(), new RollbackDecision(false,
+                        rollbackLabel(ref.getTableName()) + "#" + ref.getRecordId()
+                                + "回滚快照缺少有效目标学院，禁止还原"));
+                continue;
+            }
+            targetCollegeByRefId.put(ref.getId(), targetCollegeId);
+        }
+
+        Set<Long> missingCollegeIds = new LinkedHashSet<>();
+        targetCollegeByRefId.values().stream()
+                .distinct()
+                .sorted()
+                .forEach(collegeId -> {
+                    Integer status = collegeParentGuard.lockStatusForUpdate(
+                            collegeId, CollegeParentGuard.Operation.ROLLBACK_RESTORE);
+                    if (status == null) {
+                        missingCollegeIds.add(collegeId);
+                    }
+                });
+        targetCollegeByRefId.forEach((refId, collegeId) -> {
+            if (!missingCollegeIds.contains(collegeId)) {
+                return;
+            }
+            ImportRecordRef ref = refById.get(refId);
+            conflictByRefId.put(refId, new RollbackDecision(false,
+                    rollbackLabel(ref.getTableName()) + "#" + ref.getRecordId()
+                            + "目标学院#" + collegeId + "不存在或已删除，禁止还原"));
+        });
+        return new RollbackParentPlan(conflictByRefId);
+    }
+
+    private Long rollbackTargetCollegeId(String beforeJson) {
+        if (!StringUtils.hasText(beforeJson)) {
+            return null;
+        }
+        try {
+            JsonNode collegeId = objectMapper.readTree(beforeJson).get("collegeId");
+            if (collegeId == null || collegeId.isNull()) {
+                return null;
+            }
+            Long value = parseLong(collegeId.asText());
+            return value != null && value > 0 ? value : null;
+        } catch (JsonProcessingException ignored) {
+            return null;
+        }
+    }
+
+    private boolean hasRollbackCollegeParent(String tableName) {
+        return "student".equals(tableName)
+                || "training_profile".equals(tableName)
+                || "certificate".equals(tableName);
+    }
+
+    private String rollbackLabel(String tableName) {
+        return switch (tableName) {
+            case "student" -> "学生";
+            case "training_profile" -> "培养信息";
+            case "certificate" -> "证书";
+            default -> "记录";
+        };
     }
 
     @Override
@@ -1751,6 +1832,13 @@ public class ExchangeServiceImpl implements ExchangeService {
     }
 
     private record RollbackDecision(boolean success, String message) {
+    }
+
+    private record RollbackParentPlan(Map<Long, RollbackDecision> conflictByRefId) {
+
+        private RollbackDecision conflictFor(ImportRecordRef ref) {
+            return conflictByRefId.get(ref.getId());
+        }
     }
 
     private static final class ImportExecutionStoppedException extends RuntimeException {

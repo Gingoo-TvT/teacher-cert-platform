@@ -26,6 +26,22 @@ public interface SysCollegeMapper extends BaseMapper<SysCollege> {
 
     @Select("""
             SELECT COUNT(*)
+              FROM training_profile
+             WHERE college_id = #{collegeId}
+               AND deleted = 0
+            """)
+    Long countActiveTrainingProfilesByCollegeId(@Param("collegeId") Long collegeId);
+
+    @Select("""
+            SELECT COUNT(*)
+              FROM certificate
+             WHERE college_id = #{collegeId}
+               AND deleted = 0
+            """)
+    Long countActiveCertificatesByCollegeId(@Param("collegeId") Long collegeId);
+
+    @Select("""
+            SELECT COUNT(*)
               FROM sys_college
              WHERE code = #{code}
                AND (#{excludeId} IS NULL OR id <> #{excludeId})

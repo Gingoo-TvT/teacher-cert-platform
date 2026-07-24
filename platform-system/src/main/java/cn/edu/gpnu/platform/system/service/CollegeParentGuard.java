@@ -30,7 +30,25 @@ public class CollegeParentGuard {
         UPDATE_USER,
         CREATE_STUDENT,
         UPDATE_STUDENT,
-        IMPORT_STUDENT
+        IMPORT_STUDENT,
+        ROLLBACK_RESTORE
+    }
+
+    /**
+     * 锁定学院并返回当前状态；学院缺失或已逻辑删除时返回 {@code null}。
+     *
+     * <p>补偿式恢复需要把无效历史父引用记为逐条冲突，不能先抛异常再捕获，否则事务拦截器
+     * 可能已经把外层回滚事务标记为 rollback-only。</p>
+     */
+    @Transactional(propagation = Propagation.MANDATORY, rollbackFor = Exception.class)
+    public Integer lockStatusForUpdate(Long collegeId, Operation operation) {
+        if (collegeId == null) {
+            throw new BizException("学院ID不能为空");
+        }
+        lockHook.beforeLock(operation, collegeId);
+        Integer status = collegeMapper.selectStatusForUpdate(collegeId);
+        lockHook.afterLock(operation, collegeId, status);
+        return status;
     }
 
     /**
@@ -38,12 +56,7 @@ public class CollegeParentGuard {
      */
     @Transactional(propagation = Propagation.MANDATORY, rollbackFor = Exception.class)
     public Integer lockExisting(Long collegeId, Operation operation) {
-        if (collegeId == null) {
-            throw new BizException("学院ID不能为空");
-        }
-        lockHook.beforeLock(operation, collegeId);
-        Integer status = collegeMapper.selectStatusForUpdate(collegeId);
-        lockHook.afterLock(operation, collegeId, status);
+        Integer status = lockStatusForUpdate(collegeId, operation);
         if (status == null) {
             throw new BizException("学院不存在");
         }
