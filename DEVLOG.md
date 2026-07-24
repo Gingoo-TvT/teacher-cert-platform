@@ -15,6 +15,15 @@
 
 ---
 
+## [2026-07-24] Phase 39 第二轮整改候选完成 — 历史 rollback 父级 fail-closed，待独立增量复核
+- 做了什么：针对第一轮正式报告的 1 High / 1 Low，代码候选 `73406ed` 将 rollback 固定为 `batch → refs → college IDs 升序 → business child`：锁定 batch/完整 ref 集后，从 student/training/certificate 的全部 UPDATE `before_json` 解析恢复目标，去重升序取得 `deleted=0 FOR UPDATE` 父锁，再进入业务子行锁与逆序补偿。非法、缺失、非正数、溢出或已删除父级均按对应 ref 记录明确冲突，不写无效 `college_id`，也不把其他有效 ref 一并回滚。`deleteCollege` 补 active `training_profile`/`certificate` 直接计数，保证学生快照冲突但培养信息或证书成功恢复的部分补偿仍能阻止等待中的删除。
+- 关键决策与理由：不能依赖当前在线导入已禁止跨学院更新来推断历史 `before_json` 安全；持久 ref 必须作为不受现版本校验保护的历史输入重新验证。全部目标学院先统一升序锁定，避免按 ref 逐条 `child → college` 形成锁序反转。父级不存在/已删除采用可空 status 锁查询并转成单 ref 冲突，使 partial rollback 可以诚实继续，同时保持父行锁直到同一事务提交。
+- 问题与解决：原 contender Hook 位于 Mapper/JDBC 前，现改为测试专用 MyBatis `StatementHandler.query` 探针，只匹配固定 status-only 父锁 SQL + 目标 collegeId，并以 CAS 单次消费；胜方取得真实父锁后才 arm。新增 deleted-parent 三类冲突、rollback/delete 双向、certificate-only 和 `A2/A1/A2` 多父去重升序反例，事件轨迹证明全部父锁完成早于首个业务 child `FOR UPDATE`。专项第一次复跑因临时 MySQL 尚未创建 `teacher_cert` 空库，11 个方法在任何测试逻辑前均以 `Unknown database` 停止；补建空库并由 Flyway 从零迁移后，同一源码 11/11，通过过程已在提交材料如实保留。
+- 与规格的偏差/疑问：无 DDL/Flyway、权限点、角色矩阵、对外 API、前端生产逻辑、状态集合或业务规则变化；只强化既定的应用层父子完整性与补偿时重新校验历史引用。第一轮正式报告不改写；本条只记录第二轮候选，新的独立报告 PASS 前 Phase 39 仍为 CHANGES_REQUESTED，Phase 41 不放行，全项目仍因 Phase 0、39、41、44、47、53 保持 **CHANGES_REQUESTED**。
+- 测试：`Phase39CollegeIntegrityIT` **11/11**，`Phase10ExchangeIT` **13/13**；最终另换一套全新、任务专属、无现有卷挂载的 MySQL 8/Redis 7/MinIO，`mvn -B -ntp clean verify` 9 模块 **BUILD SUCCESS**，Surefire **149/149** + Failsafe **185/185** = **334/334**，0 failure/error/skip，33 个 Flyway 迁移资源校验通过、版本化 schema 至 V32。前端 type-check/build 通过且本轮无前端变化；`git diff --check` 通过。生产差异与最终测试差异的独立只读审查均为 **0 High / 0 Medium / 0 Low**。
+- 安全边界：未由 Codex/exec 启动常驻项目服务；专项和全量两套临时无卷容器均已停止并自动移除，结束后无 Java 进程，8080/5173 与临时依赖端口无监听。未执行漏洞扫描、攻击性探测、凭据尝试、恶意载荷、fuzz、压力、破坏性故障或任何 cyber 指令。
+- 下一步：提交 `docs/reviews/phase-39-second-remediation-submission-2026-07-24.md`；请独立复核者冻结最小增量 `1a69c70..73406ed`（完整 Phase 39 范围 `66fd2a9..73406ed`），重核三类历史父级 fail-closed、部分补偿删除守卫、query-entered 真实性、多父升序锁序与 334/334 同源性。只有新报告 PASS 后才能进入 Phase 41。
+
 ## [2026-07-24] GOV-012 Phase 39 独立增量复核退回 — 1 High / 1 Low
 - 做了什么：冻结 `66fd2a9..34aeec7`，按 incremental + security/stability/performance/testing-authenticity/release/configuration/data-integrity/concurrency 复核 21 个增量文件及直接历史调用方，产出 `docs/reviews/phase-39-remediation-rereview-2026-07-24.md` 与审计元数据。集中父锁、删除首读锁、学生直接计数，以及专业、STAFF 用户、学生单条/批量/迁移和当前标准导入写入的父锁接线均成立，但正式结论仍为 **CHANGES REQUESTED（1 High / 1 Low）**。
 - 关键决策与理由：原 PG-H1 的“所有创建/移动学生入口”必须包含持久历史批次的补偿写。旧版本可生成 student `before_json.collegeId=A`、`after_json.collegeId=B` 的跨学院 UPDATE ref；当前 rollback 只锁 batch/ref/child，快照匹配后直接写回 before，未锁定或验证 A。A 被合法软删后，回滚即可恢复活跃孤儿学生，故不能因当前在线导入已禁止跨学院更新而忽略历史可达状态。最小锁序必须为 `batch → refs → college IDs 升序 → business child`，不能在 child 之后补锁 college。

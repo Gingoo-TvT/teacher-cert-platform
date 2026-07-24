@@ -186,8 +186,8 @@
 ## 9. 三轮深扫（数据模型/迁移 · 系统域模块 · 测试覆盖）
 
 ### 9.1 数据模型 / 迁移 / 种子完整性
-- **全库无任何 DB 外键约束**（23 迁移 grep `FOREIGN KEY/REFERENCES/ON DELETE` = 0）：父子关系全靠应用码维护，级联删除 100% 手动且各服务不一致。软删统一 `deleted TINYINT`(@TableLogic)，生产码无硬删（正面）。**根因性**：无 DB 安全网，下列孤儿问题无兜底。**✅ 决策已定（Phase 43.1，已合并，用户拍板）：不加 DB 外键。** 理由：全库全程软删、生产码无硬删 → 软删父行仍物理存在（FK 约束仍满足）→ FK 级联删除几乎不触发；对既有存量回填「无违约 + 迁移」再加 FK 风险高收益低。孤儿防治维持在**应用层**（Phase 39 当前在线写已共享父锁，但历史 import ref 的 rollback 仍需纳入同一协议；删学生停登录；`deleteMajor→停用`；孤儿巡检定时任务 P1-9）。FK 部分仅文档化决策与理由、**零 schema/代码改动**（无新迁移）。
-- **P0 删除父实体产生静默孤儿**：原 `deleteCollege` 只查 major/user 后软删，且所有创建/迁移路径没有共享锁；无自动账号的学生还不在 user 计数内，故既有静态守卫既可漏学生，也可被并发迟到写穿透。**❌ Phase 39 PG-H1 独立增量复核退回（1 High / 1 Low）：** `deleteCollege` 首读父锁、major/user/student 计数及当前专业、STAFF 用户、学生和标准导入在线写的同父锁协议成立；但旧版本可持久化 before=A/after=B 的跨学院 student UPDATE ref，当前 rollback 不锁/不校验 `before_json.collegeId` 即直接恢复，A 已软删时会产生孤儿。整改需在业务 child 锁前按 `batch → refs → college IDs 升序` 预锁并对缺失父级 fail closed；并发 IT 还需把 contender 信号推进到真实 JDBC query 边界。正式报告见 `docs/reviews/phase-39-remediation-rereview-2026-07-24.md`。**✅ Phase 43.1 已合并：** `deleteMajor` 改为停用并保留联动；DB 外键按上条决策不加。
+- **全库无任何 DB 外键约束**（23 迁移 grep `FOREIGN KEY/REFERENCES/ON DELETE` = 0）：父子关系全靠应用码维护，级联删除 100% 手动且各服务不一致。软删统一 `deleted TINYINT`(@TableLogic)，生产码无硬删（正面）。**根因性**：无 DB 安全网，下列孤儿问题无兜底。**✅ 决策已定（Phase 43.1，已合并，用户拍板）：不加 DB 外键。** 理由：全库全程软删、生产码无硬删 → 软删父行仍物理存在（FK 约束仍满足）→ FK 级联删除几乎不触发；对既有存量回填「无违约 + 迁移」再加 FK 风险高收益低。孤儿防治维持在**应用层**（Phase 39 在线写已共享父锁，历史 import ref rollback 也已由第二轮候选纳入同一协议、待独立复核；删学生停登录；`deleteMajor→停用`；孤儿巡检定时任务 P1-9）。FK 部分仅文档化决策与理由、**零 schema/代码改动**（无新迁移）。
+- **P0 删除父实体产生静默孤儿**：原 `deleteCollege` 只查 major/user 后软删，且所有创建/迁移路径没有共享锁；无自动账号的学生还不在 user 计数内，故既有静态守卫既可漏学生，也可被并发迟到写穿透。第一轮正式复核为 **CHANGES_REQUESTED（1 High / 1 Low）**：在线同父锁协议成立，但历史跨学院 UPDATE ref 可绕过目标父锁，且 contender 信号早于真实 query。**🟦 Phase 39 第二轮候选 `73406ed` 已完成，待独立增量复核：** rollback 现按 `batch → refs → college IDs 升序 → business child` 预锁 student/training/certificate 的全部 UPDATE 快照目标，缺失/已删除父级按 ref 冲突关闭；`deleteCollege` 增加 active training/certificate 直接计数；并发 IT 已推进到精确 `StatementHandler.query` 边界。开发者证据为 Phase 39 11/11、Phase 10 13/13、全量 334/334、最终只读审查 0/0/0；正式 PASS 前仍阻塞 Phase 41。第一轮报告见 `docs/reviews/phase-39-remediation-rereview-2026-07-24.md`，第二轮材料见 `docs/reviews/phase-39-second-remediation-submission-2026-07-24.md`。**✅ Phase 43.1 已合并：** `deleteMajor` 改为停用并保留联动；DB 外键按上条决策不加。
 - **P0 删除学生不停用其登录账号**：`StudentServiceImpl.delete` 只 `deleteById(student)`，不级联、**不停用关联 `sys_user`**（sys_user.student_id）→ 已删/退学学生仍有可用登录（访问撤销失败）。**✅ 已修复（Phase 39）：** `delete` 后置停用关联 `sys_user`(student_id) `status=DISABLED`；JWT filter 每请求校验 `status=ENABLED`（`:62`）→ 旧 token 下次请求即 401。**活体（复现→阻断）：** 删学生前其旧 token `/auth/me`=200，管理员删除后同一 token=**401「用户不存在或已停用」**、账号 DISABLED。
 - **P1 sys_user/sys_role 唯一键漏 `deleted`**（`V7:28-30,49`，与 V9-V22 惯例不一致）+ create 未捕获 DuplicateKey → **删了再建同名用户/工号/角色码 直接崩**（裸 DuplicateKeyException，对比 `CertificateServiceImpl:129` 有捕获）。
 - **P1 无 Flyway prod 配置**：`baseline-on-migrate` 只在 application-dev（prod 走默认 false）→ 首次部署若 schema 非全空 Flyway 硬失败无恢复文档。
@@ -231,7 +231,7 @@
 - **测试质量红旗**：Phase24:314 `auditLogMapper.selectCount(空条件)>0`（表里有任意行就过）；Phase3:119 拿 nanoTime 随机 id 比硬编码常量（恒不等，形同虚设）；多处仅断 HTTP200 不查字段/DB；14 文件共用硬编码种子 id + `@Order`/PER_CLASS 实例字段跨用例传递 → **不可并行/分片，一个早失败级联假失败**；Phase5/7 的 file_object 清理按 biz_type 全删（越界）。
 
 ### 9.4 三轮 P0 汇总（并入优先级）
-- **P0-12 无 DB 外键 + 删父静默孤儿 + 删学生不停登录**（§9.1）——数据完整性靠应用码且不一致，上线前需补关键级联/停用逻辑或 DB 约束。**❌ Phase 39 独立增量复核退回：** 删学生停用登录、当前 deleteCollege 与专业/用户/学生在线写共享父锁、直接统计无账号学生均成立；但历史跨学院 UPDATE ref 的 rollback 可恢复到已删除学院，仍有 1 High，另有 query 边界测试 1 Low。**✅ Phase 43.1 已合并：** deleteMajor 改停用、DB 外键决策＝不加；**仍待：** Phase 39 第二轮整改与 MinIO 孤儿清理（P1-9）。
+- **P0-12 无 DB 外键 + 删父静默孤儿 + 删学生不停登录**（§9.1）——数据完整性靠应用码且不一致，上线前需补关键级联/停用逻辑或 DB 约束。删学生停用登录、当前在线同父锁和直接统计无账号学生均成立；第一轮正式复核因历史 rollback 父锁旁路 1 High / query 边界 1 Low 退回。**🟦 第二轮候选 `73406ed` 已关闭候选实现与证据缺口，待独立增量复核：** 三类 UPDATE 恢复父级 fail-closed、部分补偿删除守卫、真实 query-entered、多父升序锁序均已落地，334/334。**✅ Phase 43.1 已合并：** deleteMajor 改停用、DB 外键决策＝不加；**仍待：** Phase 39 独立 PASS 与 MinIO 孤儿清理（P1-9）。
 - **P0-13 关键 bug 零测试**（§9.3）——修 P0 时必须**同步补并发/复活/双确认测试**，否则改完无从证明、且 reissue 测试会假失败。
 > 迁移建议随手做的低风险项：sys_user/sys_role 唯一键补 `deleted`（V24 新迁移）、create 捕获 DuplicateKey、免考种子占位值清空、Flyway prod 配置。
 
@@ -259,7 +259,7 @@
 11. MinIO I/O 在事务内（§7.2）— 移出事务防连接池耗尽。
 
 **批次 C · 数据/运维/容量（Phase 38/40）**
-12. 无 DB 外键 + 删父孤儿 + 删学生不停登录（§9.1）。**Phase 39 的删学生停登录已交付，当前在线共享父锁与无账号学生直接计数成立；独立增量复核因历史 rollback 父锁旁路 1 High / query 边界 1 Low 退回，必须第二轮整改。Phase 43.1 deleteMajor→停用与不加外键决策已合并（见 §11）；另剩 MinIO 孤儿清理（P1-9）。**
+12. 无 DB 外键 + 删父孤儿 + 删学生不停登录（§9.1）。**Phase 39 的删学生停登录、在线共享父锁与无账号学生直接计数已交付；第一轮正式复核的历史 rollback 父锁旁路 1 High / query 边界 1 Low 已由第二轮候选 `73406ed` 实现整改并完成 334/334，当前待独立增量复核，不是 PASS。Phase 43.1 deleteMajor→停用与不加外键决策已合并（见 §11）；另剩 MinIO 孤儿清理（P1-9）。**
 13. 批量下载整包进堆 OOM（§1 P0-2）— 流式。
 14. app 用 mysql root（§1 P0-5）— 专用最小权限账号。**配置就绪已合并（Phase 41，见 §11）。**
 15. ~~假备份 + 全库无 @Scheduled（§1 P0-6）~~ — **已实现已合并（Phase 41.2，见 §11）：应用内 JDBC 逻辑备份→gzip→MinIO 真实产物 + 定时任务(prod 门禁)。**
@@ -387,9 +387,9 @@
 - ✅ **P0-2 批量下载整包进堆 OOM** — `ProcessMaterialServiceImpl.batchDownload` 不再用 `ByteArrayOutputStream` 攒完整 zip 再返回 `byte[]`；改为返回 `BatchDownloadFile(fileName, ContentWriter)`，`ContentWriter` 把 zip **直写 HTTP 响应输出流**（逐文件从 MinIO 读→写，全程不整包进堆），控制器改 `file.content().writeTo(response.getOutputStream())`。新增单次 **2000 条上限**（超限抛业务异常提示缩小筛选）。查询/上限校验在写响应头前完成（当前请求线程，数据范围/权限生效，错误干净）。**验证：** 83/83 绿，其中 `Phase5MaterialIT`（`:173` 上传材料入 MinIO → 批量下载 → `ZipInputStream` 解析断言 manifest）真实 MinIO 覆盖文件流式全链路；栈起活体：test_college_auditor `POST /material/batch-download` → HTTP200 `application/zip`、合法 zip（PK 头）+ `manifest.csv` + CRC 通过。
 - ✅ **收尾（§7.3 P1，非本 P0，已完成 —— Phase 44b，见 §11）**：证书导出 `selectCertificates` 无界 + `XSSFWorkbook` 全 DOM 进堆 → 改 SXSSF 流式（窗口 200 行）+ 单次导出 20000 行上限。
 
-### Phase 39 — 原交付已合并；PG-H1 独立增量复核退回，待第二轮整改
+### Phase 39 — 原交付已合并；PG-H1 第二轮整改候选完成，待独立增量复核
 - ✅ **P0-12 删学生不停登录（安全/访问撤销）** — `StudentServiceImpl.delete` 后置停用关联 `sys_user`（`.eq(studentId).set(status,'DISABLED')`）；JWT filter 每请求校验 `status=ENABLED`（`filter:62`）→ 旧 token 下次请求即 401。**活体（复现→阻断）：** test_student 旧 token `/auth/me` 删除前 200；管理员 `DELETE /student/9001` 后同一 token=**401「用户不存在或已停用」**、`sys_user.status=DISABLED`、`student.deleted=1`；测毕复原 ENABLED。
-- ❌ **PG-H1 学院删除与子写并发完整性（独立复核 1 High / 1 Low）** — `CollegeParentGuard`、删除首读父锁、专业/STAFF 用户/学生/当前标准导入在线接线、直接学生计数与批量升序预锁均成立；开发者证据为真实 MySQL 6/6、全量 329/329，独立 package、前端 type-check/build、diff check 通过。阻断 High：历史跨学院 student UPDATE ref 的 rollback 只锁 batch/ref/child，未锁/校验 `before_json.collegeId`，可把活跃学生恢复到已软删学院。Low：contender hook 早于真实 JDBC query。第二轮须按 `batch → refs → college IDs 升序 → business child` 预锁目标学院、缺失父级 fail closed/记冲突，并补历史 ref + delete/rollback 双向真实 MySQL 反例与 query-entered 探针。报告：`docs/reviews/phase-39-remediation-rereview-2026-07-24.md`。
+- 🟦 **PG-H1 学院删除与子写并发完整性（第二轮候选 `73406ed`，待独立增量复核）** — 第一轮正式报告的 1 High / 1 Low 保留为复核背景。第二轮已在 child 锁前解析、去重并升序父锁 student/training/certificate 的历史 UPDATE 目标，非法/缺失/deleted 父级按 ref 冲突关闭；学院删除直接统计 training/certificate，保护部分补偿；contender 证据推进到精确 SQL + collegeId 的 `StatementHandler.query` 边界。新增 deleted-parent、rollback/delete 双向、certificate-only、`A2/A1/A2` 多父升序反例；Phase 39 **11/11**、Phase 10 **13/13**、全量 **334/334**，最终只读审查 **0 High / 0 Medium / 0 Low**。材料：`docs/reviews/phase-39-second-remediation-submission-2026-07-24.md`；新的独立报告 PASS 前仍保持 CHANGES_REQUESTED 并阻塞 Phase 41。
 - ✅ **P0-12 收尾（Phase 43.1，已合并，见下条目）**：`deleteMajor` 改「停用」（引用方在 business 模块 + training 用 code/name 快照非 major_id、跨模块无关联键，遂旁路为停用而非补使用量守卫）、DB 外键决策＝**不加**（软删设计下近无用 + 回填风险高，孤儿防治留应用层）。⏳ **仍待**：MinIO 分片/孤儿清理与定时任务（P1-9）。
 
 ### Phase 41（41.1 + 41.3，Phase 41，已合并 —— 分支 `feature/phase41-ops`，单 commit，已 ff-merge 入 main，mvn verify 83/83 绿）

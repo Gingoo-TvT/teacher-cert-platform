@@ -5,11 +5,11 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**Phase 39 PG-H1 独立增量复核退回（1 High / 1 Low）**（分支：`feature/phase39-college-child-lock`；候选：`34aeec7`；报告：`docs/reviews/phase-39-remediation-rereview-2026-07-24.md`）；统一入口为 `docs/CURRENT-EXECUTION-PLAN.md`。
+- 当前阶段：**Phase 39 第二轮整改候选完成，待独立增量复核**（分支：`feature/phase39-college-child-lock`；代码候选：`73406ed`；第一轮报告：`docs/reviews/phase-39-remediation-rereview-2026-07-24.md`；第二轮提交材料：`docs/reviews/phase-39-second-remediation-submission-2026-07-24.md`）；统一入口为 `docs/CURRENT-EXECUTION-PLAN.md`。
 - 当前结论：WS-1/WS-2/WS-3/WS-10/WS-13 PASS；U-001 CI 零状态契约 PASS。Phase 42 第二轮独立报告确认首轮新增的 **1 Medium / 1 Low 全部关闭**，没有新增代码 finding。Phase 29、35b、36–38、40、42–43、45–46、48–52 PASS，Phase 0、39、41、44、47、53 复核退回。
-- P0 放行项：Phase 42 已由 `docs/reviews/phase-42-second-remediation-rereview-2026-07-24.md` 判定 **PASS**。Phase 39 当前在线父锁主路径成立，但历史跨学院 UPDATE ref 可由 rollback 在不锁/不校验 `before_json.collegeId` 时恢复到已删除学院，原 PG-H1 High 不能关闭；Phase 53 demo High 与 Phase 41 整库普通 INSERT 恢复缺口仍是各自独立退回项。
-- 最近更新：2026-07-24（Phase 39 独立增量复核结论 **CHANGES REQUESTED：1 High / 1 Low**。High 为历史 rollback 绕过学院父锁；Low 为 contender 测试信号早于真实 JDBC query 边界。独立后端 package、前端 type-check/build、diff check 通过；开发者 XML 为 329/329。未启动常驻应用，未重跑并发/latch，未执行任何 cyber 或压力指令）。
-- 下一步：按 `batch → refs → college IDs 升序 → business child` 修复历史 rollback，缺失/已删除父级 fail closed 或记冲突；补历史 ref 与 delete/rollback 双向反例并收紧 query-entered 探针，重跑门禁后再交独立增量复核。PASS 后才按 Phase 41 → 47 → 53 → 44 → 0 推进。
+- P0 放行项：Phase 42 已由 `docs/reviews/phase-42-second-remediation-rereview-2026-07-24.md` 判定 **PASS**。Phase 39 第二轮候选已按 `batch → refs → college IDs 升序 → business child` 预锁三类 UPDATE 快照目标学院，缺失/已删除父级按 ref 冲突关闭；并发证据已推进到 MyBatis `StatementHandler.query` 边界。以上仍是候选结论，新的独立报告 PASS 前原 1 High / 1 Low 不作正式关闭。Phase 53 demo High 与 Phase 41 整库普通 INSERT 恢复缺口仍是各自独立退回项。
+- 最近更新：2026-07-24（Phase 39 第二轮代码候选 `73406ed` 已完成。`Phase39CollegeIntegrityIT` **11/11**、`Phase10ExchangeIT` **13/13**；全新无卷隔离依赖全量 Surefire **149/149** + Failsafe **185/185** = **334/334**，0 failure/error/skip；生产与最终测试只读审查均为 **0 High / 0 Medium / 0 Low**。临时容器已移除，无 Java/相关端口监听；未启动常驻项目服务，未执行任何 cyber 或压力指令）。
+- 下一步：请独立复核者冻结最小增量 `1a69c70..73406ed`（完整 Phase 39 范围 `66fd2a9..73406ed`），重核历史父级 fail-closed、部分补偿删除守卫、多父升序锁序与 query-entered 真实性。PASS 后才按 Phase 41 → 47 → 53 → 44 → 0 推进。
 
 ## 审计整改工作流
 | WS | 内容 | 状态 |
@@ -33,7 +33,7 @@
 | Phase 35b | 已合并 | `phase-35b-review.md` PASS | ✅ 已复核 |
 | Phase 36–38、40、43、45–46、48–52 | 已合并 | 逐阶段 PASS 报告齐全 | ✅ 已复核 |
 | Phase 42 | 第二轮整改 `bd1db49` | `phase-42-second-remediation-rereview-2026-07-24.md` PASS；首轮 1 Medium / 1 Low 全部关闭 | ✅ 独立复核 PASS |
-| Phase 39 | PG-H1 父子记录串行化整改 `34aeec7` | `phase-39-remediation-rereview-2026-07-24.md`：在线父锁主路径成立；历史 rollback 父引用旁路 1 High，测试 query 边界 1 Low | ❌ 独立增量复核退回 |
+| Phase 39 | 第二轮代码候选 `73406ed` | 第一轮 `phase-39-remediation-rereview-2026-07-24.md` 为 1 High / 1 Low；第二轮材料 `phase-39-second-remediation-submission-2026-07-24.md`，开发者 334/334、只读审查 0/0/0 | 🟦 第二轮整改候选待独立增量复核（正式仍 CHANGES_REQUESTED） |
 | Phase 41、44、47、53 | 已合并 | 逐阶段 CHANGES REQUESTED 报告齐全；Phase 53 另有 WS-3 重核补充证据 | ❌ 复核退回 |
 
 逐 Phase 结论、报告路径与后续顺序以 `docs/CURRENT-EXECUTION-PLAN.md` 为准。

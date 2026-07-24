@@ -73,7 +73,7 @@
 - [x] 4 种导入策略行为正确；批次可查；回滚后恢复到导入前。
 - [x] confirm 与 rollback 竞争同一 batch 行锁：rollback 返回终态后不得再出现迟到业务写/ref；在途行先取得锁时，rollback 必须等待其提交并补偿完整引用集。
 - [x] 标准导入的直接学生写入路径已接入目标学院父行锁，目标学院已逻辑删除时整行事务失败，不产生学生孤儿。
-- **Phase 39 复核退回项（未闭环）**：历史 UPDATE ref 的 rollback 在任何业务子行锁前预锁 `before_json` 目标学院；目标学院已删除时禁止恢复，并以明确冲突/失败终态收敛。
+- [x] **Phase 39 第二轮整改候选**：历史 student/training/certificate UPDATE ref 的 rollback 已在任何业务子行锁前解析、去重并升序预锁 `before_json` 目标学院；非法、缺失或已删除目标按 ref 明确冲突关闭，禁止恢复到无效父级。代码候选 `73406ed` 已完成 Phase 39 11/11、Phase 10 13/13、全量 334/334；当前待独立增量复核，不能据此自行标记 Phase 39 PASS。
 - [x] 5 类导出列与 §15.6 一致；导出留审计；敏感导出鉴权。
 
 ## 11. 测试用例
@@ -86,8 +86,9 @@
 - T-IMP-5A（rollback 先线性化）：两行导入在首行提交后暂停 → rollback 返回并持久化 `ROLLED_BACK` → 释放 confirm；confirm 必须返回“导入已停止/ROLLED_BACK”，两行均不得留下活跃 student/training/certificate，第二行不得产生迟到 ref。
 - T-IMP-5B（在途行先线性化）：第一行取得 batch 锁、尚未写业务数据时暂停 → rollback 发起但不得完成 → 释放行事务；rollback 必须看到并补偿该行完整 3 条 refs，终态 `ROLLED_BACK`，三类业务数据均无活跃记录且 refs 保留用于追溯。
 - T-IMP-5C（失败明细屏障）：行事务失败后、错误明细竞争 batch 锁前暂停 → rollback 先完成时不得出现迟到 `import_error_detail`；错误明细先取得锁时 rollback 必须等待其提交后再落终态。
-- T-IMP-6A（历史父级失效）：构造旧版可达的 student UPDATE ref（before=A、after=B），软删 A 后 rollback → 不得把学生恢复到 A，活跃学生学院孤儿数为 0，终态/冲突信息明确。
-- T-IMP-6B（删除/回滚双向交错）：历史 ref rollback 与 `deleteCollege(A)` 分别先取得学院父锁 → 两个方向都不得留下活跃 student/training/certificate 指向已删除 A；锁顺序必须为 `batch → refs → college IDs 升序 → business child`。
+- T-IMP-6A（历史父级失效）：构造旧版可达的 student/training/certificate UPDATE ref（before=A、after=B），软删 A 后 rollback → 三类 ref 均不得恢复到 A，活跃子记录学院孤儿数为 0，终态/冲突信息明确。✅ `Phase39CollegeIntegrityIT`。
+- T-IMP-6B（删除/回滚双向交错）：历史 ref rollback 与 `deleteCollege(A)` 分别先取得学院父锁 → rollback 先赢时 training/certificate 或 certificate-only 的部分补偿会拒绝删除；删除先赢时三类恢复全部 fail closed。竞争方必须先触达精确 SQL + collegeId 的 `StatementHandler.query` 边界再释放胜方。✅ `Phase39CollegeIntegrityIT`。
+- T-IMP-6C（多历史父级锁序）：构造恢复目标按 ref 逆序重复出现为 `A2/A1/A2` → 父学院必须去重并按 ID 数值升序锁定，且最后一个父锁完成早于首个 student/training/certificate `FOR UPDATE` 查询。✅ `Phase39CollegeIntegrityIT`。
 
 ## 12. DoD
 模板/预校验/导入/回滚/异常报告/5 类导出全部可用；AT-01/02/14 自测（含 13 条 V 反例与 WPS/Excel 兼容）通过。
