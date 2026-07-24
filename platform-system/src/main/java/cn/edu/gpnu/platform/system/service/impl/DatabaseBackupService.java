@@ -72,6 +72,7 @@ public class DatabaseBackupService {
             "exemption_request", "exemption_material",
             // 视频评审 / 上传
             "video_review", "video_review_task", "video_upload_session", "video_upload_chunk",
+            "video_finalization_object_candidate",
             // 能力测试 / 证书 / 序列
             "ability_test_result", "certificate", "cert_sequence",
             // 导入导出批次 / 明细 / 文件对象

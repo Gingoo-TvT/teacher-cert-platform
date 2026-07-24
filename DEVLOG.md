@@ -15,6 +15,24 @@
 
 ---
 
+## [2026-07-24] WS-3 第六轮整改候选与开发者自测完成 — 待独立增量复核
+- 做了什么：按第五轮独立报告新增的 2 个 Medium 完成第六轮整改候选。为生产环境同时显式配置普通 `taskScheduler` 与 `videoFinalizationReconciliationTaskScheduler`，并把 reconciliation 的 `@Scheduled` trigger 绑定到后者，避免同步全量备份占用默认单线程 scheduler 时阻止对账被提交；将 V32 `video_finalization_object_candidate` 加入应用逻辑全量备份，显式清单由 36 表增至 37 表。
+- 关键决策与理由：不能只注册一个专用 `TaskScheduler`，否则 Spring Boot 因已有自定义 scheduler 回退后，未指定 scheduler 的普通任务仍可能误用视频专用线程，因此保留两个命名明确、相互独立的单线程调度器。恢复反例仅回放 candidate section 并调用真实 `VideoFinalizationObjectReconciler`，对象删除使用内存替身；这样可验证 WS-3 台账的 generation、claim/retry/tombstone 全字段恢复与续跑，同时不虚报 Phase 41 整份普通 `INSERT` 备份在 Flyway 种子库上的恢复冲突已经解决。
+- 问题与解决：调度隔离测试以真实 Spring scheduling 上下文阻塞默认备份线程，确认备份未释放时专用 trigger 仍至少连续提交两次。candidate 恢复测试最初使用无 Web 环境时触发既有 Knife4j 条件配置问题，改为会自然退出的随机端口测试上下文后通过。首次全量 `clean verify` 唯一失败是本轮临时 MinIO 未配置正式 dev 编排已有的 CORS 白名单；补齐该隔离环境配置、定向复验后重新全量执行，最终全绿，未放宽应用断言。
+- 与规格的偏差/疑问：无业务规则、权限点或迁移变更；Phase 14 增补独立 trigger scheduler 与 candidate 恢复硬契约。第五轮正式结论仍为 **CHANGES REQUESTED（2 Medium）**，本条仅表示“第六轮整改候选/开发者自测完成，请求独立增量复核”。第四轮 1 High / 1 Medium / 2 Low 已由第五轮独立复核确认关闭；Phase 41 整库恢复、Phase 53 demo、真实 2GB/非允许编码/不可解码首帧等独立欠账不随本轮关闭。
+- 测试：生产调度配置/隔离测试 **3/3**；candidate 备份、scratch restore 与真实对账续跑 **1/1**；本轮专用空库执行 **33 个迁移至 V32**，最终 `clean verify` 为 Surefire **149/149**、Failsafe **169/169**，合计 **318/318**、0 failure/error/skip，Phase 7 **44/44**。前端 type-check/build、dev/prod Compose config 与 `git diff --check` 均通过；仅保留既有前端大 chunk 警告。
+- 环境与安全：开工前确认 Docker build cache 39 项、12.67GB 全部可回收且无 active 引用，仅执行 builder cache prune，释放 **12.67GB**，镜像/容器/业务卷数量未变；本轮独立测试项目及其三个临时卷已在验证后删除。未启动常驻应用，未执行任何 cyber 指令、漏洞扫描、恶意载荷、fuzz、凭据尝试或攻击性并发。
+- 下一步：冻结第六轮增量并提交 `docs/reviews/ws-03-sixth-remediation-submission-2026-07-24.md` 给独立复核者。新报告 PASS 前不得写“2 Medium 已关闭”、`WS-3 PASS`、`U-002 已闭环`或“发布就绪”。
+
+## [2026-07-24] GOV-008 WS-3 第五轮整改独立重核退回
+- 做了什么：冻结 `ee190f3..88d3136`，按 incremental + security/stability/performance/testing-authenticity/release/configuration/data-integrity/concurrency 复核第五轮 39 个变更文件及既有调度、备份、恢复消费者；产出 `docs/reviews/ws-03-fifth-remediation-rereview-2026-07-24.md` 与审计元数据。第四轮 1 High / 1 Medium / 2 Low 全部按原问题口径关闭，但总判定仍为 **CHANGES REQUESTED（2 Medium）**。
+- 关键决策与理由：不把“实际 reconciliation 已投递专用 executor”误当成 cron trigger 已隔离；项目未配置专用 `TaskScheduler`，生产同步全量备份会占用 Boot 默认单线程 scheduler，使每分钟对账无法被调用。V32 candidate 表是清理/墓碑可靠性台账，但应用全量备份的显式 allowlist 没有该表；现有 legacy backfill 只能从少数当前 session/current object key 推导，无法恢复旧 generation 和墓碑。因此两项均按生产集成 Medium 退回。
+- 问题与解决：整改者 316/316 与第五轮核心动态反例可信，独立复核也确认 worker 错误域、generation candidate、清扫公平游标和父身份 watchdog 均已闭环；但现有 schedule 单测直接调用方法，未运行真实 scheduler/备份竞争，V32 migration IT 也不证明备份产物含新表。将两项明确并入统一计划 U-002 第六轮，不另建平行计划。
+- 与规格的偏差/疑问：无业务规则或权限点变更；为落实既有 Phase 14 可恢复性，将“独立 trigger scheduler”和“candidate 台账备份 + scratch restore”补入部署验收约束。历史 Phase 7 PASS 保留，但当前 WS-3 覆盖层标为复核退回。
+- 测试：整改者 XML 经核对为 Surefire 148/148、Failsafe 168/168，合计 316/316、0 failure/error/skip；独立重跑 `VideoFinalizationReconciliationScheduleConfigTest` + `VideoProbeTempArtifactManagerTest` **7/7**，后端 `package`、前端 type-check/build、dev/prod Compose config、报告 lint 与 `git diff --check` 通过。未启动常驻服务。
+- 安全边界：遵照用户要求，未执行畸形媒体、fuzz、故障注入、进程杀伤、攻击性并发、漏洞扫描或凭据尝试；需要这类证据时继续明确交由用户在受控环境自行执行。
+- 下一步：第六轮只修两个新增 Medium：为 reconciliation trigger 绑定专用 `TaskScheduler` 并补 blocked-backup 隔离测试；把 `video_finalization_object_candidate` 纳入全量备份并补 scratch restore/对账续跑测试。完成后重交独立增量复核。
+
 ## [2026-07-24] WS-3 第五轮退回整改与 T-VID-2L/2M 动态反例完成 — 待独立复核
 - 做了什么：按第四轮正式报告的 1 High / 1 Medium / 2 Low 完成第五轮整改。媒体 worker 升级为 V4：源文件打开置于内容解析边界之外，跟踪通道只把真实源读取 I/O 上抛为基础设施故障，JCodec 在损坏 movie/track 内部抛出的 `IOException` 转为结构化 `valid=false`/exit 0。V32 新增 `video_finalization_object_candidate` 持久台账和 5 个清理参数；每个 SERVER 世代使用独立 `/g-{generation}.mp4` 对象键，认领、失权、失败、登记与清理均留持久状态，`CLEANED` 作为周期复查墓碑捕获首次确认不存在后仍迟到生成的旧对象。生产 `prod` 在启动时回填遗留会话，并每分钟执行独立于普通 cleanup 开关的 reconciliation。
 - 关键决策与理由：对象存储写入无法与 MySQL 原子提交，故不能把一次 `removeObject` 成功或某时刻 HEAD 不存在当成永久事实；候选账本以数据库世代为身份，并让墓碑持续复查。普通到期清理与墓碑使用独立 batch，避免历史墓碑挤占故障恢复配额；删除前保护当前会话引用、同键 ACTIVE/REGISTERED 与 `file_object`。临时工件清扫用持久词法游标和两个不超过 scanLimit 的 max-heap，在 O(scanLimit) 内存下轮转覆盖；活跃/未过期/删除失败也推进游标。裸机 worker 接收父 PID + 精确 `startInstant` 并周期核验，父进程消失或 PID 复用即自行退出。

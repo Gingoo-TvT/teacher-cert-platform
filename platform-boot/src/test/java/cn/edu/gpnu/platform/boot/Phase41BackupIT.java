@@ -61,7 +61,7 @@ class Phase41BackupIT {
             assertThat(vo.getStorageUri()).startsWith("minio://" + bucket + "/db-backup/");
             assertThat(vo.getByteSize()).isNotNull().isGreaterThan(0L);
             assertThat(vo.getChecksum()).isNotNull().startsWith("sha256:");
-            assertThat(vo.getTableCount()).isNotNull().isGreaterThanOrEqualTo(30);
+            assertThat(vo.getTableCount()).isEqualTo(37);
             assertThat(vo.getRowCount()).isNotNull().isGreaterThan(0L);
             assertThat(vo.getStorageUri()).doesNotContain("manual://");
 
@@ -82,6 +82,8 @@ class Phase41BackupIT {
             assertThat(sql).startsWith("-- Teacher-Cert-Platform");
             assertThat(sql).contains("INSERT INTO `sys_permission`");
             assertThat(sql).contains("INSERT INTO `sys_role`");
+            assertThat(sql).contains(
+                    "-- ---------- video_finalization_object_candidate ----------");
             assertThat(sql).contains("-- EOF tables=" + vo.getTableCount());
 
             // backup_record 行真实落库（DB 侧核验，非只看返回值）

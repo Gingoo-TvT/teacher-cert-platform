@@ -37,7 +37,9 @@ M14 扩展点预留、后端/前端 Dockerfile、生产 docker-compose、兼容�
   - 启动和周期 reaper 只清理已超过 TTL 且 owner 已失效的已知工件；未知文件与活跃 owner 文件不删除。持久游标确保低扫描上限下仍轮转覆盖目录。监控项至少包含卷可用空间、探测拒绝数、孤儿/清扫数量、工作进程超时数、父进程丢失自退出数和租约丢失数。
 - **V32 定稿对象对账（生产强制）**：
   - `prod` profile 在应用 ready 时把历史 `MERGING/FAILED` 回填与首次对账投递到独立单线程执行器，事件线程立即返回，不得让对象存储超时阻塞 readiness；之后默认每分钟触发，同一实例已有任务运行时跳过本次触发而不排队。
+  - reconciliation 的 cron trigger 必须绑定独立 `TaskScheduler`，不得与同步全量备份或普通清理共享默认单线程 scheduler；发布证据须包含“备份被确定性阻塞时，对账仍按期触发并提交”的自然退出测试。
   - 监控 `video_finalization_object_candidate` 的 `CLEANUP_PENDING/CLEANING` 到期积压、最大 `next_retry_at` 延迟、`attempt_count/last_error`、`CLEANED` 墓碑数量及表增长率。该表是可靠性台账，不得批量物理清理；归档/保留策略须另行评审。
+  - “全量备份”必须包含 `video_finalization_object_candidate`；scratch restore 后须保留全部 generation key、`CLEANUP_PENDING/CLEANING/CLEANED` 状态、claim/retry/tombstone 字段，并能继续执行安全对账。
   - 普通故障清理与墓碑复查使用各自 batch，避免大量长期墓碑占满批次；删除前必须保护当前会话、`ACTIVE/REGISTERED` 候选及 `file_object` 已登记对象。
 - **WS-3 / V31+V32 停机切换协议（禁止滚动混部）**：
   1. 停止视频上传定稿/合并写流量。
@@ -47,7 +49,7 @@ M14 扩展点预留、后端/前端 Dockerfile、生产 docker-compose、兼容�
   5. 仅启动同一第五轮协议的全部实例，逐实例核对 probe 独占卷/目录，并确认启动对象回填/对账已执行。
   6. 确认 `SERVER_CHUNK` 新对象键带 `/g-{generation}.mp4`、没有旧稳定 key 写入者；健康检查和迁移核验通过后恢复写流量。
   - V31/旧节点会覆盖或清空永久世代，V32 之前节点还会继续写稳定 object key；因此禁止新旧二进制混部。V32 落库后禁止回滚旧协议二进制，失败只能前向修复。
-- **当前 WS-3 发布闸门（2026-07-23）**：第五轮已完成第四轮报告 1 High / 1 Medium / 2 Low 的开发者整改与 T-VID-2L/2M 动态反例，提交材料见 `reviews/ws-03-fifth-remediation-submission-2026-07-23.md`；正式结论仍沿用第四轮 **CHANGES REQUESTED**，第五轮独立报告 PASS 前不得发布。
+- **当前 WS-3 发布闸门（2026-07-24）**：第五轮独立复核已确认第四轮 1 High / 1 Medium / 2 Low 全部关闭，但新发现 scheduler trigger 隔离与 V32 candidate 全量备份覆盖 2 Medium。第六轮候选已完成双 scheduler、blocked-backup 调度隔离、37 表备份与 candidate scratch restore/真实对账续跑，开发者全量 318/318；第五轮正式结论仍为 **CHANGES REQUESTED**，见 `reviews/ws-03-fifth-remediation-rereview-2026-07-24.md`。新的独立报告 PASS 前不得发布；candidate slice 证据不关闭 Phase 41 整份普通 `INSERT` 脚本恢复冲突。
 - **WS-2 发布切换**：新版 JWT 含毫秒级签发时间 `iatMs`、口令凭据版本 `credentialVersion` 和 Redis 持久会话代次 `sessionGeneration`；缺少或不匹配任一新 claim 的存量 token 会被拒绝，logout 通过原子增代使旧 access/refresh 立即失效。发布时必须同时替换/重启全部后端实例并通知用户重新登录；禁止旧实例在滚动窗口继续签发旧格式 token。
 
 ## 4. 非功能收口（plan §十二）

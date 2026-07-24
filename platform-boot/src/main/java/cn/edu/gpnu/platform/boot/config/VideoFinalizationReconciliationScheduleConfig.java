@@ -26,6 +26,8 @@ public class VideoFinalizationReconciliationScheduleConfig {
 
     static final String RECONCILIATION_EXECUTOR_BEAN =
             "videoFinalizationReconciliationExecutor";
+    static final String RECONCILIATION_TASK_SCHEDULER_BEAN =
+            "videoFinalizationReconciliationTaskScheduler";
 
     private final VideoFinalizationObjectLifecycleService lifecycleService;
     private final VideoFinalizationObjectReconciler reconciler;
@@ -46,7 +48,9 @@ public class VideoFinalizationReconciliationScheduleConfig {
         submitReconciliation("启动");
     }
 
-    @Scheduled(cron = "${platform.video.finalization-reconciliation.cron:0 * * * * *}")
+    @Scheduled(
+            cron = "${platform.video.finalization-reconciliation.cron:0 * * * * *}",
+            scheduler = RECONCILIATION_TASK_SCHEDULER_BEAN)
     public void reconcileOnSchedule() {
         submitReconciliation("周期");
     }

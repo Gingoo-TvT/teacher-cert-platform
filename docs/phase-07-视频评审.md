@@ -55,7 +55,7 @@
 - 学院管理页：分配、进度看板、复评/仲裁、结果确认。
 
 ## 8. 验收清单（AT-08）
-> 2026-07-23 WS-3 第五轮整改已按第四轮报告的 **1 High / 1 Medium / 2 Low** 完成开发者自测并重交，正式独立结论仍沿用第四轮 **CHANGES REQUESTED**，等待第五轮独立复核。T-VID-2L 的固定损坏结构反例和 T-VID-2M 的删除故障/迟到 compose 交错已动态通过；下列两项仍因真实 2GB 传输、非允许编码与不可解码首帧证据债保持未完成，不能由本轮小样本替代。
+> 2026-07-24 WS-3 第五轮独立复核确认第四轮 **1 High / 1 Medium / 2 Low 全部关闭**，但新增 scheduler trigger 隔离与 V32 candidate 全量备份覆盖 **2 Medium**。第六轮整改候选与开发者自测已完成，正式结论仍为 **CHANGES REQUESTED**，待独立增量复核，见 `reviews/ws-03-sixth-remediation-submission-2026-07-24.md`。T-VID-2L/2M 的开发者动态证据保留；下列两项仍因真实 2GB 传输、非允许编码与不可解码首帧证据债保持未完成，不能由本轮小样本替代。
 
 - [ ] 2GB MP4 分片上传成功；中断后续传成功；同上传人/同学生且服务端验真指纹相同可秒传。
 - [ ] 伪 MP4、非允许编码、不可解码首帧、超大小、实际媒体时长超容差、客户端指纹不匹配 → 校验失败并提示，可重传。
@@ -82,6 +82,8 @@
 - T-VID-2K（配置与容量反例）：实时 usable 随活跃文件下降时，`MAX_RESERVED + MIN_FREE` 仍兑现配置并发；孤儿在首次检查与取得槽位之间登记时，迟到准入必须回滚；AWS S3Client 与 MinioClient 均受大于零的显式总调用/连接/读写超时控制；Maven verify 自动执行 fat-JAR worker smoke。
 - T-VID-2L（解析错误域反例，开发者动态通过）：固定 44 字节 MP4 结构具备合法顶层 box，但损坏 movie/track 并触发 JCodec 内容解析异常；真实子进程输出结构化内容失败且 exit 0，direct/server 会话均进入可重新初始化的 `VALIDATION_FAILED`。缺失源文件等真实基础设施 I/O 仍以非零退出保留恢复语义。
 - T-VID-2M（终态对象对账反例，开发者动态通过）：确定性注入一次对象删除失败，持久候选保留错误与尝试次数，过期 `CLEANING` 租约可被后续任务回收并清理；两个 SERVER generation 先进入 `CLEANED`，再真实执行旧 generation 迟到 compose，只有该墓碑到期时仍能重新删除复活对象。另验证 claim 不短于两次对象调用总上限且极值不让对账停摆，`ACTIVE`、同键 `REGISTERED` 与 `file_object` 三类对象保护，遗留 FAILED 会话启动回填，以及 direct 已认领回退、取消、multipart 缺失时 `ACTIVE` 候选均被事务性退休。
+- T-VID-2N（调度隔离反例，开发者动态通过）：在真实 Spring scheduling 上下文中将同步全量备份阻塞于普通 `taskScheduler`，保持备份未释放时，视频对账的专用 trigger scheduler 仍至少连续触发并提交两次；测试自然退出且不执行真实备份 I/O。
+- T-VID-2O（candidate 恢复反例，开发者动态通过）：应用逻辑全量备份的 37 个 section 与当前 schema 表集合一致并包含 candidate；隔离 scratch schema 回放多个 generation 的 `CLEANUP_PENDING/CLEANING/CLEANED` 全字段，保留 attempt、claim、error 与 tombstone，随后真实 reconciler 可继续清理、释放 claim 并递增 attempt。对象删除使用安全内存替身；此项不替代 Phase 41 整份脚本恢复。
 - T-VID-3：教师 A(85,合格) 提交 → 教师 B 查看任务看不到 A 的分。
 - T-VID-4：A=85 B=80（差 5，均合格）→ 终分 83 合格。
 - T-VID-5（关键）：A=85 B=60（差 25 > 12）→ 需复评。
@@ -98,7 +100,7 @@
 
 ## 11. 风险
 - "提交前互不可见"必须在**接口层**屏蔽（不能只前端隐藏），否则可绕过——T-VID-3 专门覆盖。
-- 大文件上传的内存/磁盘/超时：分片走流式、合并用 MinIO 服务端 ComposeObject。第五轮已在开发者自测中补齐 V4 内容错误域、V32 generation 候选台账/持久墓碑、清扫公平游标和父进程身份 watchdog；第五轮独立复核 PASS 前仍保持 CHANGES REQUESTED。
+- 大文件上传的内存/磁盘/超时：分片走流式、合并用 MinIO 服务端 ComposeObject。第五轮已补齐 V4 内容错误域、V32 generation 候选台账/持久墓碑、清扫公平游标和父进程身份 watchdog，且旧 4 项经独立复核关闭；第六轮已提交对账 trigger 调度隔离与 candidate 全量备份的候选修正及 T-VID-2N/2O，独立报告 PASS 前仍按 2 Medium 未关闭管理。
 - V31/V32 共同改变定稿协议与 SERVER 对象键。旧节点会回写/清空世代或继续写稳定 key，故禁止与旧二进制混部，也禁止 V32 后回滚旧版本；发布必须按 Phase 14 的停写、停全部旧节点/worker、执行 V32、全量新节点、再放流顺序执行。
 - 容量预留是单实例内状态。每个实例必须独占具有独立配额/文件系统的探测卷；共享卷、共享目录或在目录内放置其它文件均不受支持。
 - 复评结算 `thirdExpert` 的"两两分差最小对"算法要单测，避免边界取错对。

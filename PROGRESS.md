@@ -5,18 +5,18 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**WS-03 第五轮整改与动态反例已完成，待独立复核**；第四轮正式结论仍为 CHANGES REQUESTED（1 High / 1 Medium / 2 Low），统一入口为 `docs/CURRENT-EXECUTION-PLAN.md`。
-- 当前结论：WS-1/WS-2/WS-10/WS-13 PASS；U-001 CI 零状态契约 PASS。WS-3/U-002 第五轮已实现 V4 解析错误域、V32 generation 候选台账/持久墓碑、清扫公平游标及父 JVM PID+启动时刻 watchdog，并完成 T-VID-2L/2M 动态反例；这些是整改者证据，不能替代第五轮独立复核。Phase 29、35b、36–38、40、43、45–46、48–52 PASS，Phase 0、39、41、42、44、47、53 复核退回。
-- P0 放行项：提交第五轮整改并由独立复核者按 `docs/reviews/ws-03-fourth-remediation-rereview-2026-07-23.md` 重核 1 High / 1 Medium / 2 Low。Phase 53 demo High 仍归 U-003。
-- 最近更新：2026-07-24（本轮专用空库 **33 个迁移至 V32**；Surefire **148/148**、Failsafe **168/168**，合计 **316/316**；Phase 7 **44/44**、V32 迁移 IT **1/1**；T-VID-2L/2M + 对象保护/遗留回填 **5/5**，claim/direct 终态反例 **3/3**，聚焦单测 **19/19**；启动对账不阻塞 readiness 的阻塞替身反例 **2/2**；前端 type-check/build、dev/prod Compose config 与 `git diff --check` 均通过）。
-- 下一步：第五轮材料已归档提交，交独立复核。独立 PASS 后才可更新 WS-3 状态并继续 Phase 42 → 39 → 41 → 47 → 53 → 44 → 0。
+- 当前阶段：**WS-03 第六轮整改候选与开发者自测完成，待独立增量复核**；第五轮正式结论仍为 CHANGES REQUESTED（2 Medium），统一入口为 `docs/CURRENT-EXECUTION-PLAN.md`。
+- 当前结论：WS-1/WS-2/WS-10/WS-13 PASS；U-001 CI 零状态契约 PASS。WS-3 第六轮候选已为 reconciliation trigger 绑定独立 `TaskScheduler`，并把 V32 candidate 台账纳入 37 表全量备份；这两项尚未由独立复核者确认关闭。Phase 29、35b、36–38、40、43、45–46、48–52 PASS，Phase 0、39、41、42、44、47、53 复核退回。
+- P0 放行项：冻结第六轮增量并按 `docs/reviews/ws-03-fifth-remediation-rereview-2026-07-24.md` 独立复核 blocked-backup 调度隔离与 candidate scratch restore/真实对账续跑。Phase 53 demo High 与 Phase 41 整库普通 INSERT 恢复缺口仍是各自独立退回项。
+- 最近更新：2026-07-24（第六轮开发者全量 **318/318**：Surefire **149/149**、Failsafe **169/169**，Phase 7 **44/44**；独立调度隔离 **3/3**、candidate scratch restore/续跑 **1/1**；前端 type-check/build、dev/prod Compose config 与 `git diff --check` 均通过；按用户要求未执行任何 cyber 指令）。
+- 下一步：提交第六轮整改候选并进行独立增量复核；只有独立 PASS 后才可更新 WS-3/U-002 状态并继续 Phase 42 → 39 → 41 → 47 → 53 → 44 → 0。
 
 ## 审计整改工作流
 | WS | 内容 | 状态 |
 |---|---|---|
 | WS-1 | IT 计数按自身 fixture 隔离 | `[x]` **独立复核 PASS**（2026-07-23） |
 | WS-2 | prod admin bootstrap + STAFF/学生初始口令硬化 | `[x]` **独立复核 PASS**（2026-07-23） |
-| WS-3 | MinIO 预签名直传、独立端点与浏览器并行分片 | `[~]` **第五轮整改/动态反例已完成，待独立复核**（正式仍沿用第四轮 CHANGES REQUESTED；Phase 53 demo High 未计入） |
+| WS-3 | MinIO 预签名直传、独立端点与浏览器并行分片 | `[~]` **第六轮整改候选与开发者自测完成，待独立增量复核**（第五轮正式结论仍为 CHANGES REQUESTED · 2 Medium；Phase 53 demo High 未计入） |
 | WS-10 | 移除默认 dev profile + profile fail-fast | `[x]` **独立复核 PASS**（2026-07-23） |
 | WS-13 | RBAC 授权天花板（防自提权守卫） | `[x]` **独立复核 PASS**（2026-07-23） |
 
@@ -138,7 +138,7 @@
 - [x] T-056 免考审核页
 
 ## Phase 7 · 视频评审 — 11/11 ✅ 已复核（Claude 2026-06-17，PASS·2轮 · docs/reviews/phase-07-review.md）
-> 历史 Phase 7 结论保留；当前分支叠加的 WS-3 第五轮已完成第四轮 1 High / 1 Medium / 2 Low 的开发者整改和 T-VID-2L/2M 动态反例，等待独立复核。上传/媒体校验相关发布闸门继续保持打开，见 `docs/reviews/ws-03-fourth-remediation-rereview-2026-07-23.md` 与第五轮提交材料。
+> 历史 Phase 7 结论保留；当前分支叠加的 WS-3 第六轮整改候选已实现 scheduler trigger 隔离与 V32 candidate 备份/scratch restore，并通过开发者全量 318/318，但第五轮正式结论仍为 CHANGES REQUESTED（2 Medium），当前覆盖层待独立增量复核。见 `docs/reviews/ws-03-fifth-remediation-rereview-2026-07-24.md` 与第六轮提交材料。
 > 轮次1退回 B1（重传未挂可编辑态守卫）+ B2（reviewerCount>2 结算卡死）；轮次2 单提交 `75b7fa7` 已闭环：B1 三入口重传守卫（已有任务/REVIEWING/NEED_REVIEW/已结算 拒绝，不串分不卡死）、B2 `settleIfReady` 泛化 N 评委（N=2 不变、N=3 结算 82）、of() 改 fail-closed；`Phase7VideoReviewIT` 7/7 含重传拒绝 + 3 评委结算反例，`mvn verify` 29/29、前端绿。Minor 维持 backlog。
 - [x] T-057 分片上传服务（init/chunk/merge）（分支：`feature/phase07-T057-video-review`）
 - [x] T-058 视频校验（格式/大小/时长）

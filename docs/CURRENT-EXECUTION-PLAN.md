@@ -13,12 +13,14 @@
 - WS-3 第三轮整改独立重核：全新数据卷 Flyway V1–V30 成功，Surefire **125/125**、Failsafe **152/152**，合计 **277/277**；Phase 7 **31/31**；前端 type-check/build、生产 Compose config 与 fat-JAR worker 通过。独立复核确认前轮正常路径有实质闭环，但仍发现 **4 High / 5 Medium**：Redis fencing token 可 ABA、server finalize/assign 竞态永久 MERGING、direct 丢失 multipart 接管永久 MERGING、持久临时卷无崩溃孤儿清扫，以及错误分类/强杀确认/容量公式/MinIO 双 client 超时/fat-JAR 自动化缺口。结论为 **CHANGES REQUESTED**，见 `reviews/ws-03-third-remediation-rereview-2026-07-23.md`。
 - WS-3 第四轮整改自测：V31 数据库永久世代、随机 Redis owner、三类不可恢复 MERGING 收敛、临时卷 owner/reaper/独占锁、严格 worker 结果分类、强杀死亡确认、孤儿准入与容量原子快照、MinIO 双 client 正数有界超时、verify 内 fat-JAR 门禁均已落地。专用全新环境 Flyway V1–V31，Surefire **140/140**、Failsafe **159/159**，合计 **299/299**；Phase 7 **36/36**；前端 type-check/build 与 dev/prod Compose config 通过。
 - WS-3 第四轮独立重核：冻结 `df22e5b..ee190f3`，确认第三轮 4 High / 5 Medium 均可按原问题口径关闭，但新发现 **1 High / 1 Medium / 2 Low**。High 为 JCodec 内容解析 `IOException` 被父进程误判为基础设施故障，使损坏 MP4 永久卡 `MERGING`；Medium 为 FAILED 最终对象只做一次删除且无持久 reconciliation，SERVER 另有迟到 compose 复活稳定 key 的窗口；两个 Low 为临时工件有界扫描公平性和裸机父 JVM 崩溃后的 worker 监管恢复。独立安全白名单 **17/17**、后端 package、前端 type-check/build、dev/prod Compose config 与依赖树均通过；按用户要求未执行畸形媒体、破坏性故障或攻击性并发。结论 **CHANGES REQUESTED**，见 `reviews/ws-03-fourth-remediation-rereview-2026-07-23.md`。
-- WS-3 第五轮整改已实现并完成开发者动态反例：worker V4 将 JCodec 内容解析异常结构化为 invalid，同时保留真实源/结果 I/O 的基础设施语义；V32 为每一数据库世代建立持久对象候选，SERVER 改用 generation-specific key，生产启动回填 + 每分钟独立 reconciliation，`CLEANED` 墓碑持续复查迟到对象；启动对账经单线程防重入执行器异步投递，不阻塞 readiness；临时工件使用持久公平游标和 O(scanLimit) 候选内存；worker 以父 PID + `startInstant` watchdog 处理裸机父 JVM 崩溃。最终专用空库成功执行 **33 个迁移至 V32**；Surefire **148/148**、Failsafe **168/168**，合计 **316/316**；Phase 7 **44/44**、V32 迁移 IT **1/1**；T-VID-2L/2M 与对象保护/回填 **5/5**、claim/direct 终态反例 **3/3**、聚焦单测 **19/19** 均通过。此项为整改者提交材料，正式结论仍等待第五轮独立复核。
+- WS-3 第五轮整改已实现并完成开发者动态反例：worker V4 将 JCodec 内容解析异常结构化为 invalid，同时保留真实源/结果 I/O 的基础设施语义；V32 为每一数据库世代建立持久对象候选，SERVER 改用 generation-specific key，生产启动回填 + 每分钟独立 reconciliation，`CLEANED` 墓碑持续复查迟到对象；启动对账经单线程防重入执行器异步投递，不阻塞 readiness；临时工件使用持久公平游标和 O(scanLimit) 候选内存；worker 以父 PID + `startInstant` watchdog 处理裸机父 JVM 崩溃。最终专用空库成功执行 **33 个迁移至 V32**；Surefire **148/148**、Failsafe **168/168**，合计 **316/316**；Phase 7 **44/44**、V32 迁移 IT **1/1**；T-VID-2L/2M 与对象保护/回填 **5/5**、claim/direct 终态反例 **3/3**、聚焦单测 **19/19** 均通过。此项作为整改者提交材料，由下一条第五轮独立重核给出正式结论。
+- WS-3 第五轮独立重核：冻结 `ee190f3..88d3136`，确认第四轮 **1 High / 1 Medium / 2 Low 全部按原问题口径关闭**；新发现 **2 Medium**。其一是 reconciliation 虽有专用工作 executor，但 `@Scheduled` 触发仍与同步全量备份/清理共享 Spring Boot 默认单线程 scheduler，长时备份会阻止对账被提交；其二是 V32 关键台账 `video_finalization_object_candidate` 未进入“全量备份”显式表清单，灾难恢复会丢失历史世代、待清理状态与墓碑。独立安全白名单 **7/7**、后端 package、前端 type-check/build、dev/prod Compose config、报告 lint 与 `git diff --check` 均通过；按用户要求未执行畸形媒体、故障注入、进程破坏或攻击性并发。结论 **CHANGES REQUESTED**，见 `reviews/ws-03-fifth-remediation-rereview-2026-07-24.md`。
+- WS-3 第六轮整改候选/开发者自测完成：生产显式配置普通 `taskScheduler` 与视频专用 `videoFinalizationReconciliationTaskScheduler`，reconciliation cron 只由后者触发；真实 scheduling 测试将同步备份确定性阻塞在默认 scheduler 时，对账仍至少连续提交两次。V32 candidate 台账已进入 37 表逻辑全量备份；隔离 scratch schema 回放 `CLEANUP_PENDING/CLEANING/CLEANED` 多 generation 全字段后，真实 reconciler 可继续清理、递增 attempt、释放 claim 并保留墓碑。最终 Surefire **149/149**、Failsafe **169/169**，合计 **318/318**、0 failure/error/skip；Phase 7 **44/44**；前端 type-check/build、dev/prod Compose config 与 `git diff --check` 均通过。提交材料见 `reviews/ws-03-sixth-remediation-submission-2026-07-24.md`。
 - 前端：`npm --prefix frontend run type-check`、`npm --prefix frontend run build` 通过；构建仍有 `echarts`/`naive` 大 chunk 警告。
 - 编排：`docker-compose.dev.yml` 与生产 `docker-compose.yml + .env.example` 均通过 `config --quiet`。
-- 当前 WS 链判定：**WS-1、WS-2、WS-10、WS-13 PASS；WS-3 第五轮整改完成、待独立复核**。正式依据仍为 `reviews/ws-03-fourth-remediation-rereview-2026-07-23.md` 的 CHANGES REQUESTED；第五轮提交材料不能自行改判 PASS。
+- 当前 WS 链判定：**WS-1、WS-2、WS-10、WS-13 PASS；WS-3 第六轮整改候选与开发者自测完成，待独立增量复核**。第五轮正式依据仍为 `reviews/ws-03-fifth-remediation-rereview-2026-07-24.md` 的 CHANGES REQUESTED（2 Medium），第六轮材料不能自行改判。
 - 缺失阶段账已完成独立复核：**Phase 29、35b、36–38、40、43、45–46、48–52 PASS；Phase 0、39、41、42、44、47、53 CHANGES REQUESTED**。阶段总审计见 `reviews/phase-gap-audit-2026-07-23.md`。
-- 全项目仍为 **CHANGES REQUESTED**：WS-3 第五轮尚未取得独立 PASS；此外仍有学院删除并发孤儿、备份不可按手册恢复、导入/回滚竞态、Phase 44 完成声明与实现不一致、MinIO 生命周期失败覆盖、Phase 53 demo 对象/元数据升级不一致及 Phase 0 验收基线欠账。
+- 全项目仍为 **CHANGES REQUESTED**：WS-3 第六轮候选尚未获得独立 PASS；此外仍有学院删除并发孤儿、整库备份不可按手册恢复、导入/回滚竞态、Phase 44 完成声明与实现不一致、MinIO 生命周期失败覆盖、Phase 53 demo 对象/元数据升级不一致及 Phase 0 验收基线欠账。
 - 本轮是“逐阶段进度真实性 + 测试真实性 + 发布门禁”的复核，不替代最后的全量安全、业务规则、数据一致性、性能与运行期审计。
 
 ## 2. 逐阶段复核矩阵
@@ -38,7 +40,7 @@
 | Phase 4 | 已完成 | `reviews/phase-04-review.md` PASS | ✅ 已复核；当前全量回归通过 |
 | Phase 5 | 已完成 | `reviews/phase-05-review.md` PASS | ✅ 已复核；当前全量回归通过 |
 | Phase 6 | 已完成 | `reviews/phase-06-review.md` PASS | ✅ 已复核；当前全量回归通过 |
-| Phase 7 | 历史阶段已完成；当前叠加 WS-3 第五轮增量 | `reviews/phase-07-review.md` 历史 PASS；第四轮报告 + 第五轮提交材料 | 🟦 第五轮整改/动态反例完成，待独立复核；第四轮正式结论仍为 CHANGES REQUESTED，历史阶段 PASS 保留 |
+| Phase 7 | 历史阶段已完成；当前叠加 WS-3 第六轮候选 | `reviews/phase-07-review.md` 历史 PASS；第五轮正式报告 + 第六轮提交材料 | 🟦 第六轮整改候选与开发者自测完成，待独立增量复核；第五轮正式结论仍为 CHANGES REQUESTED（2 Medium），历史阶段 PASS 保留 |
 | Phase 8 | 已完成 | `reviews/phase-08-review.md` PASS | ✅ 已复核；当前全量回归通过 |
 | Phase 9 | 已完成 | `reviews/phase-09-review.md` PASS | ✅ 已复核；当前全量回归通过 |
 | Phase 10 | 已完成 | `reviews/phase-10-review.md` PASS | ✅ 已复核；当前全量回归通过 |
@@ -95,7 +97,7 @@
 | WS-2 凭据硬化 | `9bdee8f` | 目标单测 105/105；专项真实依赖组合 50/50；纳入 265/265 | ✅ 独立复核 PASS；`reviews/ws-02-review-2026-07-23.md` |
 | WS-10 profile fail-fast | `32905a5` | 启动型单测、Compose；纳入 265/265 | ✅ 独立复核 PASS；`reviews/ws-10-review-2026-07-23.md` |
 | WS-13 RBAC 授权天花板 | `acfc3b6` | WS13 IT 4/4、授权矩阵单测；纳入 265/265 | ✅ 独立复核 PASS；`reviews/ws-13-review-2026-07-23.md` |
-| WS-3 MinIO 预签名直传 | 原实现 `338bc91`；首批 `ca400f1`；第二轮 `32da735`；第三轮 `df22e5b`；第四轮 `ee190f3`；第五轮已提交（见 `git log -1`） | 空库 33 个迁移至 V32；148/148 + 168/168 = 316/316；Phase 7 44/44、V32 IT 1/1；前端/Compose/diff 通过 | 🟦 第五轮整改完成、待独立复核；正式仍沿用第四轮 CHANGES REQUESTED（1 High / 1 Medium / 2 Low）；Phase 53 demo High 仍留 U-003 |
+| WS-3 MinIO 预签名直传 | 原实现 `338bc91`；首批 `ca400f1`；第二轮 `32da735`；第三轮 `df22e5b`；第四轮 `ee190f3`；第五轮 `88d3136`；第六轮候选见 `git log -1` | 149/149 + 169/169 = 318/318；Phase 7 44/44；调度隔离 3/3；candidate restore 1/1；前端/Compose/diff 通过 | 🟦 第六轮整改候选与开发者自测完成，待独立增量复核；第五轮正式结论仍为 CHANGES REQUESTED（2 Medium）；Phase 53 demo High 仍留 U-003 |
 
 统一风险证据与修复顺序见 `reviews/current-ws-chain-audit-2026-07-23.md`。
 
@@ -104,7 +106,7 @@
 ### P0：复核与发布门禁
 
 1. **U-001 CI 可复现性（WS-3 Major-3）—✅ 独立重核 PASS**：后端 job 的固定版本 MinIO、健康检查、桶初始化与前端 `npm run type-check` 已静态核对；独立 CI 等价环境全量 266/266、前端 type-check/build 通过。WS-6 仍负责 ESLint、Vitest、Playwright。
-2. **U-002 WS-3 退回整改—🟦 第五轮已完成、待独立复核**：第四轮报告的 1 High / 1 Medium / 2 Low 已分别以 worker V4 错误域、V32 generation candidate + 持久墓碑、清扫公平游标和父身份 watchdog 整改；T-VID-2L/2M 已用固定小型结构夹具、一次受控对象删除失败和真实本地迟到 compose 动态通过。第五轮独立报告 PASS 前仍按 CHANGES REQUESTED 管理。V32 发布必须停写、停全部旧节点/worker、迁移、全量启动新实例后再放流，禁止 V31/旧稳定 key 协议混部与旧二进制回滚。未执行漏洞扫描、攻击性探测、凭据尝试、恶意载荷或 fuzz；后续任何可能属于 cyber 的命令必须明确交由用户决定并亲自执行。
+2. **U-002 WS-3 退回整改—🟦 第六轮候选完成，待独立增量复核**：第四轮报告的 1 High / 1 Medium / 2 Low 已由第五轮独立复核确认关闭。第五轮新增 2 Medium 的候选修正与确定性反例已经完成：① reconciliation trigger 绑定独立 `TaskScheduler`，真实 scheduling + blocked backup 下仍连续提交；② `video_finalization_object_candidate` 纳入 37 表逻辑全量备份，scratch restore 后历史 generation、claim/retry/tombstone 完整且真实对账可续跑。此处只证明 candidate slice，Phase 41 整份普通 `INSERT` 备份与 Flyway 种子冲突仍是独立退回项。V32 发布继续遵守停写、停全部旧节点/worker、迁移、全量启动新实例后再放流，禁止 V31/旧稳定 key 协议混部与旧二进制回滚。第五轮正式结论仍为 CHANGES REQUESTED（2 Medium）；未执行任何 cyber 指令，后续任何可能属于 cyber 的命令必须明确交由用户决定并亲自执行。
 3. **U-003 阶段退回整改**：按依赖/风险顺序修 Phase 42 导入回滚状态机 → Phase 39 父子记录串行化 → Phase 41 可恢复备份与安全初始化 → Phase 47 生命周期 fail-closed → Phase 53 demo 真实元数据/旧对象 reconcile + 浏览器播放 → Phase 44 状态诚实化/缓存事务后逐出。每项只修报告中的 Major，并补对应反例。
 4. **U-004 Phase 0 复核退回整改**：逐项处理 `docs/phase-00-脚手架.md` 的 10 个验收项；被现架构取代的旧要求要记录替代依据，补 lint/Swagger/预签名过期等可重复证据后重交。
 
@@ -142,4 +144,4 @@
 2. 业务规格变化仍必须先改 `plan.md`/对应 phase 文档，并按 R10 写 `DEVLOG.md`；本文件只同步执行项。
 3. 阶段实现完成只能置“待复核”；独立复核报告 PASS 后，才能在本文件与 `PROGRESS.md` 同步置“✅ 已复核”。
 4. 每次复核同时记录：代码提交、测试命令/计数、运行环境、反例、未覆盖项、结论。
-5. 最终全量审计前，U-001–U-004 必须全部闭环；U-001 已独立重核 PASS，U-002 第五轮整改完成但待独立复核，U-003/U-004 均已有逐阶段退回报告。未闭环前不得宣称稳定发布就绪。
+5. 最终全量审计前，U-001–U-004 必须全部闭环；U-001 已独立重核 PASS，U-002 第六轮候选已完成但仍等待独立增量复核，U-003/U-004 均已有逐阶段退回报告。未闭环前不得宣称稳定发布就绪。

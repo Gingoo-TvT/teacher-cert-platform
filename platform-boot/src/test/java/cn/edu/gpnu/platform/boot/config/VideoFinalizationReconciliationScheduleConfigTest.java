@@ -7,7 +7,9 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.annotation.Profile;
+import org.springframework.scheduling.annotation.Scheduled;
 
+import java.lang.reflect.Method;
 import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -30,7 +32,8 @@ class VideoFinalizationReconciliationScheduleConfigTest {
     private VideoFinalizationObjectReconciler reconciler;
 
     @Test
-    void productionScheduleRunsBackfillAndReconciliationForStartupAndPeriodicTriggers() {
+    void productionScheduleRunsBackfillAndReconciliationForStartupAndPeriodicTriggers()
+            throws Exception {
         VideoFinalizationReconciliationScheduleConfig scheduleConfig =
                 new VideoFinalizationReconciliationScheduleConfig(
                         lifecycleService, reconciler, Runnable::run);
@@ -48,6 +51,14 @@ class VideoFinalizationReconciliationScheduleConfigTest {
                 .getAnnotation(Profile.class);
         assertThat(profile).isNotNull();
         assertThat(profile.value()).containsExactly("prod");
+
+        Method scheduledMethod = VideoFinalizationReconciliationScheduleConfig.class
+                .getMethod("reconcileOnSchedule");
+        Scheduled scheduled = scheduledMethod.getAnnotation(Scheduled.class);
+        assertThat(scheduled).isNotNull();
+        assertThat(scheduled.scheduler()).isEqualTo(
+                VideoFinalizationReconciliationScheduleConfig
+                        .RECONCILIATION_TASK_SCHEDULER_BEAN);
     }
 
     @Test
