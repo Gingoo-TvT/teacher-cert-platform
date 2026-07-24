@@ -16,6 +16,26 @@ public class ExchangeImportHook {
         // 生产不注入行为。
     }
 
+    public void afterRollbackBatchLocked(Long batchId) {
+        // 生产不注入行为。
+    }
+
+    public void beforeErrorDetailLock(Long batchId, Integer rowNo) {
+        // 生产不注入行为。
+    }
+
+    public void afterErrorDetailBatchLocked(Long batchId, Integer rowNo) {
+        // 生产不注入行为。
+    }
+
+    public void afterErrorDetailWrite(Long batchId, Integer rowNo) {
+        // 生产不注入行为。
+    }
+
+    public void afterErrorDetailCommitted(Long batchId, Integer rowNo) {
+        // 生产不注入行为。
+    }
+
     public void afterRowCommitted(Long batchId, Integer rowNo) {
         // 生产不注入行为。
     }

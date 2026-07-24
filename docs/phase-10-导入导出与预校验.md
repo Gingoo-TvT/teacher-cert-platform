@@ -3,7 +3,7 @@
 > 优先级 P0 · 依赖：Phase 1~9（字典/校验器/业务表全部就绪）· 任务：T-080~T-091 · plan §7 / §15.6 / §15.7
 > 目标：标准模板下载、两步导入（预校验→确认→可回滚）、预校验中心 V-01~V-13、异常报告、标准/完整/汇总/异常/附件清单导出，全程文本化。**AT-01、AT-02、AT-14 首验。**
 >
-> 2026-07-24 Phase 42 首轮独立增量重核确认 batch 行锁屏障已关闭原 PG-H3 Major，但新发现逐行 `SELECT *` 重读整批 `preview_json` 的 O(N²) Medium 与错误明细屏障测试 Low；见 `docs/reviews/phase-42-remediation-rereview-2026-07-24.md`。第二轮 PASS 前仍为 **CHANGES REQUESTED**。
+> 2026-07-24 Phase 42 首轮独立增量重核确认 batch 行锁屏障已关闭原 PG-H3 Major，但新发现逐行 `SELECT *` 重读整批 `preview_json` 的 O(N²) Medium 与错误明细屏障测试 Low；见 `docs/reviews/phase-42-remediation-rereview-2026-07-24.md`。第二轮候选已改为 status-only 锁投影并补 T-IMP-5C 双向交错，开发者门禁 323/323；新的独立报告 PASS 前仍为 **CHANGES REQUESTED**。
 
 ## 1. 范围
 26 列模型与文本格式、模板下载（内置下拉+补 H 表头）、预校验（不入库）、确认导入（4 策略+批次+回滚）、异常报告、5 类导出、导出审计。

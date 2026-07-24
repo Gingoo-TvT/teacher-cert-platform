@@ -15,6 +15,14 @@
 
 ---
 
+## [2026-07-24] Phase 42 第二轮整改候选完成 — 待独立增量复核
+- 做了什么：按首轮独立增量报告的 1 Medium / 1 Low 完成最小整改。逐行导入与失败明细事务不再通过 `SELECT * ... FOR UPDATE` 装载整批 `preview_json`，改为标量 `status` 行锁查询；rollback 仍保留单次批次元数据锁查询。补充 mapper 投影契约与真实 confirm SQL 探针，确认一条成功行、一条数据库失败行及其错误明细实际产生的 3 条 batch 锁 SQL 全部为 status-only。新增 T-IMP-5C 双向交错，覆盖 rollback 先提交时禁止迟到错误明细，以及错误明细先持锁时 rollback 必须等待。
+- 关键决策与理由：原 PG-H3 的串行化屏障必须保留，性能修复只能收窄投影，不能移除 `FOR UPDATE`。标量 `String` 让 `null` 继续唯一表示批次不存在/已逻辑删除，非 `IMPORTING` 仍走原停止语义；rollback 需要批次元数据，因此不强迫其使用 status-only。测试同时核对静态 MappedStatement、真实调用链 SQL、`StatementHandler.query` 执行边界、错误明细写入与 rollback 实际取得 batch 锁的事件顺序，避免“存在未使用的新 mapper”或“线程仍停在 SQL 前测试 hook”的假阳性。
+- 问题与解决：提交前只读交叉检查未发现新的 High/Medium，但指出 SQL 契约只看 mapped statement、500ms 锁等待受调度影响、异常清理可能遗留线程三个 Low。现已让真实 confirm 路径捕获锁 SQL；两条反向交错在短超时前先确认 rollback 已到达 MyBatis `StatementHandler.query` 执行边界，并在错误明细反向用例核对写入先于 rollback 取得锁；Future 超时会取消，线程池正常路径的二次终止结果改为硬断言。`query-entered` 位于 JDBC execute 前，500ms 仍诚实保留为非阻断辅助证据限制，不夸大为完全无调度窗口；外层 JUnit 中断分支在 `shutdownNow()` 后不再等待的极端失败路径保留为 1 个非阻断测试债。生产 hook 仍为空操作。
+- 与规格的偏差/疑问：无 DDL/Flyway、业务规则、权限点、前端生产逻辑或状态集合变化。既有 `PARTIAL_ROLLBACK` 自动重试语义仍为范围外债务；未执行万行压测，因为 O(N²) 根因已通过固定投影和真实 SQL 契约静态消除，容量量化不属于本次最小闭环。正式状态仍为 **CHANGES REQUESTED**，本条不自行宣告两项 finding 已由独立复核关闭。
+- 测试：最终 `Phase10ExchangeIT` **13/13**；全新隔离 MySQL/Redis/MinIO 的 `mvn -B -ntp clean verify` 为 Surefire **149/149** + Failsafe **174/174** = **323/323**，0 failure/error/skip；32 个版本化生产迁移至 V32（另有测试 repeatable）；前端 type-check/build 与 `git diff --check` 通过。gate 后只诚实化修改两处断言说明字符串，并以当前源码重跑 9 模块 `-DskipTests package` 通过。未启动常驻应用，未执行任何 cyber、漏洞扫描、恶意载荷、fuzz、凭据尝试或压力指令。
+- 下一步：提交 `docs/reviews/phase-42-second-remediation-submission-2026-07-24.md`，请独立复核者冻结首轮治理基线 `ec4ca30` 到本候选提交，只核 1 Medium / 1 Low 及直接回归。新报告 PASS 前 Phase 42 保持复核退回、Phase 39 不放行。
+
 ## [2026-07-24] GOV-010 Phase 42 PG-H3 独立增量复核退回
 - 做了什么：冻结 `5792025..b604e48`，按 incremental + security/stability/performance/testing-authenticity/release/configuration/data-integrity/concurrency 复核 10 个变更文件及直接调用方；产出 `docs/reviews/phase-42-remediation-rereview-2026-07-24.md` 与审计元数据。原 PG-H3 的 confirm/rollback 迟到写、ref 快照和收尾伪终态已按原问题口径关闭，但正式结论仍为 **CHANGES REQUESTED（1 Medium / 1 Low）**。
 - 关键决策与理由：统一 batch 行锁协议本身成立，不能为性能直接移除。新 Medium 是逐行锁查询使用 `SELECT * ... FOR UPDATE`，每个成功/失败行都重复映射保存整批 26 列预览的 `preview_json`；N 行确认形成 O(N²) DB→JVM 数据量，与现有万行级/5 分钟契约冲突。最小修复是为逐行与错误明细事务改用 status-only（或 `id,status`）锁查询，rollback 单次全行锁保留。新 Low 是失败明细锁/状态守卫没有专用交错反例。

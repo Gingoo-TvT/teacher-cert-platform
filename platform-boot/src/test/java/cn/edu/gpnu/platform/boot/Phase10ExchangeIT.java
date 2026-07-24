@@ -20,6 +20,15 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.ibatis.executor.statement.StatementHandler;
+import org.apache.ibatis.mapping.BoundSql;
+import org.apache.ibatis.mapping.MappedStatement;
+import org.apache.ibatis.plugin.Interceptor;
+import org.apache.ibatis.plugin.Intercepts;
+import org.apache.ibatis.plugin.Invocation;
+import org.apache.ibatis.plugin.Signature;
+import org.apache.ibatis.session.ResultHandler;
+import org.apache.ibatis.session.SqlSessionFactory;
 import org.apache.poi.ss.usermodel.CellStyle;
 import org.apache.poi.ss.usermodel.DataFormatter;
 import org.apache.poi.ss.usermodel.Row;
@@ -52,18 +61,25 @@ import org.springframework.util.MultiValueMap;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.sql.Connection;
+import java.sql.Statement;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -83,6 +99,8 @@ class Phase10ExchangeIT {
     private static final long STUDENT_ROLE_ID = 800000000000000001L;
     private static final long STUDENT_B_USER_ID = 800000000000003009L;
     private static final long STUDENT_B_ROLE_ID = 800000000000004009L;
+    private static final String STATUS_ONLY_BATCH_LOCK_SQL =
+            "select status from import_export_batch where id = ? and deleted = 0 for update";
 
     @LocalServerPort
     private int port;
@@ -115,6 +133,9 @@ class Phase10ExchangeIT {
     private ImportExportBatchMapper batchMapper;
 
     @Autowired
+    private SqlSessionFactory sqlSessionFactory;
+
+    @Autowired
     private PasswordEncoder passwordEncoder;
 
     @Autowired
@@ -123,10 +144,14 @@ class Phase10ExchangeIT {
     @Autowired
     private ControlledExchangeImportHook exchangeImportHook;
 
+    @Autowired
+    private BatchLockSqlProbe batchLockSqlProbe;
+
     @BeforeEach
     @AfterEach
     void resetData() {
         exchangeImportHook.reset();
+        batchLockSqlProbe.reset();
         cleanupGeneratedData();
         ensureSecondCollegeStudent();
         resetUser("test_student", true);
@@ -377,15 +402,46 @@ class Phase10ExchangeIT {
 
         JsonNode pre = prevalidate(academic.accessToken(), List.of(ok, bad)).at("/data");
         assertThat(pre.at("/successCount").asInt()).isEqualTo(2);
+        batchLockSqlProbe.reset();
         JsonNode imported = confirm(academic.accessToken(), pre.at("/batchId").asLong(), "INSERT_ONLY");
         assertThat(imported.at("/code").asInt()).isEqualTo(0);
         assertThat(imported.at("/data/successCount").asInt()).isEqualTo(1);
         assertThat(imported.at("/data/failCount").asInt()).isEqualTo(1);
         assertThat(imported.at("/data/status").asText()).isEqualTo("FAILED");
+        assertThat(batchLockSqlProbe.snapshot())
+                .as("两条逐行事务与一条错误明细事务必须实际走定长 status 行锁投影")
+                .hasSize(3)
+                .allMatch(STATUS_ONLY_BATCH_LOCK_SQL::equals);
 
         assertThat(studentMapper.selectCount(new LambdaQueryWrapper<Student>().eq(Student::getStudentNo, "P10ISOOK"))).isEqualTo(1);
         assertThat(certificateMapper.selectCount(new LambdaQueryWrapper<Certificate>().eq(Certificate::getStudentNo, "P10ISOOK"))).isEqualTo(1);
         assertThat(studentMapper.selectCount(new LambdaQueryWrapper<Student>().eq(Student::getStudentNo, tooLongStudentNo))).isZero();
+    }
+
+    @Test
+    void rowBatchLockQueryUsesFixedStatusOnlyProjection() {
+        String statementId = ImportExportBatchMapper.class.getName() + ".selectStatusByIdForUpdate";
+        MappedStatement statement = sqlSessionFactory.getConfiguration().getMappedStatement(statementId);
+        BoundSql boundSql = statement.getBoundSql(Map.of("id", 1L));
+        String normalizedSql = boundSql.getSql().replaceAll("\\s+", " ").trim().toLowerCase(Locale.ROOT);
+
+        assertThat(normalizedSql)
+                .isEqualTo(STATUS_ONLY_BATCH_LOCK_SQL)
+                .doesNotContain("*", "preview_json");
+        assertThat(statement.getResultMaps())
+                .singleElement()
+                .satisfies(resultMap -> assertThat(resultMap.getType()).isEqualTo(String.class));
+
+        String rollbackStatementId = ImportExportBatchMapper.class.getName() + ".selectByIdForUpdate";
+        String rollbackSql = sqlSessionFactory.getConfiguration().getMappedStatement(rollbackStatementId)
+                .getBoundSql(Map.of("id", 1L))
+                .getSql()
+                .replaceAll("\\s+", " ")
+                .trim()
+                .toLowerCase(Locale.ROOT);
+        assertThat(rollbackSql)
+                .contains("from import_export_batch")
+                .endsWith("for update");
     }
 
     /**
@@ -565,11 +621,15 @@ class Phase10ExchangeIT {
                     WHERE student_no = 'P10RLOCK' AND deleted = 0
                     """, Integer.class)).isZero();
 
+            batchLockSqlProbe.armRollbackLockQuery();
             Future<JsonNode> blockedRollback = pool.submit(
                     () -> rollback(academic.accessToken(), batchId));
             rollbackFuture = blockedRollback;
             assertThat(exchangeImportHook.awaitRollbackEntered(10, TimeUnit.SECONDS)).isTrue();
             exchangeImportHook.allowRollbackLockAttempt();
+            assertThat(batchLockSqlProbe.awaitRollbackLockQueryEntered(10, TimeUnit.SECONDS))
+                    .as("rollback 线程必须已触达 MyBatis StatementHandler.query 执行边界")
+                    .isTrue();
             assertThatThrownBy(() -> blockedRollback.get(500, TimeUnit.MILLISECONDS))
                     .isInstanceOf(TimeoutException.class);
 
@@ -606,6 +666,139 @@ class Phase10ExchangeIT {
                     SELECT COUNT(*) FROM import_record_ref
                     WHERE batch_id = ? AND row_no = 2 AND deleted = 0
                     """, Integer.class, batchId)).isEqualTo(3);
+        } finally {
+            exchangeImportHook.releaseAll();
+            awaitFutureQuietly(confirmFuture);
+            awaitFutureQuietly(rollbackFuture);
+            shutdownExecutor(pool);
+        }
+    }
+
+    /**
+     * Phase 42 T-IMP-5C：失败行事务回滚后，在错误明细竞争 batch 锁之前暂停。
+     * rollback 先提交终态后，错误明细事务必须因持久状态已非 IMPORTING 而停止，不能迟到落库。
+     */
+    @Test
+    @Timeout(value = 60, unit = TimeUnit.SECONDS)
+    void rollbackBeforeErrorDetailLockPreventsLateErrorDetail() throws Exception {
+        LoginResult academic = readyLogin("test_academic_admin");
+        String tooLongStudentNo = "P10" + "E".repeat(80);
+        ExchangeStandardRow bad = row(tooLongStudentNo, "2026", "202610588344300164");
+        bad.setIdCardType("hm_travel_permit");
+        bad.setIdCardNo("E12345678");
+        bad.setBirthDate("2000/12/31");
+
+        JsonNode pre = prevalidate(academic.accessToken(), List.of(bad)).at("/data");
+        assertThat(pre.at("/successCount").asInt()).isEqualTo(1);
+        long batchId = pre.at("/batchId").asLong();
+        exchangeImportHook.armBeforeErrorDetailLock(batchId);
+
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        Future<JsonNode> confirmFuture = null;
+        Future<JsonNode> rollbackFuture = null;
+        try {
+            confirmFuture = pool.submit(
+                    () -> confirm(academic.accessToken(), batchId, "INSERT_ONLY"));
+            assertThat(exchangeImportHook.awaitErrorDetailBeforeLock(10, TimeUnit.SECONDS)).isTrue();
+            assertThat(exchangeImportHook.errorDetailRowNo()).isEqualTo(2);
+            assertThat(batchMapper.selectById(batchId).getStatus()).isEqualTo("IMPORTING");
+            assertThat(errorDetailCount(batchId, 2)).isZero();
+            assertThat(recordRefCount(batchId, 2)).isZero();
+            assertThat(studentMapper.selectCount(new LambdaQueryWrapper<Student>()
+                    .eq(Student::getStudentNo, tooLongStudentNo))).isZero();
+
+            rollbackFuture = pool.submit(
+                    () -> rollback(academic.accessToken(), batchId));
+            JsonNode rolledBack = rollbackFuture.get(10, TimeUnit.SECONDS);
+            assertThat(rolledBack.at("/code").asInt()).isEqualTo(0);
+            assertThat(rolledBack.at("/data/status").asText()).isEqualTo("ROLLED_BACK");
+            assertThat(rolledBack.at("/data/rolledBackCount").asInt()).isZero();
+            assertThat(errorDetailCount(batchId, 2)).isZero();
+
+            exchangeImportHook.allowErrorDetailLockAttempt();
+            JsonNode confirmResult = confirmFuture.get(10, TimeUnit.SECONDS);
+            assertThat(confirmResult.at("/code").asInt()).isEqualTo(1000);
+            assertThat(confirmResult.at("/msg").asText())
+                    .contains("导入已停止")
+                    .contains("ROLLED_BACK");
+
+            assertThat(batchMapper.selectById(batchId).getStatus()).isEqualTo("ROLLED_BACK");
+            assertThat(errorDetailCount(batchId, 2)).isZero();
+            assertThat(recordRefCount(batchId, 2)).isZero();
+        } finally {
+            exchangeImportHook.releaseAll();
+            awaitFutureQuietly(confirmFuture);
+            awaitFutureQuietly(rollbackFuture);
+            shutdownExecutor(pool);
+        }
+    }
+
+    /**
+     * Phase 42 T-IMP-5C 反向交错：错误明细事务已持有 batch 锁时发起 rollback。
+     * rollback 必须等待错误明细提交，之后再落回滚终态；已线性化的错误明细保留且 confirm 不伪报成功。
+     */
+    @Test
+    @Timeout(value = 60, unit = TimeUnit.SECONDS)
+    void rollbackWaitsForLockedErrorDetailAndPreservesCommittedDetail() throws Exception {
+        LoginResult academic = readyLogin("test_academic_admin");
+        String tooLongStudentNo = "P10" + "F".repeat(80);
+        ExchangeStandardRow bad = row(tooLongStudentNo, "2026", "202610588344300165");
+        bad.setIdCardType("hm_travel_permit");
+        bad.setIdCardNo("F12345678");
+        bad.setBirthDate("2000/12/31");
+
+        JsonNode pre = prevalidate(academic.accessToken(), List.of(bad)).at("/data");
+        assertThat(pre.at("/successCount").asInt()).isEqualTo(1);
+        long batchId = pre.at("/batchId").asLong();
+        exchangeImportHook.armAfterErrorDetailLock(batchId);
+
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        Future<JsonNode> confirmFuture = null;
+        Future<JsonNode> rollbackFuture = null;
+        try {
+            confirmFuture = pool.submit(
+                    () -> confirm(academic.accessToken(), batchId, "INSERT_ONLY"));
+            assertThat(exchangeImportHook.awaitErrorDetailLocked(10, TimeUnit.SECONDS)).isTrue();
+            assertThat(exchangeImportHook.errorDetailRowNo()).isEqualTo(2);
+            assertThat(batchMapper.selectById(batchId).getStatus()).isEqualTo("IMPORTING");
+            assertThat(errorDetailCount(batchId, 2)).isZero();
+
+            batchLockSqlProbe.armRollbackLockQuery();
+            Future<JsonNode> blockedRollback = pool.submit(
+                    () -> rollback(academic.accessToken(), batchId));
+            rollbackFuture = blockedRollback;
+            assertThat(exchangeImportHook.awaitRollbackEntered(10, TimeUnit.SECONDS)).isTrue();
+            exchangeImportHook.allowRollbackLockAttempt();
+            assertThat(batchLockSqlProbe.awaitRollbackLockQueryEntered(10, TimeUnit.SECONDS))
+                    .as("rollback 线程必须已触达 MyBatis StatementHandler.query 执行边界")
+                    .isTrue();
+            assertThatThrownBy(() -> blockedRollback.get(500, TimeUnit.MILLISECONDS))
+                    .isInstanceOf(TimeoutException.class);
+
+            exchangeImportHook.allowErrorDetailWrite();
+            assertThat(exchangeImportHook.awaitErrorDetailWritten(10, TimeUnit.SECONDS)).isTrue();
+            assertThat(exchangeImportHook.awaitErrorDetailCommitted(10, TimeUnit.SECONDS)).isTrue();
+            assertThat(exchangeImportHook.awaitRollbackBatchLocked(10, TimeUnit.SECONDS)).isTrue();
+            assertThat(exchangeImportHook.errorDetailWrittenOrder())
+                    .as("错误明细必须在事务仍持有 batch 锁时写完，rollback 才能取得同一行锁")
+                    .isPositive()
+                    .isLessThan(exchangeImportHook.rollbackBatchLockedOrder());
+            JsonNode rolledBack = blockedRollback.get(10, TimeUnit.SECONDS);
+            assertThat(rolledBack.at("/code").asInt()).isEqualTo(0);
+            assertThat(rolledBack.at("/data/status").asText()).isEqualTo("ROLLED_BACK");
+            assertThat(rolledBack.at("/data/rolledBackCount").asInt()).isZero();
+            assertThat(errorDetailCount(batchId, 2)).isEqualTo(1);
+
+            exchangeImportHook.allowConfirmAfterErrorDetail();
+            JsonNode confirmResult = confirmFuture.get(10, TimeUnit.SECONDS);
+            assertThat(confirmResult.at("/code").asInt()).isEqualTo(1000);
+            assertThat(confirmResult.at("/msg").asText())
+                    .contains("导入已停止")
+                    .contains("ROLLED_BACK");
+
+            assertThat(batchMapper.selectById(batchId).getStatus()).isEqualTo("ROLLED_BACK");
+            assertThat(errorDetailCount(batchId, 2)).isEqualTo(1);
+            assertThat(recordRefCount(batchId, 2)).isZero();
         } finally {
             exchangeImportHook.releaseAll();
             awaitFutureQuietly(confirmFuture);
@@ -960,6 +1153,20 @@ class Phase10ExchangeIT {
         jdbcTemplate.update("DELETE FROM student WHERE student_no LIKE 'P10%' OR student_no = '00123'");
     }
 
+    private int errorDetailCount(long batchId, int rowNo) {
+        return jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM import_error_detail
+                WHERE batch_id = ? AND row_no = ? AND deleted = 0
+                """, Integer.class, batchId, rowNo);
+    }
+
+    private int recordRefCount(long batchId, int rowNo) {
+        return jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM import_record_ref
+                WHERE batch_id = ? AND row_no = ? AND deleted = 0
+                """, Integer.class, batchId, rowNo);
+    }
+
     private void awaitFutureQuietly(Future<?> future) {
         if (future == null || future.isDone()) {
             return;
@@ -967,23 +1174,30 @@ class Phase10ExchangeIT {
         try {
             future.get(10, TimeUnit.SECONDS);
         } catch (InterruptedException e) {
+            future.cancel(true);
             Thread.currentThread().interrupt();
-        } catch (Exception ignored) {
-            // 保留原始断言/异常；闩锁已释放，超时后由 executor 兜底中断客户端线程。
+        } catch (TimeoutException e) {
+            future.cancel(true);
+        } catch (ExecutionException | CancellationException ignored) {
+            // 保留测试正文中的原始断言/异常。
         }
     }
 
     private void shutdownExecutor(ExecutorService pool) {
         pool.shutdown();
+        boolean terminated;
         try {
-            if (!pool.awaitTermination(10, TimeUnit.SECONDS)) {
+            terminated = pool.awaitTermination(10, TimeUnit.SECONDS);
+            if (!terminated) {
                 pool.shutdownNow();
-                pool.awaitTermination(5, TimeUnit.SECONDS);
+                terminated = pool.awaitTermination(5, TimeUnit.SECONDS);
             }
         } catch (InterruptedException e) {
             pool.shutdownNow();
             Thread.currentThread().interrupt();
+            throw new AssertionError("Phase 42 交错测试线程池清理被中断", e);
         }
+        assertThat(terminated).as("Phase 42 交错测试不得遗留工作线程").isTrue();
     }
 
     @TestConfiguration(proxyBeanMethods = false)
@@ -993,6 +1207,11 @@ class Phase10ExchangeIT {
         @Primary
         ControlledExchangeImportHook controlledExchangeImportHook() {
             return new ControlledExchangeImportHook();
+        }
+
+        @Bean
+        BatchLockSqlProbe batchLockSqlProbe() {
+            return new BatchLockSqlProbe();
         }
     }
 
@@ -1011,6 +1230,14 @@ class Phase10ExchangeIT {
             replacePlan(new BarrierPlan(batchId, BarrierMode.IN_FLIGHT));
         }
 
+        synchronized void armBeforeErrorDetailLock(long batchId) {
+            replacePlan(new BarrierPlan(batchId, BarrierMode.ERROR_BEFORE_LOCK));
+        }
+
+        synchronized void armAfterErrorDetailLock(long batchId) {
+            replacePlan(new BarrierPlan(batchId, BarrierMode.ERROR_AFTER_LOCK));
+        }
+
         @Override
         public void afterBatchLocked(Long batchId, Integer rowNo) {
             BarrierPlan current = plan;
@@ -1026,11 +1253,70 @@ class Phase10ExchangeIT {
         @Override
         public void beforeRollbackLock(Long batchId) {
             BarrierPlan current = plan;
-            if (!current.matches(batchId, BarrierMode.IN_FLIGHT)) {
+            if (!current.matches(batchId, BarrierMode.IN_FLIGHT)
+                    && !current.matches(batchId, BarrierMode.ERROR_AFTER_LOCK)) {
                 return;
             }
             current.rollbackEntered.countDown();
             await(current.allowRollbackLockAttempt, "等待 Phase 42 测试允许回滚竞争批次锁超时");
+        }
+
+        @Override
+        public void afterRollbackBatchLocked(Long batchId) {
+            BarrierPlan current = plan;
+            if (!current.matches(batchId, BarrierMode.ERROR_AFTER_LOCK)
+                    || !current.rollbackLockedOnce.compareAndSet(false, true)) {
+                return;
+            }
+            current.rollbackBatchLockedOrder = current.eventSequence.incrementAndGet();
+            current.rollbackBatchLocked.countDown();
+        }
+
+        @Override
+        public void beforeErrorDetailLock(Long batchId, Integer rowNo) {
+            BarrierPlan current = plan;
+            if (!current.matches(batchId, BarrierMode.ERROR_BEFORE_LOCK)
+                    || !current.errorBeforeLockOnce.compareAndSet(false, true)) {
+                return;
+            }
+            current.errorDetailRowNo = rowNo;
+            current.errorDetailBeforeLock.countDown();
+            await(current.allowErrorDetailLockAttempt, "等待 Phase 42 测试允许错误明细竞争批次锁超时");
+        }
+
+        @Override
+        public void afterErrorDetailBatchLocked(Long batchId, Integer rowNo) {
+            BarrierPlan current = plan;
+            if (!current.matches(batchId, BarrierMode.ERROR_AFTER_LOCK)
+                    || !current.errorLockedOnce.compareAndSet(false, true)) {
+                return;
+            }
+            current.errorDetailRowNo = rowNo;
+            current.errorDetailLocked.countDown();
+            await(current.allowErrorDetailWrite, "等待 Phase 42 测试允许错误明细写入超时");
+        }
+
+        @Override
+        public void afterErrorDetailWrite(Long batchId, Integer rowNo) {
+            BarrierPlan current = plan;
+            if (!current.matches(batchId, BarrierMode.ERROR_AFTER_LOCK)
+                    || !current.errorWrittenOnce.compareAndSet(false, true)) {
+                return;
+            }
+            current.errorDetailWrittenOrder = current.eventSequence.incrementAndGet();
+            current.errorDetailWritten.countDown();
+        }
+
+        @Override
+        public void afterErrorDetailCommitted(Long batchId, Integer rowNo) {
+            BarrierPlan current = plan;
+            if (!current.matches(batchId, BarrierMode.ERROR_AFTER_LOCK)
+                    || !current.errorCommittedOnce.compareAndSet(false, true)) {
+                return;
+            }
+            current.errorDetailRowNo = rowNo;
+            current.errorDetailCommitted.countDown();
+            await(current.allowConfirmAfterErrorDetail, "等待 Phase 42 测试允许确认导入收尾超时");
         }
 
         @Override
@@ -1068,8 +1354,40 @@ class Phase10ExchangeIT {
             return plan.rollbackEntered.await(timeout, unit);
         }
 
+        boolean awaitErrorDetailBeforeLock(long timeout, TimeUnit unit) throws InterruptedException {
+            return plan.errorDetailBeforeLock.await(timeout, unit);
+        }
+
+        boolean awaitErrorDetailLocked(long timeout, TimeUnit unit) throws InterruptedException {
+            return plan.errorDetailLocked.await(timeout, unit);
+        }
+
+        boolean awaitErrorDetailCommitted(long timeout, TimeUnit unit) throws InterruptedException {
+            return plan.errorDetailCommitted.await(timeout, unit);
+        }
+
+        boolean awaitErrorDetailWritten(long timeout, TimeUnit unit) throws InterruptedException {
+            return plan.errorDetailWritten.await(timeout, unit);
+        }
+
+        boolean awaitRollbackBatchLocked(long timeout, TimeUnit unit) throws InterruptedException {
+            return plan.rollbackBatchLocked.await(timeout, unit);
+        }
+
         Integer firstCommittedRowNo() {
             return plan.firstCommittedRowNo;
+        }
+
+        Integer errorDetailRowNo() {
+            return plan.errorDetailRowNo;
+        }
+
+        int errorDetailWrittenOrder() {
+            return plan.errorDetailWrittenOrder;
+        }
+
+        int rollbackBatchLockedOrder() {
+            return plan.rollbackBatchLockedOrder;
         }
 
         void allowRowCommit() {
@@ -1078,6 +1396,18 @@ class Phase10ExchangeIT {
 
         void allowRollbackLockAttempt() {
             plan.allowRollbackLockAttempt.countDown();
+        }
+
+        void allowErrorDetailLockAttempt() {
+            plan.allowErrorDetailLockAttempt.countDown();
+        }
+
+        void allowErrorDetailWrite() {
+            plan.allowErrorDetailWrite.countDown();
+        }
+
+        void allowConfirmAfterErrorDetail() {
+            plan.allowConfirmAfterErrorDetail.countDown();
         }
 
         void allowNextRow() {
@@ -1098,7 +1428,9 @@ class Phase10ExchangeIT {
     enum BarrierMode {
         DISARMED,
         AFTER_COMMIT,
-        IN_FLIGHT
+        IN_FLIGHT,
+        ERROR_BEFORE_LOCK,
+        ERROR_AFTER_LOCK
     }
 
     static final class BarrierPlan {
@@ -1106,13 +1438,30 @@ class Phase10ExchangeIT {
         private final BarrierMode mode;
         private final AtomicBoolean batchLockedOnce = new AtomicBoolean();
         private final AtomicBoolean rowCommittedOnce = new AtomicBoolean();
+        private final AtomicBoolean errorBeforeLockOnce = new AtomicBoolean();
+        private final AtomicBoolean errorLockedOnce = new AtomicBoolean();
+        private final AtomicBoolean errorWrittenOnce = new AtomicBoolean();
+        private final AtomicBoolean errorCommittedOnce = new AtomicBoolean();
+        private final AtomicBoolean rollbackLockedOnce = new AtomicBoolean();
+        private final AtomicInteger eventSequence = new AtomicInteger();
         private final CountDownLatch batchLocked = new CountDownLatch(1);
         private final CountDownLatch allowRowCommit = new CountDownLatch(1);
         private final CountDownLatch rollbackEntered = new CountDownLatch(1);
         private final CountDownLatch allowRollbackLockAttempt = new CountDownLatch(1);
         private final CountDownLatch firstCommit = new CountDownLatch(1);
         private final CountDownLatch allowNextRow = new CountDownLatch(1);
+        private final CountDownLatch errorDetailBeforeLock = new CountDownLatch(1);
+        private final CountDownLatch allowErrorDetailLockAttempt = new CountDownLatch(1);
+        private final CountDownLatch errorDetailLocked = new CountDownLatch(1);
+        private final CountDownLatch allowErrorDetailWrite = new CountDownLatch(1);
+        private final CountDownLatch errorDetailWritten = new CountDownLatch(1);
+        private final CountDownLatch errorDetailCommitted = new CountDownLatch(1);
+        private final CountDownLatch allowConfirmAfterErrorDetail = new CountDownLatch(1);
+        private final CountDownLatch rollbackBatchLocked = new CountDownLatch(1);
         private volatile Integer firstCommittedRowNo;
+        private volatile Integer errorDetailRowNo;
+        private volatile int errorDetailWrittenOrder;
+        private volatile int rollbackBatchLockedOrder;
 
         private BarrierPlan(long batchId, BarrierMode mode) {
             this.batchId = batchId;
@@ -1139,6 +1488,69 @@ class Phase10ExchangeIT {
             allowRowCommit.countDown();
             allowRollbackLockAttempt.countDown();
             allowNextRow.countDown();
+            allowErrorDetailLockAttempt.countDown();
+            allowErrorDetailWrite.countDown();
+            allowConfirmAfterErrorDetail.countDown();
+        }
+    }
+
+    @Intercepts({
+            @Signature(
+                    type = StatementHandler.class,
+                    method = "prepare",
+                    args = {Connection.class, Integer.class}
+            ),
+            @Signature(
+                    type = StatementHandler.class,
+                    method = "query",
+                    args = {Statement.class, ResultHandler.class}
+            )
+    })
+    static final class BatchLockSqlProbe implements Interceptor {
+        private final ConcurrentLinkedQueue<String> batchLockSql = new ConcurrentLinkedQueue<>();
+        private final AtomicBoolean observeRollbackLockQuery = new AtomicBoolean();
+        private volatile CountDownLatch rollbackLockQueryEntered = new CountDownLatch(1);
+
+        @Override
+        public Object intercept(Invocation invocation) throws Throwable {
+            StatementHandler statementHandler = (StatementHandler) invocation.getTarget();
+            String normalizedSql = statementHandler.getBoundSql()
+                    .getSql()
+                    .replaceAll("\\s+", " ")
+                    .trim()
+                    .toLowerCase(Locale.ROOT);
+            if ("prepare".equals(invocation.getMethod().getName())
+                    && normalizedSql.contains("from import_export_batch")
+                    && normalizedSql.endsWith("for update")) {
+                batchLockSql.add(normalizedSql);
+            }
+            if ("query".equals(invocation.getMethod().getName())
+                    && !STATUS_ONLY_BATCH_LOCK_SQL.equals(normalizedSql)
+                    && normalizedSql.contains("from import_export_batch")
+                    && normalizedSql.endsWith("for update")
+                    && observeRollbackLockQuery.compareAndSet(true, false)) {
+                rollbackLockQueryEntered.countDown();
+            }
+            return invocation.proceed();
+        }
+
+        void reset() {
+            batchLockSql.clear();
+            observeRollbackLockQuery.set(false);
+            rollbackLockQueryEntered = new CountDownLatch(1);
+        }
+
+        void armRollbackLockQuery() {
+            rollbackLockQueryEntered = new CountDownLatch(1);
+            observeRollbackLockQuery.set(true);
+        }
+
+        boolean awaitRollbackLockQueryEntered(long timeout, TimeUnit unit) throws InterruptedException {
+            return rollbackLockQueryEntered.await(timeout, unit);
+        }
+
+        List<String> snapshot() {
+            return List.copyOf(batchLockSql);
         }
     }
 

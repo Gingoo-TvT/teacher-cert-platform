@@ -7,7 +7,7 @@
 ---
 
 ## 0. 当前接力快照（2026-07-24）
-- 当前分支 `feature/phase42-import-rollback-barrier`，从 WS-3 第六轮独立 PASS 治理提交 `5792025` 切出；`b604e48` 的 Phase 42 首轮整改候选已独立增量复核退回。`main` 仍为 `e4f8228`，无 remote，禁止 push/擅自 merge。
+- 当前分支 `feature/phase42-import-rollback-barrier`，从 WS-3 第六轮独立 PASS 治理提交 `5792025` 切出；`b604e48` 的 Phase 42 首轮整改候选已独立增量复核退回，报告与治理基线为 `ec4ca30`。第二轮整改候选与开发者门禁已完成，尚待独立增量复核。`main` 仍为 `e4f8228`，无 remote，禁止 push/擅自 merge。
 - WS-3 原有预签名直传能力保持不变；整改包新增服务端逐字节读取最终 MinIO 对象、计算受信 SHA-256 tree 指纹并用 JCodec 校验实际 MP4/H.264/时长/首帧，校验失败关闭。秒传只允许同 uploader、同 student、同一受信对象及已有合格视频记录复用，普通响应不再暴露内部内容指纹。
 - 2026-07-23 用户在 Claude 不可用期间明确授权 Codex 独立复核。WS-3 第二轮 `32da735` 的独立报告 `docs/reviews/ws-03-second-remediation-rereview-2026-07-23.md` 仍为 **CHANGES REQUESTED**：时间线、fast-hit、review 行锁和 V29 已闭环，但 `SERVER_CHUNK` 崩溃恢复、并发总磁盘预留、可终止探测时限仍有 3 High，另有 lease 续租/生产配置/资源测试 3 Medium。Phase 53 demo 元数据失配是 U-003 的独立 High，未混入本次报告。
 - 第三轮 `df22e5b` 已完成上述整改，但独立重核 `docs/reviews/ws-03-third-remediation-rereview-2026-07-23.md` 仍为 **CHANGES REQUESTED（4 High / 5 Medium）**。High 为：Redis fencing token 在序列过期/恢复后可 ABA；server finalize 输给 assign 后永久 MERGING；direct 接管时 multipart 已丢失会永久 MERGING；持久 `video-probe-temp` 无崩溃孤儿清扫。Medium 为：基础设施故障误判内容失败、强杀未确认退出、磁盘双重计数、MinioClient 未受显式超时控制、fat-JAR worker 缺自动化门禁。
@@ -25,6 +25,8 @@
 - Phase 42 开发者证据：两个确定性交错反例 **2/2**，分别覆盖“首行已提交后 rollback 先完成”和“在途行持锁、rollback 等待其提交后补偿完整 3 refs”；`Phase10ExchangeIT` **10/10**。fresh 隔离依赖全量 `clean verify` 为 Surefire **149/149**、Failsafe **171/171**，合计 **320/320**；前端 type-check/build 通过。临时 `tcp-phase42` 容器与网络已移除，无数据卷；未启动常驻应用。
 - Phase 42 无 DDL、业务规则、权限点或前端生产代码变化；生产 `ExchangeImportHook` 仅为空操作的确定性交错观察点。本轮不重新定义既有 `PARTIAL_ROLLBACK` 自动重试语义，该存量语义债已在提交材料中明确，不冒充闭环。
 - Phase 42 首轮独立增量重核 `docs/reviews/phase-42-remediation-rereview-2026-07-24.md` 为 **CHANGES REQUESTED（1 Medium / 1 Low）**：原 PG-H3 并发 Major 已按原口径关闭；新 Medium 为每个逐行/错误明细事务的 `SELECT * ... FOR UPDATE` 重复装载整批 `preview_json`，万行主路径形成 O(N²) DB→JVM 数据量；新 Low 为错误明细锁屏障缺专用交错反例。第二轮不得移除 batch 锁，只把逐行锁查询收窄为 status-only 或 `id,status`。
+- Phase 42 第二轮候选已落实上述最小修复：逐行/错误明细锁为标量 `SELECT status ... FOR UPDATE`，rollback 单次全元数据锁保留；静态 MappedStatement 与真实 confirm 探针共同确认 3 条实际行锁 SQL 均为 status-only。T-IMP-5C 双向交错分别证明 rollback 先提交时无迟到错误明细，以及错误明细先持锁时 rollback 等待其写入/提交后才能取得锁。
+- 第二轮开发者证据：`Phase10ExchangeIT` **13/13**；fresh 隔离依赖全量 `clean verify` 为 Surefire **149/149**、Failsafe **174/174**，合计 **323/323**；32 个版本化生产迁移至 V32；前端 type-check/build 与 diff check 通过。生产 hook 仍为空操作，无 DDL、业务规则、权限点或前端生产变化；未启动常驻应用，未执行 cyber/压测。
 - 第四轮门禁证据：整改者专用全新数据卷 Flyway V1–V31，Surefire 140/140、Failsafe 159/159，合计 299/299；Phase 7 36/36。独立复核核对 XML 后另跑安全白名单 clean verify 17/17、后端 package、前端 type-check/build、dev/prod Compose config、MinIO 依赖树与 fat-JAR worker，均通过。按用户要求未执行畸形媒体、破坏性故障或攻击性并发。
 - 后续近端顺序为：Phase 42 → 39 → 41 → 47 → Phase 53 的 demo 元数据/旧对象 reconcile → 44 → 0。Phase 41 整份普通 `INSERT` 备份与 Flyway 种子冲突仍是独立退回项，本轮 candidate slice 恢复不得冒充整库恢复；可播放视频资源虽已替换，但 demo SQL 仍记录 528B/旧摘要，且旧同名 MinIO 对象不会升级替换，故仍单列 Phase 53 High。全部退回项关闭后执行用户要求的全量审计。
 - V32 发布必须停写并停止全部第五轮之前的后端与 worker，确认无旧进程后执行 Flyway 至 V32，再启动全部第五轮新实例、核对启动回填/对账与 generation 对象键，最后恢复写流量；禁止 V31/旧稳定 key 协议与第五轮混部，V32 后禁止回滚旧协议二进制。每个后端实例必须独占具有独立配额/文件系统的 probe 卷，禁止共享目录/卷或 `docker compose --scale` 复用当前命名卷。
@@ -140,7 +142,7 @@ git -C "$REPO" add -A && git -C "$REPO" commit -m "feat(T-0xx): ..."
 - 实体继承 `BaseEntity`（id/审计字段/逻辑删除自动）；Mapper 放 `**/mapper`（已 `@MapperScan("cn.edu.gpnu.platform.**.mapper")`）；统一返回 `Result`；写操作 `@AuditLog`；列表/导出/统计查询 `@DataScope`；当前用户取 `UserContext`。
 - **文本化字段全链路 String + Excel `@`**（学校代码/学号/证件号/出生日期/证书编号/有效期限）——AT-01 生命线，勿用数值/日期类型。
 
-## 5. 当前整改入口 → Phase 42 首轮候选退回，待第二轮整改
+## 5. 当前整改入口 → Phase 42 第二轮候选待独立增量复核
 1. 读 `AGENTS.md` → `docs/REVIEW-GATE.md` → `docs/CURRENT-EXECUTION-PLAN.md` → 原报告 `docs/reviews/ws-03-review-2026-07-23.md` → 首批重核 `docs/reviews/ws-03-remediation-rereview-2026-07-23.md` → 第二轮重核 `docs/reviews/ws-03-second-remediation-rereview-2026-07-23.md` → 第三轮重核 `docs/reviews/ws-03-third-remediation-rereview-2026-07-23.md` → 第四轮重核 `docs/reviews/ws-03-fourth-remediation-rereview-2026-07-23.md` → 第五轮重核 `docs/reviews/ws-03-fifth-remediation-rereview-2026-07-24.md` → 第六轮 PASS `docs/reviews/ws-03-sixth-remediation-rereview-2026-07-24.md`。
 2. 已闭环：服务端 `SHA256_TREE_V1` 可信指纹；同 uploader/student + 既有 PASS 的秒传边界；普通 VO 去 `fileMd5`；GitHub Actions 真实 MinIO/桶初始化与前端 type-check。U-001 可视为 PASS。
 3. 第二轮已闭环：JCodec 三时长交叉核验与唯一视频轨；当前策略/探测器版本 + MinIO HEAD 的 fast-hit；定稿与 assign 共用 review 行锁；V29 逐项检测恢复。
@@ -151,8 +153,9 @@ git -C "$REPO" add -A && git -C "$REPO" commit -m "feat(T-0xx): ..."
 8. 第六轮候选：生产双 `TaskScheduler` 隔离普通定时任务与视频对账 trigger；blocked-backup 真实 scheduling 反例通过。candidate 台账进入 37 表逻辑全量备份，scratch restore 保留多个 generation 的 claim/retry/tombstone 全字段并可继续真实对账。开发者全量 149/149 + 169/169 = 318/318；Phase 7 44/44；前端/Compose/diff 均通过。
 9. 正式状态：第六轮独立复核 **PASS**，第五轮新增 2 Medium 已关闭；1 Low 迁移数量勘误不阻断。Phase 41 整库恢复冲突、Phase 53 demo High 和 Phase 7 两项广覆盖证据债继续保留。
 10. 安全边界：本轮动态反例只使用固定小型结构夹具和专用隔离依赖，不包含漏洞扫描、攻击性探测、凭据尝试、恶意载荷、fuzz 或对既有服务的破坏。任何后续可能属于 cyber 的命令必须先明确指出并交由用户亲自决定/执行。若需要启动后端/前端做运行期验证，仍必须遵守 `AGENTS.md §6.1`，Codex/headless exec 不启动常驻服务。
-11. Phase 42 首轮候选：batch 行锁串行化屏障、rollback 单事务补偿、confirm 收尾 CAS 失败关闭均已落地；两个交错反例 2/2、Phase 10 IT 10/10、全量 320/320。独立重核确认原 Major 功能闭环，但因逐行 `SELECT *` 重读整批 `preview_json` 的 O(N²) Medium 与错误明细测试 Low 退回。
-12. 下一步：第二轮只把逐行/错误明细 batch 锁查询收窄为 status-only 或 `id,status`，保留 rollback 的单次全行锁；补 SQL 投影契约，建议同步补 T-IMP-5C。新报告 PASS 前保持 CHANGES REQUESTED，不进入 Phase 39；之后依次 Phase 39 → 41 → 47 → 53 → 44 → 0，全部关闭后执行全量审计。
+11. Phase 42 首轮候选：batch 行锁串行化屏障、rollback 单事务补偿、confirm 收尾 CAS 失败关闭均已落地；独立重核确认原 Major 功能闭环，但因逐行 `SELECT *` 重读整批 `preview_json` 的 O(N²) Medium 与错误明细测试 Low 退回。
+12. Phase 42 第二轮候选：status-only 行锁投影、真实调用链 SQL 探针和 T-IMP-5C 双向交错已落地；Phase 10 IT 13/13、全量 323/323，提交材料为 `docs/reviews/phase-42-second-remediation-submission-2026-07-24.md`。
+13. 下一步：冻结 `ec4ca30..第二轮候选提交` 交独立复核。新报告 PASS 前保持 CHANGES REQUESTED，不进入 Phase 39；之后依次 Phase 39 → 41 → 47 → 53 → 44 → 0，全部关闭后执行全量审计。
 
 ## 6. 已知坑与规避（别重复踩）
 - Lombok `optional` 不向子模块传递 → 已在父 POM 解决。

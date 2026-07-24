@@ -273,7 +273,9 @@ public class ExchangeServiceImpl implements ExchangeService {
                 fail++;
                 vo.getMessages().add("第" + preview.rowNo() + "行: " + message);
                 try {
+                    exchangeImportHook.beforeErrorDetailLock(batch.getId(), preview.rowNo());
                     addErrorInNewTransaction(batch, preview.rowNo(), preview.row(), message);
+                    exchangeImportHook.afterErrorDetailCommitted(batch.getId(), preview.rowNo());
                 } catch (ImportExecutionStoppedException stopped) {
                     throw importStopped(stopped);
                 }
@@ -312,6 +314,7 @@ public class ExchangeServiceImpl implements ExchangeService {
         exchangeImportHook.beforeRollbackLock(batchId);
         // 必须作为本事务的第一条数据库语句锁住批次：等待在途行提交，并阻断后续行开始写入。
         ImportExportBatch batch = requireBatchForUpdate(batchId);
+        exchangeImportHook.afterRollbackBatchLocked(batchId);
         ensureBatchAccessible(batch, "exchange:import");
         // Phase 42.2：IMPORTING 纳入可回滚态——进程在 confirmImport 中途崩溃会残留 IMPORTING，
         // 其已通过 REQUIRES_NEW 提交的部分导入行需可被回收；rollback 按 import_record_ref 追溯撤销即可。
@@ -443,7 +446,9 @@ public class ExchangeServiceImpl implements ExchangeService {
         template.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         template.executeWithoutResult(status -> {
             requireImportingBatchForUpdate(batch.getId());
+            exchangeImportHook.afterErrorDetailBatchLocked(batch.getId(), rowNo);
             addError(batch, rowNo, row, "导入", "", message, "请修正后重新预校验");
+            exchangeImportHook.afterErrorDetailWrite(batch.getId(), rowNo);
         });
     }
 
@@ -1505,12 +1510,18 @@ public class ExchangeServiceImpl implements ExchangeService {
         return batch;
     }
 
-    private ImportExportBatch requireImportingBatchForUpdate(Long batchId) {
-        ImportExportBatch batch = requireBatchForUpdate(batchId);
-        if (ExchangeBatchStatus.of(batch.getStatus()) != ExchangeBatchStatus.IMPORTING) {
-            throw new ImportExecutionStoppedException(batch.getStatus());
+    private void requireImportingBatchForUpdate(Long batchId) {
+        if (batchId == null) {
+            throw new BizException("批次ID不能为空");
         }
-        return batch;
+        // 逐行事务只需要 batch 行锁与状态，不得重复装载整批 preview_json。
+        String persistedStatus = batchMapper.selectStatusByIdForUpdate(batchId);
+        if (persistedStatus == null) {
+            throw new BizException(ResultCode.NOT_FOUND.getCode(), "批次不存在");
+        }
+        if (ExchangeBatchStatus.of(persistedStatus) != ExchangeBatchStatus.IMPORTING) {
+            throw new ImportExecutionStoppedException(persistedStatus);
+        }
     }
 
     private BizException importStopped(ImportExecutionStoppedException stopped) {
