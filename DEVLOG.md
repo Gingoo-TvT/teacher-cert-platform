@@ -15,6 +15,15 @@
 
 ---
 
+## [2026-07-24] GOV-011 Phase 42 第二轮整改独立增量复核 PASS
+- 做了什么：冻结 `ec4ca30..bd1db49`，按 incremental + security/stability/performance/testing-authenticity/release/configuration/data-integrity/concurrency 复核第二轮 10 个变更文件及直接调用方，并由生产锁协议、测试/并发真实性、发布/治理三个只读专项交叉检查；产出 `docs/reviews/phase-42-second-remediation-rereview-2026-07-24.md` 与审计元数据。首轮新增的 **1 Medium / 1 Low 全部按原问题口径关闭**，没有新增代码 finding，正式结论为 **PASS**。
+- 关键决策与理由：逐行/错误明细改用固定大小的 `SELECT status ... FOR UPDATE`，完整 batch 行锁只保留给 rollback 单次使用，因此 O(N²) DB→JVM 数据量根因已从真实调用路径移除，同时 InnoDB 行锁、`REQUIRES_NEW` 和 batch-first 锁顺序保持。T-IMP-5C 两种真实 MySQL 顺序分别覆盖 rollback 先提交时无迟到错误明细，以及错误明细先持锁时 rollback 必须等待；静态 MappedStatement 还由真实 confirm 三条实际锁 SQL 交叉验证，不是只测未使用 Mapper。
+- 问题与解决：开发者 323/323 XML 早于最终 `Phase10ExchangeIT.java` 修改时间；材料声明 gate 后只改两处断言说明文字，当前源码已重新编译且静态控制流无变化，但无 gate 前源码快照，不能把 XML 冒充 `bd1db49` 的严格字节级证明。将其作为非阻断 evidence limitation 记录；若发布流程要求 commit attestation，由用户在最终提交上自行重跑。500ms 负向等待也保留极低调度窗口，但实际 query 边界、释放后取锁事件顺序和持久终态构成独立正向证据。
+- 与规格的偏差/疑问：无业务规则、状态集合、权限点、DDL/Flyway、前端生产逻辑或运行配置变化；既有 `PARTIAL_ROLLBACK` 自动重试语义继续作为范围外债务。Phase 42 可关闭并放行 Phase 39，但 Phase 0、39、41、44、47、53 六个退回项未受本报告影响，全项目仍为 **CHANGES REQUESTED**。
+- 测试：独立执行后端 9 模块 `-DskipTests package`、前端 type-check/build 与 `git diff --check ec4ca30..bd1db49`，全部通过；开发者 XML 经核对为 Surefire **149/149** + Failsafe **174/174** = **323/323**、Phase 10 **13/13**，0 failure/error/skip，MySQL 8 隔离 schema 执行 32 个版本化迁移至 V32及测试 repeatable。
+- 安全边界：未启动依赖或常驻服务，未重跑并发/latch，未执行漏洞扫描、恶意载荷、fuzz、故障注入、进程破坏、凭据尝试、压力或任何可能属于 cyber 的动作。
+- 下一步：按唯一执行计划进入 Phase 39 父子记录串行化整改；其独立 PASS 后再按 Phase 41 → 47 → 53 → 44 → 0 推进，全部退回项关闭后执行用户要求的全量审计。
+
 ## [2026-07-24] Phase 42 第二轮整改候选完成 — 待独立增量复核
 - 做了什么：按首轮独立增量报告的 1 Medium / 1 Low 完成最小整改。逐行导入与失败明细事务不再通过 `SELECT * ... FOR UPDATE` 装载整批 `preview_json`，改为标量 `status` 行锁查询；rollback 仍保留单次批次元数据锁查询。补充 mapper 投影契约与真实 confirm SQL 探针，确认一条成功行、一条数据库失败行及其错误明细实际产生的 3 条 batch 锁 SQL 全部为 status-only。新增 T-IMP-5C 双向交错，覆盖 rollback 先提交时禁止迟到错误明细，以及错误明细先持锁时 rollback 必须等待。
 - 关键决策与理由：原 PG-H3 的串行化屏障必须保留，性能修复只能收窄投影，不能移除 `FOR UPDATE`。标量 `String` 让 `null` 继续唯一表示批次不存在/已逻辑删除，非 `IMPORTING` 仍走原停止语义；rollback 需要批次元数据，因此不强迫其使用 status-only。测试同时核对静态 MappedStatement、真实调用链 SQL、`StatementHandler.query` 执行边界、错误明细写入与 rollback 实际取得 batch 锁的事件顺序，避免“存在未使用的新 mapper”或“线程仍停在 SQL 前测试 hook”的假阳性。
