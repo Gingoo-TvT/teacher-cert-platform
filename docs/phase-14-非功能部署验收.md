@@ -49,7 +49,7 @@ M14 扩展点预留、后端/前端 Dockerfile、生产 docker-compose、兼容�
   5. 仅启动同一第五轮协议的全部实例，逐实例核对 probe 独占卷/目录，并确认启动对象回填/对账已执行。
   6. 确认 `SERVER_CHUNK` 新对象键带 `/g-{generation}.mp4`、没有旧稳定 key 写入者；健康检查和迁移核验通过后恢复写流量。
   - V31/旧节点会覆盖或清空永久世代，V32 之前节点还会继续写稳定 object key；因此禁止新旧二进制混部。V32 落库后禁止回滚旧协议二进制，失败只能前向修复。
-- **当前 WS-3 发布闸门（2026-07-24）**：第五轮独立复核已确认第四轮 1 High / 1 Medium / 2 Low 全部关闭，但新发现 scheduler trigger 隔离与 V32 candidate 全量备份覆盖 2 Medium。第六轮候选已完成双 scheduler、blocked-backup 调度隔离、37 表备份与 candidate scratch restore/真实对账续跑，开发者全量 318/318；第五轮正式结论仍为 **CHANGES REQUESTED**，见 `reviews/ws-03-fifth-remediation-rereview-2026-07-24.md`。新的独立报告 PASS 前不得发布；candidate slice 证据不关闭 Phase 41 整份普通 `INSERT` 脚本恢复冲突。
+- **当前 WS-3 发布闸门（2026-07-24）**：第六轮独立复核 `reviews/ws-03-sixth-remediation-rereview-2026-07-24.md` 为 **PASS**，第五轮新增的 scheduler trigger 隔离与 V32 candidate 全量备份覆盖 2 Medium 全部关闭；双 scheduler、blocked-backup 调度隔离、37 表备份与 candidate scratch restore/真实对账续跑证据成立。唯一新增 Low 是迁移数量应写“32 个迁移、最终 V32”，不阻断 WS-3/U-002。candidate slice 证据仍不关闭 Phase 41 整份普通 `INSERT` 脚本恢复冲突，全项目继续受 Phase 0、39、41、42、44、47、53 退回项阻断。
 - **WS-2 发布切换**：新版 JWT 含毫秒级签发时间 `iatMs`、口令凭据版本 `credentialVersion` 和 Redis 持久会话代次 `sessionGeneration`；缺少或不匹配任一新 claim 的存量 token 会被拒绝，logout 通过原子增代使旧 access/refresh 立即失效。发布时必须同时替换/重启全部后端实例并通知用户重新登录；禁止旧实例在滚动窗口继续签发旧格式 token。
 
 ## 4. 非功能收口（plan §十二）

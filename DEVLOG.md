@@ -15,6 +15,15 @@
 
 ---
 
+## [2026-07-24] GOV-009 WS-3 第六轮整改独立重核 PASS
+- 做了什么：冻结 `88d3136..2886442`，按 incremental + security/stability/performance/testing-authenticity/release/configuration/data-integrity/concurrency 逐文件复核第六轮 16 个变更文件，并由调度隔离、candidate 备份恢复、测试/发布治理三个只读专项交叉检查；产出 `docs/reviews/ws-03-sixth-remediation-rereview-2026-07-24.md` 与审计元数据。第五轮新增的 **2 Medium 全部关闭**，正式结论为 **PASS**。
+- 关键决策与理由：生产显式保留约定名 `taskScheduler` 与视频专用 `videoFinalizationReconciliationTaskScheduler`，视频 cron 精确绑定后者，真实对象工作继续进入独立 executor；因此同步备份不再阻断对账 trigger。静态解析 V1–V32 的迁移得到 37 个唯一业务表，与 37 项备份 allowlist 完全一致；candidate 的真实 gzip、全字段 scratch restore 和真实 reconciler 续跑证据足以关闭备份遗漏。
+- 问题与解决：发现 1 个不阻断 Low：上一条开发者日志及第六轮提交材料把“最终版本 V32”误写成“33 个迁移”，实际 migration 目录和 Failsafe 日志均为 **32 个迁移、最终 V32**。历史提交材料保留为当时快照，由本条、正式报告、当前计划和交接统一勘误；不重开功能整改。
+- 与规格的偏差/疑问：无业务规则、权限点、应用源码、测试、依赖或运行配置变更。WS-3/U-002 可置独立 PASS，但 Phase 7 真实 2GB/非允许编码/不可解码首帧证据债，以及 Phase 0、39、41、42、44、47、53 退回项继续保留；全项目仍为 CHANGES REQUESTED。
+- 测试：整改者 XML 经聚合核对为 Surefire **149/149**、Failsafe **169/169**，合计 **318/318**、0 failure/error/skip；新增调度配置/隔离 **3/3**、candidate restore **1/1**、Phase 7 **44/44**，且源码→报告→提交时间链一致。独立执行后端 9 模块 `package`、fat JAR class 检查、前端 type-check/build、dev/prod Compose config、报告 lint、JSON 解析与 `git diff --check`，全部通过；仅保留既有前端大 chunk 警告。
+- 安全边界：未启动常驻服务或依赖容器，未重跑 latch/外部 MySQL/MinIO 写入测试；未执行漏洞扫描、恶意载荷、fuzz、故障注入、进程杀伤、凭据尝试、压力或攻击性并发。任何可能属于 cyber 的后续验证继续明确交由用户决定并亲自执行。
+- 下一步：按唯一执行计划进入 Phase 42 → 39 → 41 → 47 → 53 → 44 → 0；逐项整改并独立复核，全部关闭后执行全量审计。
+
 ## [2026-07-24] WS-3 第六轮整改候选与开发者自测完成 — 待独立增量复核
 - 做了什么：按第五轮独立报告新增的 2 个 Medium 完成第六轮整改候选。为生产环境同时显式配置普通 `taskScheduler` 与 `videoFinalizationReconciliationTaskScheduler`，并把 reconciliation 的 `@Scheduled` trigger 绑定到后者，避免同步全量备份占用默认单线程 scheduler 时阻止对账被提交；将 V32 `video_finalization_object_candidate` 加入应用逻辑全量备份，显式清单由 36 表增至 37 表。
 - 关键决策与理由：不能只注册一个专用 `TaskScheduler`，否则 Spring Boot 因已有自定义 scheduler 回退后，未指定 scheduler 的普通任务仍可能误用视频专用线程，因此保留两个命名明确、相互独立的单线程调度器。恢复反例仅回放 candidate section 并调用真实 `VideoFinalizationObjectReconciler`，对象删除使用内存替身；这样可验证 WS-3 台账的 generation、claim/retry/tombstone 全字段恢复与续跑，同时不虚报 Phase 41 整份普通 `INSERT` 备份在 Flyway 种子库上的恢复冲突已经解决。
