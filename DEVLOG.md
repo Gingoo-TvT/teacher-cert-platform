@@ -15,6 +15,14 @@
 
 ---
 
+## [2026-07-24] GOV-010 Phase 42 PG-H3 独立增量复核退回
+- 做了什么：冻结 `5792025..b604e48`，按 incremental + security/stability/performance/testing-authenticity/release/configuration/data-integrity/concurrency 复核 10 个变更文件及直接调用方；产出 `docs/reviews/phase-42-remediation-rereview-2026-07-24.md` 与审计元数据。原 PG-H3 的 confirm/rollback 迟到写、ref 快照和收尾伪终态已按原问题口径关闭，但正式结论仍为 **CHANGES REQUESTED（1 Medium / 1 Low）**。
+- 关键决策与理由：统一 batch 行锁协议本身成立，不能为性能直接移除。新 Medium 是逐行锁查询使用 `SELECT * ... FOR UPDATE`，每个成功/失败行都重复映射保存整批 26 列预览的 `preview_json`；N 行确认形成 O(N²) DB→JVM 数据量，与现有万行级/5 分钟契约冲突。最小修复是为逐行与错误明细事务改用 status-only（或 `id,status`）锁查询，rollback 单次全行锁保留。新 Low 是失败明细锁/状态守卫没有专用交错反例。
+- 问题与解决：两个现有交错 IT 使用真实 RANDOM_PORT HTTP、Spring 事务与 MySQL 8 行锁，源码、编译产物和 Failsafe XML 时序一致；但最大仅两行，不能覆盖新增查询的渐进复杂度。没有通过压测量化已由控制流直接证明的 O(N²)，避免触发用户禁止的压力/安全类操作。
+- 与规格的偏差/疑问：无业务规则、权限点、DDL 或前端生产逻辑变化。`PARTIAL_ROLLBACK` 自动重试仍是明确的范围外语义债；本轮不顺带改写。Phase 39 继续不放行，全项目保持 CHANGES REQUESTED。
+- 测试：独立后端 9 模块 `mvn -B -ntp -DskipTests package`、前端 type-check/build、`git diff --check` 通过；现有 XML 聚合为 Surefire **149/149** + Failsafe **171/171** = **320/320**，0 failure/error/skip，`Phase10ExchangeIT` **10/10**。按用户安全边界未重跑并发/latch、未启动依赖或常驻应用，未执行漏洞扫描、恶意载荷、fuzz、故障注入、压力、进程破坏或凭据尝试。
+- 下一步：第二轮候选只收窄逐行 batch 锁查询投影并补 SQL 投影契约；建议同时补 T-IMP-5C 错误明细交错反例。重跑 Phase 10 与全量门禁后再交独立增量复核；PASS 前不进入 Phase 39。
+
 ## [2026-07-24] Phase 42 PG-H3 导入/回滚屏障整改候选完成 — 待独立增量复核
 - 做了什么：只修 `docs/reviews/phase-42-review.md` 的 1 个 Major。新增 batch `SELECT ... FOR UPDATE` 锁入口；每个逐行 `REQUIRES_NEW` 导入事务和失败明细事务均先锁 batch，并仅在数据库持久状态仍为 `IMPORTING` 时继续。rollback 在同一事务内以 batch 行锁作为第一条 SQL，等待在途行提交，锁定当前完整 ref 集及对应 student/training/certificate 行后逆序补偿，并将补偿结果与 `ROLLED_BACK/PARTIAL_ROLLBACK` 终态原子提交。confirm 收尾 CAS 必须命中 1 行，否则重读数据库真实状态并返回“导入已停止”，不再伪报本地 `IMPORTED/FAILED`。
 - 关键决策与理由：逐行提交与回滚必须竞争同一数据库锁，锁外状态预读或一次性 ref 快照都不能构成串行化屏障。采用既有状态集合内的单事务 batch 行锁协议，可同时覆盖 rollback 先取得锁、在途行先取得锁和 confirm 收尾先完成三种顺序，无需新增 `ROLLING_BACK`、迁移或前端状态。生产 `ExchangeImportHook` 是空操作，仅让集成测试确定性停在“已持锁未写入”和“行已提交”两个观察点，不参与业务决策。

@@ -5,11 +5,11 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**Phase 42 导入确认/回滚状态机整改候选与开发者自测完成，待独立增量复核**（分支：`feature/phase42-import-rollback-barrier`）；WS-3/U-002 已独立复核 PASS，统一入口为 `docs/CURRENT-EXECUTION-PLAN.md`。
+- 当前阶段：**Phase 42 首轮整改候选独立增量复核退回，待第二轮候选整改**（分支：`feature/phase42-import-rollback-barrier`）；WS-3/U-002 已独立复核 PASS，统一入口为 `docs/CURRENT-EXECUTION-PLAN.md`。
 - 当前结论：WS-1/WS-2/WS-3/WS-10/WS-13 PASS；U-001 CI 零状态契约 PASS。第六轮独立报告确认第五轮新增的 scheduler trigger 隔离与 V32 candidate 备份覆盖 **2 Medium 全部关闭**。Phase 29、35b、36–38、40、43、45–46、48–52 PASS，Phase 0、39、41、42、44、47、53 复核退回。
-- P0 放行项：Phase 42 候选仅闭环 `docs/reviews/phase-42-review.md` 的 Major——逐行 `REQUIRES_NEW` 导入、错误明细与 rollback 竞争同一 batch 行锁；rollback 从事务第一条 SQL 起持锁并原子提交补偿与终态；confirm 收尾 CAS 未命中即按数据库真实状态失败关闭。Phase 53 demo High 与 Phase 41 整库普通 INSERT 恢复缺口仍是各自独立退回项。
-- 最近更新：2026-07-24（Phase 42 两个确定性交错反例 **2/2**、`Phase10ExchangeIT` **10/10**；fresh 隔离依赖 `clean verify` 为 Surefire **149/149** + Failsafe **171/171** = **320/320**，0 failure/error/skip；前端 type-check/build 通过；临时 `tcp-phase42` 容器与网络已移除；未执行任何 cyber 指令）。
-- 下一步：提交 Phase 42 候选并交独立增量复核；原正式状态在新报告 PASS 前仍为 **CHANGES REQUESTED**，Phase 39 尚未放行。PASS 后按 Phase 39 → 41 → 47 → 53 → 44 → 0 推进，全部退回项闭环后执行全量审计。
+- P0 放行项：Phase 42 原 PG-H3 Major 已按原问题口径闭环——逐行 `REQUIRES_NEW`、错误明细与 rollback 竞争同一 batch 行锁，rollback 原子提交补偿与终态，confirm 收尾 CAS 失败关闭；但独立重核新发现逐行 `SELECT *` 重读整批 `preview_json` 的 O(N²) **1 Medium**，另有错误明细屏障缺专用反例 **1 Low**。Phase 53 demo High 与 Phase 41 整库普通 INSERT 恢复缺口仍是各自独立退回项。
+- 最近更新：2026-07-24（Phase 42 首轮独立重核 **CHANGES REQUESTED，1 Medium / 1 Low**；现有 `Phase10ExchangeIT` **10/10**、全量 XML **149/149 + 171/171 = 320/320**；独立后端 package、前端 type-check/build、diff check 通过；未重跑并发/latch，未执行任何 cyber 或压力指令）。
+- 下一步：第二轮只将逐行/错误明细 batch 锁查询收窄为 status-only 或 `id,status`，不得移除 `FOR UPDATE`；补 SQL 投影契约，建议同步补 T-IMP-5C。新报告 PASS 前 Phase 39 不放行；之后按 Phase 39 → 41 → 47 → 53 → 44 → 0 推进，全部退回项闭环后执行全量审计。
 
 ## 审计整改工作流
 | WS | 内容 | 状态 |
@@ -32,7 +32,7 @@
 | Phase 30–35 | 已完成 | 逐阶段报告齐全 | ✅ 保持已复核 |
 | Phase 35b | 已合并 | `phase-35b-review.md` PASS | ✅ 已复核 |
 | Phase 36–38、40、43、45–46、48–52 | 已合并 | 逐阶段 PASS 报告齐全 | ✅ 已复核 |
-| Phase 42 | 整改候选与开发者自测完成 | `phase-42-review.md` 仍为 CHANGES REQUESTED，待独立增量重核 | ❌ 复核退回（候选待重核） |
+| Phase 42 | 首轮候选已独立重核 | `phase-42-remediation-rereview-2026-07-24.md`：原 Major 关闭，新 1 Medium / 1 Low | ❌ 复核退回（待第二轮整改） |
 | Phase 39、41、44、47、53 | 已合并 | 逐阶段 CHANGES REQUESTED 报告齐全；Phase 53 另有 WS-3 重核补充证据 | ❌ 复核退回 |
 
 逐 Phase 结论、报告路径与后续顺序以 `docs/CURRENT-EXECUTION-PLAN.md` 为准。

@@ -6,8 +6,8 @@
 
 ## 1. 当前基线与本轮结论
 
-- 当前分支：`feature/phase42-import-rollback-barrier`；从 WS-3 第六轮独立 PASS 治理提交 `5792025` 切出，当前工作为 Phase 42 PG-H3 整改候选；基线 `main=e4f8228`，禁止擅自 merge/push。
-- Claude 当前不可用；用户于 2026-07-23 明确授权 Codex 作为本轮独立复核者。复核者未采信实现自报，重新读码并在隔离真实依赖环境重跑反例和全量门禁；该应急授权只适用于本轮记录，不自动改写 `REVIEW-GATE` 的长期角色约定。
+- 当前分支：`feature/phase42-import-rollback-barrier`；从 WS-3 第六轮独立 PASS 治理提交 `5792025` 切出，Phase 42 首轮候选 `b604e48` 已独立增量复核退回；基线 `main=e4f8228`，禁止擅自 merge/push。
+- Claude 当前不可用；用户于 2026-07-23 明确授权 Codex 作为本轮独立复核者。Phase 42 增量重核未采信实现自报，重新读码、核验现有真实 MySQL XML 与源码/编译时序，并独立执行安全的一次性构建门禁；按用户安全边界未重跑并发/latch、压力或任何可能属于 cyber 的验证。该应急授权只适用于本轮记录，不自动改写 `REVIEW-GATE` 的长期角色约定。
 - 原复核隔离空库基线：`mvn -B -ntp clean verify` 通过，Surefire **121/121**、Failsafe **144/144**，合计 **265/265**，Flyway V1–V28 与 `R__testseed` 成功。
 - WS-3 第二轮整改独立门禁：全新数据卷执行 Flyway V1–V29 成功，Surefire **121/121**、Failsafe **150/150**，合计 **271/271**；Phase 7 为 **29/29**；前端 type-check/build 通过。独立复核确认时间线、fast-hit、review 行锁和 V29 已闭环，但静态不变量仍发现 3 High / 3 Medium。
 - WS-3 第三轮整改独立重核：全新数据卷 Flyway V1–V30 成功，Surefire **125/125**、Failsafe **152/152**，合计 **277/277**；Phase 7 **31/31**；前端 type-check/build、生产 Compose config 与 fat-JAR worker 通过。独立复核确认前轮正常路径有实质闭环，但仍发现 **4 High / 5 Medium**：Redis fencing token 可 ABA、server finalize/assign 竞态永久 MERGING、direct 丢失 multipart 接管永久 MERGING、持久临时卷无崩溃孤儿清扫，以及错误分类/强杀确认/容量公式/MinIO 双 client 超时/fat-JAR 自动化缺口。结论为 **CHANGES REQUESTED**，见 `reviews/ws-03-third-remediation-rereview-2026-07-23.md`。
@@ -21,8 +21,8 @@
 - 编排：`docker-compose.dev.yml` 与生产 `docker-compose.yml + .env.example` 均通过 `config --quiet`。
 - 当前 WS 链判定：**WS-1、WS-2、WS-3、WS-10、WS-13 PASS**。WS-3/U-002 的正式依据为 `reviews/ws-03-sixth-remediation-rereview-2026-07-24.md`；1 Low 迁移数量勘误不阻断放行。
 - 缺失阶段账已完成独立复核：**Phase 29、35b、36–38、40、43、45–46、48–52 PASS；Phase 0、39、41、42、44、47、53 CHANGES REQUESTED**。阶段总审计见 `reviews/phase-gap-audit-2026-07-23.md`。
-- Phase 42 整改候选/开发者自测：每个逐行导入与失败明细事务均先锁 batch 并守卫持久 `IMPORTING`；rollback 从事务第一条 SQL 起持 batch 行锁，在同一事务内等待在途行、锁定完整 ref/业务行、逆序补偿并提交终态；confirm 收尾 CAS 未命中即按真实持久状态失败关闭。两个确定性交错反例 **2/2**、`Phase10ExchangeIT` **10/10**、fresh 隔离依赖 `clean verify` **149/149 + 171/171 = 320/320**、前端 type-check/build 均通过。提交材料见 `reviews/phase-42-remediation-submission-2026-07-24.md`；原正式报告尚未改判。
-- 全项目仍为 **CHANGES REQUESTED**：WS-3 已独立 PASS，Phase 42 只是待独立确认的候选；学院删除并发孤儿、整库备份不可按手册恢复、Phase 44 完成声明与实现不一致、MinIO 生命周期失败覆盖、Phase 53 demo 对象/元数据升级不一致、Phase 0 验收基线欠账，以及 Phase 7 两项广覆盖证据债仍在。
+- Phase 42 首轮独立增量重核：统一 batch 行锁、rollback 单事务补偿与 confirm 收尾 CAS 已关闭原 PG-H3 Major；现有 `Phase10ExchangeIT` **10/10**、全量 XML **149/149 + 171/171 = 320/320**，独立后端 package、前端 type-check/build 与 diff check 通过。但新发现 **1 Medium / 1 Low**：逐行 `SELECT * ... FOR UPDATE` 对每行重复装载整批 `preview_json`，万行主路径形成 O(N²) DB→JVM 数据量；错误明细锁屏障缺专用交错反例。正式结论继续 **CHANGES REQUESTED**，见 `reviews/phase-42-remediation-rereview-2026-07-24.md`。
+- 全项目仍为 **CHANGES REQUESTED**：WS-3 已独立 PASS，Phase 42 待第二轮整改；学院删除并发孤儿、整库备份不可按手册恢复、Phase 44 完成声明与实现不一致、MinIO 生命周期失败覆盖、Phase 53 demo 对象/元数据升级不一致、Phase 0 验收基线欠账，以及 Phase 7 两项广覆盖证据债仍在。
 - 本轮是“逐阶段进度真实性 + 测试真实性 + 发布门禁”的复核，不替代最后的全量安全、业务规则、数据一致性、性能与运行期审计。
 
 ## 2. 逐阶段复核矩阵
@@ -78,7 +78,7 @@
 | Phase 39 | 已合并 | `reviews/phase-39-review.md` | ❌ 复核退回：学院删除与子记录创建竞态 |
 | Phase 40 | 已合并 | `reviews/phase-40-review.md` PASS | ✅ 已复核 |
 | Phase 41 | 已合并（含 41.1/41.2/41.3） | `reviews/phase-41-review.md` | ❌ 复核退回：备份不可按手册恢复；初始化 SQL 拼接 |
-| Phase 42 | PG-H3 整改候选与开发者自测完成 | `reviews/phase-42-review.md`（原报告）+ `reviews/phase-42-remediation-submission-2026-07-24.md`（候选） | ❌ **CHANGES REQUESTED**：候选待独立增量重核 |
+| Phase 42 | 首轮候选已独立增量重核 | `reviews/phase-42-remediation-rereview-2026-07-24.md` | ❌ **CHANGES REQUESTED**：原 Major 关闭；新 1 Medium / 1 Low，待第二轮整改 |
 | Phase 43 | 已合并（含 43.1–43.4） | `reviews/phase-43-review.md` PASS | ✅ 已复核 |
 | Phase 44 | 已合并（含 44a–44f） | `reviews/phase-44-review.md` | ❌ 复核退回：通知批量交付已撤销；缓存逐出竞态 |
 | Phase 45 | 已合并 | `reviews/phase-45-review.md` PASS | ✅ 已复核 |
@@ -109,7 +109,7 @@
 
 1. **U-001 CI 可复现性（WS-3 Major-3）—✅ 独立重核 PASS**：后端 job 的固定版本 MinIO、健康检查、桶初始化与前端 `npm run type-check` 已静态核对；独立 CI 等价环境全量 266/266、前端 type-check/build 通过。WS-6 仍负责 ESLint、Vitest、Playwright。
 2. **U-002 WS-3 退回整改—✅ 独立重核 PASS**：`88d3136..2886442` 已确认关闭第五轮新增的 2 Medium：① reconciliation trigger 绑定独立 `TaskScheduler`，真实 scheduling + blocked backup 证据证明普通备份不再阻断对账提交；② `video_finalization_object_candidate` 纳入 37 表逻辑全量备份，scratch restore 后历史 generation、claim/retry/tombstone 完整且真实对账可续跑。唯一新增 Low 是提交材料把 32 个迁移写成 33 个，已在正式报告和活动文档勘误，不阻断。此处只证明 candidate slice，Phase 41 整份普通 `INSERT` 备份与 Flyway 种子冲突仍是独立退回项。V32 发布继续遵守停写、停全部旧节点/worker、迁移、全量启动新实例后再放流，禁止 V31/旧稳定 key 协议混部与旧二进制回滚。独立报告为 `reviews/ws-03-sixth-remediation-rereview-2026-07-24.md`；未执行任何 cyber 指令，后续任何可能属于 cyber 的命令必须明确交由用户决定并亲自执行。
-3. **U-003 阶段退回整改**：Phase 42 导入回滚状态机的 batch 行锁候选与开发者门禁已完成，**待独立增量重核，不得提前从队列删除**。其后按依赖/风险顺序推进 Phase 39 父子记录串行化 → Phase 41 可恢复备份与安全初始化 → Phase 47 生命周期 fail-closed → Phase 53 demo 真实元数据/旧对象 reconcile + 浏览器播放 → Phase 44 状态诚实化/缓存事务后逐出。每项只修报告中的 Major，并补对应反例。
+3. **U-003 阶段退回整改**：Phase 42 首轮候选已确认关闭原 PG-H3 并发 Major，但因逐行锁查询重复装载整批 `preview_json` 的 O(N²) Medium 与错误明细测试 Low 继续退回；第二轮只收窄查询投影、保留 `FOR UPDATE`，补 SQL 投影契约并建议补 T-IMP-5C。PASS 后再按 Phase 39 父子记录串行化 → Phase 41 可恢复备份与安全初始化 → Phase 47 生命周期 fail-closed → Phase 53 demo 真实元数据/旧对象 reconcile + 浏览器播放 → Phase 44 状态诚实化/缓存事务后逐出。
 4. **U-004 Phase 0 复核退回整改**：逐项处理 `docs/phase-00-脚手架.md` 的 10 个验收项；被现架构取代的旧要求要记录替代依据，补 lint/Swagger/预签名过期等可重复证据后重交。
 
 ### P1：当前产品需求与上线安全
