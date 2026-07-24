@@ -12,6 +12,7 @@ import cn.edu.gpnu.platform.exchange.mapper.ImportExportBatchMapper;
 import cn.edu.gpnu.platform.exchange.model.ExchangeColumn;
 import cn.edu.gpnu.platform.exchange.model.ExchangeStandardRow;
 import cn.edu.gpnu.platform.exchange.support.ExchangeExcelHelper;
+import cn.edu.gpnu.platform.exchange.support.ExchangeImportHook;
 import cn.edu.gpnu.platform.system.entity.SysUser;
 import cn.edu.gpnu.platform.system.mapper.SysUserMapper;
 import cn.edu.gpnu.platform.system.mapper.SysUserRoleMapper;
@@ -27,10 +28,15 @@ import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
+import org.springframework.context.annotation.Primary;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -56,10 +62,14 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @SpringBootTest(classes = PlatformApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@Import(Phase10ExchangeIT.ExchangeHookTestConfiguration.class)
 @TestPropertySource(properties = {
         "platform.security.jwt.secret=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
         "platform.security.jwt.access-ttl-seconds=30"
@@ -110,9 +120,13 @@ class Phase10ExchangeIT {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    @Autowired
+    private ControlledExchangeImportHook exchangeImportHook;
+
     @BeforeEach
     @AfterEach
     void resetData() {
+        exchangeImportHook.reset();
         cleanupGeneratedData();
         ensureSecondCollegeStudent();
         resetUser("test_student", true);
@@ -432,6 +446,172 @@ class Phase10ExchangeIT {
         // 批次落定为 IMPORTED，未卡在过渡态 IMPORTING
         ImportExportBatch persisted = batchMapper.selectById(batchId);
         assertThat(persisted.getStatus()).isEqualTo("IMPORTED");
+    }
+
+    /**
+     * Phase 42 PG-H3：第一行独立事务已提交后暂停确认导入，让回滚先完成，再释放确认线程。
+     * 回滚持有批次锁直至补偿与终态一并提交；后续行醒来只能观察到 ROLLED_BACK，不能产生晚提交。
+    */
+    @Test
+    @Timeout(value = 60, unit = TimeUnit.SECONDS)
+    void confirmAndRollbackInterleavingCannotLeaveLateCommittedRows() throws Exception {
+        LoginResult academic = readyLogin("test_academic_admin");
+        ExchangeStandardRow first = row("P10RBAR1", "2026", "202610588344300161");
+        first.setIdCardType("hm_travel_permit");
+        first.setIdCardNo("B12345678");
+        first.setBirthDate("2000/12/31");
+        ExchangeStandardRow second = row("P10RBAR2", "2026", "202610588344300162");
+        second.setIdCardType("hm_travel_permit");
+        second.setIdCardNo("B87654321");
+        second.setBirthDate("2000/12/31");
+
+        JsonNode pre = prevalidate(academic.accessToken(), List.of(first, second)).at("/data");
+        assertThat(pre.at("/successCount").asInt()).isEqualTo(2);
+        long batchId = pre.at("/batchId").asLong();
+        exchangeImportHook.armAfterCommit(batchId);
+
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        Future<JsonNode> confirmFuture = null;
+        Future<JsonNode> rollbackFuture = null;
+        try {
+            confirmFuture = pool.submit(
+                    () -> confirm(academic.accessToken(), batchId, "INSERT_ONLY"));
+            assertThat(exchangeImportHook.awaitFirstCommit(10, TimeUnit.SECONDS)).isTrue();
+            assertThat(exchangeImportHook.firstCommittedRowNo()).isEqualTo(2);
+            assertThat(batchMapper.selectById(batchId).getStatus()).isEqualTo("IMPORTING");
+            assertThat(jdbcTemplate.queryForObject("""
+                    SELECT COUNT(*)
+                    FROM import_record_ref
+                    WHERE batch_id = ? AND row_no = ? AND deleted = 0 AND action <> 'SKIP'
+                    """, Integer.class, batchId, 2)).isEqualTo(3);
+            assertThat(jdbcTemplate.queryForObject("""
+                    SELECT COUNT(*) FROM student
+                    WHERE student_no = 'P10RBAR1' AND deleted = 0
+                    """, Integer.class)).isEqualTo(1);
+            assertThat(jdbcTemplate.queryForObject("""
+                    SELECT COUNT(*) FROM student
+                    WHERE student_no = 'P10RBAR2' AND deleted = 0
+                    """, Integer.class)).isZero();
+
+            rollbackFuture = pool.submit(
+                    () -> rollback(academic.accessToken(), batchId));
+            JsonNode rolledBack = rollbackFuture.get(10, TimeUnit.SECONDS);
+            assertThat(rolledBack.at("/code").asInt()).isEqualTo(0);
+            assertThat(rolledBack.at("/data/status").asText()).isEqualTo("ROLLED_BACK");
+            assertThat(batchMapper.selectById(batchId).getStatus()).isEqualTo("ROLLED_BACK");
+
+            exchangeImportHook.allowNextRow();
+            JsonNode confirmResult = confirmFuture.get(10, TimeUnit.SECONDS);
+            assertThat(confirmResult.at("/code").asInt()).isEqualTo(1000);
+            assertThat(confirmResult.at("/msg").asText())
+                    .contains("导入已停止")
+                    .contains("ROLLED_BACK");
+
+            assertThat(batchMapper.selectById(batchId).getStatus()).isEqualTo("ROLLED_BACK");
+            assertThat(jdbcTemplate.queryForObject("""
+                    SELECT COUNT(*) FROM student
+                    WHERE student_no IN ('P10RBAR1', 'P10RBAR2') AND deleted = 0
+                    """, Integer.class)).isZero();
+            assertThat(jdbcTemplate.queryForObject("""
+                    SELECT COUNT(*) FROM training_profile
+                    WHERE student_id IN (
+                        SELECT id FROM student WHERE student_no IN ('P10RBAR1', 'P10RBAR2')
+                    ) AND deleted = 0
+                    """, Integer.class)).isZero();
+            assertThat(jdbcTemplate.queryForObject("""
+                    SELECT COUNT(*) FROM certificate
+                    WHERE student_no IN ('P10RBAR1', 'P10RBAR2') AND deleted = 0
+                    """, Integer.class)).isZero();
+            assertThat(jdbcTemplate.queryForObject("""
+                    SELECT COUNT(*) FROM import_record_ref
+                    WHERE batch_id = ? AND row_no = 3 AND deleted = 0
+                    """, Integer.class, batchId)).isZero();
+        } finally {
+            exchangeImportHook.releaseAll();
+            awaitFutureQuietly(confirmFuture);
+            awaitFutureQuietly(rollbackFuture);
+            shutdownExecutor(pool);
+        }
+    }
+
+    /**
+     * Phase 42 PG-H3 反向交错：导入行已经取得 batch 锁但尚未写业务数据时发起 rollback。
+     * rollback 必须等待该行事务提交，再把其完整 refs 纳入同一事务补偿，不能基于旧快照提前结束。
+     */
+    @Test
+    @Timeout(value = 60, unit = TimeUnit.SECONDS)
+    void rollbackWaitsForInFlightRowAndCompensatesItsCommittedRefs() throws Exception {
+        LoginResult academic = readyLogin("test_academic_admin");
+        ExchangeStandardRow row = row("P10RLOCK", "2026", "202610588344300163");
+        row.setIdCardType("hm_travel_permit");
+        row.setIdCardNo("L12345678");
+        row.setBirthDate("2000/12/31");
+
+        JsonNode pre = prevalidate(academic.accessToken(), List.of(row)).at("/data");
+        assertThat(pre.at("/successCount").asInt()).isEqualTo(1);
+        long batchId = pre.at("/batchId").asLong();
+        exchangeImportHook.armInFlight(batchId);
+
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        Future<JsonNode> confirmFuture = null;
+        Future<JsonNode> rollbackFuture = null;
+        try {
+            confirmFuture = pool.submit(
+                    () -> confirm(academic.accessToken(), batchId, "INSERT_ONLY"));
+            assertThat(exchangeImportHook.awaitBatchLocked(10, TimeUnit.SECONDS)).isTrue();
+            assertThat(batchMapper.selectById(batchId).getStatus()).isEqualTo("IMPORTING");
+            assertThat(jdbcTemplate.queryForObject("""
+                    SELECT COUNT(*) FROM student
+                    WHERE student_no = 'P10RLOCK' AND deleted = 0
+                    """, Integer.class)).isZero();
+
+            Future<JsonNode> blockedRollback = pool.submit(
+                    () -> rollback(academic.accessToken(), batchId));
+            rollbackFuture = blockedRollback;
+            assertThat(exchangeImportHook.awaitRollbackEntered(10, TimeUnit.SECONDS)).isTrue();
+            exchangeImportHook.allowRollbackLockAttempt();
+            assertThatThrownBy(() -> blockedRollback.get(500, TimeUnit.MILLISECONDS))
+                    .isInstanceOf(TimeoutException.class);
+
+            exchangeImportHook.allowRowCommit();
+            assertThat(exchangeImportHook.awaitFirstCommit(10, TimeUnit.SECONDS)).isTrue();
+            JsonNode rolledBack = blockedRollback.get(10, TimeUnit.SECONDS);
+            assertThat(rolledBack.at("/code").asInt()).isEqualTo(0);
+            assertThat(rolledBack.at("/data/status").asText()).isEqualTo("ROLLED_BACK");
+            assertThat(rolledBack.at("/data/rolledBackCount").asInt()).isEqualTo(3);
+
+            exchangeImportHook.allowNextRow();
+            JsonNode confirmResult = confirmFuture.get(10, TimeUnit.SECONDS);
+            assertThat(confirmResult.at("/code").asInt()).isEqualTo(1000);
+            assertThat(confirmResult.at("/msg").asText())
+                    .contains("导入已停止")
+                    .contains("ROLLED_BACK");
+
+            assertThat(batchMapper.selectById(batchId).getStatus()).isEqualTo("ROLLED_BACK");
+            assertThat(jdbcTemplate.queryForObject("""
+                    SELECT COUNT(*) FROM student
+                    WHERE student_no = 'P10RLOCK' AND deleted = 0
+                    """, Integer.class)).isZero();
+            assertThat(jdbcTemplate.queryForObject("""
+                    SELECT COUNT(*) FROM training_profile
+                    WHERE student_id IN (
+                        SELECT id FROM student WHERE student_no = 'P10RLOCK'
+                    ) AND deleted = 0
+                    """, Integer.class)).isZero();
+            assertThat(jdbcTemplate.queryForObject("""
+                    SELECT COUNT(*) FROM certificate
+                    WHERE student_no = 'P10RLOCK' AND deleted = 0
+                    """, Integer.class)).isZero();
+            assertThat(jdbcTemplate.queryForObject("""
+                    SELECT COUNT(*) FROM import_record_ref
+                    WHERE batch_id = ? AND row_no = 2 AND deleted = 0
+                    """, Integer.class, batchId)).isEqualTo(3);
+        } finally {
+            exchangeImportHook.releaseAll();
+            awaitFutureQuietly(confirmFuture);
+            awaitFutureQuietly(rollbackFuture);
+            shutdownExecutor(pool);
+        }
     }
 
     /**
@@ -778,6 +958,188 @@ class Phase10ExchangeIT {
         jdbcTemplate.update("DELETE FROM certificate WHERE student_no LIKE 'P10%' OR student_no = '00123'");
         jdbcTemplate.update("DELETE FROM training_profile WHERE student_id IN (SELECT id FROM student WHERE student_no LIKE 'P10%' OR student_no = '00123')");
         jdbcTemplate.update("DELETE FROM student WHERE student_no LIKE 'P10%' OR student_no = '00123'");
+    }
+
+    private void awaitFutureQuietly(Future<?> future) {
+        if (future == null || future.isDone()) {
+            return;
+        }
+        try {
+            future.get(10, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (Exception ignored) {
+            // 保留原始断言/异常；闩锁已释放，超时后由 executor 兜底中断客户端线程。
+        }
+    }
+
+    private void shutdownExecutor(ExecutorService pool) {
+        pool.shutdown();
+        try {
+            if (!pool.awaitTermination(10, TimeUnit.SECONDS)) {
+                pool.shutdownNow();
+                pool.awaitTermination(5, TimeUnit.SECONDS);
+            }
+        } catch (InterruptedException e) {
+            pool.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    @TestConfiguration(proxyBeanMethods = false)
+    static class ExchangeHookTestConfiguration {
+
+        @Bean
+        @Primary
+        ControlledExchangeImportHook controlledExchangeImportHook() {
+            return new ControlledExchangeImportHook();
+        }
+    }
+
+    static final class ControlledExchangeImportHook extends ExchangeImportHook {
+        private volatile BarrierPlan plan = BarrierPlan.disarmed();
+
+        synchronized void reset() {
+            replacePlan(BarrierPlan.disarmed());
+        }
+
+        synchronized void armAfterCommit(long batchId) {
+            replacePlan(new BarrierPlan(batchId, BarrierMode.AFTER_COMMIT));
+        }
+
+        synchronized void armInFlight(long batchId) {
+            replacePlan(new BarrierPlan(batchId, BarrierMode.IN_FLIGHT));
+        }
+
+        @Override
+        public void afterBatchLocked(Long batchId, Integer rowNo) {
+            BarrierPlan current = plan;
+            if (!current.matches(batchId, BarrierMode.IN_FLIGHT)
+                    || !current.batchLockedOnce.compareAndSet(false, true)) {
+                return;
+            }
+            current.firstCommittedRowNo = rowNo;
+            current.batchLocked.countDown();
+            await(current.allowRowCommit, "等待 Phase 42 测试允许行事务提交超时");
+        }
+
+        @Override
+        public void beforeRollbackLock(Long batchId) {
+            BarrierPlan current = plan;
+            if (!current.matches(batchId, BarrierMode.IN_FLIGHT)) {
+                return;
+            }
+            current.rollbackEntered.countDown();
+            await(current.allowRollbackLockAttempt, "等待 Phase 42 测试允许回滚竞争批次锁超时");
+        }
+
+        @Override
+        public void afterRowCommitted(Long batchId, Integer rowNo) {
+            BarrierPlan current = plan;
+            if (!current.matches(batchId)
+                    || !current.rowCommittedOnce.compareAndSet(false, true)) {
+                return;
+            }
+            current.firstCommittedRowNo = rowNo;
+            current.firstCommit.countDown();
+            await(current.allowNextRow, "等待 Phase 42 测试释放导入线程超时");
+        }
+
+        private void await(CountDownLatch latch, String timeoutMessage) {
+            try {
+                if (!latch.await(30, TimeUnit.SECONDS)) {
+                    throw new IllegalStateException(timeoutMessage);
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("Phase 42 交错测试导入线程被中断", e);
+            }
+        }
+
+        boolean awaitFirstCommit(long timeout, TimeUnit unit) throws InterruptedException {
+            return plan.firstCommit.await(timeout, unit);
+        }
+
+        boolean awaitBatchLocked(long timeout, TimeUnit unit) throws InterruptedException {
+            return plan.batchLocked.await(timeout, unit);
+        }
+
+        boolean awaitRollbackEntered(long timeout, TimeUnit unit) throws InterruptedException {
+            return plan.rollbackEntered.await(timeout, unit);
+        }
+
+        Integer firstCommittedRowNo() {
+            return plan.firstCommittedRowNo;
+        }
+
+        void allowRowCommit() {
+            plan.allowRowCommit.countDown();
+        }
+
+        void allowRollbackLockAttempt() {
+            plan.allowRollbackLockAttempt.countDown();
+        }
+
+        void allowNextRow() {
+            plan.allowNextRow.countDown();
+        }
+
+        void releaseAll() {
+            plan.releaseAll();
+        }
+
+        private void replacePlan(BarrierPlan next) {
+            BarrierPlan previous = plan;
+            plan = next;
+            previous.releaseAll();
+        }
+    }
+
+    enum BarrierMode {
+        DISARMED,
+        AFTER_COMMIT,
+        IN_FLIGHT
+    }
+
+    static final class BarrierPlan {
+        private final long batchId;
+        private final BarrierMode mode;
+        private final AtomicBoolean batchLockedOnce = new AtomicBoolean();
+        private final AtomicBoolean rowCommittedOnce = new AtomicBoolean();
+        private final CountDownLatch batchLocked = new CountDownLatch(1);
+        private final CountDownLatch allowRowCommit = new CountDownLatch(1);
+        private final CountDownLatch rollbackEntered = new CountDownLatch(1);
+        private final CountDownLatch allowRollbackLockAttempt = new CountDownLatch(1);
+        private final CountDownLatch firstCommit = new CountDownLatch(1);
+        private final CountDownLatch allowNextRow = new CountDownLatch(1);
+        private volatile Integer firstCommittedRowNo;
+
+        private BarrierPlan(long batchId, BarrierMode mode) {
+            this.batchId = batchId;
+            this.mode = mode;
+        }
+
+        static BarrierPlan disarmed() {
+            BarrierPlan plan = new BarrierPlan(-1L, BarrierMode.DISARMED);
+            plan.releaseAll();
+            return plan;
+        }
+
+        boolean matches(Long currentBatchId) {
+            return currentBatchId != null
+                    && currentBatchId.longValue() == batchId
+                    && mode != BarrierMode.DISARMED;
+        }
+
+        boolean matches(Long currentBatchId, BarrierMode expectedMode) {
+            return mode == expectedMode && matches(currentBatchId);
+        }
+
+        void releaseAll() {
+            allowRowCommit.countDown();
+            allowRollbackLockAttempt.countDown();
+            allowNextRow.countDown();
+        }
     }
 
     private record LoginResult(String accessToken, String refreshToken, boolean mustChangePwd) {

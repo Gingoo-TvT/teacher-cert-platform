@@ -15,6 +15,14 @@
 
 ---
 
+## [2026-07-24] Phase 42 PG-H3 导入/回滚屏障整改候选完成 — 待独立增量复核
+- 做了什么：只修 `docs/reviews/phase-42-review.md` 的 1 个 Major。新增 batch `SELECT ... FOR UPDATE` 锁入口；每个逐行 `REQUIRES_NEW` 导入事务和失败明细事务均先锁 batch，并仅在数据库持久状态仍为 `IMPORTING` 时继续。rollback 在同一事务内以 batch 行锁作为第一条 SQL，等待在途行提交，锁定当前完整 ref 集及对应 student/training/certificate 行后逆序补偿，并将补偿结果与 `ROLLED_BACK/PARTIAL_ROLLBACK` 终态原子提交。confirm 收尾 CAS 必须命中 1 行，否则重读数据库真实状态并返回“导入已停止”，不再伪报本地 `IMPORTED/FAILED`。
+- 关键决策与理由：逐行提交与回滚必须竞争同一数据库锁，锁外状态预读或一次性 ref 快照都不能构成串行化屏障。采用既有状态集合内的单事务 batch 行锁协议，可同时覆盖 rollback 先取得锁、在途行先取得锁和 confirm 收尾先完成三种顺序，无需新增 `ROLLING_BACK`、迁移或前端状态。生产 `ExchangeImportHook` 是空操作，仅让集成测试确定性停在“已持锁未写入”和“行已提交”两个观察点，不参与业务决策。
+- 问题与解决：首次全量验证唯一失败来自本轮临时 MinIO 未带正式 dev 编排已有的 CORS 白名单，Phase 7 恶意 Origin 断言因此收到错误环境响应；只修正临时隔离编排并定向复验该用例 1/1，再从 clean 状态重跑全量，未放宽产品断言。MyBatis-Plus 会把 `last("FOR UPDATE")` 放在 `ORDER BY` 前，故 ref 查询先锁完整集合、再在 Java 侧按 id 倒序。临时 `tcp-phase42` 容器与网络已在验证后移除，无数据卷。
+- 与规格的偏差/疑问：无业务规则、权限点、DDL/Flyway 或前端生产代码变化；Phase 10 文档仅补充既有“确认导入可回滚”的并发不变量。既有 `PARTIAL_ROLLBACK` 再次自动重试语义未在本 Major 范围内重新设计，已作为存量语义债写入提交材料；Phase 42 其他已通过主题不重开。原正式报告仍为 **CHANGES REQUESTED**，本条只声明整改候选与开发者自测完成。
+- 测试：两个确定性交错反例 **2/2**：①首行提交后暂停 confirm，rollback 完成并持久化 `ROLLED_BACK`，释放 confirm 后不得产生第二行迟到业务记录/ref；②行事务持有 batch 锁时 rollback 不得完成，释放后 rollback 必须看到并补偿该行 3 条 refs。`Phase10ExchangeIT` **10/10**；fresh 隔离 MySQL/Redis/MinIO 的 `mvn -B -ntp clean verify` 为 Surefire **149/149** + Failsafe **171/171** = **320/320**、0 failure/error/skip；32 个生产迁移至 V32；前端 type-check/build 通过（仅既有大 chunk 警告）。未启动常驻应用，未执行任何 cyber 指令。
+- 下一步：提交 `docs/reviews/phase-42-remediation-submission-2026-07-24.md` 并交独立复核者只重核 PG-H3 与回归；新报告 PASS 前不关闭 Phase 42、不放行 Phase 39。PASS 后按 Phase 39 → 41 → 47 → 53 → 44 → 0 推进。
+
 ## [2026-07-24] GOV-009 WS-3 第六轮整改独立重核 PASS
 - 做了什么：冻结 `88d3136..2886442`，按 incremental + security/stability/performance/testing-authenticity/release/configuration/data-integrity/concurrency 逐文件复核第六轮 16 个变更文件，并由调度隔离、candidate 备份恢复、测试/发布治理三个只读专项交叉检查；产出 `docs/reviews/ws-03-sixth-remediation-rereview-2026-07-24.md` 与审计元数据。第五轮新增的 **2 Medium 全部关闭**，正式结论为 **PASS**。
 - 关键决策与理由：生产显式保留约定名 `taskScheduler` 与视频专用 `videoFinalizationReconciliationTaskScheduler`，视频 cron 精确绑定后者，真实对象工作继续进入独立 executor；因此同步备份不再阻断对账 trigger。静态解析 V1–V32 的迁移得到 37 个唯一业务表，与 37 项备份 allowlist 完全一致；candidate 的真实 gzip、全字段 scratch restore 和真实 reconciler 续跑证据足以关闭备份遗漏。

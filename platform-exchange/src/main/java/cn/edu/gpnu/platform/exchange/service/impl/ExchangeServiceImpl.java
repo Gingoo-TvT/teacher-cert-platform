@@ -41,6 +41,7 @@ import cn.edu.gpnu.platform.exchange.service.ExchangeService;
 import cn.edu.gpnu.platform.exchange.support.ExchangeBatchStatus;
 import cn.edu.gpnu.platform.exchange.support.ExchangeExcelHelper;
 import cn.edu.gpnu.platform.exchange.support.ExchangeExportType;
+import cn.edu.gpnu.platform.exchange.support.ExchangeImportHook;
 import cn.edu.gpnu.platform.exchange.support.ImportStrategy;
 import cn.edu.gpnu.platform.exchange.vo.BatchVO;
 import cn.edu.gpnu.platform.exchange.vo.ExchangeFile;
@@ -142,6 +143,7 @@ public class ExchangeServiceImpl implements ExchangeService {
     private final ObjectMapper objectMapper;
     private final PlatformTransactionManager transactionManager;
     private final AuditLogService auditLogService;
+    private final ExchangeImportHook exchangeImportHook;
 
     @Override
     public ExchangeFile template(ExchangeQuery query) {
@@ -239,6 +241,11 @@ public class ExchangeServiceImpl implements ExchangeService {
     public ImportResultVO confirmImport(Long batchId, ImportConfirmRequest request) {
         ImportExportBatch batch = requireBatch(batchId);
         ensureBatchAccessible(batch, "exchange:import");
+        ImportStrategy strategy = ImportStrategy.of(request.getStrategy());
+        List<PreviewPayload> previews = readPreviews(batch.getPreviewJson());
+        if (previews.isEmpty()) {
+            throw new BizException("无可导入的预校验成功行");
+        }
         // Phase 42.2：原子认领 PREVALIDATED→IMPORTING，杜绝两次并发确认全量重复导入。
         // confirmImport 无 @Transactional，该 update 立即自动提交、对并发调用者立即可见；
         // 仅首个认领成功者（claimed=1）继续执行导入循环，其余 claimed=0 直接被拒、不再进入循环。
@@ -249,11 +256,6 @@ public class ExchangeServiceImpl implements ExchangeService {
         if (claimed == 0) {
             throw new BizException("当前批次不可确认导入（可能正在导入或状态已变更）");
         }
-        ImportStrategy strategy = ImportStrategy.of(request.getStrategy());
-        List<PreviewPayload> previews = readPreviews(batch.getPreviewJson());
-        if (previews.isEmpty()) {
-            throw new BizException("无可导入的预校验成功行");
-        }
         ImportResultVO vo = new ImportResultVO();
         vo.setBatchId(batch.getId());
         vo.setBatchNo(batch.getBatchNo());
@@ -261,31 +263,43 @@ public class ExchangeServiceImpl implements ExchangeService {
         int success = 0;
         int fail = 0;
         for (PreviewPayload preview : previews) {
+            ImportDecision decision;
             try {
-                ImportDecision decision = importOneInNewTransaction(batch, preview, strategy);
-                if (decision.success()) {
-                    success++;
-                } else {
-                    fail++;
-                    vo.getMessages().add(decision.message());
-                }
+                decision = importOneInNewTransaction(batch, preview, strategy);
+            } catch (ImportExecutionStoppedException e) {
+                throw importStopped(e);
             } catch (Exception e) {
                 String message = importFailureMessage(e);
                 fail++;
                 vo.getMessages().add("第" + preview.rowNo() + "行: " + message);
-                addError(batch, preview.rowNo(), preview.row(), "导入", "", message, "请修正后重新预校验");
+                try {
+                    addErrorInNewTransaction(batch, preview.rowNo(), preview.row(), message);
+                } catch (ImportExecutionStoppedException stopped) {
+                    throw importStopped(stopped);
+                }
+                continue;
+            }
+            exchangeImportHook.afterRowCommitted(batch.getId(), preview.rowNo());
+            if (decision.success()) {
+                success++;
+            } else {
+                fail++;
+                vo.getMessages().add(decision.message());
             }
         }
         batch.setStrategy(strategy.name());
         batch.setSuccessCount(success);
         batch.setFailCount(batch.getFailCount() == null ? fail : batch.getFailCount() + fail);
         batch.setStatus(fail > 0 ? ExchangeBatchStatus.FAILED.name() : ExchangeBatchStatus.IMPORTED.name());
-        // 收尾写用「仍为 IMPORTING」守卫：认领后本方法是唯一导入者，正常情况下必命中；
-        // 仅在崩溃恢复边界（并发 rollback 已把 IMPORTING 批次翻成 ROLLED_BACK）时命中 0 行，
-        // 从而避免本次 IMPORTED/FAILED 覆盖 rollback 的终态。
-        batchMapper.update(batch, new LambdaUpdateWrapper<ImportExportBatch>()
+        // 收尾 CAS 与逐行事务、rollback 竞争同一批次行锁；命中 0 行必须按数据库真实状态失败，
+        // 禁止把本地累计出的 IMPORTED/FAILED 作为成功结果返回。
+        int finalized = batchMapper.update(batch, new LambdaUpdateWrapper<ImportExportBatch>()
                 .eq(ImportExportBatch::getId, batch.getId())
                 .eq(ImportExportBatch::getStatus, ExchangeBatchStatus.IMPORTING.name()));
+        if (finalized != 1) {
+            ImportExportBatch persisted = requireBatch(batch.getId());
+            throw new BizException("导入已停止，批次当前状态为 " + persisted.getStatus());
+        }
         vo.setSuccessCount(success);
         vo.setFailCount(fail);
         vo.setStatus(batch.getStatus());
@@ -295,7 +309,9 @@ public class ExchangeServiceImpl implements ExchangeService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public RollbackResultVO rollback(Long batchId) {
-        ImportExportBatch batch = requireBatch(batchId);
+        exchangeImportHook.beforeRollbackLock(batchId);
+        // 必须作为本事务的第一条数据库语句锁住批次：等待在途行提交，并阻断后续行开始写入。
+        ImportExportBatch batch = requireBatchForUpdate(batchId);
         ensureBatchAccessible(batch, "exchange:import");
         // Phase 42.2：IMPORTING 纳入可回滚态——进程在 confirmImport 中途崩溃会残留 IMPORTING，
         // 其已通过 REQUIRES_NEW 提交的部分导入行需可被回收；rollback 按 import_record_ref 追溯撤销即可。
@@ -306,10 +322,13 @@ public class ExchangeServiceImpl implements ExchangeService {
             throw new BizException("当前批次不可回滚");
         }
         String oldStatus = batch.getStatus();
+        // MyBatis-Plus 会把 .last("FOR UPDATE") 放在 ORDER BY 前，因此锁定查询不携带排序；
+        // 先锁住完整引用集，再在 Java 侧倒序补偿，语义等价且保持 MySQL 语法合法。
         List<ImportRecordRef> refs = recordRefMapper.selectList(new LambdaQueryWrapper<ImportRecordRef>()
                 .eq(ImportRecordRef::getBatchId, batchId)
                 .ne(ImportRecordRef::getAction, "SKIP")
-                .orderByDesc(ImportRecordRef::getId));
+                .last("FOR UPDATE"));
+        refs.sort(Comparator.comparing(ImportRecordRef::getId).reversed());
         int rolledBack = 0;
         int conflicts = 0;
         RollbackResultVO vo = new RollbackResultVO();
@@ -411,7 +430,21 @@ public class ExchangeServiceImpl implements ExchangeService {
     private ImportDecision importOneInNewTransaction(ImportExportBatch batch, PreviewPayload preview, ImportStrategy strategy) {
         TransactionTemplate template = new TransactionTemplate(transactionManager);
         template.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
-        return template.execute(status -> importOne(batch, preview, strategy));
+        return template.execute(status -> {
+            requireImportingBatchForUpdate(batch.getId());
+            exchangeImportHook.afterBatchLocked(batch.getId(), preview.rowNo());
+            return importOne(batch, preview, strategy);
+        });
+    }
+
+    private void addErrorInNewTransaction(ImportExportBatch batch, Integer rowNo,
+                                          ExchangeStandardRow row, String message) {
+        TransactionTemplate template = new TransactionTemplate(transactionManager);
+        template.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        template.executeWithoutResult(status -> {
+            requireImportingBatchForUpdate(batch.getId());
+            addError(batch, rowNo, row, "导入", "", message, "请修正后重新预校验");
+        });
     }
 
     private ImportDecision importOne(ImportExportBatch batch, PreviewPayload preview, ImportStrategy strategy) {
@@ -822,17 +855,23 @@ public class ExchangeServiceImpl implements ExchangeService {
 
     private RollbackDecision rollbackOne(ImportRecordRef ref) {
         if ("student".equals(ref.getTableName())) {
-            Student current = studentMapper.selectById(ref.getRecordId());
+            Student current = studentMapper.selectOne(new LambdaQueryWrapper<Student>()
+                    .eq(Student::getId, ref.getRecordId())
+                    .last("FOR UPDATE"));
             return rollbackEntity(ref, current, Student.class, studentMapper::updateById,
                     id -> studentMapper.deleteById(id), "学生");
         }
         if ("training_profile".equals(ref.getTableName())) {
-            TrainingProfile current = trainingProfileMapper.selectById(ref.getRecordId());
+            TrainingProfile current = trainingProfileMapper.selectOne(new LambdaQueryWrapper<TrainingProfile>()
+                    .eq(TrainingProfile::getId, ref.getRecordId())
+                    .last("FOR UPDATE"));
             return rollbackEntity(ref, current, TrainingProfile.class, trainingProfileMapper::updateById,
                     id -> trainingProfileMapper.deleteById(id), "培养信息");
         }
         if ("certificate".equals(ref.getTableName())) {
-            Certificate current = certificateMapper.selectById(ref.getRecordId());
+            Certificate current = certificateMapper.selectOne(new LambdaQueryWrapper<Certificate>()
+                    .eq(Certificate::getId, ref.getRecordId())
+                    .last("FOR UPDATE"));
             return rollbackEntity(ref, current, Certificate.class, certificateMapper::updateById,
                     id -> certificateMapper.deleteById(id), "证书");
         }
@@ -1455,6 +1494,29 @@ public class ExchangeServiceImpl implements ExchangeService {
         return batch;
     }
 
+    private ImportExportBatch requireBatchForUpdate(Long batchId) {
+        if (batchId == null) {
+            throw new BizException("批次ID不能为空");
+        }
+        ImportExportBatch batch = batchMapper.selectByIdForUpdate(batchId);
+        if (batch == null) {
+            throw new BizException(ResultCode.NOT_FOUND.getCode(), "批次不存在");
+        }
+        return batch;
+    }
+
+    private ImportExportBatch requireImportingBatchForUpdate(Long batchId) {
+        ImportExportBatch batch = requireBatchForUpdate(batchId);
+        if (ExchangeBatchStatus.of(batch.getStatus()) != ExchangeBatchStatus.IMPORTING) {
+            throw new ImportExecutionStoppedException(batch.getStatus());
+        }
+        return batch;
+    }
+
+    private BizException importStopped(ImportExecutionStoppedException stopped) {
+        return new BizException("导入已停止，批次当前状态为 " + stopped.persistedStatus());
+    }
+
     private BatchVO toBatchVO(ImportExportBatch batch) {
         BatchVO vo = new BatchVO();
         vo.setId(batch.getId());
@@ -1673,5 +1735,18 @@ public class ExchangeServiceImpl implements ExchangeService {
     }
 
     private record RollbackDecision(boolean success, String message) {
+    }
+
+    private static final class ImportExecutionStoppedException extends RuntimeException {
+        private final String persistedStatus;
+
+        private ImportExecutionStoppedException(String persistedStatus) {
+            super("Import batch is no longer IMPORTING: " + persistedStatus);
+            this.persistedStatus = persistedStatus;
+        }
+
+        private String persistedStatus() {
+            return persistedStatus;
+        }
     }
 }
