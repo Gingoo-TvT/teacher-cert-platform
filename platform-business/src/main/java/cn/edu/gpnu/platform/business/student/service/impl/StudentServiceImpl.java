@@ -28,6 +28,7 @@ import cn.edu.gpnu.platform.system.mapper.SysUserDataScopeMapper;
 import cn.edu.gpnu.platform.system.mapper.SysUserMapper;
 import cn.edu.gpnu.platform.system.mapper.SysUserRoleMapper;
 import cn.edu.gpnu.platform.system.service.AuditLogService;
+import cn.edu.gpnu.platform.system.service.CollegeParentGuard;
 import cn.edu.gpnu.platform.system.service.DataScopeService;
 import cn.edu.gpnu.platform.system.service.ParamService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -64,6 +65,7 @@ public class StudentServiceImpl implements StudentService {
     private final SysUserRoleMapper userRoleMapper;
     private final SysUserDataScopeMapper userDataScopeMapper;
     private final RbacAuthorizationGuard authorizationGuard;
+    private final CollegeParentGuard collegeParentGuard;
     private final PasswordEncoder passwordEncoder;
     private final DataScopeService dataScopeService;
     private final ParamService paramService;
@@ -122,8 +124,15 @@ public class StudentServiceImpl implements StudentService {
     @Transactional(rollbackFor = Exception.class)
     public Long create(StudentSaveRequest request) {
         authorizationGuard.lockAuthorizationState();
+        return createInCurrentTransaction(request, true);
+    }
+
+    private Long createInCurrentTransaction(StudentSaveRequest request, boolean lockCollege) {
         Student entity = new Student();
         fill(entity, request, false, true);
+        if (lockCollege) {
+            collegeParentGuard.lockExisting(entity.getCollegeId(), CollegeParentGuard.Operation.CREATE_STUDENT);
+        }
         entity.setStatus(StudentStatus.DRAFT.name());
         entity.setLocked(0);
         try {
@@ -147,7 +156,20 @@ public class StudentServiceImpl implements StudentService {
         if (requests == null || requests.isEmpty()) {
             throw new BizException("学生列表不能为空");
         }
-        return requests.stream().map(this::create).toList();
+        authorizationGuard.lockAuthorizationState();
+        // 先完成所有学院的数据范围校验，再统一去重并按 ID 升序预锁：
+        // 既不让父行存在性错误泄露越权学院，也避免两个反序批次互相等待。
+        List<Long> collegeIds = requests.stream()
+                .map(StudentSaveRequest::getCollegeId)
+                .map(this::allowedCollegeId)
+                .distinct()
+                .sorted()
+                .toList();
+        collegeIds.forEach(collegeId -> collegeParentGuard.lockExisting(
+                collegeId, CollegeParentGuard.Operation.CREATE_STUDENT));
+        return requests.stream()
+                .map(request -> createInCurrentTransaction(request, false))
+                .toList();
     }
 
     @Override
@@ -156,6 +178,7 @@ public class StudentServiceImpl implements StudentService {
         authorizationGuard.lockAuthorizationState();
         Student entity = requireStudent(id);
         fill(entity, request, true, true);
+        collegeParentGuard.lockExisting(entity.getCollegeId(), CollegeParentGuard.Operation.UPDATE_STUDENT);
         studentMapper.updateById(entity);
         ensureStudentAccount(entity);
     }

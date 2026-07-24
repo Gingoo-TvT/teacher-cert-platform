@@ -7,7 +7,6 @@ import cn.edu.gpnu.platform.security.service.SecurityAdminServiceImpl;
 import cn.edu.gpnu.platform.security.service.TokenRevocationService;
 import cn.edu.gpnu.platform.system.dto.UserRoleAssignRequest;
 import cn.edu.gpnu.platform.system.dto.UserSaveRequest;
-import cn.edu.gpnu.platform.system.entity.SysCollege;
 import cn.edu.gpnu.platform.system.entity.SysRole;
 import cn.edu.gpnu.platform.system.entity.SysUser;
 import cn.edu.gpnu.platform.system.mapper.SysCollegeMapper;
@@ -18,6 +17,7 @@ import cn.edu.gpnu.platform.system.mapper.SysRolePermissionMapper;
 import cn.edu.gpnu.platform.system.mapper.SysUserDataScopeMapper;
 import cn.edu.gpnu.platform.system.mapper.SysUserMapper;
 import cn.edu.gpnu.platform.system.mapper.SysUserRoleMapper;
+import cn.edu.gpnu.platform.system.service.CollegeParentGuard;
 import cn.edu.gpnu.platform.system.service.DataScopeService;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
@@ -78,6 +78,8 @@ class SecurityAdminServiceImplTest {
     @Mock
     private SysMajorMapper majorMapper;
     @Mock
+    private CollegeParentGuard collegeParentGuard;
+    @Mock
     private PasswordEncoder passwordEncoder;
     @Mock
     private TokenRevocationService tokenRevocationService;
@@ -101,6 +103,7 @@ class SecurityAdminServiceImplTest {
                 userDataScopeMapper,
                 collegeMapper,
                 majorMapper,
+                collegeParentGuard,
                 passwordEncoder,
                 tokenRevocationService,
                 environment,
@@ -137,7 +140,6 @@ class SecurityAdminServiceImplTest {
     @Test
     void updateUserRejectsUserTypeChange() {
         when(userMapper.selectById(USER_ID)).thenReturn(studentUser());
-        when(collegeMapper.selectById(COLLEGE_ID)).thenReturn(new SysCollege());
         UserSaveRequest request = request("student-account", "STAFF", COLLEGE_ID, null);
 
         assertThatThrownBy(() -> service.updateUser(USER_ID, request))
@@ -150,7 +152,6 @@ class SecurityAdminServiceImplTest {
     @Test
     void updateStudentRejectsChangesToAccountBinding() {
         when(userMapper.selectById(USER_ID)).thenReturn(studentUser());
-        when(collegeMapper.selectById(anyLong())).thenReturn(new SysCollege());
 
         UserSaveRequest changedUsername = request("changed-username", "STUDENT", COLLEGE_ID, STUDENT_ID);
         UserSaveRequest changedCollege = request("student-account", "STUDENT", OTHER_COLLEGE_ID, STUDENT_ID);
@@ -167,7 +168,6 @@ class SecurityAdminServiceImplTest {
         SysUser student = studentUser();
         when(userMapper.selectById(USER_ID)).thenReturn(student);
         when(userMapper.selectByUsername(student.getUsername())).thenReturn(student);
-        when(collegeMapper.selectById(COLLEGE_ID)).thenReturn(new SysCollege());
         when(userMapper.update(any(LambdaUpdateWrapper.class))).thenReturn(1);
         when(roleMapper.selectById(ROLE_ID)).thenReturn(role("STUDENT"));
 
@@ -186,7 +186,6 @@ class SecurityAdminServiceImplTest {
     @Test
     void updateStudentRejectsAnyRoleOtherThanTheSystemStudentRole() {
         when(userMapper.selectById(USER_ID)).thenReturn(studentUser());
-        when(collegeMapper.selectById(COLLEGE_ID)).thenReturn(new SysCollege());
         when(roleMapper.selectById(ROLE_ID)).thenReturn(role("COLLEGE_CLERK"));
 
         assertThatThrownBy(() -> service.updateUser(

@@ -18,6 +18,7 @@ import cn.edu.gpnu.platform.system.mapper.SysDictItemMapper;
 import cn.edu.gpnu.platform.system.mapper.SysMajorMapper;
 import cn.edu.gpnu.platform.system.mapper.SysUserMapper;
 import cn.edu.gpnu.platform.system.mapper.TrainingGoalConfigMapper;
+import cn.edu.gpnu.platform.system.service.CollegeParentGuard;
 import cn.edu.gpnu.platform.system.service.DictService;
 import cn.edu.gpnu.platform.system.service.OrganizationService;
 import cn.edu.gpnu.platform.system.vo.CollegeVO;
@@ -56,6 +57,7 @@ public class OrganizationServiceImpl implements OrganizationService {
     private final TrainingGoalConfigMapper trainingGoalConfigMapper;
     private final SysDictItemMapper dictItemMapper;
     private final SysUserMapper userMapper;
+    private final CollegeParentGuard collegeParentGuard;
     private final ObjectMapper objectMapper;
     private final DictService dictService;
 
@@ -106,17 +108,23 @@ public class OrganizationServiceImpl implements OrganizationService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void deleteCollege(Long id) {
-        SysCollege entity = requireCollege(id);
+        // 删除事务的第一条数据库读取必须锁住父行；所有子记录写入方也锁同一行，
+        // 从而把“检查无子记录 + 逻辑删除”串行化为一个不可穿透的完整性边界。
+        collegeParentGuard.lockExisting(id, CollegeParentGuard.Operation.DELETE);
         Long majorCount = majorMapper.selectCount(new LambdaQueryWrapper<SysMajor>()
-                .eq(SysMajor::getCollegeId, entity.getId()));
+                .eq(SysMajor::getCollegeId, id));
         if (majorCount > 0) {
             throw new BizException("学院下存在专业，不能删除");
         }
         // P0-12：学院下仍有账号（学生/教职工，sys_user.college_id）时禁止删除，避免用户/学生等静默悬挂已删学院
         Long userCount = userMapper.selectCount(new LambdaQueryWrapper<SysUser>()
-                .eq(SysUser::getCollegeId, entity.getId()));
+                .eq(SysUser::getCollegeId, id));
         if (userCount > 0) {
             throw new BizException("学院下存在用户（学生/教职工），不能删除");
+        }
+        Long studentCount = collegeMapper.countActiveStudentsByCollegeId(id);
+        if (studentCount > 0) {
+            throw new BizException("学院下存在学生，不能删除");
         }
         collegeMapper.deleteById(id);
     }
@@ -162,7 +170,8 @@ public class OrganizationServiceImpl implements OrganizationService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Long createMajor(MajorSaveRequest request) {
-        Long collegeId = requireEnabledCollege(request.getCollegeId()).getId();
+        Long collegeId = request.getCollegeId();
+        collegeParentGuard.lockEnabled(collegeId, CollegeParentGuard.Operation.CREATE_MAJOR);
         String code = normalizeRequired(request.getInternalMajorCode(), "校内专业代码不能为空");
         String yearVersion = normalizeYearVersion(request.getYearVersion());
         if (existsMajorCode(code, yearVersion, null)) {
@@ -181,7 +190,8 @@ public class OrganizationServiceImpl implements OrganizationService {
     @Transactional(rollbackFor = Exception.class)
     public void updateMajor(Long id, MajorSaveRequest request) {
         SysMajor entity = requireMajor(id);
-        Long collegeId = requireEnabledCollege(request.getCollegeId()).getId();
+        Long collegeId = request.getCollegeId();
+        collegeParentGuard.lockEnabled(collegeId, CollegeParentGuard.Operation.UPDATE_MAJOR);
         String code = normalizeRequired(request.getInternalMajorCode(), "校内专业代码不能为空");
         String yearVersion = normalizeYearVersion(request.getYearVersion());
         if (existsMajorCode(code, yearVersion, id)) {
@@ -367,14 +377,6 @@ public class OrganizationServiceImpl implements OrganizationService {
         SysCollege entity = collegeMapper.selectById(id);
         if (entity == null) {
             throw new BizException("学院不存在");
-        }
-        return entity;
-    }
-
-    private SysCollege requireEnabledCollege(Long id) {
-        SysCollege entity = requireCollege(id);
-        if (entity.getStatus() == null || entity.getStatus() != ENABLED) {
-            throw new BizException("学院不存在或已停用");
         }
         return entity;
     }

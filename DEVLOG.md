@@ -15,6 +15,14 @@
 
 ---
 
+## [2026-07-24] Phase 39 PG-H1 整改候选完成 — 学院删除与子写共享父行锁，待独立增量复核
+- 做了什么：新增集中式 `CollegeParentGuard` 与生产空操作交错 Hook，父锁 SQL 固定为 `SELECT status FROM sys_college WHERE id=? AND deleted=0 FOR UPDATE`，并以 `MANDATORY` 强制锁属于调用方写事务。`deleteCollege` 的第一条数据库读取即锁父行，随后统计活跃专业、用户和直接 `student` 记录；专业、STAFF 用户、学生单条/批量/迁移及 Exchange 每行 `REQUIRES_NEW` 直接学生写入均接入同一目标父锁。学生批量先完成全部学院的数据范围校验，再按学院 ID 去重升序预锁。新增 `Phase39CollegeIntegrityIT`，将专业、STAFF 用户、`student.autoCreateAccount=false` 学生分别拆成“子写先赢/删除先赢”6 个真实 MySQL 确定性交错，逐场景断言服务结果、父子有效数、无账号及 LEFT JOIN `orphan=0`。
+- 关键决策与理由：项目按 Phase 43.1 既定决策不加 DB 外键，因此应用层必须把“无子记录检查 + 逻辑删除”和所有目标子写串行化在同一父行上。删除方必须把锁定读作为第一条数据库读取，避免 MySQL REPEATABLE READ 在等待子事务后仍沿用旧一致性快照；子写方则用当前锁定读在删除先提交后看到 `deleted=1` 并失败。专业继续要求启用学院；用户/学生沿用既有“允许停用、禁止已删除”语义。固定锁序为 `RBAC → college（多学院升序）→ child`，既关闭 PG-H1，也避免引入父锁/RBAC 反序死锁。
+- 问题与解决：聚焦单测首次因移除用户创建路径的冗余普通学院读取，4 个 Mockito `collegeMapper.selectById` stub 变为 unnecessary stubbing；删除对应旧 stub 后 28/28 通过。预提交只读审查指出测试原把两个方向塞进一个 90 秒方法、外层中断时线程清理预算不足；现拆为 6 个 120 秒测试，并用 AutoCloseable 任务组释放 Hook、取消 Future、两段无中断终止等待后恢复中断，使 cleanup 异常自动作为正文失败的 suppressed。首次全量 329 项唯一失败为 Phase 7 CORS 反例：本轮临时 MinIO 漏带 `docker-compose.dev.yml` 既有 `MINIO_API_CORS_ALLOW_ORIGIN`，错误回显 `https://evil.example`；补齐同一 dev 白名单后原方法 1/1 通过，并从全新依赖状态完整重跑 329/329。
+- 与规格的偏差/疑问：无 DDL/Flyway、权限点、角色矩阵、状态集合或前端生产逻辑变化；仅强化既有“不加外键时由应用层保证引用完整性”的约束。当前结论只覆盖 PG-H1 指定的专业、职工用户、学生及标准导入在线写路径，不扩大为全库所有 `college_id` 表均受父锁保护。Phase 39 尚未独立 PASS，Phase 0、39、41、44、47、53 六个退回阶段仍使全项目保持 **CHANGES REQUESTED**。
+- 测试：聚焦单元 **28/28**；`Phase39CollegeIntegrityIT` **6/6**；预提交只读审查 **0 High / 0 Medium / 0 Low**。最终在全新、内存盘、无现有卷挂载的 MySQL 8/Redis 7/MinIO 环境执行 `mvn -B -ntp clean verify`，9 模块 `BUILD SUCCESS`，Surefire **149/149** + Failsafe **180/180** = **329/329**，0 failure/error/skip；Phase 39 6/6，Flyway 共验证 33 个迁移资源、版本化 schema 至 V32。临时容器已全部自动移除；结束后无 Java 进程，8080/5173 与临时依赖端口无监听。未启动常驻项目服务，未执行任何 cyber、漏洞扫描、恶意载荷、fuzz、凭据尝试、压力或破坏性故障指令。
+- 下一步：提交 `docs/reviews/phase-39-remediation-submission-2026-07-24.md`，请独立复核者冻结 `66fd2a9..HEAD`，重核 MySQL RR 可见性、全部在线旁路、固定锁序、无账号学生直接计数、6 个双向交错及 329/329 提交同源性；正式 PASS 前不进入 Phase 41。
+
 ## [2026-07-24] GOV-011 Phase 42 第二轮整改独立增量复核 PASS
 - 做了什么：冻结 `ec4ca30..bd1db49`，按 incremental + security/stability/performance/testing-authenticity/release/configuration/data-integrity/concurrency 复核第二轮 10 个变更文件及直接调用方，并由生产锁协议、测试/并发真实性、发布/治理三个只读专项交叉检查；产出 `docs/reviews/phase-42-second-remediation-rereview-2026-07-24.md` 与审计元数据。首轮新增的 **1 Medium / 1 Low 全部按原问题口径关闭**，没有新增代码 finding，正式结论为 **PASS**。
 - 关键决策与理由：逐行/错误明细改用固定大小的 `SELECT status ... FOR UPDATE`，完整 batch 行锁只保留给 rollback 单次使用，因此 O(N²) DB→JVM 数据量根因已从真实调用路径移除，同时 InnoDB 行锁、`REQUIRES_NEW` 和 batch-first 锁顺序保持。T-IMP-5C 两种真实 MySQL 顺序分别覆盖 rollback 先提交时无迟到错误明细，以及错误明细先持锁时 rollback 必须等待；静态 MappedStatement 还由真实 confirm 三条实际锁 SQL 交叉验证，不是只测未使用 Mapper。

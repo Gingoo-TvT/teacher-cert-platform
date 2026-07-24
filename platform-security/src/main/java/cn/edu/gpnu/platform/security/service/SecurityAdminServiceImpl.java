@@ -26,6 +26,7 @@ import cn.edu.gpnu.platform.system.mapper.SysRolePermissionMapper;
 import cn.edu.gpnu.platform.system.mapper.SysUserDataScopeMapper;
 import cn.edu.gpnu.platform.system.mapper.SysUserMapper;
 import cn.edu.gpnu.platform.system.mapper.SysUserRoleMapper;
+import cn.edu.gpnu.platform.system.service.CollegeParentGuard;
 import cn.edu.gpnu.platform.system.service.DataScopeService;
 import cn.edu.gpnu.platform.system.vo.PermissionVO;
 import cn.edu.gpnu.platform.system.vo.RoleVO;
@@ -78,6 +79,7 @@ public class SecurityAdminServiceImpl implements SecurityAdminService {
     private final SysUserDataScopeMapper userDataScopeMapper;
     private final SysCollegeMapper collegeMapper;
     private final SysMajorMapper majorMapper;
+    private final CollegeParentGuard collegeParentGuard;
     private final PasswordEncoder passwordEncoder;
     private final TokenRevocationService tokenRevocationService;
     private final Environment environment;
@@ -152,6 +154,7 @@ public class SecurityAdminServiceImpl implements SecurityAdminService {
             throw new BizException("通用用户管理仅支持创建 STAFF 账号");
         }
         ensureStaffHasNoStudentBinding(request);
+        lockTargetCollege(request.getCollegeId(), CollegeParentGuard.Operation.CREATE_USER);
         if (userMapper.selectByUsername(request.getUsername().trim()) != null) {
             throw new BizException("用户名已存在");
         }
@@ -184,6 +187,7 @@ public class SecurityAdminServiceImpl implements SecurityAdminService {
         } else {
             ensureStaffHasNoStudentBinding(request);
         }
+        lockTargetCollege(request.getCollegeId(), CollegeParentGuard.Operation.UPDATE_USER);
         authorizationGuard.assertCanSetUserAuthorization(
                 id,
                 request.getRoleIds(),
@@ -470,14 +474,18 @@ public class SecurityAdminServiceImpl implements SecurityAdminService {
         if (!USER_TYPES.contains(request.getUserType())) {
             throw new BizException("用户类型不合法");
         }
-        if (request.getCollegeId() != null) {
-            requireCollege(request.getCollegeId());
-        }
     }
 
     private void ensureStaffHasNoStudentBinding(UserSaveRequest request) {
         if (request.getStudentId() != null) {
             throw new BizException("STAFF 账号不能关联学生档案");
+        }
+    }
+
+    private void lockTargetCollege(Long collegeId, CollegeParentGuard.Operation operation) {
+        if (collegeId != null) {
+            // 用户历史语义允许归属停用学院；这里只锁定并校验父行仍存在。
+            collegeParentGuard.lockExisting(collegeId, operation);
         }
     }
 

@@ -93,6 +93,7 @@
 - [x] 新增 `/api/system/user` 用户增删改查、重置密码、分配角色、分配数据范围接口，写接口接权限校验和事务。
 - [x] 新增 `/api/system/role` 角色增删改查、角色权限分配接口；`/api/system/permission/tree` 返回权限树。
 - [x] 分配用户角色和数据范围采用逻辑禁用旧关系 + upsert 新关系，立即影响 `me` 权限与 `DataScopeService` 解析。
+- [x] Phase 39 PG-H1 整改：STAFF 用户新增/迁移遵循 `RBAC 全局锁 → 目标学院父行锁 → 用户/角色子记录` 的固定顺序；目标学院可停用但不得已删除。与学院删除共享父锁，双向交错后不得产生指向已删学院的活跃用户。
 
 ### T-028 登录页
 - [x] `frontend/src/views/LoginView.vue` 接入真实验证码、登录接口、首次强制改密弹窗和登录后重定向。

@@ -5,11 +5,11 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**Phase 42 第二轮整改已独立增量复核 PASS，下一项为 Phase 39**（分支仍为 `feature/phase42-import-rollback-barrier`）；统一入口为 `docs/CURRENT-EXECUTION-PLAN.md`。
+- 当前阶段：**Phase 39 PG-H1 整改候选完成，待独立增量复核**（分支：`feature/phase39-college-child-lock`；基线：Phase 42 PASS 治理提交 `66fd2a9`）；统一入口为 `docs/CURRENT-EXECUTION-PLAN.md`。
 - 当前结论：WS-1/WS-2/WS-3/WS-10/WS-13 PASS；U-001 CI 零状态契约 PASS。Phase 42 第二轮独立报告确认首轮新增的 **1 Medium / 1 Low 全部关闭**，没有新增代码 finding。Phase 29、35b、36–38、40、42–43、45–46、48–52 PASS，Phase 0、39、41、44、47、53 复核退回。
 - P0 放行项：Phase 42 已由 `docs/reviews/phase-42-second-remediation-rereview-2026-07-24.md` 判定 **PASS**；逐行/错误明细 status-only 行锁关闭 O(N²) 根因，T-IMP-5C 双向交错关闭错误明细测试缺口，rollback 完整锁与原并发协议保持。Phase 53 demo High 与 Phase 41 整库普通 INSERT 恢复缺口仍是各自独立退回项。
-- 最近更新：2026-07-24（独立后端 package、前端 type-check/build、diff check 通过；开发者 XML 为 **149/149 + 174/174 = 323/323**、Phase 10 **13/13**。XML 早于最终测试源码，已作为非阻断证据限制记录；未启动常驻应用，未执行任何 cyber、并发闩锁或压力指令）。
-- 下一步：进入 Phase 39 父子记录串行化整改与独立复核；PASS 后按 Phase 41 → 47 → 53 → 44 → 0 推进，全部退回项闭环后执行全量审计。
+- 最近更新：2026-07-24（Phase 39 集中父锁、学生直接计数、批量升序预锁与标准导入旁路已完成；真实 MySQL 双向交错 6/6、聚焦单元 28/28、全量 Surefire 149 + Failsafe 180 = 329/329，0 failure/error/skip；预提交只读审查 0 High/Medium/Low。未启动常驻应用，未执行任何 cyber 或压力指令）。
+- 下一步：独立复核 `66fd2a9..HEAD` 的 PG-H1 增量及 329/329 提交同源性；PASS 后才按 Phase 41 → 47 → 53 → 44 → 0 推进。
 
 ## 审计整改工作流
 | WS | 内容 | 状态 |
@@ -33,7 +33,8 @@
 | Phase 35b | 已合并 | `phase-35b-review.md` PASS | ✅ 已复核 |
 | Phase 36–38、40、43、45–46、48–52 | 已合并 | 逐阶段 PASS 报告齐全 | ✅ 已复核 |
 | Phase 42 | 第二轮整改 `bd1db49` | `phase-42-second-remediation-rereview-2026-07-24.md` PASS；首轮 1 Medium / 1 Low 全部关闭 | ✅ 独立复核 PASS |
-| Phase 39、41、44、47、53 | 已合并 | 逐阶段 CHANGES REQUESTED 报告齐全；Phase 53 另有 WS-3 重核补充证据 | ❌ 复核退回 |
+| Phase 39 | PG-H1 父子记录串行化整改 | 集中父锁、学生直接计数、三类双向交错与导入旁路已完成；提交材料 `phase-39-remediation-submission-2026-07-24.md` | 🟨 待独立增量复核 |
+| Phase 41、44、47、53 | 已合并 | 逐阶段 CHANGES REQUESTED 报告齐全；Phase 53 另有 WS-3 重核补充证据 | ❌ 复核退回 |
 
 逐 Phase 结论、报告路径与后续顺序以 `docs/CURRENT-EXECUTION-PLAN.md` 为准。
 

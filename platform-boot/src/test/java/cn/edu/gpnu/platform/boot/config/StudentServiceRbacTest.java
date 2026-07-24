@@ -19,6 +19,7 @@ import cn.edu.gpnu.platform.system.mapper.SysUserDataScopeMapper;
 import cn.edu.gpnu.platform.system.mapper.SysUserMapper;
 import cn.edu.gpnu.platform.system.mapper.SysUserRoleMapper;
 import cn.edu.gpnu.platform.system.service.AuditLogService;
+import cn.edu.gpnu.platform.system.service.CollegeParentGuard;
 import cn.edu.gpnu.platform.system.service.DataScopeService;
 import cn.edu.gpnu.platform.system.service.ParamService;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
@@ -78,6 +79,8 @@ class StudentServiceRbacTest {
     @Mock
     private RbacAuthorizationGuard authorizationGuard;
     @Mock
+    private CollegeParentGuard collegeParentGuard;
+    @Mock
     private PasswordEncoder passwordEncoder;
     @Mock
     private DataScopeService dataScopeService;
@@ -105,6 +108,7 @@ class StudentServiceRbacTest {
                 userRoleMapper,
                 userDataScopeMapper,
                 authorizationGuard,
+                collegeParentGuard,
                 passwordEncoder,
                 dataScopeService,
                 paramService,

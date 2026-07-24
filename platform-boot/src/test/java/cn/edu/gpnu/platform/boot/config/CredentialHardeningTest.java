@@ -161,7 +161,7 @@ class CredentialHardeningTest {
         when(userMapper.update(any(LambdaUpdateWrapper.class))).thenReturn(0);
 
         SecurityAdminServiceImpl service = new SecurityAdminServiceImpl(
-                userMapper, null, null, null, null, null, null, null,
+                userMapper, null, null, null, null, null, null, null, null,
                 passwordEncoder, revocationService, null, dataScopeService, authorizationGuard);
 
         assertThatThrownBy(() -> service.resetPassword(student.getId()))
@@ -281,7 +281,7 @@ class CredentialHardeningTest {
         @Bean
         SecurityAdminServiceImpl securityAdminService(Environment environment) {
             return new SecurityAdminServiceImpl(
-                    null, null, null, null, null, null, null, null,
+                    null, null, null, null, null, null, null, null, null,
                     new BCryptPasswordEncoder(10), null, environment, null, null);
         }
     }

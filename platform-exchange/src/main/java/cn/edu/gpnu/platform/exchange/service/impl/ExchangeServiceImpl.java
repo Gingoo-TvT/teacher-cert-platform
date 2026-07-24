@@ -60,6 +60,7 @@ import cn.edu.gpnu.platform.system.mapper.SysDictItemMapper;
 import cn.edu.gpnu.platform.system.mapper.SysMajorMapper;
 import cn.edu.gpnu.platform.system.mapper.TeachingSubjectMapper;
 import cn.edu.gpnu.platform.system.service.AuditLogService;
+import cn.edu.gpnu.platform.system.service.CollegeParentGuard;
 import cn.edu.gpnu.platform.system.service.DataScopeService;
 import cn.edu.gpnu.platform.system.service.NotificationService;
 import cn.edu.gpnu.platform.system.service.ParamService;
@@ -128,6 +129,7 @@ public class ExchangeServiceImpl implements ExchangeService {
     private final VideoReviewMapper videoReviewMapper;
     private final SysDictItemMapper dictItemMapper;
     private final SysCollegeMapper collegeMapper;
+    private final CollegeParentGuard collegeParentGuard;
     private final SysMajorMapper majorMapper;
     private final TeachingSubjectMapper teachingSubjectMapper;
     private final DataScopeService dataScopeService;
@@ -471,6 +473,9 @@ public class ExchangeServiceImpl implements ExchangeService {
         }
         Long collegeId = resolveCollegeId(row);
         ensureCanImportCollege(collegeId);
+        // 每行都在独立 REQUIRES_NEW 事务内；在任何 student 直写前锁住目标学院，
+        // 与学院删除共享同一串行化边界，避免导入行在删除检查后迟到提交。
+        collegeParentGuard.lockExisting(collegeId, CollegeParentGuard.Operation.IMPORT_STUDENT);
         ensureCanUpdateExisting(existingStudent, collegeId, "现有学生");
         ensureCanUpdateExisting(existingCertificate, collegeId, "现有证书");
         Student student = existingStudent == null ? new Student() : existingStudent;
