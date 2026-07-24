@@ -73,7 +73,7 @@
 - [x] 4 种导入策略行为正确；批次可查；回滚后恢复到导入前。
 - [x] confirm 与 rollback 竞争同一 batch 行锁：rollback 返回终态后不得再出现迟到业务写/ref；在途行先取得锁时，rollback 必须等待其提交并补偿完整引用集。
 - [x] 标准导入的直接学生写入路径已接入目标学院父行锁，目标学院已逻辑删除时整行事务失败，不产生学生孤儿。
-- [x] **Phase 39 第二轮整改候选**：历史 student/training/certificate UPDATE ref 的 rollback 已在任何业务子行锁前解析、去重并升序预锁 `before_json` 目标学院；非法、缺失或已删除目标按 ref 明确冲突关闭，禁止恢复到无效父级。代码候选 `73406ed` 已完成 Phase 39 11/11、Phase 10 13/13、全量 334/334；当前待独立增量复核，不能据此自行标记 Phase 39 PASS。
+- [x] **Phase 39 第二轮独立复核 PASS**：历史 student/training/certificate UPDATE ref 的 rollback 已在任何业务子行锁前解析、去重并升序预锁 `before_json` 目标学院；非法、缺失或已删除目标按 ref 明确冲突关闭，禁止恢复到无效父级。代码 `73406ed` 已完成 Phase 39 11/11、Phase 10 13/13、全量 334/334；正式报告 `docs/reviews/phase-39-second-remediation-rereview-2026-07-24.md` 确认第一轮 1 High / 1 Low 全部关闭且本增量 0/0/0。
 - [x] 5 类导出列与 §15.6 一致；导出留审计；敏感导出鉴权。
 
 ## 11. 测试用例

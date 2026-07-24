@@ -114,7 +114,7 @@
 - [x] 反例验证通过：重复学院编码、重复 `(internal_major_code, yearVersion)`、停用/不存在学院下新增专业、非法培养目标编码、默认学段不在 allowed、使用中文显示值作为学段编码、超长 `yearVersion` 均返回业务错误。
 - [x] 逻辑删除唯一键口径已验证：删除后的学院/专业同编码重建返回业务错误，不落数据库重复键 500；临时业务数据接口可见计数为 0，仅保留软删历史。
 - [x] Phase 39 PG-H1 在线主路径整改：学院删除事务的第一条数据库读取即锁定 `sys_college` 父行，并在同一事务统计活跃专业、用户、学生、培养信息和证书；专业新增/迁移使用同一父行锁，专业仍要求学院启用。当前专业/用户/学生新增迁移与学院删除之间的“检查完成后迟到插入”窗口已关闭；培养信息/证书直接计数用于保护历史部分补偿后的删除边界。
-> **Phase 39 第二轮整改候选已完成，待独立增量复核**：代码候选 `73406ed` 已在任何业务子行锁前预解析历史 student/training/certificate UPDATE `before_json.collegeId`，去重升序父锁，并对非法、缺失或已删除父学院按 ref fail closed/记明确冲突；query-entered 证据推进到 `StatementHandler.query`。第一轮正式报告仍为 1 High / 1 Low，新的独立报告 PASS 前不得标记 Phase 39 通过。材料见 `docs/reviews/phase-39-second-remediation-submission-2026-07-24.md`。
+> **Phase 39 第二轮独立复核 PASS**：代码 `73406ed` 已在任何业务子行锁前预解析历史 student/training/certificate UPDATE `before_json.collegeId`，去重升序父锁，并对非法、缺失或已删除父学院按 ref fail closed/记明确冲突；query-entered 证据推进到 `StatementHandler.query`。正式报告 `docs/reviews/phase-39-second-remediation-rereview-2026-07-24.md` 确认第一轮 1 High / 1 Low 全部关闭，本增量 0 High / 0 Medium / 0 Low。
 
 ### T-019 字典管理页验收记录
 - [x] 新增 `frontend/src/api/dict.ts`，封装字典类型/字典项查询与新增、修改、删除接口；管理页字典项查询固定使用 `onlyEnabled=false`，停用项仍可维护。

@@ -15,6 +15,15 @@
 
 ---
 
+## [2026-07-24] GOV-013 Phase 39 第二轮独立增量复核 PASS — 第一轮 1 High / 1 Low 全部关闭
+- 做了什么：冻结第一轮治理基线 `1a69c70` 至第二轮提交材料 `dbd8633`，其中生产/测试代码冻结点为 `73406ed`；按 incremental + security/stability/performance/testing-authenticity/release/configuration/data-integrity/concurrency 完成生产锁协议、测试真实性、发布/治理同源性三路交叉复核，产出 `docs/reviews/phase-39-second-remediation-rereview-2026-07-24.md` 与审计元数据。上一轮历史 rollback 恢复到已删学院的 High、contender 信号早于查询边界的 Low 均按原问题口径关闭，本增量 **0 High / 0 Medium / 0 Low**，正式结论 **PASS**。
+- 关键决策与理由：三类 UPDATE `before_json.collegeId` 已在任何业务 child 锁前解析，目标去重升序锁定；非法、缺失或 deleted 父级按 ref 冲突，不通过异常污染外层 rollback 事务。删除侧在同一父锁后补 training/certificate 直接计数，固定协议为 `batch → refs → college IDs 升序 → business child`。测试探针精确匹配 status-only SQL + collegeId，并由真实胜方取锁、双向业务结果和持久孤儿断言互证。
+- 问题与解决：生产专项曾提出普通 training 写入复合交错、有效父级下按 ref 部分补偿图一致性、跨 batch child 锁序三个更广债务候选；复查 Git 因果后确认它们在 `1a69c70` 基线已存在，本增量未修改或加重，新增父锁还缩小了部分风险。依 incremental-audit 规则不计本轮 finding，不重开上一轮 1 High / 1 Low；三项已在正式报告列为最终全量审计复查边界，Phase 39 PASS 不等于宣称全库所有 `college_id` 路径已完成全量审计。
+- 与规格的偏差/疑问：无 DDL/Flyway、权限点、角色矩阵、对外 API、前端生产逻辑、状态集合或业务规则变化。Phase 39 可置独立复核 PASS 并放行 Phase 41；全项目仍因 Phase 0、41、44、47、53 五个既有退回阶段保持 **CHANGES_REQUESTED**。
+- 测试：独立执行 `mvn -B -ntp -DskipTests package`（9 模块 BUILD SUCCESS）、前端 type-check/build、`git diff --check 1a69c70..dbd8633`，全部通过；前端仅既有 >900 kB chunk 警告。开发者 XML 经独立解析为 Surefire **149/149** + Failsafe **185/185** = **334/334**，Phase 39 **11/11**、Phase 10 **13/13**，0 failure/error/skip，日志为 MySQL 8；5 个生产/测试源 blob 与 `73406ed` 完全一致，源码→class→XML→提交时间链成立。
+- 安全边界：未重跑并发/latch、未启动应用或依赖服务、未调用 Docker，也未执行漏洞扫描、恶意载荷、fuzz、凭据尝试、压力、故障注入、进程破坏或任何 cyber 操作。现有 XML 不能独立证明全新无卷、容器自动移除或端口清理，这些仅作为开发者过程声明保留。
+- 下一步：按统一计划进入 Phase 41 的整库可恢复备份与安全初始化整改；随后依次 Phase 47 → 53 → 44 → 0。全部退回项关闭后执行用户要求的最终全量审计。
+
 ## [2026-07-24] Phase 39 第二轮整改候选完成 — 历史 rollback 父级 fail-closed，待独立增量复核
 - 做了什么：针对第一轮正式报告的 1 High / 1 Low，代码候选 `73406ed` 将 rollback 固定为 `batch → refs → college IDs 升序 → business child`：锁定 batch/完整 ref 集后，从 student/training/certificate 的全部 UPDATE `before_json` 解析恢复目标，去重升序取得 `deleted=0 FOR UPDATE` 父锁，再进入业务子行锁与逆序补偿。非法、缺失、非正数、溢出或已删除父级均按对应 ref 记录明确冲突，不写无效 `college_id`，也不把其他有效 ref 一并回滚。`deleteCollege` 补 active `training_profile`/`certificate` 直接计数，保证学生快照冲突但培养信息或证书成功恢复的部分补偿仍能阻止等待中的删除。
 - 关键决策与理由：不能依赖当前在线导入已禁止跨学院更新来推断历史 `before_json` 安全；持久 ref 必须作为不受现版本校验保护的历史输入重新验证。全部目标学院先统一升序锁定，避免按 ref 逐条 `child → college` 形成锁序反转。父级不存在/已删除采用可空 status 锁查询并转成单 ref 冲突，使 partial rollback 可以诚实继续，同时保持父行锁直到同一事务提交。

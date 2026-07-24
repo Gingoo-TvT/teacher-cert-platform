@@ -7,7 +7,7 @@
 ---
 
 ## 0. 当前接力快照（2026-07-24）
-- 当前分支 `feature/phase39-college-child-lock`，从 Phase 42 PASS 治理提交 `66fd2a9` 切出；第一轮候选 `34aeec7` 的独立报告 `docs/reviews/phase-39-remediation-rereview-2026-07-24.md` 为 **CHANGES_REQUESTED（1 High / 1 Low）**。第二轮代码候选已固化为 `73406ed`：历史三类 UPDATE ref 在 child 锁前预解析并升序锁定全部目标学院，缺失/已删除父级按 ref 冲突关闭；并发 IT 已推进到 `StatementHandler.query` 边界。提交材料为 `docs/reviews/phase-39-second-remediation-submission-2026-07-24.md`，当前仍待新的独立增量复核，不是 PASS。`main` 仍为 `e4f8228`，无 remote，禁止 push/擅自 merge。
+- 当前分支 `feature/phase39-college-child-lock`，从 Phase 42 PASS 治理提交 `66fd2a9` 切出；Phase 39 第二轮代码冻结点 `73406ed` 已由 `docs/reviews/phase-39-second-remediation-rereview-2026-07-24.md` 独立判定 **PASS**：第一轮 1 High / 1 Low 全部关闭，本增量 0 High / 0 Medium / 0 Low。下一整改入口为 Phase 41；`main` 仍为 `e4f8228`，无 remote，禁止 push/擅自 merge。
 - WS-3 原有预签名直传能力保持不变；整改包新增服务端逐字节读取最终 MinIO 对象、计算受信 SHA-256 tree 指纹并用 JCodec 校验实际 MP4/H.264/时长/首帧，校验失败关闭。秒传只允许同 uploader、同 student、同一受信对象及已有合格视频记录复用，普通响应不再暴露内部内容指纹。
 - 2026-07-23 用户在 Claude 不可用期间明确授权 Codex 独立复核。WS-3 第二轮 `32da735` 的独立报告 `docs/reviews/ws-03-second-remediation-rereview-2026-07-23.md` 仍为 **CHANGES REQUESTED**：时间线、fast-hit、review 行锁和 V29 已闭环，但 `SERVER_CHUNK` 崩溃恢复、并发总磁盘预留、可终止探测时限仍有 3 High，另有 lease 续租/生产配置/资源测试 3 Medium。Phase 53 demo 元数据失配是 U-003 的独立 High，未混入本次报告。
 - 第三轮 `df22e5b` 已完成上述整改，但独立重核 `docs/reviews/ws-03-third-remediation-rereview-2026-07-23.md` 仍为 **CHANGES REQUESTED（4 High / 5 Medium）**。High 为：Redis fencing token 在序列过期/恢复后可 ABA；server finalize 输给 assign 后永久 MERGING；direct 接管时 multipart 已丢失会永久 MERGING；持久 `video-probe-temp` 无崩溃孤儿清扫。Medium 为：基础设施故障误判内容失败、强杀未确认退出、磁盘双重计数、MinioClient 未受显式超时控制、fat-JAR worker 缺自动化门禁。
@@ -20,7 +20,7 @@
 - 第六轮整改候选与开发者自测已完成：生产同时保留普通 `taskScheduler` 和视频专用 `videoFinalizationReconciliationTaskScheduler`，reconciliation cron 显式绑定后者；真实 scheduling 反例证明默认 scheduler 上的同步备份被 latch 阻塞时，对账仍连续触发并提交。应用逻辑全量备份现覆盖全部 37 个 schema 表（明确排除 `flyway_schema_history`），含 V32 candidate 台账；隔离 scratch schema 回放多个 generation 的 `CLEANUP_PENDING/CLEANING/CLEANED` 全字段后，真实 reconciler 可继续安全清理并释放 claim。
 - 第六轮最终开发者门禁：Surefire 149/149、Failsafe 169/169，合计 **318/318**、0 failure/error/skip；Phase 7 44/44，调度配置/隔离 3/3，candidate 备份恢复/续跑 1/1；前端 type-check/build、dev/prod Compose config 与 `git diff --check` 均通过。提交材料为 `docs/reviews/ws-03-sixth-remediation-submission-2026-07-24.md`。
 - 第六轮独立重核 `docs/reviews/ws-03-sixth-remediation-rereview-2026-07-24.md` 为 **PASS**：第五轮新增的 2 Medium 全部关闭；仅有“33 个迁移”应为“32 个迁移、最终 V32”的 1 Low 勘误，不阻断 WS-3/U-002。独立安全门禁为后端 9 模块 package、fat JAR class、前端 type-check/build、dev/prod Compose config 与 diff check；按用户要求未重跑 latch、外部 MySQL/MinIO 写入或任何可能属于 cyber 的验证。
-- Phase 0、29、35b、36–53 的缺失报告已补齐；经 Phase 42 后续第二轮整改复核，当前该范围 15 个阶段 PASS，Phase 0、39、41、44、47、53 仍复核退回。阶段总审计原始快照为 `docs/reviews/phase-gap-audit-2026-07-23.md`，Phase 42 最新结论以第二轮报告为准。
+- Phase 0、29、35b、36–53 的缺失报告已补齐；经 Phase 42、Phase 39 后续第二轮整改复核，当前该范围 16 个阶段 PASS，Phase 0、41、44、47、53 仍复核退回。阶段总审计原始快照为 `docs/reviews/phase-gap-audit-2026-07-23.md`，Phase 39/42 最新结论均以第二轮报告为准。
 - Phase 42 原始报告 `docs/reviews/phase-42-review.md` 曾为 **CHANGES REQUESTED**。首轮候选只修其 PG-H3 Major：每个逐行 `REQUIRES_NEW` 事务及失败明细先锁 batch 并确认持久状态仍为 `IMPORTING`；rollback 在单一事务内以 batch `FOR UPDATE` 作为第一条 SQL，等待在途行、锁定完整 ref/业务记录后逆序补偿，并将补偿结果与 `ROLLED_BACK/PARTIAL_ROLLBACK` 原子提交；confirm 收尾 CAS 未命中时读取数据库真实状态并返回“导入已停止”，不得伪报成功。
 - Phase 42 开发者证据：两个确定性交错反例 **2/2**，分别覆盖“首行已提交后 rollback 先完成”和“在途行持锁、rollback 等待其提交后补偿完整 3 refs”；`Phase10ExchangeIT` **10/10**。fresh 隔离依赖全量 `clean verify` 为 Surefire **149/149**、Failsafe **171/171**，合计 **320/320**；前端 type-check/build 通过。临时 `tcp-phase42` 容器与网络已移除，无数据卷；未启动常驻应用。
 - Phase 42 无 DDL、业务规则、权限点或前端生产代码变化；生产 `ExchangeImportHook` 仅为空操作的确定性交错观察点。本轮不重新定义既有 `PARTIAL_ROLLBACK` 自动重试语义，该存量语义债已在提交材料中明确，不冒充闭环。
@@ -29,7 +29,7 @@
 - 第二轮开发者证据：`Phase10ExchangeIT` **13/13**；fresh 隔离依赖全量 `clean verify` 为 Surefire **149/149**、Failsafe **174/174**，合计 **323/323**；32 个版本化生产迁移至 V32；前端 type-check/build 与 diff check 通过。生产 hook 仍为空操作，无 DDL、业务规则、权限点或前端生产变化；未启动常驻应用，未执行 cyber/压测。
 - Phase 42 第二轮独立重核 `docs/reviews/phase-42-second-remediation-rereview-2026-07-24.md` 为 **PASS**：首轮新增的 1 Medium / 1 Low 全部关闭，没有新增代码 finding。独立执行后端 9 模块 package、前端 type-check/build 与 diff check 均通过。323/323 XML 早于最终测试源码，当前源码虽已重新编译且材料声明只改断言说明文字，仍作为非阻断证据限制保留；严格提交级证明须由用户在最终提交上自行重跑。
 - 第四轮门禁证据：整改者专用全新数据卷 Flyway V1–V31，Surefire 140/140、Failsafe 159/159，合计 299/299；Phase 7 36/36。独立复核核对 XML 后另跑安全白名单 clean verify 17/17、后端 package、前端 type-check/build、dev/prod Compose config、MinIO 依赖树与 fat-JAR worker，均通过。按用户要求未执行畸形媒体、破坏性故障或攻击性并发。
-- Phase 42 已关闭；Phase 39 第二轮候选 `73406ed` 已落实 `batch → refs → college IDs 升序 → business child`、deleted-parent fail-closed、delete/rollback 双向反例与实际 query-entered 探针。开发者门禁为 Phase 39 **11/11**、Phase 10 **13/13**、全量 **334/334**，两项只读审查均为 0 High / 0 Medium / 0 Low；但新的独立报告 PASS 前仍不放行 Phase 41。通过后的近端顺序为：Phase 41 → 47 → Phase 53 的 demo 元数据/旧对象 reconcile → 44 → 0。Phase 41 整份普通 `INSERT` 备份与 Flyway 种子冲突仍是独立退回项，本轮 candidate slice 恢复不得冒充整库恢复；可播放视频资源虽已替换，但 demo SQL 仍记录 528B/旧摘要，且旧同名 MinIO 对象不会升级替换，故仍单列 Phase 53 High。全部退回项关闭后执行用户要求的全量审计。
+- Phase 42 与 Phase 39 已关闭。Phase 39 第二轮独立报告确认 `batch → refs → college IDs 升序 → business child`、deleted-parent fail-closed、delete/rollback 双向反例和实际 query-entered 探针成立，第一轮 1 High / 1 Low 全部关闭；独立一次性门禁通过，开发者 XML 为 Phase 39 **11/11**、Phase 10 **13/13**、全量 **334/334**。近端顺序为：Phase 41 → 47 → Phase 53 的 demo 元数据/旧对象 reconcile → 44 → 0。Phase 41 整份普通 `INSERT` 备份与 Flyway 种子冲突仍是独立退回项，本轮 candidate slice 恢复不得冒充整库恢复；可播放视频资源虽已替换，但 demo SQL 仍记录 528B/旧摘要，且旧同名 MinIO 对象不会升级替换，故仍单列 Phase 53 High。全部退回项关闭后执行用户要求的全量审计。
 - V32 发布必须停写并停止全部第五轮之前的后端与 worker，确认无旧进程后执行 Flyway 至 V32，再启动全部第五轮新实例、核对启动回填/对账与 generation 对象键，最后恢复写流量；禁止 V31/旧稳定 key 协议与第五轮混部，V32 后禁止回滚旧协议二进制。每个后端实例必须独占具有独立配额/文件系统的 probe 卷，禁止共享目录/卷或 `docker compose --scale` 复用当前命名卷。
 - 遵守用户安全边界：未执行漏洞扫描、攻击性探测、凭据尝试、恶意载荷、fuzz 或针对现有服务的破坏操作。T-VID 使用固定 44 字节结构夹具、一次受控对象删除失败及本轮专用隔离依赖；任何后续可能属于 cyber 的命令必须明确列出并交由用户亲自决定/执行。
 - 2026-07-22 的“缺阶段报告”证据债务已在 2026-07-23 清零；其发现的 CI MinIO/type-check 门禁已在当前整改包补齐并独立重核 PASS。历史结论保留于 `docs/reviews/progress-review-2026-07-22.md`。
@@ -143,7 +143,7 @@ git -C "$REPO" add -A && git -C "$REPO" commit -m "feat(T-0xx): ..."
 - 实体继承 `BaseEntity`（id/审计字段/逻辑删除自动）；Mapper 放 `**/mapper`（已 `@MapperScan("cn.edu.gpnu.platform.**.mapper")`）；统一返回 `Result`；写操作 `@AuditLog`；列表/导出/统计查询 `@DataScope`；当前用户取 `UserContext`。
 - **文本化字段全链路 String + Excel `@`**（学校代码/学号/证件号/出生日期/证书编号/有效期限）——AT-01 生命线，勿用数值/日期类型。
 
-## 5. 当前整改入口 → Phase 39 第二轮候选
+## 5. 当前整改入口 → Phase 41
 1. 读 `AGENTS.md` → `docs/REVIEW-GATE.md` → `docs/CURRENT-EXECUTION-PLAN.md` → 原报告 `docs/reviews/ws-03-review-2026-07-23.md` → 首批重核 `docs/reviews/ws-03-remediation-rereview-2026-07-23.md` → 第二轮重核 `docs/reviews/ws-03-second-remediation-rereview-2026-07-23.md` → 第三轮重核 `docs/reviews/ws-03-third-remediation-rereview-2026-07-23.md` → 第四轮重核 `docs/reviews/ws-03-fourth-remediation-rereview-2026-07-23.md` → 第五轮重核 `docs/reviews/ws-03-fifth-remediation-rereview-2026-07-24.md` → 第六轮 PASS `docs/reviews/ws-03-sixth-remediation-rereview-2026-07-24.md`。
 2. 已闭环：服务端 `SHA256_TREE_V1` 可信指纹；同 uploader/student + 既有 PASS 的秒传边界；普通 VO 去 `fileMd5`；GitHub Actions 真实 MinIO/桶初始化与前端 type-check。U-001 可视为 PASS。
 3. 第二轮已闭环：JCodec 三时长交叉核验与唯一视频轨；当前策略/探测器版本 + MinIO HEAD 的 fast-hit；定稿与 assign 共用 review 行锁；V29 逐项检测恢复。
@@ -158,7 +158,8 @@ git -C "$REPO" add -A && git -C "$REPO" commit -m "feat(T-0xx): ..."
 12. Phase 42 第二轮候选：status-only 行锁投影、真实调用链 SQL 探针和 T-IMP-5C 双向交错已落地；Phase 10 IT 13/13、全量 323/323，提交材料为 `docs/reviews/phase-42-second-remediation-submission-2026-07-24.md`。
 13. Phase 42 第二轮独立重核 **PASS**：首轮 1 Medium / 1 Low 全部关闭且无新增代码 finding；正式报告为 `docs/reviews/phase-42-second-remediation-rereview-2026-07-24.md`。323/323 的最终提交同源性限制已记录，不阻断本阶段。
 14. 第一轮状态：Phase 39 候选 `34aeec7` 的在线父锁主路径经独立复核成立，但正式报告 `docs/reviews/phase-39-remediation-rereview-2026-07-24.md` 以 **1 High / 1 Low** 退回。High：旧版本可持久化 before=A/after=B 的跨学院 student UPDATE ref，rollback 可绕过目标学院父锁；Low：`beforeLock` contender 信号早于 mapper/JDBC query。
-15. 当前第二轮候选：代码提交 `73406ed` 在任何 child 锁前解析 student/training/certificate 的 UPDATE `before_json.collegeId`，去重升序预锁，非法/缺失/已删除父级按 ref 冲突关闭；`deleteCollege` 补 active training/certificate 直接计数，保护部分补偿；并发证据推进到精确 SQL + collegeId 的 `StatementHandler.query` 边界，并新增 certificate-only 与 `A2/A1/A2` 多父锁序反例。Phase 39 **11/11**、Phase 10 **13/13**、全量 **334/334**；生产与测试最终只读审查均 **0 High / 0 Medium / 0 Low**。专项和全量临时无卷容器均已移除，无 Java/相关端口监听。请冻结 `1a69c70..73406ed`（完整范围 `66fd2a9..73406ed`）独立复核；PASS 前不进入 Phase 41。
+15. Phase 39 第二轮候选：代码提交 `73406ed` 在任何 child 锁前解析 student/training/certificate 的 UPDATE `before_json.collegeId`，去重升序预锁，非法/缺失/已删除父级按 ref 冲突关闭；`deleteCollege` 补 active training/certificate 直接计数；并发证据推进到精确 SQL + collegeId 的 `StatementHandler.query` 边界，并新增 certificate-only 与 `A2/A1/A2` 多父锁序反例。开发者证据为 Phase 39 **11/11**、Phase 10 **13/13**、全量 **334/334**。
+16. Phase 39 第二轮独立重核 **PASS**：冻结 `1a69c70..dbd8633`，代码点 `73406ed`；第一轮 1 High / 1 Low 全部关闭，本增量 0 High / 0 Medium / 0 Low。正式报告为 `docs/reviews/phase-39-second-remediation-rereview-2026-07-24.md`。三个基线既有债务候选只留最终全量审计，不阻断本次原问题关闭。现在进入 Phase 41：先按 `docs/reviews/phase-41-review.md` 修复整库普通 INSERT 与 Flyway 种子冲突、初始化 SQL 安全性，再提交独立增量复核。
 
 ## 6. 已知坑与规避（别重复踩）
 - Lombok `optional` 不向子模块传递 → 已在父 POM 解决。
