@@ -15,6 +15,15 @@
 
 ---
 
+## [2026-07-24] GOV-012 Phase 39 独立增量复核退回 — 1 High / 1 Low
+- 做了什么：冻结 `66fd2a9..34aeec7`，按 incremental + security/stability/performance/testing-authenticity/release/configuration/data-integrity/concurrency 复核 21 个增量文件及直接历史调用方，产出 `docs/reviews/phase-39-remediation-rereview-2026-07-24.md` 与审计元数据。集中父锁、删除首读锁、学生直接计数，以及专业、STAFF 用户、学生单条/批量/迁移和当前标准导入写入的父锁接线均成立，但正式结论仍为 **CHANGES REQUESTED（1 High / 1 Low）**。
+- 关键决策与理由：原 PG-H1 的“所有创建/移动学生入口”必须包含持久历史批次的补偿写。旧版本可生成 student `before_json.collegeId=A`、`after_json.collegeId=B` 的跨学院 UPDATE ref；当前 rollback 只锁 batch/ref/child，快照匹配后直接写回 before，未锁定或验证 A。A 被合法软删后，回滚即可恢复活跃孤儿学生，故不能因当前在线导入已禁止跨学院更新而忽略历史可达状态。最小锁序必须为 `batch → refs → college IDs 升序 → business child`，不能在 child 之后补锁 college。
+- 问题与解决：新增 Low 为 `Phase39CollegeIntegrityIT` 的 contender 事件由 `CollegeParentLockHook.beforeLock` 发出，位置仍在 mapper/JDBC 查询之前；`Future.isDone=false` 可能只是线程尚未继续调度，不能确定证明真实锁等待。应复用 MyBatis `StatementHandler.query` query-entered 探针后再释放胜方。开发者 329/329 XML、MySQL 8、源码/编译/提交时序与 11 个变更 Java blob 已核对，但 XML 不能独立证明依赖从全新状态启动或无挂载卷。
+- 与规格的偏差/疑问：无业务规则、DDL/Flyway、权限点、状态集合、前端生产逻辑或配置变更。同步收紧 Phase 1/10 与活动治理文档：rollback 在任何业务子行锁之前必须预解析并锁定 UPDATE 快照的目标学院；缺失/已删除父级 fail closed 或记明确冲突。`DemoDataInitializer` 仍是默认关闭、prod 禁止的 Phase 53 既有风险，不重复计为本轮 finding。
+- 测试：独立执行后端 9 模块 `mvn -B -ntp -DskipTests package`、前端 type-check/build、`git diff --check 66fd2a9..34aeec7`，全部通过；前端仅有既有 >900 kB chunk 警告。开发者 XML 为 Surefire **149/149** + Failsafe **180/180** = **329/329**、Phase 39 **6/6**，0 failure/error/skip。
+- 安全边界：未启动应用、依赖或常驻服务，未重跑并发/latch，未执行漏洞扫描、恶意载荷、fuzz、凭据尝试、压力、故障注入、进程破坏或任何可能属于 cyber 的动作。
+- 下一步：先修历史 rollback 的父引用预锁/存在性校验并补双向真实 MySQL 反例，再把 contender 探针推进到真实 query 边界；重跑 Phase 10、Phase 39、全量门禁后重新提交独立增量复核。PASS 前不进入 Phase 41。
+
 ## [2026-07-24] Phase 39 PG-H1 整改候选完成 — 学院删除与子写共享父行锁，待独立增量复核
 - 做了什么：新增集中式 `CollegeParentGuard` 与生产空操作交错 Hook，父锁 SQL 固定为 `SELECT status FROM sys_college WHERE id=? AND deleted=0 FOR UPDATE`，并以 `MANDATORY` 强制锁属于调用方写事务。`deleteCollege` 的第一条数据库读取即锁父行，随后统计活跃专业、用户和直接 `student` 记录；专业、STAFF 用户、学生单条/批量/迁移及 Exchange 每行 `REQUIRES_NEW` 直接学生写入均接入同一目标父锁。学生批量先完成全部学院的数据范围校验，再按学院 ID 去重升序预锁。新增 `Phase39CollegeIntegrityIT`，将专业、STAFF 用户、`student.autoCreateAccount=false` 学生分别拆成“子写先赢/删除先赢”6 个真实 MySQL 确定性交错，逐场景断言服务结果、父子有效数、无账号及 LEFT JOIN `orphan=0`。
 - 关键决策与理由：项目按 Phase 43.1 既定决策不加 DB 外键，因此应用层必须把“无子记录检查 + 逻辑删除”和所有目标子写串行化在同一父行上。删除方必须把锁定读作为第一条数据库读取，避免 MySQL REPEATABLE READ 在等待子事务后仍沿用旧一致性快照；子写方则用当前锁定读在删除先提交后看到 `deleted=1` 并失败。专业继续要求启用学院；用户/学生沿用既有“允许停用、禁止已删除”语义。固定锁序为 `RBAC → college（多学院升序）→ child`，既关闭 PG-H1，也避免引入父锁/RBAC 反序死锁。

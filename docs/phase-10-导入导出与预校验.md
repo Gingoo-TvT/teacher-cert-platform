@@ -39,7 +39,7 @@
 ## 6. 导入两步 + 回滚（§15.7）
 1. **预校验（不入库）**：上传→全读为 String→逐行 V-01~V-13→产出 {总数/成功预览/失败明细}，可下载异常报告。
 2. **确认导入**：策略（新增/覆盖/跳过重复/仅更新空字段）→原子认领 `PREVALIDATED → IMPORTING`。每个逐行 `REQUIRES_NEW` 事务及失败明细事务的第一项业务动作都必须对同一 batch 执行 `SELECT ... FOR UPDATE`，并只在数据库持久状态仍为 `IMPORTING` 时写业务数据、`import_record_ref` 或错误明细。
-3. **回滚**：按 batch_id 反向（INSERT→逻辑删除，UPDATE→还原 before_json），已被后续修改的跳过并提示冲突。rollback 在一个事务内将 batch `SELECT ... FOR UPDATE` 作为第一条数据库语句：先等待在途行提交并阻断后续行，再锁定当前完整 ref 集与对应业务记录、逆序补偿，最后把补偿结果和 `ROLLED_BACK/PARTIAL_ROLLBACK` 原子提交。
+3. **回滚**：按 batch_id 反向（INSERT→逻辑删除，UPDATE→还原 before_json），已被后续修改的跳过并提示冲突。rollback 在一个事务内将 batch `SELECT ... FOR UPDATE` 作为第一条数据库语句：先等待在途行提交并阻断后续行，再锁定当前完整 ref 集；在取得任何 student/training/certificate 业务子行锁之前，必须预解析所有 UPDATE `before_json` 中的目标 `collegeId`，去重并按 ID 升序执行 `deleted=0 FOR UPDATE`。目标学院缺失/已删除时必须 fail closed 或把该 ref 记为明确冲突，禁止恢复到无效父级。之后才锁对应业务记录、逆序补偿，并把补偿结果和 `ROLLED_BACK/PARTIAL_ROLLBACK` 原子提交。固定顺序为 `batch → refs → college IDs 升序 → business child`。
 4. **收尾守卫**：confirm 的 `IMPORTING → IMPORTED/FAILED` 条件更新必须恰好命中 1 行；未命中时重读数据库真实状态并返回“导入已停止”，禁止返回本地累计出的伪成功终态。
 5. **锁查询固定大小**：逐行导入与失败明细事务的 batch `FOR UPDATE` 只允许投影状态所需的固定大小字段（`status` 或 `id,status`），禁止随每行重复装载整批 `preview_json`；rollback 单次读取所需 batch 元数据不受此限制。
 6. **学院父子完整性**：每个逐行 `REQUIRES_NEW` 事务在直接新增或迁移 `student` 前，必须对解析且授权通过的目标学院执行 `deleted=0 FOR UPDATE`；与学院删除共用串行化边界，禁止标准导入成为绕过 Phase 39 父锁的旁路。
@@ -73,6 +73,7 @@
 - [x] 4 种导入策略行为正确；批次可查；回滚后恢复到导入前。
 - [x] confirm 与 rollback 竞争同一 batch 行锁：rollback 返回终态后不得再出现迟到业务写/ref；在途行先取得锁时，rollback 必须等待其提交并补偿完整引用集。
 - [x] 标准导入的直接学生写入路径已接入目标学院父行锁，目标学院已逻辑删除时整行事务失败，不产生学生孤儿。
+- **Phase 39 复核退回项（未闭环）**：历史 UPDATE ref 的 rollback 在任何业务子行锁前预锁 `before_json` 目标学院；目标学院已删除时禁止恢复，并以明确冲突/失败终态收敛。
 - [x] 5 类导出列与 §15.6 一致；导出留审计；敏感导出鉴权。
 
 ## 11. 测试用例
@@ -85,6 +86,8 @@
 - T-IMP-5A（rollback 先线性化）：两行导入在首行提交后暂停 → rollback 返回并持久化 `ROLLED_BACK` → 释放 confirm；confirm 必须返回“导入已停止/ROLLED_BACK”，两行均不得留下活跃 student/training/certificate，第二行不得产生迟到 ref。
 - T-IMP-5B（在途行先线性化）：第一行取得 batch 锁、尚未写业务数据时暂停 → rollback 发起但不得完成 → 释放行事务；rollback 必须看到并补偿该行完整 3 条 refs，终态 `ROLLED_BACK`，三类业务数据均无活跃记录且 refs 保留用于追溯。
 - T-IMP-5C（失败明细屏障）：行事务失败后、错误明细竞争 batch 锁前暂停 → rollback 先完成时不得出现迟到 `import_error_detail`；错误明细先取得锁时 rollback 必须等待其提交后再落终态。
+- T-IMP-6A（历史父级失效）：构造旧版可达的 student UPDATE ref（before=A、after=B），软删 A 后 rollback → 不得把学生恢复到 A，活跃学生学院孤儿数为 0，终态/冲突信息明确。
+- T-IMP-6B（删除/回滚双向交错）：历史 ref rollback 与 `deleteCollege(A)` 分别先取得学院父锁 → 两个方向都不得留下活跃 student/training/certificate 指向已删除 A；锁顺序必须为 `batch → refs → college IDs 升序 → business child`。
 
 ## 12. DoD
 模板/预校验/导入/回滚/异常报告/5 类导出全部可用；AT-01/02/14 自测（含 13 条 V 反例与 WPS/Excel 兼容）通过。
@@ -96,3 +99,4 @@
 - 锁外读取 batch 状态不能形成并发屏障；所有逐行业务写入、ref 与错误明细必须先取得同一 batch 行锁。rollback 需在补偿全程持锁，超大批次应关注锁持有时长，但不得为缩短时长拆成会重新暴露迟到写窗口的多事务协议。
 - batch 锁查询不能使用 `SELECT *` 逐行重读 `preview_json`；否则 N 行预览会形成 O(N²) 数据传输/映射并破坏万行级导入时限。性能修复必须收窄投影，不能移除串行化锁。
 - 当前 `PARTIAL_ROLLBACK` 表示本次补偿遇到冲突；自动重试是否应跳过已成功补偿的 ref 属于既有语义债，本次 PG-H3 不重新定义，后续如需改变必须先明确规格并补幂等标记/反例。
+- 持久 `before_json` 是不受当前在线校验保护的历史输入；任何补偿恢复都必须重新验证父引用。不能因新版本已禁止跨学院导入更新，就假定历史 ref 不含跨学院快照。
