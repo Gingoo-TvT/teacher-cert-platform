@@ -6,6 +6,20 @@ on:
   pull_request:
 
 jobs:
+  phase41-runner-contract:
+    name: Phase 41 runner 静态契约
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: 冷缓存认证 fail-fast 契约
+        run: |
+          bash -n scripts/test-phase41-backup-restore-real.sh
+          bash -n scripts/test-phase41-backup-restore-contract.sh
+          bash scripts/test-phase41-backup-restore-contract.sh
+
   backend:
     name: 后端构建
     runs-on: ubuntu-latest

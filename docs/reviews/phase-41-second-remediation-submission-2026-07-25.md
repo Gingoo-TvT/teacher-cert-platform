@@ -1,5 +1,11 @@
 # Phase 41 第二轮退回整改候选提交（2026-07-25）
 
+> **PASS 后续勘误（2026-07-25）：** 后续独立动态复核已将 Phase 41 判定为
+> **PASS（0 High / 0 Medium / 1 Low 非阻断）**。该 Low 所指出的 Gate A 冷认证
+> 缓存前置现已补入下方 JDBC 示例，真实 runner 也会在 Maven 启动前要求“受验证
+> TLS / 允许回环公钥获取 / 受控服务器 RSA 公钥文件”三选一。本文其余
+> `CHANGES_REQUESTED` 表述保留为提交当时的历史快照。
+
 ## 结论与冻结范围
 
 - 原正式结论保持 **CHANGES_REQUESTED（1 High / 2 Medium / 1 Low）**，依据
@@ -65,7 +71,7 @@ Codex 未启动后端/前端常驻服务，未运行 `Phase41BackupIT`、Failsaf
 export PHASE41_ALLOW_BACKUP_RESTORE_TEST=1
 export PHASE41_ISOLATED_ENVIRONMENT_ACK=1
 export PHASE41_DEDICATED_TARGETS_ACK=1
-export SPRING_DATASOURCE_URL='jdbc:mysql://127.0.0.1:<mysql-port>/<dedicated-db>?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false'
+export SPRING_DATASOURCE_URL='jdbc:mysql://127.0.0.1:<mysql-port>/<dedicated-db>?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false'
 export SPRING_DATASOURCE_USERNAME='<dedicated-test-user>'
 export SPRING_DATASOURCE_PASSWORD='<dedicated-test-password>'
 export SPRING_DATA_REDIS_HOST='127.0.0.1'
@@ -77,6 +83,13 @@ export MINIO_SECRET_KEY='<dedicated-minio-secret-key>'
 export MINIO_BUCKET='teacher-cert-p41-<dedicated-suffix>'
 bash scripts/test-phase41-backup-restore-real.sh
 ```
+
+上例的 `allowPublicKeyRetrieval=true&useSSL=false` 只允许用于 runner 已强制校验的
+本机回环、专用隔离测试目标，用于避免 MySQL 8.4 新账号在
+`caching_sha2_password` 冷认证缓存下依赖未记录的预热状态；它不是生产 TLS 证明。
+若不采用该隔离模式，JDBC URL 必须改为 `sslMode=VERIFY_CA/VERIFY_IDENTITY`
+（并提供受控信任链），或提供可读绝对路径
+`serverRSAPublicKeyFile=/secure/path/mysql-server-rsa-public-key.pem`。
 
 预期末行：`[phase41-backup-restore-real] PASS`。
 

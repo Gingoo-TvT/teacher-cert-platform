@@ -15,6 +15,32 @@
 
 ---
 
+## [2026-07-25] GOV-017 Phase 41 正式 PASS 后冷缓存认证 Low 闭环
+- 做了什么：按正式动态报告唯一 Low 的最小口径，修正 Gate A JDBC 示例；`scripts/test-phase41-backup-restore-real.sh` 在任何 `mysql`/Maven 调用前解析 JDBC query，并强制 `sslMode=VERIFY_CA/VERIFY_IDENTITY`、回环隔离专用 `allowPublicKeyRetrieval=true`、受控可读绝对路径 `serverRSAPublicKeyFile` 三项至少一项成立。解析固定 `LC_ALL=C`，拒绝编码/非 ASCII key、缺 `=`、三类关键键大小写重复、非法布尔/TLS 枚举以及空、相对、目录、缺失或含控制字符的 RSA 路径；日志只输出脱敏认证模式。同步更新提交材料、恢复手册、正式报告的 PASS 后续闭环段与当前治理入口。
+- 关键决策与理由：正式报告明确允许三种冷缓存认证路径，因此不把门禁擅自收窄为 TLS-only；`allowPublicKeyRetrieval=true&useSSL=false` 只允许 runner 已强制的本机回环专用测试目标，生产仍优先受验证 TLS 或受控服务器公钥。原正式结论 **PASS（0 High / 0 Medium / 1 Low 非阻断）** 与 finding count 保留为复核时快照，只追加 post-PASS closure，不伪造“复核当时已是 0 Low”。
+- 问题与解决：初版 key 解析未消除编码参数名与 Connector/J 解释可能分歧；独立 shell 复核指出后，改为只接受未编码 ASCII 标识符、固定 C locale，并扩充畸形参数与三类重复键反例。为证明静态门禁不会意外触碰服务，contract 把 `uname/mysql/mvn` 全部替换为临时 stub，把常见网络能力命令替换为 fail stub，失败用例断言 `mysql`/Maven 均为零调用并检查凭据哨兵不泄漏；CI 用无 services、只读权限、5 分钟上限的独立 job 执行。
+- 与规格的偏差/疑问：无 DDL/Flyway、业务规则、权限点、对外 API、生产连接配置或前端生产逻辑变化。Phase 41 的正式 PASS 与 Phase 47 放行不变；全项目仍由 Phase 0、44、47、53 保持 **CHANGES_REQUESTED**。
+- 测试：`bash -n scripts/test-phase41-backup-restore-real.sh`、`bash -n scripts/test-phase41-backup-restore-contract.sh` 与纯 stub `bash scripts/test-phase41-backup-restore-contract.sh` 均 PASS；最终独立只读 shell 复核为 **0 High / 0 Medium / 0 Low**。CI workflow 已接入同一静态契约，但本地未伪报远端 CI 已运行。
+- 安全边界：Codex 未执行真实 `scripts/test-phase41-backup-restore-real.sh`、`Phase41BackupIT`、MySQL/Redis/MinIO、Docker、账号、schema、对象、容器、网络、冷缓存动态复跑或任何 cyber 类操作；如需新增真实冷缓存动态证据，只能由用户或获授权复核者在专用隔离环境执行。
+- 下一步：当前入口保持 Phase 47 生命周期 fail-closed 退回整改，之后依次 Phase 53 → Phase 44 → Phase 0；全部关闭后再做最终全量审计。
+
+## [2026-07-25] GOV-016 Phase 41 动态证据增量复核 — PASS
+- 做了什么：只读核验用户归档于 `docs/reviews/evidence/phase41-real-gates-2026-07-25/` 的两项真实门禁，产出 `docs/reviews/phase-41-second-remediation-dynamic-evidence-rereview-2026-07-25.md` 与独立元数据。Gate A 完整日志确认 Surefire **149/149**、`Phase41BackupIT` **1/1**、真实 MySQL 8.4 CLI 恢复、9 模块 BUILD SUCCESS 和最终 PASS；Gate B 的 sourced `0644`、executable `0755` 与总 PASS 符合脚本完成真实版本、特殊口令认证、精确 schema 权限、零额外全局权限/`GRANT OPTION` 及清理断言后的唯一成功路径。
+- 关键决策与理由：根目录/归档日志 SHA-256 分别一致为 `B53B7200...E4345` 与 `FAD14E35...A23F`；Failsafe XML 为 1/1，当前源码/runner blob 相对 `ef6b550` 无漂移，证据时间晚于代码/材料提交，候选特有的大行失败关闭与独占对象前缀也吻合。日志未嵌入 Git SHA、MySQL 补丁版本和运行后零资源清单，故同源性定为高置信交叉印证，不冒充密码学绑定。上一轮 1 High / 2 Medium / 1 Low 的动态闭环条件已满足，正式结论 **PASS**。
+- 问题与解决：执行者用 `--init`/tini 消除容器 PID 1 不回收僵尸对 worker 反例的干扰，该调整提高 runner 真实性，不改产品。Gate A 提交材料的 JDBC 示例关闭 TLS但遗漏 `allowPublicKeyRetrieval=true`，新账号冷认证缓存下会报 `Public Key Retrieval is not allowed`；执行者以 Unix socket 安全认证预热缓存后完成本轮。规范生产 Compose 与测试默认 URL 已含该参数，故记 **1 Low 非阻断**，不推翻恢复证据；后续应修正文档/runner 并在冷缓存复跑。
+- 与规格的偏差/疑问：Phase 41 仅证明应用逻辑快照和既定账号初始化边界，不替代物理全备、binlog/PITR、MinIO mirror、生产切换、RPO/RTO、超大库或慢存储。约 24 MiB 以上原始单行会按既定 32 MiB SQL 预算 fail-closed、写入侧未同界；Flyway 对 MySQL 8.4 的支持提示、生产 TLS、口令轮换及应用账号兼持 Flyway DDL 权限均留最终全量审计。
+- 测试与清理证据：Gate A 使用 MySQL 8.4.x、64 MiB packet、JDK 17.0.19/Linux，源/恢复 scratch schema 与专属桶对象由测试清理；Gate B 为 MySQL 8.4 双模式回环。执行者另行确认 scratch schema/桶对象、五个专属容器、六个匿名卷、临时 runner 镜像与 Dockerfile 均清理，共享 `tcp-*` 未触碰；宿主 `mysql:8.4` 镜像缓存保留。独立复核者未运行 Docker、数据库、账号、网络、schema、对象、容器、卷或任何 cyber 类操作。
+- 下一步：Phase 41 置 **✅ 独立复核 PASS**，放行 Phase 47 进入其既有生命周期 fail-closed 退回整改；随后按 Phase 53 → Phase 44 → Phase 0 推进。不得把本结论扩大解释为 merge/push、部署、切流或全项目发布 GO。
+
+## [2026-07-25] GOV-015 Phase 41 第二轮独立静态增量复核 — 0 个代码 finding，2 个动态证据闸门待满足
+- 做了什么：冻结第二轮整改代码 `17b11aa..b5ed7f5` 并核对提交材料至 `ef6b550`，按 incremental + security/stability/testing-authenticity/release/configuration/data-integrity/concurrency 完成三路独立只读交叉复核，产出 `docs/reviews/phase-41-second-remediation-rereview-2026-07-25.md` 与审计元数据。上一轮生成列 High、packet Medium、回滚 Medium 和 workflow Low 均达到代码级整改，本增量未确认新的代码、配置或测试设计 finding。
+- 关键决策与理由：严格区分“代码级整改成立”和“阶段动态门禁已通过”。生成列由 metadata 排除且 5 张表有非空 fixture；Base64、32 MiB 语句预算与 64 MiB 双端 packet 链一致；故障点已位于全部正常 INSERT 后、唯一 COMMIT 前；workflow 说明已纠正。MySQL 官方资料支持候选的 `--no-login-paths --defaults-file=...` 前置选项组合，不把参数顺序误报为问题。约 24 MiB 以上原始整行按上一轮明确允许的口径让备份 FAILED，写入侧未同界只作为最终全量审计候选，不在增量复核中移动验收门槛。
+- 问题与解决：现有 `Phase41BackupIT` XML 为 15:13、候选测试源码为 17:09、代码提交为 18:08，且旧运行使用 MySQL 8.0，不能证明当前候选。仓库也没有两条真实门禁 PASS 日志。因此正式结论为 **CHANGES_REQUESTED（0 个新增代码 finding；2 个动态证据闸门未满足）**，而不是以静态结果冒充 PASS。
+- 与规格的偏差/疑问：无 DDL/Flyway、业务规则、权限点、角色、对外 API、前端生产逻辑或状态集合变化。Phase 41 继续复核退回，Phase 47 不放行。
+- 测试：独立 `mvn -B -ntp test` 为 Surefire **149/149**；`mvn -B -ntp -DskipTests package` 9 模块 PASS；前端 type-check/build、dev/prod Compose `config --quiet`、`git diff --check 17b11aa..ef6b550` 与审计报告 lint 均 PASS。未运行 Phase41BackupIT、Failsafe、真实 MySQL 8.4 CLI 或账号/授权回环。
+- 安全边界：未启动常驻服务或依赖；未创建/删除 schema、对象、账号、容器、镜像或数据卷；未执行网络探测、漏洞扫描、凭据尝试、恶意载荷、fuzz、压力、故障注入或任何可能属于 cyber 的动作。
+- 下一步：用户在获授权的专用 Linux/WSL 隔离环境分别执行 `scripts/test-phase41-backup-restore-real.sh` 与 `scripts/test-phase41-mysql-init-real.sh`，保留完整日志、退出码和对应 Git 提交。两项均 PASS 后只做动态证据增量复核；正式 PASS 前不得推进 Phase 47。
+
 ## [2026-07-25] Phase 41 第二轮退回整改候选 — 代码冻结，待用户动态门禁与独立重核
 - 做了什么：在 `codex/phase41-second-remediation` 按上一轮 **1 High / 2 Medium / 1 Low** 完成第二轮候选并冻结代码提交 `b5ed7f5`。`DatabaseBackupService` 由 JDBC metadata 计算可写列，导出 SELECT 与恢复 INSERT 同源排除生成列；文本/二进制改用 Base64，按 UTF-8/Base64/SQL 包装开销在分配前执行单行预算，默认最大 32 MiB，产物头、MinIO metadata、Compose 与手册统一声明恢复端客户端/服务端至少 64 MiB packet。`Phase41BackupIT` 给 5 张生成列表造合法非空行，加入 13 MiB JSON 大行与 1 MiB cap 失败关闭，并把回滚故障移到全部正常 INSERT 后、唯一 COMMIT 前，核对 SQLState `42S02`、未提交、显式 ROLLBACK 和 37 表 drift 原样恢复。旧 workflow 合并前可用性声明已勘误；新增用户专属真实 CLI 恢复 wrapper。
 - 关键决策与理由：不再依赖写死生成列名单，schema 演进后 metadata 未知即失败关闭；Base64 将 hex 约 2 倍膨胀降为约 4/3，但仍以编码前预算和服务端/客户端 packet 双契约阻断超限。真实门禁只接受单一 loopback authority、预先存在的 `teacher-cert-p41-*` 专用桶与每次新前缀，拒绝 JVM `-D` 覆盖已预检环境变量；最终 Spring 注入 bucket/prefix 必须与预检值完全相等。三路内部只读交叉复核最终为 0 High / 0 Medium / 0 Low，但仅作为候选静态证据。

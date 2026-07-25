@@ -1,0 +1,4 @@
+-------------------------------------------------------------------------------
+Test set: cn.edu.gpnu.platform.boot.Phase41BackupIT
+-------------------------------------------------------------------------------
+Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 27.58 s -- in cn.edu.gpnu.platform.boot.Phase41BackupIT
