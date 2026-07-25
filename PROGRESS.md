@@ -5,11 +5,11 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**Phase 41 整改候选已独立增量复核并退回**（分支：`codex/phase41-recoverable-backup`；代码候选：`c69ea73`；报告：`docs/reviews/phase-41-remediation-rereview-2026-07-25.md`）。Phase 39 第二轮独立增量复核已 PASS；统一入口为 `docs/CURRENT-EXECUTION-PLAN.md`。
+- 当前阶段：**Phase 41 第二轮退回整改候选已冻结，待用户动态门禁与独立增量复核**（分支：`codex/phase41-second-remediation`；代码候选：`b5ed7f5`；提交材料：`docs/reviews/phase-41-second-remediation-submission-2026-07-25.md`）。上一轮正式报告仍为 `docs/reviews/phase-41-remediation-rereview-2026-07-25.md`；统一入口为 `docs/CURRENT-EXECUTION-PLAN.md`。
 - 当前结论：WS-1/WS-2/WS-3/WS-10/WS-13 PASS；U-001 CI 零状态契约 PASS。Phase 42 与 Phase 39 第二轮均已独立 PASS。Phase 41 本轮为 **CHANGES_REQUESTED（1 High / 2 Medium / 1 Low）**；Phase 0、41、44、47、53 继续复核退回。
-- P0 放行项：PG-M2 初始化输入/凭据边界代码级已关闭，真实 MySQL 8.4 账号认证/授权仍待动态门禁。PG-H2 未关闭：37 表产物显式写入 V24/V28 的 5 个生成列，正常生产行无法恢复；hex 大文本缺 mysql packet 契约；失败用例未覆盖已有 INSERT 后回滚。当前代码缺陷先阻断，不要求用户在本候选上执行账号/容器动态门禁。
-- 最近更新：2026-07-25（独立后端 package、前端 type-check/build、生产 Compose config 与 diff check 通过；开发者 XML 为 **334/334**、`Phase41BackupIT` **1/1**，但来自 MySQL 8.0，且 5 张生成列表为空。未启动常驻应用/依赖，未执行账号、容器、数据卷、漏洞扫描、攻击性探测或任何 cyber 操作）。
-- 下一步：先按 High → packet Medium → 回滚证据 Medium → workflow Low 整改并重交；下一候选通过代码与真实 MySQL 8.4 CLI 恢复门禁后，再由用户执行账号/授权回环并保留 PASS 日志。只有正式 PASS 后才放行 Phase 47，随后按 Phase 47 → 53 → 44 → 0 推进；全部退回项关闭后执行最终全量审计。
+- P0 放行项：候选代码已用元数据排除生成列并补齐 5 张非空生成列表；恢复格式升级为 Base64 + 编码前 32 MiB 单语句预算，客户端/服务端契约为 64 MiB packet；回滚反例移至全部正常 INSERT 后、唯一 COMMIT 前，并核对缺表 SQLState、未提交与显式回滚；旧 workflow 说明已勘误。三路内部只读静态复核为 0 High / 0 Medium / 0 Low，但不替代动态门禁或正式独立结论。
+- 最近更新：2026-07-25（候选提交 `b5ed7f5`；后端 Surefire **149/149**、9 模块 package、前端 type-check/build、dev/prod Compose 仅配置解析、三个脚本 `bash -n`、纯 stub 初始化契约与 diff check 均通过。未运行 `Phase41BackupIT`/Failsafe/真实恢复，未启动常驻应用或依赖，未执行账号、容器、schema、对象存储写入或任何 cyber 操作）。
+- 下一步：由用户在获授权的专用 Linux/WSL 隔离环境分别执行 `scripts/test-phase41-backup-restore-real.sh` 与 `scripts/test-phase41-mysql-init-real.sh`，保留两条 PASS 日志后交独立增量复核。只有新报告正式 PASS 后才放行 Phase 47，随后按 Phase 47 → 53 → 44 → 0 推进；全部退回项关闭后执行最终全量审计。
 
 ## 审计整改工作流
 | WS | 内容 | 状态 |
@@ -34,7 +34,7 @@
 | Phase 36–38、40、43、45–46、48–52 | 已合并 | 逐阶段 PASS 报告齐全 | ✅ 已复核 |
 | Phase 42 | 第二轮整改 `bd1db49` | `phase-42-second-remediation-rereview-2026-07-24.md` PASS；首轮 1 Medium / 1 Low 全部关闭 | ✅ 独立复核 PASS |
 | Phase 39 | 第二轮整改 `73406ed` | `phase-39-second-remediation-rereview-2026-07-24.md` PASS；第一轮 1 High / 1 Low 全部关闭 | ✅ 独立复核 PASS；三个基线债务候选留最终全量审计 |
-| Phase 41 | 整改候选 `c69ea73` | `phase-41-remediation-rereview-2026-07-25.md`：1 High / 2 Medium / 1 Low | ❌ 独立复核退回；PG-H2 未关闭，PG-M2 仅代码级关闭 |
+| Phase 41 | 第二轮整改候选 `b5ed7f5` | 上一轮 `phase-41-remediation-rereview-2026-07-25.md`：1 High / 2 Medium / 1 Low；本轮提交材料 `phase-41-second-remediation-submission-2026-07-25.md` | ❌ 正式状态仍为独立复核退回；候选待用户两项动态门禁与新独立报告 |
 | Phase 44、47、53 | 已合并 | 逐阶段 CHANGES REQUESTED 报告齐全；Phase 53 另有 WS-3 重核补充证据 | ❌ 复核退回 |
 
 逐 Phase 结论、报告路径与后续顺序以 `docs/CURRENT-EXECUTION-PLAN.md` 为准。

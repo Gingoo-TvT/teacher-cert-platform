@@ -15,6 +15,15 @@
 
 ---
 
+## [2026-07-25] Phase 41 第二轮退回整改候选 — 代码冻结，待用户动态门禁与独立重核
+- 做了什么：在 `codex/phase41-second-remediation` 按上一轮 **1 High / 2 Medium / 1 Low** 完成第二轮候选并冻结代码提交 `b5ed7f5`。`DatabaseBackupService` 由 JDBC metadata 计算可写列，导出 SELECT 与恢复 INSERT 同源排除生成列；文本/二进制改用 Base64，按 UTF-8/Base64/SQL 包装开销在分配前执行单行预算，默认最大 32 MiB，产物头、MinIO metadata、Compose 与手册统一声明恢复端客户端/服务端至少 64 MiB packet。`Phase41BackupIT` 给 5 张生成列表造合法非空行，加入 13 MiB JSON 大行与 1 MiB cap 失败关闭，并把回滚故障移到全部正常 INSERT 后、唯一 COMMIT 前，核对 SQLState `42S02`、未提交、显式 ROLLBACK 和 37 表 drift 原样恢复。旧 workflow 合并前可用性声明已勘误；新增用户专属真实 CLI 恢复 wrapper。
+- 关键决策与理由：不再依赖写死生成列名单，schema 演进后 metadata 未知即失败关闭；Base64 将 hex 约 2 倍膨胀降为约 4/3，但仍以编码前预算和服务端/客户端 packet 双契约阻断超限。真实门禁只接受单一 loopback authority、预先存在的 `teacher-cert-p41-*` 专用桶与每次新前缀，拒绝 JVM `-D` 覆盖已预检环境变量；最终 Spring 注入 bucket/prefix 必须与预检值完全相等。三路内部只读交叉复核最终为 0 High / 0 Medium / 0 Low，但仅作为候选静态证据。
+- 问题与解决：交叉复核先后发现生产 ResultSet/行字面量可能放大堆占用、预算检查发生在编码后、CLI wrapper 可被多主机 JDBC authority/JVM 属性/复用 token 绕过，以及预检目标与 Spring 最终写入目标可能不同。分别改为 Connector/J forward-only 流式消费、编码前精确预算与分段输出、精确 loopback authority/环境变量权威/每次新 token，并用 DynamicPropertySource 固定最终 bucket/prefix 后在备份前等值断言。
+- 与规格的偏差/疑问：无 DDL/Flyway、业务规则、权限点、角色、对外 API、前端生产逻辑或状态集合变化。上一轮正式报告不改写，Phase 41 继续 **CHANGES_REQUESTED（1 High / 2 Medium / 1 Low）**，Phase 47 不放行。
+- 测试：`mvn -B -ntp test` 为 Surefire **149/149**，0 failure/error/skip；`mvn -B -ntp -DskipTests package` 9 模块 BUILD SUCCESS；前端 type-check/build、dev/prod Compose `config --quiet`、三个 Phase 41 脚本 `bash -n`、纯 stub `scripts/test-phase41-mysql-init.sh` 与 `git diff --check` 均 PASS。未运行 `Phase41BackupIT`、Failsafe、`clean verify` 或真实基础设施动态门禁。
+- 安全边界：未启动常驻服务或依赖；未创建/删除真实 schema、对象、账号、容器或数据卷；未运行真实 `mysql` 恢复、账号认证、漏洞扫描、攻击性探测、恶意载荷、fuzz、压力或任何可能属于 cyber 的动作。所有安全敏感命令及精确影响均列于 `docs/reviews/phase-41-second-remediation-submission-2026-07-25.md`，只交由用户亲自执行。
+- 下一步：用户在获授权的专用 Linux/WSL 隔离环境分别保留 `[phase41-backup-restore-real] PASS` 与 `[phase41-mysql-init-real] PASS` 日志，再冻结 `17b11aa..b5ed7f5` 交独立增量复核。新报告 PASS 前不得推进 Phase 47。
+
 ## [2026-07-25] GOV-014 Phase 41 整改候选独立增量复核退回 — 1 High / 2 Medium / 1 Low
 - 做了什么：冻结整改代码 `ca11ecc..c69ea73` 并核对提交材料至 `274a939`，按 incremental + security/stability/testing-authenticity/release/configuration/data-integrity/concurrency 独立复核 PG-H2/PG-M2，产出 `docs/reviews/phase-41-remediation-rereview-2026-07-25.md` 与审计元数据。PG-M2 的标识符限制、应用口令转义、root 凭据 option file、sourced/executable 双路径和最小授权静态链成立，代码级可关闭；但 PG-H2 仍未关闭，正式结论 **CHANGES_REQUESTED（1 High / 2 Medium / 1 Low）**。
 - 关键决策与理由：High 为导出器 `SELECT *` 后显式写入全部列，而 V24/V28 有 5 个 `GENERATED ALWAYS ... STORED` 列；MySQL 只允许显式写 `DEFAULT`，正常学生/证书/文件/上传/过程材料行会使恢复失败。Medium 一是文本 hex 编码让单行 SQL 约膨胀两倍，手册默认 `mysql` 客户端无 packet 上限契约，大 `preview_json` 可在源库合法但无法回放；二是失败反例破坏首表 `sys_region` 的首个 INSERT，且目标已与产物同态，只证明 DELETE 回滚，不能证明已有 INSERT 成功后的整体回滚。Low 为新增 workflow 只有 `workflow_dispatch`，但文件尚不在默认分支，不能作为合并前 GitHub 手工入口。
