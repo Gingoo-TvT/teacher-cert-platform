@@ -15,6 +15,15 @@
 
 ---
 
+## [2026-07-26] Phase 47 第一轮整改独立增量复核 — CHANGES_REQUESTED（1 Medium / 1 Low）
+- 做了什么：冻结代码 `b2f1f70..aa6f81c`、候选材料至 `e81a485`，按增量、稳定性、测试真实性、发布、配置、数据完整性与并发维度独立复核；产出 `docs/reviews/phase-47-remediation-rereview-2026-07-26.md`、审计 metadata 和本地 MinIO 8.5.12 字节码证据。确认 `AccessDenied`、500、其它 404、网络/解析和畸形非空响应均会在整桶写入前失败关闭，原危险覆盖侧已关闭；但原 finding 的合法“无配置”正向侧未闭环。
+- 关键决策与理由：根 POM、离线依赖树和独立测试类路径均锁定 `io.minio:minio:8.5.12`，生产 `MinioConfig` 直接注入标准 SDK 客户端。对 SHA-256 `9519FF2FD284AC0FC5C22D1091F21A9C9298C9C7CAC85615DE1FF10F1710786E` 的本地 JAR 执行 `javap`，确认 SDK 在 `NoSuchLifecycleConfiguration` 时内部直接返回 `null`；同步客户端原样返回。因此 `FileMaintenanceService:98-100` 将 null 判为非法会让全新/无生命周期配置的桶每次都返回 false、永远不创建托管 abort 规则，定级 **Medium / High confidence**。
+- 问题与解决：新增 Mockito 正例让高层 `MinioClient` 抛出 SDK 实际不会向业务层暴露的异常，而 `nullConfigurationWhileReadingFailsClosedWithoutWriting` 又把真实 no-config sentinel 断言为失败，故 12/12 是合同错层虚绿。另确认 **1 Low / High confidence**：候选只记录异常简单类名，AccessDenied、InternalError 与 NoSuchBucket 全部显示 `ErrorResponseException`，调用层仅记录 `ok=false`，无法安全区分权限、配置与暂态服务故障。成功读取后的整桶 get→set 无 CAS、幂等只核 ID+days 及多实例调度均为本候选前既有边界，留最终全量审计，不计本轮新增 finding。
+- 与规格的偏差/疑问：无 DDL/Flyway、参数、调度频率、权限点、业务状态、API、前端或其它清理语义变化。Phase 47 保持复核退回，Phase 53、merge、push、部署、切流和项目发布继续不放行；不得回滚到会恢复任意读取失败后覆盖风险的旧实现。
+- 测试：独立离线 `mvn -o -B -ntp -pl platform-file -am clean test` **BUILD SUCCESS，15/15**（`FileMaintenanceServiceTest` 12/12）；`mvn -o -B -ntp -DskipTests package` 后端 **9/9 modules BUILD SUCCESS**；离线 dependency tree 确认 MinIO **8.5.12**；候选代码 diff check PASS。测试 XML SHA-256 为 `94158690EDC53C2BB1F9201A2AA73BD44A5DD2A82801E9294CF2658EC75742F5`。
+- 安全边界：未启动常驻服务，未运行 Docker、数据库、真实 MinIO、真实桶生命周期读写、权限变更、网络请求/故障注入、扫描、攻击性探测、凭据尝试、恶意载荷、fuzz、压力或任何可能属于 cyber 的动作。当前 finding 已由锁定本地 JAR 字节码与生产注入路径确定，无需 Codex 执行真实 MinIO。
+- 下一步：第二轮最小整改将 `cfg == null` 按 SDK 8.5.12 的明确无配置处理并允许创建一次；其它异常和畸形非空配置继续 fail-closed；正例改为 `thenReturn(null)` 并断言精确写一次；用本地白名单分类关闭日志 Low，不恢复原始 message/endpoint/path。冻结新提交后仅做该增量与必要回归复核。
+
 ## [2026-07-25] Phase 47 退回整改候选完成 — 生命周期读取 fail-closed，待独立增量复核
 - 做了什么：在 `codex/phase47-lifecycle-fail-closed` 针对 `docs/reviews/phase-47-review.md` 的原 1 Major 完成最小整改并冻结代码 `aa6f81c`。`FileMaintenanceService.currentRules` 只捕获 `ErrorResponseException`，且仅在错误码精确为 `NoSuchLifecycleConfiguration` 时返回空规则；其它 S3 错误、网络/解析异常及 null/empty 配置均传播到外层，在任何 `setBucketLifecycle` 前返回 false。成功读取后继续保留外部规则，只替换稳定托管 ID；告警不再输出服务端 message 或内部 endpoint/path，只记录异常类型。
 - 关键决策与理由：生命周期写入是整桶替换，读取失败时无法证明“现有规则为空”，因此必须 fail-closed，不能用“稍后可重试”换取覆盖其它规则的风险。精确错误码而非 HTTP 404 分流可避免把 `NoSuchBucket` 误当无生命周期配置。SDK 的 `LifecycleConfiguration` 正常构造拒绝 null/empty rules，故畸形成功响应同样失败关闭。整桶 API 无 CAS，读取成功后的外部并发变更窗口无法由本次局部修复消除，治理文档明确要求应用任务与人工生命周期变更串行。

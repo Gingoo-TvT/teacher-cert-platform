@@ -1,0 +1,126 @@
+Phase 47 remediation rereview - MinIO 8.5.12 lifecycle contract evidence
+Captured: 2026-07-26
+Reviewer: OpenAI Codex
+
+Safety boundary
+---------------
+This evidence was produced entirely from the repository and the local Maven
+cache. No service, Docker container, database, object store, network request,
+fault injection, credential operation, fuzzing, or cyber-like action was run.
+
+Candidate
+---------
+Branch: codex/phase47-lifecycle-fail-closed
+Production/test code commit:
+aa6f81c3518259c30cd7190a8c521cef61108843
+Submission commit:
+e81a485c97506eee966e6a2245e830a6cdc0b665
+Code range:
+b2f1f701da733d0afa849ed4094042d61adbf338..aa6f81c3518259c30cd7190a8c521cef61108843
+
+Dependency resolution
+---------------------
+Command:
+mvn -o -B -ntp -pl platform-file dependency:tree "-Dincludes=io.minio:minio"
+
+Relevant output:
+[INFO] cn.edu.gpnu:platform-file:jar:1.0.0-SNAPSHOT
+[INFO] \- io.minio:minio:jar:8.5.12:compile
+[INFO] BUILD SUCCESS
+
+Local artifact
+--------------
+Path:
+C:\Users\wenbibuhaoqwq\.m2\repository\io\minio\minio\8.5.12\minio-8.5.12.jar
+
+SHA-256:
+9519FF2FD284AC0FC5C22D1091F21A9C9298C9C7CAC85615DE1FF10F1710786E
+
+SDK bytecode contract
+---------------------
+Command:
+javap -classpath <minio-8.5.12.jar> -c -p io.minio.MinioAsyncClient
+
+Relevant disassembly:
+private static okhttp3.Response lambda$getBucketLifecycle$50(java.lang.Throwable);
+  ...
+  35: aload_1
+  36: instanceof    #367  // io/minio/errors/ErrorResponseException
+  39: ifeq          63
+  42: aload_1
+  43: checkcast     #367  // io/minio/errors/ErrorResponseException
+  46: invokevirtual #368  // ErrorResponseException.errorResponse()
+  49: invokevirtual #369  // ErrorResponse.code()
+  52: ldc_w         #377  // String NoSuchLifecycleConfiguration
+  55: invokevirtual #141  // String.equals(Object)
+  58: ifeq          63
+  61: aconst_null
+  62: areturn
+  63: new           #306  // java/util/concurrent/CompletionException
+  ...
+
+private static io.minio.messages.LifecycleConfiguration
+lambda$getBucketLifecycle$51(okhttp3.Response);
+  0: aload_0
+  1: ifnonnull     6
+  4: aconst_null
+  5: areturn
+  ...
+
+Command:
+javap -classpath <minio-8.5.12.jar> -c -p io.minio.MinioClient
+
+Relevant disassembly:
+public io.minio.messages.LifecycleConfiguration
+getBucketLifecycle(io.minio.GetBucketLifecycleArgs) ...
+  0: aload_0
+  1: getfield      #3   // asyncClient
+  4: aload_1
+  5: invokevirtual #54  // MinioAsyncClient.getBucketLifecycle(...)
+  8: invokevirtual #5   // CompletableFuture.get()
+ 11: checkcast     #55  // LifecycleConfiguration
+ 14: areturn
+  ...
+
+Interpretation
+--------------
+For the locked MinIO Java SDK 8.5.12, the SDK consumes
+NoSuchLifecycleConfiguration and exposes it to synchronous callers as a null
+LifecycleConfiguration. The production bean is the unadapted SDK client built
+in platform-file/src/main/java/cn/edu/gpnu/platform/file/config/MinioConfig.java.
+
+Candidate contradiction
+-----------------------
+FileMaintenanceService.java lines 98-100 classify cfg == null as an invalid
+read and throw IllegalStateException; the outer catch returns false before
+setBucketLifecycle. FileMaintenanceServiceTest.java lines 53-55 instead mock
+the high-level client to throw NoSuchLifecycleConfiguration, a state the locked
+SDK consumes internally. Lines 135-141 explicitly assert that the real
+no-configuration representation, null, fails without writing.
+
+Independent safe gates
+----------------------
+Command:
+mvn -o -B -ntp -pl platform-file -am clean test
+
+Result:
+BUILD SUCCESS
+Tests run: 15, Failures: 0, Errors: 0, Skipped: 0
+FileMaintenanceServiceTest: 12/12
+
+Command:
+mvn -o -B -ntp -DskipTests package
+
+Result:
+BUILD SUCCESS
+Reactor modules: 9/9
+
+Independent test XML SHA-256:
+94158690EDC53C2BB1F9201A2AA73BD44A5DD2A82801E9294CF2658EC75742F5
+
+Conclusion
+----------
+The tests execute and compile cleanly, but the positive no-configuration case
+is a false contract simulation. On a bucket without lifecycle configuration,
+the candidate returns false on every scheduled attempt and never installs the
+managed AbortIncompleteMultipartUpload rule.
