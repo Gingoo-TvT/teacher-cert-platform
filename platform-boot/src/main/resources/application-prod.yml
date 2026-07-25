@@ -67,6 +67,8 @@ platform:
       cron: "0 0 3 * * *"   # 每日 03:00 低峰全量备份
     # bucket: teacher-cert-backup   # 可选：独立备份桶（不设则复用 minio.bucket）
     prefix: db-backup/
+    # TCP_SQL_V2 单条恢复 SQL 上限；只允许向下收紧，恢复两端必须支持至少 64 MiB packet。
+    max-sql-statement-bytes: ${BACKUP_MAX_SQL_STATEMENT_BYTES:33554432}
   # Phase 47（P1-9 定时清理）：仅生产开启（dev/测试默认关闭、不触发）。错峰于备份(03:00)之后。
   # 保留期/阈值可经 sys_param 覆盖（cleanup.auditLog.retentionDays 默认180 / cleanup.notification.retentionDays 默认90
   # / cleanup.prune.batchSize 默认1000 / cleanup.minio.abortIncompleteDays 默认7 / cleanup.orphan.graceHours 默认24）。

@@ -1,3 +1,5 @@
+# 仅在本文件已进入默认分支后，GitHub 才会显示/接受 workflow_dispatch。
+# 当前特性分支合并前的动态证据必须使用文档中的本地显式授权脚本。
 name: Phase 41 MySQL 8.4 手工安全回环
 
 on:

@@ -15,6 +15,8 @@ services:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_0900_ai_ci
       - --default-time-zone=+08:00
+      # Phase 41 恢复产物声明 32 MiB 单语句上限，并要求目标服务端至少支持 64 MiB packet。
+      - --max-allowed-packet=64M
     # 不再 publish 3306 到主机（Phase 41.1，P0-5）：backend 走内部 DNS(mysql:3306) 即可，
     # 主机网无需（也不应）能直连数据库；如需运维排障，用 `docker exec -it teacher-cert-mysql-prod mysql ...`。
     volumes:
@@ -94,6 +96,7 @@ services:
       MINIO_CONNECTION_TIMEOUT_SECONDS: ${MINIO_CONNECTION_TIMEOUT_SECONDS:-10}
       MINIO_READ_TIMEOUT_SECONDS: ${MINIO_READ_TIMEOUT_SECONDS:-30}
       MINIO_CALL_TIMEOUT_SECONDS: ${MINIO_CALL_TIMEOUT_SECONDS:-900}
+      BACKUP_MAX_SQL_STATEMENT_BYTES: ${BACKUP_MAX_SQL_STATEMENT_BYTES:-33554432}
       # WS-03：媒体探测使用单实例独占持久卷和总量预留，避免占用容器 overlay。
       # 禁止通过 --scale 让多个 backend 共享下方命名卷；扩容须改为 per-replica 独立卷/配额。
       VIDEO_PROBE_TEMP_DIR: /var/lib/teacher-cert/video-probe

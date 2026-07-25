@@ -39,7 +39,10 @@ jobs:
           java-version: '17'
           cache: maven
       - name: Phase 41 MySQL 初始化脚本契约
-        run: bash scripts/test-phase41-mysql-init.sh
+        run: |
+          bash scripts/test-phase41-mysql-init.sh
+          bash -n scripts/test-phase41-mysql-init-real.sh
+          bash -n scripts/test-phase41-backup-restore-real.sh
       - name: 启动并等待 MinIO
         run: |
           docker run --detach --name teacher-cert-ci-minio \
