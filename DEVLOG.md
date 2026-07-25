@@ -15,6 +15,15 @@
 
 ---
 
+## [2026-07-26] Phase 47 第二轮整改候选完成 — SDK 缺省合同与日志 Low 闭环，待独立增量复核
+- 做了什么：在 `codex/phase47-lifecycle-fail-closed` 冻结第二轮生产/测试代码 `3bddf6c`。`FileMaintenanceService.currentRules` 依据仓库锁定的 MinIO SDK 8.5.12 合同，将高层客户端返回的 `cfg == null` 解释为服务端明确“尚无生命周期配置”，允许首次创建托管规则；删除业务层对 `NoSuchLifecycleConfiguration` 异常的放行捕获，所有实际抛出的异常及非空配置中的 null/empty rules 仍在 `setBucketLifecycle` 前 fail-closed。失败日志改为本地固定六类 `ACCESS_DENIED / NO_SUCH_BUCKET / SERVER_ERROR / TRANSPORT / PARSE / INVALID_RESPONSE`，不传入异常对象、原始 S3 code、message、URL、bucket path 或 trace。
+- 关键决策与理由：正式第一轮复核已用本地 JAR 字节码确认 8.5.12 会在 SDK 内消费 `NoSuchLifecycleConfiguration` 并向同步调用方返回 null；因此只把高层 null 作为 ABSENT，异常形式的同名错误仍按 `INVALID_RESPONSE` 拒绝写入，避免再次在错误抽象层放宽。日志用本地枚举映射而不是恢复服务端原文，兼顾运维可操作性与敏感信息边界。
+- 问题与解决：第一次模块测试已完成生产编译，但新日志断言助手对空的“附加禁词”数组调用 AssertJ `doesNotContain`，造成 6 个测试辅助错误；改为逐项断言后同一门禁全绿。该问题只在新测试辅助代码，不是生产行为失败。独立只读差异审查随后确认当前两个文件 **PASS（0 High / 0 Medium / 0 Low）**；该内部结论不替代阶段正式独立复核。
+- 与规格的偏差/疑问：无 DDL/Flyway、参数、调度、权限点、API、前端或其它清理语义变化。成功读取后的 get→整桶 set 仍无 CAS，应用任务与人工/外部生命周期修改必须运维串行；该既有边界留最终全量审计。第一轮正式结论仍为 **CHANGES_REQUESTED（1 Medium / 1 Low）**，第二轮候选不构成 PASS，Phase 53、merge、push、部署、切流和项目发布继续不放行。
+- 测试：最终 `mvn -B -ntp -pl platform-file -am test` **BUILD SUCCESS，16/16**（`FileMaintenanceServiceTest` 13/13）；覆盖 null→创建且精确写一次、异常形式 NoSuchLifecycleConfiguration/403/500/其它 404/I/O/XML/InvalidResponse/空错误响应/畸形非空配置均不写、规则保留/替换/幂等，以及六类日志分类与 message/URL/path/trace/Throwable 不落日志。`mvn -B -ntp -DskipTests package` 后端 **9/9 modules BUILD SUCCESS**；`git diff --check` PASS。
+- 安全边界：未启动常驻服务，未运行 Docker、数据库、真实 MinIO、真实桶生命周期读写、权限变更、网络请求或故障注入、扫描、攻击性探测、凭据尝试、恶意载荷、fuzz、压力或任何可能属于 cyber 的动作；本轮正式报告也明确真实 MinIO 动态验证不是确认 finding 的必要门禁。
+- 下一步：以 `docs/reviews/phase-47-second-remediation-submission-2026-07-26.md` 提交 `aa6f81c..3bddf6c` 的最小代码增量与必要回归，等待正式独立增量复核。只有新报告 PASS 后才关闭 Phase 47 并放行 Phase 53；之后按 53 → 44 → 0 推进。
+
 ## [2026-07-26] Phase 47 第一轮整改独立增量复核 — CHANGES_REQUESTED（1 Medium / 1 Low）
 - 做了什么：冻结代码 `b2f1f70..aa6f81c`、候选材料至 `e81a485`，按增量、稳定性、测试真实性、发布、配置、数据完整性与并发维度独立复核；产出 `docs/reviews/phase-47-remediation-rereview-2026-07-26.md`、审计 metadata 和本地 MinIO 8.5.12 字节码证据。确认 `AccessDenied`、500、其它 404、网络/解析和畸形非空响应均会在整桶写入前失败关闭，原危险覆盖侧已关闭；但原 finding 的合法“无配置”正向侧未闭环。
 - 关键决策与理由：根 POM、离线依赖树和独立测试类路径均锁定 `io.minio:minio:8.5.12`，生产 `MinioConfig` 直接注入标准 SDK 客户端。对 SHA-256 `9519FF2FD284AC0FC5C22D1091F21A9C9298C9C7CAC85615DE1FF10F1710786E` 的本地 JAR 执行 `javap`，确认 SDK 在 `NoSuchLifecycleConfiguration` 时内部直接返回 `null`；同步客户端原样返回。因此 `FileMaintenanceService:98-100` 将 null 判为非法会让全新/无生命周期配置的桶每次都返回 false、永远不创建托管 abort 规则，定级 **Medium / High confidence**。
