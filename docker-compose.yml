@@ -5,8 +5,9 @@ services:
     restart: unless-stopped
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-      MYSQL_DATABASE: ${MYSQL_DATABASE}
-      # Phase 41.1（P0-5）：供 deploy/mysql-init/01-app-user.sh 首次初始化时建最小权限应用账号
+      # Phase 41 整改：不把可配置库名交给官方 entrypoint 未经本项目校验地提前消费；
+      # 由 01-app-user.sh 校验 APP_DATABASE 后创建库与最小权限账号。
+      APP_DATABASE: ${MYSQL_DATABASE}
       DB_USERNAME: ${DB_USERNAME:-teacher_app}
       DB_PASSWORD: ${DB_PASSWORD}
       TZ: Asia/Shanghai

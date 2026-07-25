@@ -25,23 +25,25 @@ import java.nio.file.Path;
 import java.security.DigestOutputStream;
 import java.security.MessageDigest;
 import java.sql.Connection;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
-import java.sql.Statement;
 import java.sql.Types;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Map;
 import java.util.zip.GZIPOutputStream;
 
 /**
  * Phase 41.2（P0-6 真备份）：应用内 JDBC 逻辑导出 → gzip → 上传 MinIO 备份前缀，产出真实可核验的备份产物。
  *
  * <p>做法（app-driven，不 shell out mysqldump，保持可移植）：以单一 REPEATABLE_READ 只读连接对
- * {@link #BACKUP_TABLES 恢复关键表}逐表 {@code SELECT *}，序列化为可回放的 {@code INSERT} 语句（含逻辑删除行，
- * {@code deleted} 标记原样保留），流式写入本地临时文件的 GZIP 流并同步计算 SHA-256，再 {@code putObject} 到
- * MinIO（默认复用业务桶 + {@code db-backup/} 前缀），最后把 {@link BackupRecord} 更新为真实
+ * {@link #BACKUP_TABLES 恢复关键表}逐表 {@code SELECT *}，序列化为可回放的事务性 replace-restore 脚本：
+ * 先反序 {@code DELETE} 受管表，再正序 {@code INSERT} 快照（含逻辑删除行，{@code deleted} 标记原样保留）。
+ * 产物流式写入本地临时文件的 GZIP 流并同步计算 SHA-256，再 {@code putObject} 到 MinIO（默认复用业务桶 +
+ * {@code db-backup/} 前缀），最后把 {@link BackupRecord} 更新为真实
  * {@code storageUri/byteSize/checksum/tableCount/rowCount} 与 {@code RUNNING→COMPLETED}（失败置 {@code FAILED}）。
  *
  * <p>状态与产物元数据经 {@link TransactionTemplate} 各自独立提交：先提交 {@code RUNNING}（运行期即可见），
@@ -122,6 +124,12 @@ public class DatabaseBackupService {
                         .object(objectKey)
                         .stream(in, export.byteSize, -1)
                         .contentType("application/gzip")
+                        .userMetadata(Map.of(
+                                "tcp-record-id", record.getId().toString(),
+                                "tcp-sha256", export.sha256,
+                                "tcp-restore-mode", "replace-after-flyway",
+                                "tcp-table-count", Integer.toString(export.tableCount),
+                                "tcp-row-count", Long.toString(export.rowCount)))
                         .build());
             }
             record.setStatus("COMPLETED");
@@ -163,13 +171,20 @@ public class DatabaseBackupService {
              GZIPOutputStream gzip = new GZIPOutputStream(digestOut);
              Writer w = new BufferedWriter(new OutputStreamWriter(gzip, StandardCharsets.UTF_8))) {
             w.write("-- Teacher-Cert-Platform 逻辑备份（JDBC 数据导出）\n");
-            w.write("-- backupType=" + backupType + " scope=" + (scope == null ? "" : scope)
+            w.write("-- backupType=" + commentValue(backupType) + " scope=" + commentValue(scope)
                     + " recordId=" + recordId + "\n");
             w.write("-- generatedAt=" + LocalDateTime.now() + "\n");
-            w.write("-- 内容：恢复关键表当前行的 INSERT（含逻辑删除行，deleted 原样保留）；"
-                    + "恢复：gunzip 后回放到 Flyway 迁移过的空库（如 teacher_cert_restore）。\n");
+            w.write("-- restoreMode=REPLACE_AFTER_FLYWAY transaction=SINGLE "
+                    + "backupRecordPolicy=TERMINAL_ONLY\n");
+            w.write("-- 内容：事务内反序清空受管表并回放完整快照；仅允许用于同版本 Flyway 已迁移的隔离恢复库。\n");
             w.write("SET NAMES utf8mb4;\n");
+            w.write("SET @TCP_OLD_FOREIGN_KEY_CHECKS=@@FOREIGN_KEY_CHECKS;\n");
             w.write("SET FOREIGN_KEY_CHECKS=0;\n");
+            w.write("START TRANSACTION;\n");
+            w.write("-- 清空目标受管表，删除 Flyway 种子和快照外数据；DELETE 可随事务失败回滚。\n");
+            for (int i = BACKUP_TABLES.size() - 1; i >= 0; i--) {
+                w.write("DELETE FROM `" + BACKUP_TABLES.get(i) + "`;\n");
+            }
             try (Connection conn = dataSource.getConnection()) {
                 boolean oldAuto = conn.getAutoCommit();
                 conn.setAutoCommit(false);
@@ -184,7 +199,8 @@ public class DatabaseBackupService {
                     conn.setAutoCommit(oldAuto);
                 }
             }
-            w.write("SET FOREIGN_KEY_CHECKS=1;\n");
+            w.write("COMMIT;\n");
+            w.write("SET FOREIGN_KEY_CHECKS=@TCP_OLD_FOREIGN_KEY_CHECKS;\n");
             w.write("-- EOF tables=" + tableCount + " rows=" + rowCount + "\n");
         }
         Export export = new Export();
@@ -198,35 +214,41 @@ public class DatabaseBackupService {
     private long dumpTable(Connection conn, String table, Writer w) throws Exception {
         long count = 0;
         w.write("\n-- ---------- " + table + " ----------\n");
-        try (Statement st = conn.createStatement();
-             ResultSet rs = st.executeQuery("SELECT * FROM `" + table + "`")) {
-            ResultSetMetaData md = rs.getMetaData();
-            int cols = md.getColumnCount();
-            StringBuilder colList = new StringBuilder();
-            for (int i = 1; i <= cols; i++) {
-                if (i > 1) {
-                    colList.append(',');
-                }
-                colList.append('`').append(md.getColumnName(i)).append('`');
-            }
-            String insertPrefix = "INSERT INTO `" + table + "` (" + colList + ") VALUES ";
-            while (rs.next()) {
-                StringBuilder sb = new StringBuilder(insertPrefix).append('(');
+        boolean terminalBackupRecordsOnly = "backup_record".equals(table);
+        String query = "SELECT * FROM `" + table + "`"
+                + (terminalBackupRecordsOnly
+                ? " WHERE status IN ('COMPLETED','FAILED')"
+                : "");
+        try (PreparedStatement st = conn.prepareStatement(query)) {
+            try (ResultSet rs = st.executeQuery()) {
+                ResultSetMetaData md = rs.getMetaData();
+                int cols = md.getColumnCount();
+                StringBuilder colList = new StringBuilder();
                 for (int i = 1; i <= cols; i++) {
                     if (i > 1) {
-                        sb.append(',');
+                        colList.append(',');
                     }
-                    sb.append(sqlLiteral(rs, md, i));
+                    colList.append('`').append(md.getColumnName(i)).append('`');
                 }
-                sb.append(");\n");
-                w.write(sb.toString());
-                count++;
+                String insertPrefix = "INSERT INTO `" + table + "` (" + colList + ") VALUES ";
+                while (rs.next()) {
+                    StringBuilder sb = new StringBuilder(insertPrefix).append('(');
+                    for (int i = 1; i <= cols; i++) {
+                        if (i > 1) {
+                            sb.append(',');
+                        }
+                        sb.append(sqlLiteral(rs, md, i));
+                    }
+                    sb.append(");\n");
+                    w.write(sb.toString());
+                    count++;
+                }
             }
         }
         return count;
     }
 
-    /** 按列类型生成 MySQL 字面量：NULL / 数值 / 位 / 二进制(0x hex) / 字符串(转义单引号)。 */
+    /** 按列类型生成 MySQL 字面量：NULL / 数值 / 位 / 二进制(0x hex) / UTF-8 文本(hex 转换)。 */
     private String sqlLiteral(ResultSet rs, ResultSetMetaData md, int i) throws Exception {
         int type = md.getColumnType(i);
         switch (type) {
@@ -254,22 +276,32 @@ public class DatabaseBackupService {
     }
 
     private String quote(String s) {
-        StringBuilder sb = new StringBuilder(s.length() + 2);
-        sb.append('\'');
-        for (int i = 0; i < s.length(); i++) {
-            char c = s.charAt(i);
-            switch (c) {
-                case '\'' -> sb.append("\\'");
-                case '\\' -> sb.append("\\\\");
-                case '\n' -> sb.append("\\n");
-                case '\r' -> sb.append("\\r");
-                case '\0' -> sb.append("\\0");
-                case '\032' -> sb.append("\\Z");
-                default -> sb.append(c);
+        byte[] bytes = s.getBytes(StandardCharsets.UTF_8);
+        return bytes.length == 0
+                ? "''"
+                : "CONVERT(0x" + HexFormat.of().formatHex(bytes) + " USING utf8mb4)";
+    }
+
+    /**
+     * 备份类型/范围只写入 SQL 行注释，必须压成单行，避免控制字符把非可信元数据变成恢复语句。
+     */
+    private String commentValue(String value) {
+        if (value == null) {
+            return "";
+        }
+        StringBuilder safe = new StringBuilder(value.length());
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            int type = Character.getType(c);
+            if (Character.isISOControl(c)
+                    || type == Character.LINE_SEPARATOR
+                    || type == Character.PARAGRAPH_SEPARATOR) {
+                safe.append(' ');
+            } else {
+                safe.append(c);
             }
         }
-        sb.append('\'');
-        return sb.toString();
+        return safe.toString();
     }
 
     private void ensureBucket() {

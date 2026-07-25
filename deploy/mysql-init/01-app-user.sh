@@ -12,25 +12,106 @@
 #
 # 依赖的环境变量（由生产 docker-compose.yml 的 mysql 服务 environment 注入，见该文件）：
 #   MYSQL_ROOT_PASSWORD —— root 密码（镜像自身要求，用于本脚本以 root 建用户/授权）
-#   MYSQL_DATABASE      —— 目标业务库名（默认 teacher_cert，与应用侧一致）
+#   APP_DATABASE        —— 目标业务库名（默认 teacher_cert，与应用侧一致）
 #   DB_USERNAME         —— 应用账号用户名（默认 teacher_app）
-#   DB_PASSWORD         —— 应用账号密码（必须显式提供，不设默认值，拒绝空/弱口令落库）
+#   DB_PASSWORD         —— 应用账号密码（必须显式提供，不设默认值，拒绝空口令落库）
 #
-# 注意：密码经 shell 变量插值进 SQL 文本，请避免在 DB_PASSWORD 中使用单引号/反斜杠等
-# 需要转义的字符（纯字母数字+常见符号即可），避免注入到 heredoc 后语法错误。
-set -euo pipefail
+# APP_DATABASE 刻意不复用官方镜像的 MYSQL_DATABASE：官方 entrypoint 会先于本脚本消费后者，
+# 使未校验的库名提前进入 SQL。这里先校验标识符，再创建库、账号和授权。
+set -eo pipefail
 
 DB_USERNAME="${DB_USERNAME:-teacher_app}"
-DB_NAME="${MYSQL_DATABASE:-teacher_cert}"
+DB_NAME="${APP_DATABASE:-teacher_cert}"
 
-if [ -z "${DB_PASSWORD:-}" ]; then
-  echo "[mysql-init] FATAL: 环境变量 DB_PASSWORD 未设置，拒绝以空/默认密码创建应用账号 '${DB_USERNAME}'。" >&2
-  echo "[mysql-init]        请在生产 .env 中设置 DB_PASSWORD 后重新创建数据卷/重启。" >&2
+tcp_mysql_init_fail() {
+  echo "[mysql-init] FATAL: $*" >&2
   exit 1
+}
+
+tcp_require_identifier() {
+  local value="$1"
+  local label="$2"
+  local max_length="$3"
+  if [[ ! "$value" =~ ^[A-Za-z0-9_]+$ ]] || (( ${#value} > max_length )); then
+    tcp_mysql_init_fail "${label} 只能包含 ASCII 字母、数字、下划线，且长度不得超过 ${max_length}。"
+  fi
+}
+
+tcp_mysql_escape_literal() {
+  local value="$1"
+  value="${value//\\/\\\\}"
+  value="${value//$'\n'/\\n}"
+  value="${value//$'\r'/\\r}"
+  value="${value//$'\t'/\\t}"
+  value="${value//$'\b'/\\b}"
+  value="${value//$'\032'/\\Z}"
+  value="${value//\'/\'\'}"
+  if printf '%s' "$value" | LC_ALL=C grep -q '[[:cntrl:]]'; then
+    tcp_mysql_init_fail "DB_PASSWORD 含不受支持的控制字符。"
+  fi
+  printf '%s' "$value"
+}
+
+tcp_mysql_escape_option_value() {
+  local value="$1"
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  value="${value//$'\n'/\\n}"
+  value="${value//$'\r'/\\r}"
+  value="${value//$'\t'/\\t}"
+  value="${value//$'\b'/\\b}"
+  if printf '%s' "$value" | LC_ALL=C grep -q '[[:cntrl:]]'; then
+    tcp_mysql_init_fail "MYSQL_ROOT_PASSWORD 含 option file 不支持的控制字符。"
+  fi
+  printf '%s' "$value"
+}
+
+tcp_run_mysql() {
+  if declare -F docker_process_sql >/dev/null 2>&1; then
+    docker_process_sql --binary-mode
+  else
+    # Windows bind mount 可能把脚本呈现为 executable，届时官方 entrypoint 不会 source 本文件；
+    # fallback 用权限 0600 的一次性 option file 传 root 口令，既不进入 argv，也不依赖已弃用的 MYSQL_PWD。
+    (
+      local option_password
+      TCP_MYSQL_OPTION_FILE="$(mktemp)"
+      trap 'rm -f -- "${TCP_MYSQL_OPTION_FILE}"' EXIT
+      trap 'exit 129' HUP
+      trap 'exit 130' INT
+      trap 'exit 143' TERM
+      chmod 600 "${TCP_MYSQL_OPTION_FILE}"
+      option_password="$(tcp_mysql_escape_option_value "${MYSQL_ROOT_PASSWORD}")"
+      printf '[client]\npassword="%s"\n' "${option_password}" > "${TCP_MYSQL_OPTION_FILE}"
+      mysql --defaults-extra-file="${TCP_MYSQL_OPTION_FILE}" --protocol=socket -uroot --binary-mode
+    )
+  fi
+}
+
+tcp_require_identifier "$DB_USERNAME" "DB_USERNAME" 32
+tcp_require_identifier "$DB_NAME" "APP_DATABASE" 64
+
+if [[ "${DB_USERNAME,,}" == "root" ]]; then
+  tcp_mysql_init_fail "DB_USERNAME 不得为 root。"
+fi
+if [[ -z "${DB_PASSWORD:-}" ]]; then
+  tcp_mysql_init_fail "环境变量 DB_PASSWORD 未设置，拒绝创建空口令应用账号。"
+fi
+if [[ -z "${MYSQL_ROOT_PASSWORD:-}" ]]; then
+  tcp_mysql_init_fail "环境变量 MYSQL_ROOT_PASSWORD 未设置。"
 fi
 
-mysql -uroot -p"${MYSQL_ROOT_PASSWORD}" <<-EOSQL
-  CREATE USER IF NOT EXISTS '${DB_USERNAME}'@'%' IDENTIFIED BY '${DB_PASSWORD}';
+DB_PASSWORD_SQL="$(tcp_mysql_escape_literal "$DB_PASSWORD")"
+
+tcp_run_mysql <<-EOSQL
+  SET SESSION sql_mode =
+    TRIM(BOTH ',' FROM REPLACE(
+      CONCAT(',', @@SESSION.sql_mode, ','),
+      ',NO_BACKSLASH_ESCAPES,',
+      ','
+    ));
+  CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\`
+    CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
+  CREATE USER IF NOT EXISTS '${DB_USERNAME}'@'%' IDENTIFIED BY '${DB_PASSWORD_SQL}';
 
   -- 最小权限：仅 ${DB_NAME} 库的 DML + Flyway 迁移所需 DDL。
   -- 明确不授予：GRANT OPTION（不可再转授）、SUPER、FILE、PROCESS（不可提权/读写宿主文件/看全局进程）、
@@ -41,4 +122,5 @@ mysql -uroot -p"${MYSQL_ROOT_PASSWORD}" <<-EOSQL
   FLUSH PRIVILEGES;
 EOSQL
 
+unset DB_PASSWORD_SQL
 echo "[mysql-init] 应用账号 '${DB_USERNAME}'@'%' 已就绪（库=${DB_NAME}，最小权限非 root）。"

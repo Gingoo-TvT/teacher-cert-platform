@@ -1,0 +1,19 @@
+name: Phase 41 MySQL 8.4 手工安全回环
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mysql-init-real:
+    name: 首次初始化与最小权限真实回环
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: 语法检查
+        run: bash -n scripts/test-phase41-mysql-init-real.sh
+      - name: 在一次性 MySQL 8.4 容器执行认证与授权回环
+        run: bash scripts/test-phase41-mysql-init-real.sh

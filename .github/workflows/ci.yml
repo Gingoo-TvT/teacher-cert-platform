@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       mysql:
-        image: mysql:8.0
+        image: mysql:8.4
         env:
           MYSQL_ROOT_PASSWORD: root123
           MYSQL_DATABASE: teacher_cert
@@ -38,6 +38,8 @@ jobs:
           distribution: temurin
           java-version: '17'
           cache: maven
+      - name: Phase 41 MySQL 初始化脚本契约
+        run: bash scripts/test-phase41-mysql-init.sh
       - name: 启动并等待 MinIO
         run: |
           docker run --detach --name teacher-cert-ci-minio \
