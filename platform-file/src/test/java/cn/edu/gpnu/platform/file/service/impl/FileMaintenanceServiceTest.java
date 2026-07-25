@@ -1,10 +1,15 @@
 package cn.edu.gpnu.platform.file.service.impl;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import cn.edu.gpnu.platform.file.config.MinioProperties;
 import io.minio.GetBucketLifecycleArgs;
 import io.minio.MinioClient;
 import io.minio.SetBucketLifecycleArgs;
 import io.minio.errors.ErrorResponseException;
+import io.minio.errors.InvalidResponseException;
 import io.minio.errors.XmlParserException;
 import io.minio.messages.AbortIncompleteMultipartUpload;
 import io.minio.messages.ErrorResponse;
@@ -15,14 +20,19 @@ import io.minio.messages.Status;
 import okhttp3.Protocol;
 import okhttp3.Request;
 import okhttp3.Response;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -33,26 +43,44 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
+@Execution(ExecutionMode.SAME_THREAD)
 class FileMaintenanceServiceTest {
 
     private static final String BUCKET = "teacher-cert-test";
+    private static final String SENSITIVE_MESSAGE = "simulated-sensitive-message";
+    private static final String SENSITIVE_URL = "127.0.0.1:9000";
+    private static final String SENSITIVE_BUCKET_PATH = "/" + BUCKET;
+    private static final String SENSITIVE_TRACE = "simulated-sensitive-trace";
 
     @Mock
     private MinioClient minioClient;
 
     private FileMaintenanceService service;
+    private Logger serviceLogger;
+    private ListAppender<ILoggingEvent> logAppender;
 
     @BeforeEach
     void setUp() {
+        serviceLogger = (Logger) LoggerFactory.getLogger(FileMaintenanceService.class);
+        logAppender = new ListAppender<>();
+        logAppender.setContext(serviceLogger.getLoggerContext());
+        logAppender.start();
+        serviceLogger.addAppender(logAppender);
+
         MinioProperties properties = new MinioProperties();
         properties.setBucket(BUCKET);
         service = new FileMaintenanceService(minioClient, properties);
     }
 
+    @AfterEach
+    void tearDown() {
+        serviceLogger.detachAppender(logAppender);
+        logAppender.stop();
+    }
+
     @Test
     void noLifecycleConfigurationCreatesManagedRule() throws Exception {
-        when(minioClient.getBucketLifecycle(any(GetBucketLifecycleArgs.class)))
-                .thenThrow(minioError("NoSuchLifecycleConfiguration", 404));
+        when(minioClient.getBucketLifecycle(any(GetBucketLifecycleArgs.class))).thenReturn(null);
 
         assertThat(service.ensureAbortIncompleteMultipartLifecycle(11)).isTrue();
 
@@ -79,6 +107,7 @@ class FileMaintenanceServiceTest {
         assertThat(service.ensureAbortIncompleteMultipartLifecycle(7)).isFalse();
 
         verify(minioClient, never()).setBucketLifecycle(any(SetBucketLifecycleArgs.class));
+        assertFailureLogged("ACCESS_DENIED", "AccessDenied");
     }
 
     @Test
@@ -89,6 +118,7 @@ class FileMaintenanceServiceTest {
         assertThat(service.ensureAbortIncompleteMultipartLifecycle(7)).isFalse();
 
         verify(minioClient, never()).setBucketLifecycle(any(SetBucketLifecycleArgs.class));
+        assertFailureLogged("SERVER_ERROR", "InternalError");
     }
 
     @Test
@@ -99,6 +129,7 @@ class FileMaintenanceServiceTest {
         assertThat(service.ensureAbortIncompleteMultipartLifecycle(7)).isFalse();
 
         verify(minioClient, never()).setBucketLifecycle(any(SetBucketLifecycleArgs.class));
+        assertFailureLogged("NO_SUCH_BUCKET", "NoSuchBucket");
     }
 
     @Test
@@ -110,35 +141,52 @@ class FileMaintenanceServiceTest {
         assertThat(service.ensureAbortIncompleteMultipartLifecycle(7)).isFalse();
 
         verify(minioClient, never()).setBucketLifecycle(any(SetBucketLifecycleArgs.class));
+        assertFailureLogged("INVALID_RESPONSE");
     }
 
     @Test
     void networkErrorWhileReadingFailsClosedWithoutWriting() throws Exception {
         when(minioClient.getBucketLifecycle(any(GetBucketLifecycleArgs.class)))
-                .thenThrow(new IOException("simulated read failure"));
+                .thenThrow(new IOException(SENSITIVE_MESSAGE));
 
         assertThat(service.ensureAbortIncompleteMultipartLifecycle(7)).isFalse();
 
         verify(minioClient, never()).setBucketLifecycle(any(SetBucketLifecycleArgs.class));
+        assertFailureLogged("TRANSPORT");
     }
 
     @Test
     void parserErrorWhileReadingFailsClosedWithoutWriting() throws Exception {
         when(minioClient.getBucketLifecycle(any(GetBucketLifecycleArgs.class)))
-                .thenThrow(new XmlParserException(new IllegalStateException("simulated parser failure")));
+                .thenThrow(new XmlParserException(new IllegalStateException(SENSITIVE_MESSAGE)));
 
         assertThat(service.ensureAbortIncompleteMultipartLifecycle(7)).isFalse();
 
         verify(minioClient, never()).setBucketLifecycle(any(SetBucketLifecycleArgs.class));
+        assertFailureLogged("PARSE");
     }
 
     @Test
-    void nullConfigurationWhileReadingFailsClosedWithoutWriting() throws Exception {
-        when(minioClient.getBucketLifecycle(any(GetBucketLifecycleArgs.class))).thenReturn(null);
+    void invalidResponseWhileReadingFailsClosedWithoutWriting() throws Exception {
+        when(minioClient.getBucketLifecycle(any(GetBucketLifecycleArgs.class)))
+                .thenThrow(new InvalidResponseException(
+                        418, "text/plain", SENSITIVE_MESSAGE, SENSITIVE_TRACE));
 
         assertThat(service.ensureAbortIncompleteMultipartLifecycle(7)).isFalse();
 
         verify(minioClient, never()).setBucketLifecycle(any(SetBucketLifecycleArgs.class));
+        assertFailureLogged("INVALID_RESPONSE");
+    }
+
+    @Test
+    void unexpectedlyThrownNoLifecycleConfigurationFailsClosedWithoutWriting() throws Exception {
+        when(minioClient.getBucketLifecycle(any(GetBucketLifecycleArgs.class)))
+                .thenThrow(minioError("NoSuchLifecycleConfiguration", 404));
+
+        assertThat(service.ensureAbortIncompleteMultipartLifecycle(7)).isFalse();
+
+        verify(minioClient, never()).setBucketLifecycle(any(SetBucketLifecycleArgs.class));
+        assertFailureLogged("INVALID_RESPONSE", "NoSuchLifecycleConfiguration");
     }
 
     @Test
@@ -151,6 +199,7 @@ class FileMaintenanceServiceTest {
         assertThat(service.ensureAbortIncompleteMultipartLifecycle(7)).isFalse();
 
         verify(minioClient, never()).setBucketLifecycle(any(SetBucketLifecycleArgs.class));
+        assertFailureLogged("INVALID_RESPONSE");
     }
 
     @Test
@@ -163,6 +212,7 @@ class FileMaintenanceServiceTest {
         assertThat(service.ensureAbortIncompleteMultipartLifecycle(7)).isFalse();
 
         verify(minioClient, never()).setBucketLifecycle(any(SetBucketLifecycleArgs.class));
+        assertFailureLogged("INVALID_RESPONSE");
     }
 
     @Test
@@ -211,25 +261,46 @@ class FileMaintenanceServiceTest {
 
     private static ErrorResponseException minioError(String code, int status) {
         Request request = new Request.Builder()
-                .url("http://127.0.0.1:9000/" + BUCKET)
+                .url("http://" + SENSITIVE_URL + SENSITIVE_BUCKET_PATH)
                 .get()
                 .build();
         Response response = new Response.Builder()
                 .request(request)
                 .protocol(Protocol.HTTP_1_1)
                 .code(status)
-                .message("simulated failure")
+                .message(SENSITIVE_MESSAGE)
                 .build();
         return new ErrorResponseException(
                 new ErrorResponse(
                         code,
-                        "simulated failure",
+                        SENSITIVE_MESSAGE,
                         BUCKET,
                         null,
-                        "/" + BUCKET,
+                        SENSITIVE_BUCKET_PATH,
                         "request-id",
                         "host-id"),
                 response,
-                "simulated trace");
+                SENSITIVE_TRACE);
+    }
+
+    private void assertFailureLogged(String category, String... extraForbiddenValues) {
+        assertThat(logAppender.list)
+                .filteredOn(event -> event.getLevel() == Level.WARN)
+                .singleElement()
+                .satisfies(event -> {
+                    String message = event.getFormattedMessage();
+                    assertThat(message)
+                            .contains("category=" + category)
+                            .doesNotContain(
+                                    SENSITIVE_MESSAGE,
+                                    SENSITIVE_URL,
+                                    SENSITIVE_BUCKET_PATH,
+                                    SENSITIVE_TRACE);
+                    assertThat(extraForbiddenValues)
+                            .allSatisfy(value -> assertThat(message).doesNotContain(value));
+                    assertThat(event.getThrowableProxy()).isNull();
+                    assertThat(Arrays.asList(event.getArgumentArray()))
+                            .noneMatch(Throwable.class::isInstance);
+                });
     }
 }

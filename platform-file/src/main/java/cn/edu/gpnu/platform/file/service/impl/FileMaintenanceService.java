@@ -5,6 +5,10 @@ import io.minio.GetBucketLifecycleArgs;
 import io.minio.MinioClient;
 import io.minio.SetBucketLifecycleArgs;
 import io.minio.errors.ErrorResponseException;
+import io.minio.errors.InsufficientDataException;
+import io.minio.errors.InvalidResponseException;
+import io.minio.errors.ServerException;
+import io.minio.errors.XmlParserException;
 import io.minio.messages.AbortIncompleteMultipartUpload;
 import io.minio.messages.ErrorResponse;
 import io.minio.messages.LifecycleConfiguration;
@@ -15,6 +19,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -38,7 +43,6 @@ public class FileMaintenanceService {
 
     /** 我们这条生命周期规则的稳定 id（用于幂等识别/更新，不误伤运维手工添加的其它规则） */
     static final String ABORT_RULE_ID = "tcp-abort-incomplete-multipart-uploads";
-    private static final String NO_SUCH_LIFECYCLE_CONFIGURATION = "NoSuchLifecycleConfiguration";
 
     private final MinioClient minioClient;
     private final MinioProperties props;
@@ -84,31 +88,67 @@ public class FileMaintenanceService {
                     bucket, abortDays);
             return true;
         } catch (Exception e) {
-            // 不记录服务端可控 message 或内部 endpoint/path；异常类型足以支持无敏感信息的告警聚合。
-            log.warn("MinIO 桶 {} 未完成分片 abort 生命周期规则确保失败(稍后可重试，type={})",
-                    bucket, e.getClass().getSimpleName());
+            // 仅记录固定白名单分类；禁止传入异常对象或服务端可控的 message/code/endpoint/path/trace。
+            log.warn("MinIO 未完成分片 abort 生命周期规则确保失败(稍后可重试，category={})",
+                    classifyLifecycleFailure(e));
             return false;
         }
     }
 
     private List<LifecycleRule> currentRules(String bucket) throws Exception {
-        try {
-            LifecycleConfiguration cfg = minioClient.getBucketLifecycle(
-                    GetBucketLifecycleArgs.builder().bucket(bucket).build());
-            List<LifecycleRule> rules = cfg == null ? null : cfg.rules();
-            if (rules == null || rules.isEmpty()) {
-                throw new IllegalStateException("MinIO 生命周期配置读取结果不完整");
-            }
-            return new ArrayList<>(rules);
-        } catch (ErrorResponseException e) {
-            ErrorResponse response = e.errorResponse();
-            if (response != null
-                    && NO_SUCH_LIFECYCLE_CONFIGURATION.equals(response.code())) {
-                // 只有服务端明确确认“尚无配置”时才允许按空集合创建；其它读取失败必须 fail-closed。
-                log.debug("MinIO 桶 {} 尚未配置生命周期规则，将创建托管规则", bucket);
-                return new ArrayList<>();
-            }
-            throw e;
+        LifecycleConfiguration cfg = minioClient.getBucketLifecycle(
+                GetBucketLifecycleArgs.builder().bucket(bucket).build());
+        if (cfg == null) {
+            // MinIO SDK 8.5.12 在服务端明确返回 NoSuchLifecycleConfiguration 时消费异常并返回 null。
+            log.debug("MinIO 桶 {} 尚未配置生命周期规则，将创建托管规则", bucket);
+            return new ArrayList<>();
         }
+        List<LifecycleRule> rules = cfg.rules();
+        if (rules == null || rules.isEmpty()) {
+            throw new IllegalStateException("MinIO 生命周期配置读取结果不完整");
+        }
+        return new ArrayList<>(rules);
+    }
+
+    private static LifecycleFailureCategory classifyLifecycleFailure(Exception failure) {
+        if (failure instanceof ErrorResponseException error) {
+            ErrorResponse response = error.errorResponse();
+            String code = response == null ? null : response.code();
+            if ("AccessDenied".equals(code)) {
+                return LifecycleFailureCategory.ACCESS_DENIED;
+            }
+            if ("NoSuchBucket".equals(code)) {
+                return LifecycleFailureCategory.NO_SUCH_BUCKET;
+            }
+            if ("InternalError".equals(code)
+                    || "ServiceUnavailable".equals(code)
+                    || "SlowDown".equals(code)
+                    || error.response() != null && error.response().code() >= 500) {
+                return LifecycleFailureCategory.SERVER_ERROR;
+            }
+            return LifecycleFailureCategory.INVALID_RESPONSE;
+        }
+        if (failure instanceof ServerException) {
+            return LifecycleFailureCategory.SERVER_ERROR;
+        }
+        if (failure instanceof XmlParserException) {
+            return LifecycleFailureCategory.PARSE;
+        }
+        if (failure instanceof IOException || failure instanceof InsufficientDataException) {
+            return LifecycleFailureCategory.TRANSPORT;
+        }
+        if (failure instanceof InvalidResponseException) {
+            return LifecycleFailureCategory.INVALID_RESPONSE;
+        }
+        return LifecycleFailureCategory.INVALID_RESPONSE;
+    }
+
+    private enum LifecycleFailureCategory {
+        ACCESS_DENIED,
+        NO_SUCH_BUCKET,
+        SERVER_ERROR,
+        TRANSPORT,
+        PARSE,
+        INVALID_RESPONSE
     }
 }
