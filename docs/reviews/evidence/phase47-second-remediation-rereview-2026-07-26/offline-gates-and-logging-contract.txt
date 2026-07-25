@@ -1,0 +1,119 @@
+Phase 47 second-remediation independent rereview evidence
+Date: 2026-07-26
+Reviewer: OpenAI Codex (user-authorized independent reviewer)
+
+1. Frozen scope
+
+- Branch at review start:
+  codex/phase47-lifecycle-fail-closed
+- First-review code baseline:
+  aa6f81c3518259c30cd7190a8c521cef61108843
+- First-review report archive:
+  81397c3
+- Second-remediation code:
+  3bddf6ce7aab8c7640e54675ee7d17aadcedfe93
+- Submission/current HEAD at review start:
+  db89d6e7110eb636f3fffac3d71c906d8ac84674
+- Production/test path-limited diff:
+  2 files changed, 141 insertions(+), 30 deletions(-)
+- Commit 81397c3..3bddf6c:
+  exactly one commit; exactly the two production/test files
+- Commit 3bddf6c..db89d6e:
+  documentation only
+- Source blobs at 3bddf6c and db89d6e are identical:
+  FileMaintenanceService.java
+    ed807c94a62d0bed6d3031759c779e28262418af
+  FileMaintenanceServiceTest.java
+    01b002fcfcfdc1cfa502703727153b65aa3c6943
+
+2. Independently executed offline gates
+
+Command:
+  mvn -o -B -ntp -pl platform-file -am clean test
+Result:
+  BUILD SUCCESS
+  platform-file: 16 tests, 0 failures, 0 errors, 0 skipped
+  FileMaintenanceServiceTest: 13 tests, 0 failures, 0 errors, 0 skipped
+  MinioConfigTest: 3 tests, 0 failures, 0 errors, 0 skipped
+  Finished: 2026-07-26T01:25:09+08:00
+
+Independent FileMaintenanceServiceTest XML SHA-256:
+  7A8ABB4A7DE28251DD8A6F82D3CF12310C6D44D21A39D17FFD84C2DA234843EC
+
+Command:
+  mvn -o -B -ntp -DskipTests package
+Result:
+  BUILD SUCCESS
+  Reactor: 9/9 modules SUCCESS
+  Finished: 2026-07-26T01:26:08+08:00
+
+Command:
+  mvn -o -B -ntp -pl platform-file dependency:tree "-Dincludes=io.minio:minio"
+Result:
+  io.minio:minio:8.5.12:compile
+  BUILD SUCCESS
+
+Locked local MinIO JAR SHA-256:
+  9519FF2FD284AC0FC5C22D1091F21A9C9298C9C7CAC85615DE1FF10F1710786E
+
+Command:
+  git diff --check aa6f81c..3bddf6c
+Result:
+  PASS (no output)
+
+3. SDK lifecycle contract recheck
+
+The exact locked MinIO 8.5.12 JAR was re-inspected with javap. Its async
+getBucketLifecycle implementation consumes NoSuchLifecycleConfiguration and
+returns null; the synchronous client returns that Future result unchanged.
+
+Current production behavior matches that contract:
+
+- cfg == null => explicit ABSENT => empty working rule list
+- valid non-empty rules => preserve unrelated rules and replace the managed ID
+- non-null cfg with null/empty rules => fail closed
+- any actually thrown exception => fail closed before setBucketLifecycle
+
+The previous Medium and its false-green positive test are therefore closed.
+
+4. Logging contract and newly identified non-blocking Low
+
+Resolved runtime versions:
+
+- org.slf4j:slf4j-api:2.0.17
+- ch.qos.logback:logback-classic:1.5.22
+- ch.qos.logback:logback-core:1.5.22
+
+javap evidence:
+
+- MessageFormatter.arrayFormat(String,Object[],Throwable) constructs a
+  FormattingTuple with the original Object[] both when no placeholder remains
+  (bytecode 75..85) and after normal formatting (98..112).
+- LoggingEvent stores argumentArray, getArgumentArray returns it, and
+  getFormattedMessage formats the message separately through MessageFormatter.
+
+Current helper FileMaintenanceServiceTest.assertFailureLogged:
+
+- checks the formatted message for the category and sensitive sentinels;
+- checks throwableProxy is null;
+- checks only that argumentArray contains no Throwable.
+
+It does not assert argumentArray cardinality, that its sole value is the fixed
+category, or that each non-Throwable argument is free of sensitive sentinels.
+Thus a future call such as a one-placeholder WARN supplied with an additional
+sensitive String could keep the formatted message clean while the raw String
+remains in LoggingEvent.argumentArray and the current helper still passes.
+
+This is a test-regression-protection gap. The current production call passes
+only classifyLifecycleFailure(e), so no current production leak was found.
+
+5. Safety and evidence boundary
+
+No persistent service, Docker, database, real MinIO, bucket lifecycle read or
+write, network request, permission change, fault injection, vulnerability scan,
+attack-like probe, credential attempt, malicious payload, fuzzing, stress test,
+merge, push, deployment or traffic change was executed.
+
+The real MinIO gate is not required to decide the reviewed SDK/service contract.
+Whole-bucket get-merge-set without CAS and matching only managed ID plus days
+remain pre-existing architecture boundaries for the final full audit.

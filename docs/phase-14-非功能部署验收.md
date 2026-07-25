@@ -49,8 +49,9 @@ M14 扩展点预留、后端/前端 Dockerfile、生产 docker-compose、兼容�
   5. 仅启动同一第五轮协议的全部实例，逐实例核对 probe 独占卷/目录，并确认启动对象回填/对账已执行。
   6. 确认 `SERVER_CHUNK` 新对象键带 `/g-{generation}.mp4`、没有旧稳定 key 写入者；健康检查和迁移核验通过后恢复写流量。
   - V31/旧节点会覆盖或清空永久世代，V32 之前节点还会继续写稳定 object key；因此禁止新旧二进制混部。V32 落库后禁止回滚旧协议二进制，失败只能前向修复。
-- **当前 WS-3 发布闸门（2026-07-24）**：第六轮独立复核 `reviews/ws-03-sixth-remediation-rereview-2026-07-24.md` 为 **PASS**，第五轮新增的 scheduler trigger 隔离与 V32 candidate 全量备份覆盖 2 Medium 全部关闭；双 scheduler、blocked-backup 调度隔离、37 表备份与 candidate scratch restore/真实对账续跑证据成立。唯一新增 Low 是迁移数量应写“32 个迁移、最终 V32”，不阻断 WS-3/U-002。Phase 39、Phase 42 与 Phase 41 后续独立报告亦已 PASS；全项目当前仍受 Phase 0、44、47、53 阻断。
+- **当前 WS-3 发布闸门（2026-07-24）**：第六轮独立复核 `reviews/ws-03-sixth-remediation-rereview-2026-07-24.md` 为 **PASS**，第五轮新增的 scheduler trigger 隔离与 V32 candidate 全量备份覆盖 2 Medium 全部关闭；双 scheduler、blocked-backup 调度隔离、37 表备份与 candidate scratch restore/真实对账续跑证据成立。唯一新增 Low 是迁移数量应写“32 个迁移、最终 V32”，不阻断 WS-3/U-002。Phase 39、Phase 42、Phase 41 与 Phase 47 后续独立报告亦已 PASS；全项目当前仍受 Phase 0、44、53 阻断。
 - **当前 Phase 41 恢复闸门（2026-07-25）**：动态证据报告 `reviews/phase-41-second-remediation-dynamic-evidence-rereview-2026-07-25.md` 冻结代码点 `b5ed7f5`、材料/HEAD `ef6b550`，核验 Surefire **149/149**、`Phase41BackupIT` **1/1**、真实 MySQL 8.4 CLI 恢复，以及 sourced/executable 初始化账号与精确授权两项门禁均 PASS；上一轮 1 High / 2 Medium / 1 Low 全部关闭，Phase 41 正式 **PASS** 并放行 Phase 47 进入既有整改。正式 PASS 时新增的 Gate A 冷认证缓存前置 1 Low 已在后续由 JDBC 示例、runner fail-fast、恢复手册和纯 stub CI 契约闭环；原报告保留当时计数。该门禁只证明应用逻辑快照，不替代物理全备、PITR、生产切换或 RPO/RTO 验收。
+- **当前 Phase 47 生命周期闸门（2026-07-26）**：第二轮独立报告 `reviews/phase-47-second-remediation-rereview-2026-07-26.md` 确认 SDK 8.5.12 no-config null 合同、首次规则创建、异常/畸形响应失败关闭、外部规则保留与六类安全日志分类成立，第一轮 1 Medium / 1 Low 全部关闭，正式 **PASS** 并放行 Phase 53。新增 1 个日志测试 raw 参数数组 Low 非阻断，当前生产调用只传固定分类枚举；稳定发布前应补严回归助手。
 - **WS-2 发布切换**：新版 JWT 含毫秒级签发时间 `iatMs`、口令凭据版本 `credentialVersion` 和 Redis 持久会话代次 `sessionGeneration`；缺少或不匹配任一新 claim 的存量 token 会被拒绝，logout 通过原子增代使旧 access/refresh 立即失效。发布时必须同时替换/重启全部后端实例并通知用户重新登录；禁止旧实例在滚动窗口继续签发旧格式 token。
 
 ## 4. 非功能收口（plan §十二）

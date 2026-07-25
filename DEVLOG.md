@@ -15,6 +15,15 @@
 
 ---
 
+## [2026-07-26] GOV-018 Phase 47 第二轮独立增量复核 — PASS（1 Low 非阻断）
+- 做了什么：冻结第一轮代码基线 `aa6f81c`、第二轮生产/测试代码 `3bddf6c` 与提交材料/HEAD `db89d6e`，只复核两个源码文件中的 1 Medium / 1 Low 关闭链及必要回归；产出 `docs/reviews/phase-47-second-remediation-rereview-2026-07-26.md`、离线证据与独立 metadata。确认 MinIO SDK 8.5.12 的高层 no-config null sentinel 已正确映射为 ABSENT 并首次写一次，其它异常与畸形非空配置继续在 setter 前失败关闭；六类固定本地日志分类关闭上一轮 Low。
+- 关键决策与理由：正式结论为 **PASS（0 Critical / 0 High / 0 Medium / 1 Low 非阻断）**。第一轮 1 Medium / 1 Low 已按原问题口径全部关闭；新增 Low 仅为测试助手未限制 Logback raw `argumentArray` 恰含单一分类，也未检查额外非 Throwable String。当前生产 WARN 只传固定枚举，故没有确认的生产泄露，也不满足阶段退回阈值；该 Low 进入稳定发布前测试债。
+- 问题与解决：独立核对锁定的 SLF4J 2.0.17 / Logback 1.5.22 字节码发现，格式化消息可忽略多余参数但事件仍保留原始数组；因此候选材料“参数数组已完全证明不泄露”的表述强于实际断言。正式报告将证据降回真实边界，并给出最小修复：参数数组 `singleElement` 且等于固定分类，逐项检查敏感哨兵，并补 unknown code + HTTP 503 fallback。
+- 与规格的偏差/疑问：无 DDL/Flyway、业务规则、参数、调度、权限点、API、前端、依赖或生产配置变化。成功读取后的 get→merge→整桶 set 无 CAS，以及幂等只核 ID+days，继续作为既有架构边界留最终全量审计。Phase 47 可关闭并放行 Phase 53；全项目仍因 Phase 0、44、53 保持 **CHANGES_REQUESTED**，本报告不是 merge/push/部署/切流/发布 GO。
+- 测试：独立 `mvn -o -B -ntp -pl platform-file -am clean test` **16/16**（`FileMaintenanceServiceTest` **13/13**）、`mvn -o -B -ntp -DskipTests package` 后端 **9/9 modules**、MinIO 8.5.12 与 SLF4J/Logback 离线依赖/字节码合同、`git diff --check aa6f81c..3bddf6c` 均 PASS；独立测试 XML SHA-256 为 `7A8ABB4A7DE28251DD8A6F82D3CF12310C6D44D21A39D17FFD84C2DA234843EC`。
+- 安全边界：未启动常驻服务，未运行 Docker、数据库、真实 MinIO、真实桶生命周期读写、权限变更、网络请求、故障注入、漏洞扫描、攻击性探测、凭据尝试、恶意载荷、fuzz、压力或任何可能属于 cyber 的动作；无需用户补跑安全敏感门禁即可判定本轮合同。
+- 下一步：按统一计划进入 Phase 53 demo 真实元数据/旧对象 reconcile 与浏览器播放整改，随后 Phase 44 → Phase 0；稳定发布前补 Phase 47 的 1 个日志测试 Low，全部退回项关闭后执行最终全量审计。
+
 ## [2026-07-26] Phase 47 第二轮整改候选完成 — SDK 缺省合同与日志 Low 闭环，待独立增量复核
 - 做了什么：在 `codex/phase47-lifecycle-fail-closed` 冻结第二轮生产/测试代码 `3bddf6c`。`FileMaintenanceService.currentRules` 依据仓库锁定的 MinIO SDK 8.5.12 合同，将高层客户端返回的 `cfg == null` 解释为服务端明确“尚无生命周期配置”，允许首次创建托管规则；删除业务层对 `NoSuchLifecycleConfiguration` 异常的放行捕获，所有实际抛出的异常及非空配置中的 null/empty rules 仍在 `setBucketLifecycle` 前 fail-closed。失败日志改为本地固定六类 `ACCESS_DENIED / NO_SUCH_BUCKET / SERVER_ERROR / TRANSPORT / PARSE / INVALID_RESPONSE`，不传入异常对象、原始 S3 code、message、URL、bucket path 或 trace。
 - 关键决策与理由：正式第一轮复核已用本地 JAR 字节码确认 8.5.12 会在 SDK 内消费 `NoSuchLifecycleConfiguration` 并向同步调用方返回 null；因此只把高层 null 作为 ABSENT，异常形式的同名错误仍按 `INVALID_RESPONSE` 拒绝写入，避免再次在错误抽象层放宽。日志用本地枚举映射而不是恢复服务端原文，兼顾运维可操作性与敏感信息边界。

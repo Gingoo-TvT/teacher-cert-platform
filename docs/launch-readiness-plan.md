@@ -34,7 +34,7 @@
 | P1-6 | ~~N+1：`attachmentRows` 循环 selectById~~ | ~~`ExchangeServiceImpl.java:952-985`~~ | **已修复（Phase 44a，见 §11）：`attachmentRows` 内学生查询改 `selectBatchIds`+`Map<Id,Student>`** | 已合并 |
 | P1-7 | ~~CORS 生产域名未配置且无文档，默认仅 localhost~~ | ~~`CorsConfig.java:27`~~ | **已完成（Phase 46，见 §11）：`CorsConfig` 早已 env 化读 `CORS_ALLOWED_ORIGINS`；补 `.env.example` + `docker-compose.yml` backend 透传 + `docs/phase-14` 部署变量说明** | 已合并 |
 | P1-8 | 学生初始密码=身份证后 6 位（可预测；已有强制首登改密+锁定缓解，但存在抢先注册窗口） | `StudentServiceImpl.java:351-361` | 初始密码加盐随机后缀经名册下发，或首登绑定学号+证件双因子核验 | Opus 定策略 |
-| P1-9 | ~~全库无任何定时任务：上传残片/孤儿对象、audit_log/notification 只增不清~~ | ~~全局~~ | **原实现已合并；Phase 47 第一轮整改 `aa6f81c` 已独立重核退回（见 §11），第二轮代码 `3bddf6c` 已按 MinIO 8.5.12 的 no-config null 合同修正首次创建，并用六类安全白名单日志分类关闭候选 Low；非目标读取错误继续 fail-closed。`CleanupScheduleConfig` 其余保留期清理与孤儿只报告路径不变** | 第一轮正式 CHANGES_REQUESTED（1 Medium / 1 Low）；第二轮候选待重核 |
+| P1-9 | ~~全库无任何定时任务：上传残片/孤儿对象、audit_log/notification 只增不清~~ | ~~全局~~ | **原实现已合并；Phase 47 第二轮 `3bddf6c` 已按 MinIO 8.5.12 的 no-config null 合同修正首次创建，并用六类安全白名单日志分类关闭第一轮 Low；非目标读取错误继续 fail-closed。`CleanupScheduleConfig` 其余保留期清理与孤儿只报告路径不变** | ✅ 第二轮独立复核 PASS；第一轮 1 Medium / 1 Low 全部关闭；新增 1 Low 测试债非阻断 |
 | P1-10 | ~~兜底异常返回 HTTP 200（监控/告警失明）~~ | ~~`GlobalExceptionHandler.java`~~ | **已完成（Phase 46，见 §11）：兜底 `Exception→500` + 客户端错误 `405/404` 处理器（错方法/错路径不再落 500）+ 前端拦截器提取非 2xx 的 Result.msg；业务/校验仍 200+码** | 已合并 |
 
 ## 3. P2 —— 上线后迭代
@@ -289,7 +289,7 @@
 - ✅ **P1-7 CORS 部署配置**：`CorsConfig` 早已 env 化读 `CORS_ALLOWED_ORIGINS`（无需改码）；补 `.env.example`（`CORS_ALLOWED_ORIGINS` + 用法注释）、`docker-compose.yml` backend 环境透传 `${CORS_ALLOWED_ORIGINS:-}`、`docs/phase-14-非功能部署验收.md`「关键环境变量」小节（`SPRING_PROFILES_ACTIVE=prod`/`JWT_SECRET`/`DB_PASSWORD`/`REDIS_PASSWORD`/CORS 必设项）。CORS 留空 fail-closed（仅本地）；同源部署 CORS 不参与。
 - ✅ **验证**：`mvn -B -ntp clean verify` **114/114 绿**（Phase8 offline 断言更正为 405）；前端 `npm run type-check` 干净 + `npm run build` 成功。已 ff-merge 入 main。无迁移（库 max 仍 V25）。
 
-### Phase 47（P1-9 定时清理；历史实现分支 `feature/phase47-scheduled-cleanup`；第一轮整改 `aa6f81c` 独立重核退回，第二轮整改 `3bddf6c` 待重核）
+### Phase 47（P1-9 定时清理；历史实现分支 `feature/phase47-scheduled-cleanup`；第二轮整改 `3bddf6c` 独立重核 PASS）
 - ✅ **问题**：全库除备份外 0 处 `@Scheduled`——audit_log（追加写）与 notification 只增不清、MinIO 可积压未完成分片、file_object 可能孤儿。P1-9 要求加**保守、prod 门禁**的清理调度层。
 - ✅ **调度门禁（复用 P0-6 约定）**：`CleanupScheduleConfig`（platform-boot）`@EnableScheduling + @ConditionalOnProperty(platform.cleanup.schedule.enabled=true)`，与 `BackupScheduleConfig` 完全同款——dev/测试/未配置不注册、`@Scheduled` 不触发（不扰动 115 IT），仅 `application-prod.yml` 置 true 生效；三作业 cron 可配、错峰备份之后（03:30/03:45/04:00）。放 boot 因三作业跨 system+file+boot 三模块。
 - ✅ **① 保留期分批物理清理**：`RetentionCleanupService`（platform-system，无接口具体服务，仿 `DatabaseBackupService`）`pruneAuditLog()`/`pruneNotification()`——`ParamService` 读保留窗口（`cleanup.auditLog.retentionDays` 默认 180 / `cleanup.notification.retentionDays` 默认 90，可覆盖），`@Delete ... LIMIT` 原生 SQL 分批循环删（`cleanup.prune.batchSize` 默认 1000 / `cleanup.prune.maxBatches` 默认 500 上限）避免锁表；notification 有 `@TableLogic`，**刻意原生 SQL 绕软删做真物理删除**回收空间；非正保留期回退默认防误清空整表。
@@ -299,6 +299,7 @@
 - 🟦 **2026-07-25 整改候选门禁**：纯 Mockito `FileMaintenanceServiceTest` **12/12**，`platform-file` 全量单测 **15/15**；后端 9 模块 `-DskipTests package` BUILD SUCCESS，`git diff --check` PASS；两路内部只读终审均为 0 High / 0 Medium / 0 Low。未连接真实 MinIO、未读取或写入真实桶生命周期、未运行 Docker/IT/故障注入。本证据只提交整改候选，不改写 `docs/reviews/phase-47-review.md` 的 CHANGES_REQUESTED，独立报告 PASS 前不放行 Phase 53。
 - ❌ **2026-07-26 第一轮整改独立重核**：离线 `clean test` **15/15**、9 模块 package 与依赖树通过；对 SHA-256 `9519FF2...0786E` 的本地 MinIO 8.5.12 JAR 做字节码核对，确认 SDK 精确 no-config → null 合同，故 12/12 不能作为正向真实性证据。正式报告为 `docs/reviews/phase-47-remediation-rereview-2026-07-26.md`，证据见 `docs/reviews/evidence/phase47-remediation-rereview-2026-07-26/`。第二轮应按 null 正例修复并增加安全白名单日志分类；PASS 前不放行 Phase 53。
 - 🟦 **2026-07-26 第二轮整改候选门禁**：代码 `3bddf6c` 将 SDK 8.5.12 高层 null 作为唯一 ABSENT 并允许首次创建一次；异常形式 NoSuchLifecycleConfiguration 与 403/500/其它 404、I/O/XML、无效响应、畸形非空配置继续失败关闭。失败日志只输出六类固定枚举，Logback 事件反例证明 message、S3 code、URL、bucket path、trace 与 Throwable 均不落 WARN。最终 `FileMaintenanceServiceTest` **13/13**、`platform-file` **16/16**，后端 9 模块 package 与 `git diff --check` 通过，内部只读差异审查 **0 High / 0 Medium / 0 Low**。提交材料为 `docs/reviews/phase-47-second-remediation-submission-2026-07-26.md`；第一轮正式结论仍是 CHANGES_REQUESTED，独立新报告 PASS 前不放行 Phase 53。
+- ✅ **2026-07-26 第二轮独立增量复核**：正式报告 `docs/reviews/phase-47-second-remediation-rereview-2026-07-26.md` 冻结 `aa6f81c..3bddf6c` 两个生产/测试文件并核对材料至 `db89d6e`，确认第一轮 1 Medium / 1 Low 全部关闭；独立离线 `clean test` **16/16**（生命周期 **13/13**）、9 模块 package、MinIO 8.5.12 与 SLF4J/Logback 合同、diff check 均 PASS。新增 1 个非阻断 Low：日志助手未限制 raw 参数数组只能含单一固定分类；当前生产日志调用安全，列稳定发布前测试债。Phase 47 正式 **PASS** 并放行 Phase 53。
 
 ### Phase 48（§7.4 剩余证书完整性两项：导入静默篡改终态证书［P1］+ correct() 校验 cert_no 内嵌码［P2］，Phase 48 —— 分支 `feature/phase48-cert-import-guard`，单 commit，待主 Opus 复核合并，mvn verify 117/117 绿；真栈复现→阻断 IT）
 - ✅ **Item 1（P1）问题**：`ExchangeServiceImpl.importOne` 解析既有证书（`certificateByNo`/`certificateByStudentYear:1298` 无状态过滤）后仅校验学院权限、**无状态守卫**即 `applyCertificate`+`updateById` 覆盖 → 静默改写**已作废/已重开/已归档**终态证书（编号/签发人/有效期/快照/隐式回写状态），与 `CertificateServiceImpl.correct()` 的终态守卫（VOIDED/REISSUED/ARCHIVED→「当前状态不可更正」）**直接矛盾**。

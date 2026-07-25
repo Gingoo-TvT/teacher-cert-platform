@@ -5,11 +5,11 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**🟦 Phase 47 第二轮整改候选完成，待正式独立增量复核**（分支：`codex/phase47-lifecycle-fail-closed`；第二轮代码点：`3bddf6c`；提交材料：`docs/reviews/phase-47-second-remediation-submission-2026-07-26.md`；第一轮正式增量报告：`docs/reviews/phase-47-remediation-rereview-2026-07-26.md`，**CHANGES_REQUESTED（1 Medium / 1 Low）**；原报告：`docs/reviews/phase-47-review.md`）。Phase 41 已正式 PASS，统一入口为 `docs/CURRENT-EXECUTION-PLAN.md`。
-- 当前结论：WS-1/WS-2/WS-3/WS-10/WS-13 PASS；U-001 CI 零状态契约 PASS。Phase 42、Phase 39 与 Phase 41 第二轮均已独立 PASS。Phase 41 的真实 MySQL 8.4 CLI 恢复门禁和 sourced/executable 初始化账号/精确授权门禁均已闭合；全项目当前仍由 **Phase 0、44、47、53** 四个退回阶段保持 **CHANGES_REQUESTED**。
+- 当前阶段：**🟦 Phase 47 第二轮独立增量复核 PASS，下一入口为 Phase 53 退回项整改**（分支仍为 `codex/phase47-lifecycle-fail-closed`；第二轮代码点：`3bddf6c`；正式报告：`docs/reviews/phase-47-second-remediation-rereview-2026-07-26.md`，**PASS（0 Critical / 0 High / 0 Medium / 1 Low 非阻断）**；第一轮报告保留为历史退回快照）。统一入口为 `docs/CURRENT-EXECUTION-PLAN.md`。
+- 当前结论：WS-1/WS-2/WS-3/WS-10/WS-13 PASS；U-001 CI 零状态契约 PASS。Phase 42、Phase 39、Phase 41 与 Phase 47 第二轮均已独立 PASS；全项目当前仍由 **Phase 0、44、53** 三个退回阶段保持 **CHANGES_REQUESTED**。
 - P0 放行项：Phase 41 上一轮 1 High / 2 Medium / 1 Low 全部关闭；正式 PASS 时新增的 1 个非阻断 Low 已在后续闭环——Gate A 示例补齐冷认证参数，runner 在 Maven 前强制受验证 TLS / `allowPublicKeyRetrieval=true` / 受控 RSA 公钥文件三选一，并由纯 stub 静态契约覆盖失败关闭。正式报告仍保留当时的 1 Low 快照。约 24 MiB 以上原始整行 fail-closed、写入侧未同界继续留最终全量审计。
-- 最近更新：2026-07-26（第二轮代码 `3bddf6c` 已按锁定 SDK 合同将高层 null 作为唯一无配置状态并允许首次创建；异常形式 NoSuchLifecycleConfiguration 与 403/500/其它 404、I/O/XML/无效响应、畸形非空配置继续 fail-closed。失败日志只输出六类白名单枚举，日志捕获反例证明 message、S3 code、URL、bucket path、trace 与 Throwable 均不落 WARN。最终 `platform-file` 16/16、生命周期 13/13、9 模块 package、diff check 通过，内部只读差异审查为 0 High / 0 Medium / 0 Low）。
-- 下一步：对 `aa6f81c..3bddf6c` 发起正式独立增量复核。第一轮正式结论仍为 **CHANGES_REQUESTED（1 Medium / 1 Low）**；新报告 PASS 前 Phase 47 不关闭、Phase 53 不放行。之后依次为 Phase 53 → Phase 44 → Phase 0；全部退回项关闭后执行最终全量审计。
+- 最近更新：2026-07-26（独立冻结 `aa6f81c..3bddf6c` 的两个生产/测试文件，确认上一轮 1 Medium / 1 Low 全部关闭；离线 `clean test` 16/16、生命周期 13/13、9 模块 package、MinIO 8.5.12 与 SLF4J/Logback 合同复核、diff check 全部 PASS。新增 1 个非阻断 Low：日志测试未限制 raw `argumentArray` 只能含单一固定分类，当前生产调用安全但未来额外敏感 String 可能逃逸该回归助手）。
+- 下一步：进入 Phase 53 demo 真实元数据/旧对象 reconcile 与浏览器播放整改，随后依次 Phase 44 → Phase 0；Phase 47 新增 Low 纳入稳定发布前测试债，全部退回项关闭后执行最终全量审计。
 
 ## 审计整改工作流
 | WS | 内容 | 状态 |
@@ -35,7 +35,7 @@
 | Phase 42 | 第二轮整改 `bd1db49` | `phase-42-second-remediation-rereview-2026-07-24.md` PASS；首轮 1 Medium / 1 Low 全部关闭 | ✅ 独立复核 PASS |
 | Phase 39 | 第二轮整改 `73406ed` | `phase-39-second-remediation-rereview-2026-07-24.md` PASS；第一轮 1 High / 1 Low 全部关闭 | ✅ 独立复核 PASS；三个基线债务候选留最终全量审计 |
 | Phase 41 | 第二轮整改 `b5ed7f5`；材料/HEAD `ef6b550` | `phase-41-second-remediation-dynamic-evidence-rereview-2026-07-25.md` PASS；真实 MySQL 8.4 恢复与账号/授权两项门禁闭合 | ✅ 独立复核 PASS；上一轮 1 High / 2 Medium / 1 Low 全部关闭；正式 PASS 时的 1 Low 已后续闭环 |
-| Phase 47 | 原实现已合并；第二轮整改 `3bddf6c` 未合并 | 第一轮 `phase-47-remediation-rereview-2026-07-26.md` CHANGES_REQUESTED；第二轮提交材料待重核 | 🟦 第一轮正式 1 Medium / 1 Low；第二轮候选完成，待正式独立增量复核 |
+| Phase 47 | 原实现已合并；第二轮整改 `3bddf6c` 未合并 | `phase-47-second-remediation-rereview-2026-07-26.md` PASS | ✅ 独立复核 PASS；第一轮 1 Medium / 1 Low 全部关闭；新增 1 Low 测试债非阻断 |
 | Phase 44、53 | 已合并 | 逐阶段 CHANGES REQUESTED 报告齐全；Phase 53 另有 WS-3 重核补充证据 | ❌ 复核退回 |
 
 逐 Phase 结论、报告路径与后续顺序以 `docs/CURRENT-EXECUTION-PLAN.md` 为准。
