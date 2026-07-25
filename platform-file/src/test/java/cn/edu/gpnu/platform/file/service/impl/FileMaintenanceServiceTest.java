@@ -32,10 +32,10 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.util.Arrays;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -51,6 +51,8 @@ class FileMaintenanceServiceTest {
     private static final String SENSITIVE_URL = "127.0.0.1:9000";
     private static final String SENSITIVE_BUCKET_PATH = "/" + BUCKET;
     private static final String SENSITIVE_TRACE = "simulated-sensitive-trace";
+    private static final String FAILURE_CATEGORY_CLASS =
+            FileMaintenanceService.class.getName() + "$LifecycleFailureCategory";
 
     @Mock
     private MinioClient minioClient;
@@ -119,6 +121,17 @@ class FileMaintenanceServiceTest {
 
         verify(minioClient, never()).setBucketLifecycle(any(SetBucketLifecycleArgs.class));
         assertFailureLogged("SERVER_ERROR", "InternalError");
+    }
+
+    @Test
+    void unknownServerErrorCodeUsesHttpStatusFallbackWithoutWriting() throws Exception {
+        when(minioClient.getBucketLifecycle(any(GetBucketLifecycleArgs.class)))
+                .thenThrow(minioError("UnexpectedServerFailure", 503));
+
+        assertThat(service.ensureAbortIncompleteMultipartLifecycle(7)).isFalse();
+
+        verify(minioClient, never()).setBucketLifecycle(any(SetBucketLifecycleArgs.class));
+        assertFailureLogged("SERVER_ERROR", "UnexpectedServerFailure");
     }
 
     @Test
@@ -247,6 +260,34 @@ class FileMaintenanceServiceTest {
         verify(minioClient, never()).setBucketLifecycle(any(SetBucketLifecycleArgs.class));
     }
 
+    @Test
+    void logAssertionRejectsExtraRawSensitiveArgument() throws Exception {
+        when(minioClient.getBucketLifecycle(any(GetBucketLifecycleArgs.class)))
+                .thenThrow(minioError("InternalError", 500));
+
+        assertThat(service.ensureAbortIncompleteMultipartLifecycle(7)).isFalse();
+        assertFailureLogged("SERVER_ERROR", "InternalError");
+        Object productionCategory = logAppender.list.get(0).getArgumentArray()[0];
+        logAppender.list.clear();
+
+        serviceLogger.warn("MinIO 测试告警(category={})",
+                productionCategory, SENSITIVE_MESSAGE);
+
+        assertThat(logAppender.list)
+                .filteredOn(event -> event.getLevel() == Level.WARN)
+                .singleElement()
+                .satisfies(event -> {
+                    assertThat(event.getFormattedMessage())
+                            .contains("category=SERVER_ERROR")
+                            .doesNotContain(SENSITIVE_MESSAGE);
+                    assertThat(event.getArgumentArray())
+                            .containsExactly(
+                                    productionCategory, SENSITIVE_MESSAGE);
+                });
+        assertThatThrownBy(() -> assertFailureLogged("SERVER_ERROR"))
+                .isInstanceOf(AssertionError.class);
+    }
+
     private static LifecycleRule rule(String id, int abortDays) {
         return new LifecycleRule(
                 Status.ENABLED,
@@ -289,18 +330,32 @@ class FileMaintenanceServiceTest {
                 .singleElement()
                 .satisfies(event -> {
                     String message = event.getFormattedMessage();
-                    assertThat(message)
-                            .contains("category=" + category)
-                            .doesNotContain(
-                                    SENSITIVE_MESSAGE,
-                                    SENSITIVE_URL,
-                                    SENSITIVE_BUCKET_PATH,
-                                    SENSITIVE_TRACE);
-                    assertThat(extraForbiddenValues)
-                            .allSatisfy(value -> assertThat(message).doesNotContain(value));
+                    assertThat(message).contains("category=" + category);
+                    assertNoSensitiveLogValue(message, extraForbiddenValues);
                     assertThat(event.getThrowableProxy()).isNull();
-                    assertThat(Arrays.asList(event.getArgumentArray()))
-                            .noneMatch(Throwable.class::isInstance);
+                    assertThat(event.getArgumentArray())
+                            .singleElement()
+                            .satisfies(argument -> {
+                                assertThat(argument).isNotInstanceOf(Throwable.class);
+                                assertThat(argument).isInstanceOf(Enum.class);
+                                assertThat(argument.getClass().getName())
+                                        .isEqualTo(FAILURE_CATEGORY_CLASS);
+                                assertThat(((Enum<?>) argument).name()).isEqualTo(category);
+                                assertNoSensitiveLogValue(
+                                        String.valueOf(argument), extraForbiddenValues);
+                            });
                 });
     }
+
+    private static void assertNoSensitiveLogValue(
+            String value, String... extraForbiddenValues) {
+        assertThat(value).doesNotContain(
+                SENSITIVE_MESSAGE,
+                SENSITIVE_URL,
+                SENSITIVE_BUCKET_PATH,
+                SENSITIVE_TRACE);
+        assertThat(extraForbiddenValues)
+                .allSatisfy(forbidden -> assertThat(value).doesNotContain(forbidden));
+    }
+
 }
