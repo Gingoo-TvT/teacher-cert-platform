@@ -15,6 +15,15 @@
 
 ---
 
+## [2026-07-25] GOV-014 Phase 41 整改候选独立增量复核退回 — 1 High / 2 Medium / 1 Low
+- 做了什么：冻结整改代码 `ca11ecc..c69ea73` 并核对提交材料至 `274a939`，按 incremental + security/stability/testing-authenticity/release/configuration/data-integrity/concurrency 独立复核 PG-H2/PG-M2，产出 `docs/reviews/phase-41-remediation-rereview-2026-07-25.md` 与审计元数据。PG-M2 的标识符限制、应用口令转义、root 凭据 option file、sourced/executable 双路径和最小授权静态链成立，代码级可关闭；但 PG-H2 仍未关闭，正式结论 **CHANGES_REQUESTED（1 High / 2 Medium / 1 Low）**。
+- 关键决策与理由：High 为导出器 `SELECT *` 后显式写入全部列，而 V24/V28 有 5 个 `GENERATED ALWAYS ... STORED` 列；MySQL 只允许显式写 `DEFAULT`，正常学生/证书/文件/上传/过程材料行会使恢复失败。Medium 一是文本 hex 编码让单行 SQL 约膨胀两倍，手册默认 `mysql` 客户端无 packet 上限契约，大 `preview_json` 可在源库合法但无法回放；二是失败反例破坏首表 `sys_region` 的首个 INSERT，且目标已与产物同态，只证明 DELETE 回滚，不能证明已有 INSERT 成功后的整体回滚。Low 为新增 workflow 只有 `workflow_dispatch`，但文件尚不在默认分支，不能作为合并前 GitHub 手工入口。
+- 问题与解决：现有 `Phase41BackupIT` 的 source fixture 只覆盖 `sys_college/sys_major/notification/backup_record`，5 张生成列表均为空，故 37/37 指纹是假绿边界；下一候选必须用元数据排除生成列，并给 5 张表各造非空数据。回滚测试须先制造目标 drift，再把失败移到后段非空表并证明已有前缀 INSERT。恢复格式或配置还须给出客户端/服务端共同验证的单行上限，优先避免单条 SQL 的二倍膨胀。
+- 与规格的偏差/疑问：无业务规格、权限点或状态集合变化。Phase 41 继续复核退回，Phase 47 不放行。真实 MySQL 8.4 账号门禁仍待动态证据，但当前已有代码阻断，不要求用户在本候选上先执行高成本动态回环；待下一候选静态/一次性门禁通过后再执行。
+- 测试：独立 `mvn -B -ntp -DskipTests package`（9 模块）、前端 type-check/build、生产 Compose `config --quiet`、`git diff --check ca11ecc..274a939` 均通过；前端仅既有 >900 kB chunk warning。开发者 XML 经独立解析为 Surefire **149/149** + Failsafe **185/185** = **334/334**，0 failure/error/skip，`Phase41BackupIT` **1/1**，但日志是 MySQL 8.0。Git Bash/WSL 的 shell 语法尝试分别受本机 signal-pipe 权限与沙箱 `E_ACCESSDENIED` 阻断，未计为候选失败。
+- 安全边界：未运行真实 MySQL 初始化/账号认证脚本，未启动服务或依赖，未创建/删除容器、镜像、数据卷或账号；未执行漏洞扫描、恶意载荷、fuzz、压力、故障注入、凭据尝试或任何可能属于 cyber 的动作。
+- 下一步：按 High → packet Medium → 回滚证据 Medium → workflow Low 顺序形成下一候选；重跑 Phase41BackupIT、真实 MySQL 8.4 CLI 大行恢复、全量门禁后，再由用户执行账号/授权回环并提交独立增量复核。全部通过前不得置 Phase 41 PASS。
+
 ## [2026-07-25] Phase 41 退回整改候选 — 可恢复整库备份与安全初始化，待用户动态门禁及独立复核
 - 做了什么：在 `codex/phase41-recoverable-backup` 完成原报告 PG-H2/PG-M2 的最小整改并冻结代码提交 `c69ea73`。`DatabaseBackupService` 产出 `REPLACE_AFTER_FLYWAY` gzip SQL：保存会话外键状态，以单事务反序删除 37 张受管表、正序写回快照，失败不提交；文本改用 UTF-8 十六进制表达式；`backup_record` 只保留历史 `COMPLETED/FAILED`，排除本次及并发 `RUNNING/PENDING`，MinIO metadata 保存 record id、SHA-256、恢复模式及行表计数。`Phase41BackupIT` 用 source/restore 两个任务专属 scratch schema 跑生产 Flyway V1–V32，真实读取 MinIO gzip，覆盖 37/37 全字段指纹、Flyway 种子冲突、逻辑删除/特殊文本/父子关系、目标外行删除、连续双回放和中途失败整体回滚。MySQL 初始化脚本改为严格校验应用库名/用户名，sourced 路径复用官方初始化函数，executable fallback 以 0600 一次性 option file 传 root 凭据；新增静态契约脚本、真实 MySQL 8.4 手工脚本及仅 `workflow_dispatch` 的 workflow。提交材料为 `docs/reviews/phase-41-remediation-submission-2026-07-25.md`。
 - 关键决策与理由：生产恢复采用“先在空目标执行同版本 Flyway，再执行备份产物替换受管业务表”，保留 `flyway_schema_history`，避免把 DDL/迁移历史混入逻辑快照；使用 `DELETE` 而非会隐式提交的 `TRUNCATE`，使删除和写回可由同一事务失败回滚。非终态备份记录代表尚未形成可恢复快照，不能进入产物。初始化输入只允许 MySQL ASCII 标识符子集，应用口令在固定 SQL mode 下按字面量转义；root 凭据不进入 argv 或 `MYSQL_PWD`。真实认证门禁会创建账号并删除两个任务专属一次性容器及匿名卷，按用户安全边界只提供给用户或独立复核者手工执行。
