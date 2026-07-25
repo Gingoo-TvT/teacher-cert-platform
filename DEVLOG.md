@@ -15,6 +15,15 @@
 
 ---
 
+## [2026-07-26] GOV-019 Phase 47 PASS 后日志测试 Low 闭环
+- 做了什么：在第二轮正式 PASS 后按报告唯一非阻断 Low 补强 `FileMaintenanceServiceTest`，形成提交 `191a3ad`。日志断言现在要求 raw `argumentArray` 恰好一个参数、运行时类型精确为生产 `FileMaintenanceService$LifecycleFailureCategory`、枚举名称匹配预期分类、不得含 Throwable，且格式化消息和允许的 raw 参数都逐项检查固定/附加敏感哨兵；新增未知 S3 code + HTTP 503 的 `SERVER_ERROR` 回退反例。
+- 关键决策与理由：正式报告的 **PASS（0 Critical / 0 High / 0 Medium / 1 Low 非阻断）** 是复核时快照，保持原计数不改写；本条只记录 PASS 后关闭该 Low。负向自证先触发真实 service 失败并证明单一生产枚举可通过，再复用捕获的生产枚举构造“分类 + 敏感 String”，证明即使格式化消息干净，helper 仍会因额外 raw 参数拒绝。
+- 问题与解决：首版负向夹具使用测试私有同名枚举，既会因枚举类型错误失败，也会因第二个敏感参数失败，存在混杂变量；独立只读复核指出后改为捕获真实生产枚举并删除测试枚举。最终独立只读复核为 **PASS（0 Critical / 0 High / 0 Medium / 0 Low）**。
+- 与规格的偏差/疑问：无生产代码、DDL/Flyway、业务规则、参数、调度、权限点、API、前端、依赖或运行配置变化。Phase 47 正式 PASS 与 Phase 53 放行不变；全项目仍由 Phase 0、44、53 保持 **CHANGES_REQUESTED**，本闭环不是 merge/push/部署/切流或项目发布 GO。
+- 测试：`mvn -B -ntp -pl platform-file -am test` **18/18**（`FileMaintenanceServiceTest` **15/15**）；`mvn -B -ntp -DskipTests package` 后端 **9/9 modules BUILD SUCCESS**；`git diff --check` PASS；最终补丁独立只读复核 **0 Critical / 0 High / 0 Medium / 0 Low**。
+- 安全边界：未启动常驻服务，未运行 Docker、数据库、真实 MinIO、真实桶生命周期读写、网络请求、登录/浏览器、权限变更、故障注入、扫描、凭据尝试、恶意载荷、fuzz、压力或任何可能属于 cyber 的动作。
+- 下一步：当前分支切换为 `codex/phase53-demo-reconcile`，按 Phase 53 正式退回报告处理 demo 真实元数据与旧同名对象 reconcile；真实 MinIO、Docker、HTTP 登录和浏览器播放证据明确交由用户在隔离环境执行。
+
 ## [2026-07-26] GOV-018 Phase 47 第二轮独立增量复核 — PASS（1 Low 非阻断）
 - 做了什么：冻结第一轮代码基线 `aa6f81c`、第二轮生产/测试代码 `3bddf6c` 与提交材料/HEAD `db89d6e`，只复核两个源码文件中的 1 Medium / 1 Low 关闭链及必要回归；产出 `docs/reviews/phase-47-second-remediation-rereview-2026-07-26.md`、离线证据与独立 metadata。确认 MinIO SDK 8.5.12 的高层 no-config null sentinel 已正确映射为 ABSENT 并首次写一次，其它异常与畸形非空配置继续在 setter 前失败关闭；六类固定本地日志分类关闭上一轮 Low。
 - 关键决策与理由：正式结论为 **PASS（0 Critical / 0 High / 0 Medium / 1 Low 非阻断）**。第一轮 1 Medium / 1 Low 已按原问题口径全部关闭；新增 Low 仅为测试助手未限制 Logback raw `argumentArray` 恰含单一分类，也未检查额外非 Throwable String。当前生产 WARN 只传固定枚举，故没有确认的生产泄露，也不满足阶段退回阈值；该 Low 进入稳定发布前测试债。

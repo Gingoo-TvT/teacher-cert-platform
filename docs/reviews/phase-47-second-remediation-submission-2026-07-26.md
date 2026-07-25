@@ -15,6 +15,20 @@
   `aa6f81c..3bddf6c -- FileMaintenanceService.java FileMaintenanceServiceTest.java`。
 - 本轮没有 DDL/Flyway、配置、调度、API、权限点、前端或依赖版本变化。
 
+## PASS 后勘误与闭环（2026-07-26）
+
+本文以下内容保留为第二轮候选提交时快照。后续正式独立报告
+`docs/reviews/phase-47-second-remediation-rereview-2026-07-26.md` 判定
+**PASS（0 Critical / 0 High / 0 Medium / 1 Low 非阻断）**，并指出本文关于 raw
+参数数组的证明边界过强：当时候选只确认现有日志事件未携带已列敏感值，没有要求数组
+恰含单一生产枚举，也未用额外敏感 raw String 做负向自证。
+
+该 Low 已在 PASS 后由提交 `191a3ad` 闭环：参数数组收紧为单一生产分类枚举，格式化
+消息与 raw 值逐项检查敏感哨兵，补真实生产枚举 + 额外敏感 String 的负向自证，以及
+unknown code + HTTP 503 回退反例。模块 **18/18**（生命周期 **15/15**）、9 模块
+package、diff check 与最终独立只读复核均 PASS。正式报告原 1 Low 计数保持为复核时
+快照，不追溯改写。
+
 ## 1 Medium / 1 Low 的候选关闭链
 
 | 第一轮 finding | 第二轮整改候选 | 候选证据 |

@@ -376,6 +376,25 @@ rounded to one decimal place.
 | 增加 unknown code + 503 分类用例 | 15–30 min | 覆盖 status fallback |
 | 更正候选材料“参数数组已完全证明”的表述 | 5 min | 证据与声明一致 |
 
+### PASS 后续闭环（2026-07-26）
+
+本报告的 **PASS（0 Critical / 0 High / 0 Medium / 1 Low 非阻断）** 与 finding
+计数保持为独立复核时快照，不改写为“复核当时 0 Low”。报告发布后，提交 `191a3ad`
+按本节 Quick Wins 完成最小测试补强：
+
+- raw `argumentArray` 必须恰好包含一个参数，且运行时类型精确为生产
+  `FileMaintenanceService$LifecycleFailureCategory`、枚举名称匹配预期分类；
+- 格式化消息和唯一允许的 raw 参数均检查固定及用例附加敏感哨兵，Throwable 继续禁止；
+- 负向自证先用真实 service 失败日志证明单一生产枚举可通过，再用同一生产枚举加
+  `SENSITIVE_MESSAGE` 证明额外 raw 参数即使未进入格式化消息也会被 helper 拒绝；
+- 新增未知 S3 code + HTTP 503 回退到 `SERVER_ERROR`，并确认返回 false、从不调用 setter。
+
+后续一次性门禁为 `platform-file` **18/18**（`FileMaintenanceServiceTest` **15/15**）、
+后端 **9/9 modules package** 与 `git diff --check` 全部 PASS；最终独立只读增量审查为
+**0 Critical / 0 High / 0 Medium / 0 Low**。该后续闭环没有生产代码、配置、依赖、
+DDL/Flyway、API、权限或运行期动作，也未执行 Docker、真实 MinIO、网络、登录/浏览器
+或故障注入；Phase 47 的正式 PASS 与 Phase 53 放行保持不变。
+
 ## 17. Long-term Refactor Plan
 
 1. **Lifecycle read adapter：** 将 SDK 结果转换为显式三态，服务层只处理项目内合同。
