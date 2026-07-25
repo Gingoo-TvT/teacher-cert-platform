@@ -1,4 +1,4 @@
-# 当前统一执行计划（2026-07-24）
+# 当前统一执行计划（2026-07-25）
 
 > 本文件是项目**当前工作队列与阶段复核状态的唯一入口**。业务规格仍按 `AGENTS.md` 规定的优先级执行：`plan.md §15` > `plan.md` 正文 > `docs/phase-NN-*` > `tasks.md`；本文件不改写业务规则，只合并分散计划、复核证据和后续顺序。
 >
@@ -6,7 +6,7 @@
 
 ## 1. 当前基线与本轮结论
 
-- 当前分支：`feature/phase39-college-child-lock`，基线为 Phase 42 PASS 治理提交 `66fd2a9`。Phase 39 第二轮代码冻结点 `73406ed` 已由 `reviews/phase-39-second-remediation-rereview-2026-07-24.md` 判定 **PASS**：第一轮 1 High / 1 Low 全部关闭，本增量 0 High / 0 Medium / 0 Low。下一整改入口为 Phase 41；`main` 仍为 `e4f8228`，禁止擅自 merge/push。
+- 当前分支：`codex/phase41-recoverable-backup`。Phase 39 第二轮代码冻结点 `73406ed` 已由 `reviews/phase-39-second-remediation-rereview-2026-07-24.md` 判定 **PASS**；Phase 41 整改代码冻结点为 `c69ea73`，提交材料为 `reviews/phase-41-remediation-submission-2026-07-25.md`，当前只到“代码候选 + 开发者证据”，待用户安全敏感动态门禁与独立增量复核。`main` 仍为 `e4f8228`，禁止擅自 merge/push。
 - Claude 当前不可用；用户于 2026-07-23 明确授权 Codex 作为本轮独立复核者。Phase 42 增量重核未采信实现自报，重新读码、核验现有真实 MySQL XML 与源码/编译时序，并独立执行安全的一次性构建门禁；按用户安全边界未重跑并发/latch、压力或任何可能属于 cyber 的验证。该应急授权只适用于本轮记录，不自动改写 `REVIEW-GATE` 的长期角色约定。
 - 原复核隔离空库基线：`mvn -B -ntp clean verify` 通过，Surefire **121/121**、Failsafe **144/144**，合计 **265/265**，Flyway V1–V28 与 `R__testseed` 成功。
 - WS-3 第二轮整改独立门禁：全新数据卷执行 Flyway V1–V29 成功，Surefire **121/121**、Failsafe **150/150**，合计 **271/271**；Phase 7 为 **29/29**；前端 type-check/build 通过。独立复核确认时间线、fast-hit、review 行锁和 V29 已闭环，但静态不变量仍发现 3 High / 3 Medium。
@@ -27,7 +27,8 @@
 - Phase 39 独立增量复核：冻结 `66fd2a9..34aeec7`。集中父锁、学院删除首读锁、直接学生计数，以及专业/STAFF 用户/学生/当前标准导入的在线锁接线成立；但历史跨学院 UPDATE ref 的 rollback 只锁 batch/ref/child，未锁定或验证 `before_json.collegeId`，目标学院已软删时可恢复活跃孤儿学生，原 PG-H1 High 不能关闭。另有 1 Low：并发 IT 的 contender hook 早于真实 JDBC query。独立后端 package、前端 type-check/build 与 diff check 通过；开发者 XML 329/329。结论 **CHANGES REQUESTED**，见 `reviews/phase-39-remediation-rereview-2026-07-24.md`。
 - Phase 39 第二轮候选：提交 `73406ed` 在任何业务 child 锁前解析 student/training/certificate UPDATE ref 的 `before_json.collegeId`，对有效目标去重并按 ID 升序父锁；非法、缺失或已删除父级按 ref 明确冲突关闭。学院删除补 active training/certificate 直接计数，保护只恢复其中一类的部分补偿。并发 IT 改用精确 SQL + collegeId 的 `StatementHandler.query` query-entered 屏障，并新增 certificate-only 与 `A2/A1/A2` 多父锁序反例。Phase 39 **11/11**、Phase 10 **13/13**、全新无卷隔离环境全量 **149/149 + 185/185 = 334/334**；生产与最终测试只读审查均 **0 High / 0 Medium / 0 Low**。这些是候选证据；独立报告 PASS 前 Phase 39 和全项目正式状态不变。
 - Phase 39 第二轮独立重核：冻结 `1a69c70..dbd8633`，代码点 `73406ed`。三类历史恢复目标已纳入 `batch → refs → college IDs 升序 → business child`，缺失/已删父级按 ref 冲突，删除侧 direct count 与 query-entered 证据成立；第一轮 1 High / 1 Low 全部关闭，本增量 0 High / 0 Medium / 0 Low。独立后端 package、前端 type-check/build、diff check 与报告 lint 通过；开发者 XML 334/334、Phase 39 11/11、Phase 10 13/13，同源时间链成立。结论 **PASS**，见 `reviews/phase-39-second-remediation-rereview-2026-07-24.md`。
-- 全项目仍因 **Phase 0、41、44、47、53 五个退回阶段**保持 **CHANGES_REQUESTED**：WS-3、Phase 42 与 Phase 39 已独立 PASS；整库备份不可按手册恢复、Phase 44 完成声明与实现不一致、MinIO 生命周期失败覆盖、Phase 53 demo 对象/元数据升级不一致及 Phase 0 验收基线欠账仍在。Phase 7 两项广覆盖证据债及 Phase 39 报告列出的三个基线债务候选不作为本轮阶段阻断，留最终全量审计复查。
+- Phase 41 整改候选：代码点 `c69ea73` 将 37 表逻辑备份改为 Flyway 后的事务化整库替换恢复，真实 MySQL scratch 完成 37/37 全字段指纹、双回放、目标外行删除和失败回滚；初始化脚本对数据库名/用户名做严格标识符校验，root 凭据仅进入 0600 一次性 option file。开发者全量为 Surefire **149/149** + Failsafe **185/185** = **334/334**，前端、Compose 与静态初始化契约均通过。真实 MySQL 8.4 账号认证/精确授权回环涉及安全敏感容器和账号操作，Codex 未执行；取得用户手工 PASS 日志并完成独立重核前，Phase 41 不得置 PASS、Phase 47 不放行。
+- 全项目仍因 **Phase 0、41、44、47、53 五个退回阶段**保持 **CHANGES_REQUESTED**：WS-3、Phase 42 与 Phase 39 已独立 PASS；Phase 41 的实现缺口已有候选修复但仍待用户动态门禁和独立重核，Phase 44 完成声明与实现不一致、MinIO 生命周期失败覆盖、Phase 53 demo 对象/元数据升级不一致及 Phase 0 验收基线欠账仍在。Phase 7 两项广覆盖证据债及 Phase 39 报告列出的三个基线债务候选不作为本轮阶段阻断，留最终全量审计复查。
 - 本轮是“逐阶段进度真实性 + 测试真实性 + 发布门禁”的复核，不替代最后的全量安全、业务规则、数据一致性、性能与运行期审计。
 
 ## 2. 逐阶段复核矩阵
@@ -82,7 +83,7 @@
 | Phase 38 | 已合并 | `reviews/phase-38-review.md` PASS | ✅ 已复核；容量压测留最终审计 |
 | Phase 39 | 第二轮整改 `73406ed`（分支 `feature/phase39-college-child-lock`） | `reviews/phase-39-second-remediation-rereview-2026-07-24.md` PASS | ✅ 独立复核 PASS；第一轮 1 High / 1 Low 全部关闭；三个基线债务候选留最终全量审计 |
 | Phase 40 | 已合并 | `reviews/phase-40-review.md` PASS | ✅ 已复核 |
-| Phase 41 | 已合并（含 41.1/41.2/41.3） | `reviews/phase-41-review.md` | ❌ 复核退回：备份不可按手册恢复；初始化 SQL 拼接 |
+| Phase 41 | 整改候选 `c69ea73`（分支 `codex/phase41-recoverable-backup`） | `reviews/phase-41-remediation-submission-2026-07-25.md`；原报告 `reviews/phase-41-review.md` | ❌ 整改候选：原 1 High / 1 Medium 已修，待用户 MySQL 8.4 动态门禁与独立增量复核 |
 | Phase 42 | 第二轮整改 `bd1db49` | `reviews/phase-42-second-remediation-rereview-2026-07-24.md` PASS | ✅ 独立复核 PASS；原 Major 与首轮 1 Medium / 1 Low 全部关闭；严格提交级动态同源性留非阻断限制 |
 | Phase 43 | 已合并（含 43.1–43.4） | `reviews/phase-43-review.md` PASS | ✅ 已复核 |
 | Phase 44 | 已合并（含 44a–44f） | `reviews/phase-44-review.md` | ❌ 复核退回：通知批量交付已撤销；缓存逐出竞态 |
@@ -114,7 +115,7 @@
 
 1. **U-001 CI 可复现性（WS-3 Major-3）—✅ 独立重核 PASS**：后端 job 的固定版本 MinIO、健康检查、桶初始化与前端 `npm run type-check` 已静态核对；独立 CI 等价环境全量 266/266、前端 type-check/build 通过。WS-6 仍负责 ESLint、Vitest、Playwright。
 2. **U-002 WS-3 退回整改—✅ 独立重核 PASS**：`88d3136..2886442` 已确认关闭第五轮新增的 2 Medium：① reconciliation trigger 绑定独立 `TaskScheduler`，真实 scheduling + blocked backup 证据证明普通备份不再阻断对账提交；② `video_finalization_object_candidate` 纳入 37 表逻辑全量备份，scratch restore 后历史 generation、claim/retry/tombstone 完整且真实对账可续跑。唯一新增 Low 是提交材料把 32 个迁移写成 33 个，已在正式报告和活动文档勘误，不阻断。此处只证明 candidate slice，Phase 41 整份普通 `INSERT` 备份与 Flyway 种子冲突仍是独立退回项。V32 发布继续遵守停写、停全部旧节点/worker、迁移、全量启动新实例后再放流，禁止 V31/旧稳定 key 协议混部与旧二进制回滚。独立报告为 `reviews/ws-03-sixth-remediation-rereview-2026-07-24.md`；未执行任何 cyber 指令，后续任何可能属于 cyber 的命令必须明确交由用户决定并亲自执行。
-3. **U-003 阶段退回整改**：Phase 42、Phase 39 第二轮均已独立复核 PASS。当前进入 Phase 41 可恢复备份与安全初始化：修复整库普通 INSERT 与 Flyway 种子冲突、初始化 SQL 拼接，并提交独立增量复核。后续顺序为 Phase 47 生命周期 fail-closed → Phase 53 demo 真实元数据/旧对象 reconcile + 浏览器播放 → Phase 44 状态诚实化/缓存事务后逐出。
+3. **U-003 阶段退回整改**：Phase 42、Phase 39 第二轮均已独立复核 PASS。Phase 41 可恢复备份与安全初始化的代码候选 `c69ea73` 已冻结，开发者非 cyber 门禁通过；下一步由用户或独立复核者执行材料中明列的 MySQL 8.4 真实认证/授权回环，随后进行独立增量复核。正式 PASS 前不放行 Phase 47。后续顺序为 Phase 47 生命周期 fail-closed → Phase 53 demo 真实元数据/旧对象 reconcile + 浏览器播放 → Phase 44 状态诚实化/缓存事务后逐出。
 4. **U-004 Phase 0 复核退回整改**：逐项处理 `docs/phase-00-脚手架.md` 的 10 个验收项；被现架构取代的旧要求要记录替代依据，补 lint/Swagger/预签名过期等可重复证据后重交。
 
 ### P1：当前产品需求与上线安全
@@ -151,4 +152,4 @@
 2. 业务规格变化仍必须先改 `plan.md`/对应 phase 文档，并按 R10 写 `DEVLOG.md`；本文件只同步执行项。
 3. 阶段实现完成只能置“待复核”；独立复核报告 PASS 后，才能在本文件与 `PROGRESS.md` 同步置“✅ 已复核”。
 4. 每次复核同时记录：代码提交、测试命令/计数、运行环境、反例、未覆盖项、结论。
-5. 最终全量审计前，U-001–U-004 必须全部闭环；U-001/U-002 已独立重核 PASS，U-003 的 Phase 42、Phase 39 已关闭，当前按 Phase 41 → 47 → 53 → 44 推进，U-004 最后处理 Phase 0。未闭环前不得宣称稳定发布就绪。
+5. 最终全量审计前，U-001–U-004 必须全部闭环；U-001/U-002 已独立重核 PASS，U-003 的 Phase 42、Phase 39 已关闭，Phase 41 当前是待用户动态门禁与独立重核的整改候选。Phase 41 正式 PASS 后才按 Phase 47 → 53 → 44 推进，U-004 最后处理 Phase 0。未闭环前不得宣称稳定发布就绪。

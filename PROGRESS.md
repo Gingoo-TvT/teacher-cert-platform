@@ -5,11 +5,11 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**Phase 39 第二轮独立增量复核 PASS，下一整改入口为 Phase 41**（分支：`feature/phase39-college-child-lock`；代码候选：`73406ed`；正式报告：`docs/reviews/phase-39-second-remediation-rereview-2026-07-24.md`）；统一入口为 `docs/CURRENT-EXECUTION-PLAN.md`。
-- 当前结论：WS-1/WS-2/WS-3/WS-10/WS-13 PASS；U-001 CI 零状态契约 PASS。Phase 42 与 Phase 39 第二轮独立报告均确认各自首轮新增 finding 全部关闭且无新增代码 finding。Phase 29、35b、36–40、42–43、45–46、48–52 PASS，Phase 0、41、44、47、53 复核退回。
-- P0 放行项：Phase 39 已由 `docs/reviews/phase-39-second-remediation-rereview-2026-07-24.md` 判定 **PASS**，第一轮 **1 High / 1 Low 全部关闭**。历史三类 UPDATE 恢复目标已纳入 `batch → refs → college IDs 升序 → business child`，无效父级按 ref 冲突关闭；query-entered 证据与持久终态互证。Phase 41 整库普通 INSERT 恢复缺口与 Phase 53 demo High 仍是各自独立退回项。
-- 最近更新：2026-07-24（Phase 39 第二轮独立复核：严格增量 `1a69c70..dbd8633`，代码冻结点 `73406ed`，结论 **PASS，0 High / 0 Medium / 0 Low**。独立后端 package、前端 type-check/build、diff check 与报告 lint 通过；开发者 XML Surefire **149/149** + Failsafe **185/185** = **334/334**、Phase 39 **11/11**、Phase 10 **13/13**，0 failure/error/skip，MySQL 8，同源时间链成立。未重跑并发/latch、未启动服务或执行任何 cyber 操作）。
-- 下一步：进入 Phase 41 的整库可恢复备份与安全初始化整改；之后按 Phase 47 → 53 → 44 → 0 推进。全部退回项关闭后执行最终全量审计。
+- 当前阶段：**Phase 41 退回整改代码候选已冻结，待用户安全敏感动态门禁与独立增量复核**（分支：`codex/phase41-recoverable-backup`；代码候选：`c69ea73`；提交材料：`docs/reviews/phase-41-remediation-submission-2026-07-25.md`）。Phase 39 第二轮独立增量复核已 PASS；统一入口为 `docs/CURRENT-EXECUTION-PLAN.md`。
+- 当前结论：WS-1/WS-2/WS-3/WS-10/WS-13 PASS；U-001 CI 零状态契约 PASS。Phase 42 与 Phase 39 第二轮均已独立 PASS。Phase 41 的原 1 High / 1 Medium 已形成整改候选，但独立报告尚未 PASS；Phase 0、41、44、47、53 继续复核退回。
+- P0 放行项：Phase 41 候选已把 37 表备份改为 Flyway 后整库替换恢复，补齐真实 MySQL scratch 的 37/37 全字段指纹、双回放和失败回滚；初始化脚本已消除数据库/用户名 SQL 插值与 root 口令 argv/`MYSQL_PWD` 暴露。真实 MySQL 8.4 账号认证/授权回环涉及创建账号及删除任务专属容器与匿名卷，Codex 按用户安全边界未执行，须由用户或独立复核者手工完成。
+- 最近更新：2026-07-25（Phase 41 代码冻结点 `c69ea73`。最终 `mvn -B -ntp clean verify` 为 Surefire **149/149** + Failsafe **185/185** = **334/334**，0 failure/error/skip；`Phase41BackupIT` **1/1**，37/37 表恢复一致；初始化静态契约、前端 type-check/build、dev/prod Compose config 与 diff check 通过。未启动常驻应用，未执行真实账号认证、漏洞扫描、攻击性探测或任何 cyber 操作）。
+- 下一步：用户执行 `docs/reviews/phase-41-remediation-submission-2026-07-25.md` 明列的真实 MySQL 8.4 手工门禁并保留 PASS 日志，再提交 Phase 41 独立增量复核。只有正式 PASS 后才放行 Phase 47，随后按 Phase 47 → 53 → 44 → 0 推进；全部退回项关闭后执行最终全量审计。
 
 ## 审计整改工作流
 | WS | 内容 | 状态 |
@@ -34,7 +34,8 @@
 | Phase 36–38、40、43、45–46、48–52 | 已合并 | 逐阶段 PASS 报告齐全 | ✅ 已复核 |
 | Phase 42 | 第二轮整改 `bd1db49` | `phase-42-second-remediation-rereview-2026-07-24.md` PASS；首轮 1 Medium / 1 Low 全部关闭 | ✅ 独立复核 PASS |
 | Phase 39 | 第二轮整改 `73406ed` | `phase-39-second-remediation-rereview-2026-07-24.md` PASS；第一轮 1 High / 1 Low 全部关闭 | ✅ 独立复核 PASS；三个基线债务候选留最终全量审计 |
-| Phase 41、44、47、53 | 已合并 | 逐阶段 CHANGES REQUESTED 报告齐全；Phase 53 另有 WS-3 重核补充证据 | ❌ 复核退回 |
+| Phase 41 | 整改候选 `c69ea73` | `phase-41-remediation-submission-2026-07-25.md`；待用户动态门禁与独立增量复核 | ❌ 正式状态仍为复核退回 |
+| Phase 44、47、53 | 已合并 | 逐阶段 CHANGES REQUESTED 报告齐全；Phase 53 另有 WS-3 重核补充证据 | ❌ 复核退回 |
 
 逐 Phase 结论、报告路径与后续顺序以 `docs/CURRENT-EXECUTION-PLAN.md` 为准。
 

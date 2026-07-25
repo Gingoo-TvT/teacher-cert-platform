@@ -49,7 +49,8 @@ M14 扩展点预留、后端/前端 Dockerfile、生产 docker-compose、兼容�
   5. 仅启动同一第五轮协议的全部实例，逐实例核对 probe 独占卷/目录，并确认启动对象回填/对账已执行。
   6. 确认 `SERVER_CHUNK` 新对象键带 `/g-{generation}.mp4`、没有旧稳定 key 写入者；健康检查和迁移核验通过后恢复写流量。
   - V31/旧节点会覆盖或清空永久世代，V32 之前节点还会继续写稳定 object key；因此禁止新旧二进制混部。V32 落库后禁止回滚旧协议二进制，失败只能前向修复。
-- **当前 WS-3 发布闸门（2026-07-24）**：第六轮独立复核 `reviews/ws-03-sixth-remediation-rereview-2026-07-24.md` 为 **PASS**，第五轮新增的 scheduler trigger 隔离与 V32 candidate 全量备份覆盖 2 Medium 全部关闭；双 scheduler、blocked-backup 调度隔离、37 表备份与 candidate scratch restore/真实对账续跑证据成立。唯一新增 Low 是迁移数量应写“32 个迁移、最终 V32”，不阻断 WS-3/U-002。candidate slice 证据仍不关闭 Phase 41 整份普通 `INSERT` 脚本恢复冲突，全项目继续受 Phase 0、39、41、42、44、47、53 退回项阻断。
+- **当前 WS-3 发布闸门（2026-07-24）**：第六轮独立复核 `reviews/ws-03-sixth-remediation-rereview-2026-07-24.md` 为 **PASS**，第五轮新增的 scheduler trigger 隔离与 V32 candidate 全量备份覆盖 2 Medium 全部关闭；双 scheduler、blocked-backup 调度隔离、37 表备份与 candidate scratch restore/真实对账续跑证据成立。唯一新增 Low 是迁移数量应写“32 个迁移、最终 V32”，不阻断 WS-3/U-002。Phase 39 与 Phase 42 后续独立报告亦已 PASS；全项目当前仍受 Phase 0、41、44、47、53 阻断。
+- **当前 Phase 41 恢复闸门（2026-07-25）**：整改候选 `c69ea73` 已把普通 INSERT 产物升级为 Flyway 后事务化替换恢复，并以真实 MySQL scratch 完成 37/37 表全字段指纹、连续双回放与失败整体回滚；初始化脚本的标识符和 root 凭据路径亦已收紧。`mvn -B -ntp clean verify` 为 **334/334**，前端、Compose 与静态初始化契约通过。真实 MySQL 8.4 账号认证/精确授权回环由用户或独立复核者按 `reviews/phase-41-remediation-submission-2026-07-25.md` 手工执行；在该动态证据与独立 PASS 报告产生前，Phase 41 仍为 **CHANGES_REQUESTED**，不得放行 Phase 47。
 - **WS-2 发布切换**：新版 JWT 含毫秒级签发时间 `iatMs`、口令凭据版本 `credentialVersion` 和 Redis 持久会话代次 `sessionGeneration`；缺少或不匹配任一新 claim 的存量 token 会被拒绝，logout 通过原子增代使旧 access/refresh 立即失效。发布时必须同时替换/重启全部后端实例并通知用户重新登录；禁止旧实例在滚动窗口继续签发旧格式 token。
 
 ## 4. 非功能收口（plan §十二）

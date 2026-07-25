@@ -15,6 +15,15 @@
 
 ---
 
+## [2026-07-25] Phase 41 退回整改候选 — 可恢复整库备份与安全初始化，待用户动态门禁及独立复核
+- 做了什么：在 `codex/phase41-recoverable-backup` 完成原报告 PG-H2/PG-M2 的最小整改并冻结代码提交 `c69ea73`。`DatabaseBackupService` 产出 `REPLACE_AFTER_FLYWAY` gzip SQL：保存会话外键状态，以单事务反序删除 37 张受管表、正序写回快照，失败不提交；文本改用 UTF-8 十六进制表达式；`backup_record` 只保留历史 `COMPLETED/FAILED`，排除本次及并发 `RUNNING/PENDING`，MinIO metadata 保存 record id、SHA-256、恢复模式及行表计数。`Phase41BackupIT` 用 source/restore 两个任务专属 scratch schema 跑生产 Flyway V1–V32，真实读取 MinIO gzip，覆盖 37/37 全字段指纹、Flyway 种子冲突、逻辑删除/特殊文本/父子关系、目标外行删除、连续双回放和中途失败整体回滚。MySQL 初始化脚本改为严格校验应用库名/用户名，sourced 路径复用官方初始化函数，executable fallback 以 0600 一次性 option file 传 root 凭据；新增静态契约脚本、真实 MySQL 8.4 手工脚本及仅 `workflow_dispatch` 的 workflow。提交材料为 `docs/reviews/phase-41-remediation-submission-2026-07-25.md`。
+- 关键决策与理由：生产恢复采用“先在空目标执行同版本 Flyway，再执行备份产物替换受管业务表”，保留 `flyway_schema_history`，避免把 DDL/迁移历史混入逻辑快照；使用 `DELETE` 而非会隐式提交的 `TRUNCATE`，使删除和写回可由同一事务失败回滚。非终态备份记录代表尚未形成可恢复快照，不能进入产物。初始化输入只允许 MySQL ASCII 标识符子集，应用口令在固定 SQL mode 下按字面量转义；root 凭据不进入 argv 或 `MYSQL_PWD`。真实认证门禁会创建账号并删除两个任务专属一次性容器及匿名卷，按用户安全边界只提供给用户或独立复核者手工执行。
+- 问题与解决：第一次全量门禁误以后台 Maven 与随后启动的 clean 并发，已只终止本轮精确 PID 并弃用其结果；第二次正常运行超过工具 7 分钟上限而被终止，亦未采信。第三次从 clean 状态独立完整执行至 BUILD SUCCESS，作为最终证据。静态脚本的一次故障分支曾暴露测试 dummy option file 未清理，已以精确 dummy 内容定位并删除两个泄漏文件，随后补齐 EXIT/HUP/INT/TERM 清理与成功/失败回归。两个 scratch schema、dev 依赖及 8080/5173 均已核对收尾；dev 数据卷只 stop 未删除。
+- 与规格的偏差/疑问：无业务规则、权限点、状态集合或 Flyway 迁移变更。备份手册同步明确本轮只证明 JDBC 对真实 MySQL scratch 回放，不冒充真实 `mysql` 客户端管道、生产切换、PITR/binlog 连续归档、MinIO mirror、超大库或慢存储验收。Phase 41 正式状态仍为 **CHANGES_REQUESTED**，整改者不得自行置 PASS，Phase 47 不放行。
+- 测试：最终 `mvn -B -ntp clean verify` 9 模块 **BUILD SUCCESS**；Surefire **149/149** + Failsafe **185/185** = **334/334**，0 failure/error/skip；`Phase41BackupIT` **1/1**。`bash -n` 两个脚本、`bash scripts/test-phase41-mysql-init.sh`、前端 type-check/build、dev/prod `docker compose ... config --quiet` 与 `git diff --check` 全部通过；前端仅既有 >900 kB chunk warning。真实 MySQL 8.4 账号认证/授权手工脚本未执行。
+- 安全边界：未启动后端/前端常驻服务；未执行漏洞扫描、攻击性探测、恶意载荷、fuzz、压力、真实凭据尝试或任何 cyber 操作。用户手工门禁命令为 `PHASE41_ALLOW_REAL_DOCKER_TEST=1 bash scripts/test-phase41-mysql-init-real.sh`，其影响与替代 GitHub 手工 workflow 已在提交材料明确。
+- 下一步：用户保留 `[phase41-mysql-init-real] PASS` 日志后，冻结 `ca11ecc..c69ea73` 交独立增量复核，只复核 PG-H2/PG-M2 及必要回归。独立报告 PASS 后才关闭 Phase 41 并进入 Phase 47。
+
 ## [2026-07-24] GOV-013 Phase 39 第二轮独立增量复核 PASS — 第一轮 1 High / 1 Low 全部关闭
 - 做了什么：冻结第一轮治理基线 `1a69c70` 至第二轮提交材料 `dbd8633`，其中生产/测试代码冻结点为 `73406ed`；按 incremental + security/stability/performance/testing-authenticity/release/configuration/data-integrity/concurrency 完成生产锁协议、测试真实性、发布/治理同源性三路交叉复核，产出 `docs/reviews/phase-39-second-remediation-rereview-2026-07-24.md` 与审计元数据。上一轮历史 rollback 恢复到已删学院的 High、contender 信号早于查询边界的 Low 均按原问题口径关闭，本增量 **0 High / 0 Medium / 0 Low**，正式结论 **PASS**。
 - 关键决策与理由：三类 UPDATE `before_json.collegeId` 已在任何业务 child 锁前解析，目标去重升序锁定；非法、缺失或 deleted 父级按 ref 冲突，不通过异常污染外层 rollback 事务。删除侧在同一父锁后补 training/certificate 直接计数，固定协议为 `batch → refs → college IDs 升序 → business child`。测试探针精确匹配 status-only SQL + collegeId，并由真实胜方取锁、双向业务结果和持久孤儿断言互证。
