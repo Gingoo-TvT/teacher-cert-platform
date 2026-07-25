@@ -7,7 +7,7 @@
 ---
 
 ## 0. 当前接力快照（2026-07-25）
-- 当前分支 `codex/phase41-second-remediation`；Phase 39 第二轮代码点 `73406ed` 已独立 PASS。Phase 41 第二轮代码点 `b5ed7f5`、材料/HEAD `ef6b550` 的两项真实 MySQL 8.4 动态门禁均已取证并独立核验，正式结论为 **PASS（0 Critical / 0 High / 0 Medium / 1 个非阻断 Low）**，见 `docs/reviews/phase-41-second-remediation-dynamic-evidence-rereview-2026-07-25.md`；该 1 Low 已在 PASS 后续闭环，原报告计数保留为历史快照。当前入口切换至 Phase 47；`main` 仍为 `e4f8228`，无 remote，禁止 push/擅自 merge。
+- 当前分支 `codex/phase47-lifecycle-fail-closed`；Phase 47 退回整改代码冻结点为 `aa6f81c`，候选材料为 `docs/reviews/phase-47-remediation-submission-2026-07-25.md`，当前入口是独立增量复核。Phase 39、Phase 41 已独立 PASS；Phase 41 正式报告的 1 个非阻断 Low 已在 PASS 后续闭环，原计数保留为历史快照。`main` 仍为 `e4f8228`，无 remote，禁止 push/擅自 merge。
 - WS-3 原有预签名直传能力保持不变；整改包新增服务端逐字节读取最终 MinIO 对象、计算受信 SHA-256 tree 指纹并用 JCodec 校验实际 MP4/H.264/时长/首帧，校验失败关闭。秒传只允许同 uploader、同 student、同一受信对象及已有合格视频记录复用，普通响应不再暴露内部内容指纹。
 - 2026-07-23 用户在 Claude 不可用期间明确授权 Codex 独立复核。WS-3 第二轮 `32da735` 的独立报告 `docs/reviews/ws-03-second-remediation-rereview-2026-07-23.md` 仍为 **CHANGES REQUESTED**：时间线、fast-hit、review 行锁和 V29 已闭环，但 `SERVER_CHUNK` 崩溃恢复、并发总磁盘预留、可终止探测时限仍有 3 High，另有 lease 续租/生产配置/资源测试 3 Medium。Phase 53 demo 元数据失配是 U-003 的独立 High，未混入本次报告。
 - 第三轮 `df22e5b` 已完成上述整改，但独立重核 `docs/reviews/ws-03-third-remediation-rereview-2026-07-23.md` 仍为 **CHANGES REQUESTED（4 High / 5 Medium）**。High 为：Redis fencing token 在序列过期/恢复后可 ABA；server finalize 输给 assign 后永久 MERGING；direct 接管时 multipart 已丢失会永久 MERGING；持久 `video-probe-temp` 无崩溃孤儿清扫。Medium 为：基础设施故障误判内容失败、强杀未确认退出、磁盘双重计数、MinioClient 未受显式超时控制、fat-JAR worker 缺自动化门禁。
@@ -33,6 +33,7 @@
 - Phase 41 上一轮独立重核确认 PG-M2 初始化标识符/凭据路径代码级闭环，但以生成列、hex 大行 packet、过早回滚反例和 workflow 路径共 **1 High / 2 Medium / 1 Low** 退回。第二轮候选 `b5ed7f5` 已改为 metadata 驱动写入列、Base64 + 编码前 32 MiB 预算、64 MiB packet 契约、全部正常 INSERT 后的 COMMIT 前故障，并勘误 workflow；5 张生成列表与 13 MiB JSON 反例均进入 `Phase41BackupIT`。
 - Phase 41 第二轮独立报告为 `docs/reviews/phase-41-second-remediation-rereview-2026-07-25.md`，结论 **CHANGES_REQUESTED（0 个新增代码 finding；2 个动态证据闸门未满足）**。上一轮生成列 High、packet Medium、回滚 Medium 和 workflow Low 均达到代码级整改，Low 可静态关闭；其余运行闭环及 PG-M2 仍须当前候选的真实 MySQL 8.4 日志。两项门禁可能涉及 schema、对象、账号、容器或匿名卷，只能由用户在专用隔离环境执行；Phase 47 不放行。
 - Phase 41 动态证据增量报告 `docs/reviews/phase-41-second-remediation-dynamic-evidence-rereview-2026-07-25.md` 已正式 **PASS**：Surefire 149/149、`Phase41BackupIT` 1/1、真实 MySQL 8.4 CLI 恢复与 sourced/executable 初始化账号/精确授权均通过，上一轮 1 High / 2 Medium / 1 Low 全部关闭。正式 PASS 时新增的 Gate A 冷认证缓存前置 1 Low 已后续修正：示例、runner fail-fast、恢复手册与纯 stub CI 契约一致闭环；不改写原报告当时的 1 Low 计数。Phase 47 已放行进入其既有退回项整改。
+- Phase 47 退回整改候选 `aa6f81c` 已完成：`currentRules` 只把精确 `NoSuchLifecycleConfiguration` 视为无配置；403/500/其它 404、网络/解析异常、空错误响应及 null/empty 配置均传播到外层并在任何 `setBucketLifecycle` 前失败关闭。更新路径保留读取快照内的外部规则，只替换稳定托管 ID；日志只记录异常类型。纯 Mockito 新增 12/12、`platform-file` 单测 15/15、后端 9 模块跳测 package 通过，两路内部只读终审 0 High / 0 Medium / 0 Low。原 `docs/reviews/phase-47-review.md` 仍是 **CHANGES REQUESTED（1 Major）**；新独立报告 PASS 前 Phase 53 不放行。
 - V32 发布必须停写并停止全部第五轮之前的后端与 worker，确认无旧进程后执行 Flyway 至 V32，再启动全部第五轮新实例、核对启动回填/对账与 generation 对象键，最后恢复写流量；禁止 V31/旧稳定 key 协议与第五轮混部，V32 后禁止回滚旧协议二进制。每个后端实例必须独占具有独立配额/文件系统的 probe 卷，禁止共享目录/卷或 `docker compose --scale` 复用当前命名卷。
 - 遵守用户安全边界：未执行漏洞扫描、攻击性探测、凭据尝试、恶意载荷、fuzz 或针对现有服务的破坏操作。T-VID 使用固定 44 字节结构夹具、一次受控对象删除失败及本轮专用隔离依赖；任何后续可能属于 cyber 的命令必须明确列出并交由用户亲自决定/执行。
 - 2026-07-22 的“缺阶段报告”证据债务已在 2026-07-23 清零；其发现的 CI MinIO/type-check 门禁已在当前整改包补齐并独立重核 PASS。历史结论保留于 `docs/reviews/progress-review-2026-07-22.md`。
@@ -146,7 +147,7 @@ git -C "$REPO" add -A && git -C "$REPO" commit -m "feat(T-0xx): ..."
 - 实体继承 `BaseEntity`（id/审计字段/逻辑删除自动）；Mapper 放 `**/mapper`（已 `@MapperScan("cn.edu.gpnu.platform.**.mapper")`）；统一返回 `Result`；写操作 `@AuditLog`；列表/导出/统计查询 `@DataScope`；当前用户取 `UserContext`。
 - **文本化字段全链路 String + Excel `@`**（学校代码/学号/证件号/出生日期/证书编号/有效期限）——AT-01 生命线，勿用数值/日期类型。
 
-## 5. 当前整改入口 → Phase 47 生命周期 fail-closed 退回整改
+## 5. 当前整改入口 → Phase 47 整改候选独立增量复核
 1. 先读 `AGENTS.md` → `docs/REVIEW-GATE.md` → `docs/CURRENT-EXECUTION-PLAN.md` → `docs/reviews/phase-47-review.md`，只处理其中已确认的生命周期规则读取失败覆盖问题；Phase 41 最新正式依据为 `docs/reviews/phase-41-second-remediation-dynamic-evidence-rereview-2026-07-25.md`，不要再执行已闭合的两项门禁。
 2. 已闭环：服务端 `SHA256_TREE_V1` 可信指纹；同 uploader/student + 既有 PASS 的秒传边界；普通 VO 去 `fileMd5`；GitHub Actions 真实 MinIO/桶初始化与前端 type-check。U-001 可视为 PASS。
 3. 第二轮已闭环：JCodec 三时长交叉核验与唯一视频轨；当前策略/探测器版本 + MinIO HEAD 的 fast-hit；定稿与 assign 共用 review 行锁；V29 逐项检测恢复。
@@ -168,7 +169,8 @@ git -C "$REPO" add -A && git -C "$REPO" commit -m "feat(T-0xx): ..."
 19. 第二轮独立静态重核：冻结 `17b11aa..ef6b550`，代码点 `b5ed7f5`。生成列、packet、后段故障回滚和 workflow 说明均达到代码级闭环，本增量 0 个代码 finding；独立 Surefire 149/149、9 模块 package、前端 type-check/build、Compose 配置解析、diff check 与报告 lint 通过。现有 Phase41BackupIT XML 早于候选且为 MySQL 8.0，不能作为当前动态证据，正式结论为 CHANGES_REQUESTED。
 20. 用户已在专属一次性隔离环境完成两项真实门禁并归档证据：Gate A 为 Surefire 149/149、`Phase41BackupIT` 1/1、真实 MySQL 8.4 CLI 恢复与最终 PASS；Gate B 为 sourced `0644`、executable `0755` 及总 PASS，覆盖真实账号认证与精确授权。scratch schema、专属对象、五个专属容器、六个匿名卷及临时 runner 镜像/文件均已按执行者收尾核验清理，共享 `tcp-*` 未触碰；宿主 `mysql:8.4` 镜像缓存保留。
 21. Phase 41 动态证据独立重核 **PASS**：根目录/归档日志哈希一致，源码/runner blob 与 `ef6b550` 无差异，候选特有行为、XML 和时间线构成高置信同源证据。日志未内嵌 Git SHA、MySQL 补丁版本和运行后零清单，按证据限制记录；门禁 A 示例 URL 遗漏冷认证缓存所需 TLS/RSA 参数形成的 1 个非阻断 Low 已在 PASS 后由示例、runner fail-fast、手册与纯 stub CI 契约闭环，生产 Compose 不受影响。
-22. 当前执行 Phase 47 既有退回项：修复 MinIO 生命周期读取失败时覆盖其它规则的问题，补失败关闭反例后重交独立复核。不得把 Phase 41 PASS 扩大解释为 merge/push、部署、切流或全项目发布 GO。
+22. Phase 47 候选代码已冻结为 `aa6f81c`：仅精确 `NoSuchLifecycleConfiguration` 放行创建；其它读取失败及无效响应一律返回 false 且不得写生命周期；既有规则保留、托管规则替换与幂等跳写均有纯 Mockito 回归。提交材料为 `docs/reviews/phase-47-remediation-submission-2026-07-25.md`。
+23. 当前只允许独立复核 `b2f1f70..aa6f81c` 及必要安全回归。原正式结论继续为 CHANGES_REQUESTED，Phase 53、merge、push、部署、切流和项目发布均不放行。若复核者要求真实 MinIO 权限错误/故障注入或生命周期写入验证，该动作可能涉及对象存储配置、权限和网络，必须先把精确命令与影响明确交给用户亲自决定/执行；Codex 不执行。
 
 ## 6. 已知坑与规避（别重复踩）
 - Lombok `optional` 不向子模块传递 → 已在父 POM 解决。

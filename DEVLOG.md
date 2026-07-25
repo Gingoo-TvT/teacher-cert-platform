@@ -15,6 +15,15 @@
 
 ---
 
+## [2026-07-25] Phase 47 退回整改候选完成 — 生命周期读取 fail-closed，待独立增量复核
+- 做了什么：在 `codex/phase47-lifecycle-fail-closed` 针对 `docs/reviews/phase-47-review.md` 的原 1 Major 完成最小整改并冻结代码 `aa6f81c`。`FileMaintenanceService.currentRules` 只捕获 `ErrorResponseException`，且仅在错误码精确为 `NoSuchLifecycleConfiguration` 时返回空规则；其它 S3 错误、网络/解析异常及 null/empty 配置均传播到外层，在任何 `setBucketLifecycle` 前返回 false。成功读取后继续保留外部规则，只替换稳定托管 ID；告警不再输出服务端 message 或内部 endpoint/path，只记录异常类型。
+- 关键决策与理由：生命周期写入是整桶替换，读取失败时无法证明“现有规则为空”，因此必须 fail-closed，不能用“稍后可重试”换取覆盖其它规则的风险。精确错误码而非 HTTP 404 分流可避免把 `NoSuchBucket` 误当无生命周期配置。SDK 的 `LifecycleConfiguration` 正常构造拒绝 null/empty rules，故畸形成功响应同样失败关闭。整桶 API 无 CAS，读取成功后的外部并发变更窗口无法由本次局部修复消除，治理文档明确要求应用任务与人工生命周期变更串行。
+- 问题与解决：第一次定向 Maven 命令因 PowerShell 未引用点号属性参数，在任何编译/测试前被 Maven 解析为非法生命周期阶段；改为引用参数后进入测试并通过。日志安全与测试严密性两路只读审查曾各提出非阻断 Low，随后去除原始 `e.getMessage()`，并补外部规则数量/对象同一性及整桶空前缀断言；最终两路内部只读终审均为 **0 High / 0 Medium / 0 Low**。
+- 与规格的偏差/疑问：无 DDL/Flyway、参数、调度频率、权限点、业务状态、API、前端或保留期/孤儿扫描语义变化；只修复生命周期错误分流和证据缺口。原正式报告保持 **CHANGES_REQUESTED（1 Major）**，本条不是独立 PASS，Phase 53 不放行。
+- 测试：`mvn -B -ntp -pl platform-file -am test` **BUILD SUCCESS，15/15**（`FileMaintenanceServiceTest` 新增 **12/12**）；覆盖 NoSuchLifecycleConfiguration 正例，AccessDenied、InternalError/500、NoSuchBucket/404、空 ErrorResponse、IOException、XmlParserException、null/empty 配置的 `never(setBucketLifecycle)`，以及外部规则保留、托管规则替换和幂等跳写。`mvn -B -ntp -DskipTests package` 后端 9 模块 BUILD SUCCESS；`git diff --check` PASS。
+- 安全边界：未启动常驻服务，未运行 Docker、Failsafe、真实 MinIO、真实桶生命周期读写、权限变更、网络故障注入、漏洞扫描、攻击性探测、凭据尝试、恶意载荷、fuzz、压力或任何可能属于 cyber 的动作。若独立复核要求真实 MinIO 权限错误/故障注入或生命周期写入验证，必须先将精确命令、目标、预期写入和回滚影响明确交给用户亲自决定/执行，Codex 不执行。
+- 下一步：提交 `docs/reviews/phase-47-remediation-submission-2026-07-25.md`，独立复核者冻结 `b2f1f70..aa6f81c` 重核原 Major 与必要回归。新报告 PASS 前 Phase 47、Phase 53 及全项目继续 **CHANGES_REQUESTED**，不 merge/push/部署/切流；PASS 后才进入 Phase 53。
+
 ## [2026-07-25] GOV-017 Phase 41 正式 PASS 后冷缓存认证 Low 闭环
 - 做了什么：按正式动态报告唯一 Low 的最小口径，修正 Gate A JDBC 示例；`scripts/test-phase41-backup-restore-real.sh` 在任何 `mysql`/Maven 调用前解析 JDBC query，并强制 `sslMode=VERIFY_CA/VERIFY_IDENTITY`、回环隔离专用 `allowPublicKeyRetrieval=true`、受控可读绝对路径 `serverRSAPublicKeyFile` 三项至少一项成立。解析固定 `LC_ALL=C`，拒绝编码/非 ASCII key、缺 `=`、三类关键键大小写重复、非法布尔/TLS 枚举以及空、相对、目录、缺失或含控制字符的 RSA 路径；日志只输出脱敏认证模式。同步更新提交材料、恢复手册、正式报告的 PASS 后续闭环段与当前治理入口。
 - 关键决策与理由：正式报告明确允许三种冷缓存认证路径，因此不把门禁擅自收窄为 TLS-only；`allowPublicKeyRetrieval=true&useSSL=false` 只允许 runner 已强制的本机回环专用测试目标，生产仍优先受验证 TLS 或受控服务器公钥。原正式结论 **PASS（0 High / 0 Medium / 1 Low 非阻断）** 与 finding count 保留为复核时快照，只追加 post-PASS closure，不伪造“复核当时已是 0 Low”。

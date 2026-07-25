@@ -5,11 +5,11 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**Phase 41 第二轮动态证据增量复核 PASS，当前入口切换到 Phase 47 退回整改**（分支：`codex/phase41-second-remediation`；代码点：`b5ed7f5`；材料/HEAD：`ef6b550`；正式动态报告：`docs/reviews/phase-41-second-remediation-dynamic-evidence-rereview-2026-07-25.md`）。统一入口为 `docs/CURRENT-EXECUTION-PLAN.md`。
+- 当前阶段：**🟦 Phase 47 退回整改候选完成，待独立增量复核**（分支：`codex/phase47-lifecycle-fail-closed`；代码冻结点：`aa6f81c`；候选材料：`docs/reviews/phase-47-remediation-submission-2026-07-25.md`；原正式报告：`docs/reviews/phase-47-review.md`）。Phase 41 已正式 PASS，统一入口为 `docs/CURRENT-EXECUTION-PLAN.md`。
 - 当前结论：WS-1/WS-2/WS-3/WS-10/WS-13 PASS；U-001 CI 零状态契约 PASS。Phase 42、Phase 39 与 Phase 41 第二轮均已独立 PASS。Phase 41 的真实 MySQL 8.4 CLI 恢复门禁和 sourced/executable 初始化账号/精确授权门禁均已闭合；全项目当前仍由 **Phase 0、44、47、53** 四个退回阶段保持 **CHANGES_REQUESTED**。
 - P0 放行项：Phase 41 上一轮 1 High / 2 Medium / 1 Low 全部关闭；正式 PASS 时新增的 1 个非阻断 Low 已在后续闭环——Gate A 示例补齐冷认证参数，runner 在 Maven 前强制受验证 TLS / `allowPublicKeyRetrieval=true` / 受控 RSA 公钥文件三选一，并由纯 stub 静态契约覆盖失败关闭。正式报告仍保留当时的 1 Low 快照。约 24 MiB 以上原始整行 fail-closed、写入侧未同界继续留最终全量审计。
-- 最近更新：2026-07-25（用户专属隔离环境动态证据：Surefire **149/149**、`Phase41BackupIT` **1/1**、真实 MySQL 8.4 CLI 恢复 PASS；MySQL 8.4 sourced `0644` / executable `0755` 初始化账号与精确授权两路 PASS。独立复核仅核验日志、XML、哈希、脚本契约和 Git 同源性，未启动或操作任何基础设施）。
-- 下一步：按 Phase 47 既有报告整改生命周期读取失败时覆盖其它规则的问题并重交独立复核；其后依次为 Phase 53 demo 真实元数据/旧对象 reconcile + 浏览器播放 → Phase 44 状态诚实化/事务后缓存逐出 → Phase 0 验收基线。全部退回项关闭后执行最终全量审计。
+- 最近更新：2026-07-25（Phase 47 代码候选 `aa6f81c` 已完成：仅明确 `NoSuchLifecycleConfiguration` 可按空配置创建；403/500/其它 404、网络/解析异常及空响应均 fail-closed，且不调用 `setBucketLifecycle`。新增纯 Mockito 反例 12/12，`platform-file` 单测 15/15，后端 9 模块跳测 package 通过；两路内部只读终审均为 0 High / 0 Medium / 0 Low）。
+- 下一步：冻结 `b2f1f70..aa6f81c` 进行 Phase 47 独立增量复核；正式报告 PASS 前 Phase 47 仍为 **CHANGES_REQUESTED**、Phase 53 不放行。PASS 后依次为 Phase 53 demo 真实元数据/旧对象 reconcile + 浏览器播放 → Phase 44 状态诚实化/事务后缓存逐出 → Phase 0 验收基线。全部退回项关闭后执行最终全量审计。
 
 ## 审计整改工作流
 | WS | 内容 | 状态 |
