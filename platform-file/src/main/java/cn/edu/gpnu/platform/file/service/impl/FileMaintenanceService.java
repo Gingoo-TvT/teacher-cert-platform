@@ -4,7 +4,9 @@ import cn.edu.gpnu.platform.file.config.MinioProperties;
 import io.minio.GetBucketLifecycleArgs;
 import io.minio.MinioClient;
 import io.minio.SetBucketLifecycleArgs;
+import io.minio.errors.ErrorResponseException;
 import io.minio.messages.AbortIncompleteMultipartUpload;
+import io.minio.messages.ErrorResponse;
 import io.minio.messages.LifecycleConfiguration;
 import io.minio.messages.LifecycleRule;
 import io.minio.messages.RuleFilter;
@@ -26,7 +28,8 @@ import java.util.List;
  * 仍未完成」的分片上传——无需应用逐个遍历/删除，也不必自研一套列举分片的底层调用。
  *
  * <p>本服务只做一件事且幂等：<b>确保</b>该规则存在（保留桶上其它既有规则，仅新增/更新我们这条 id）。
- * 实际 abort 由 MinIO 服务端按规则执行。MinIO 不可达或权限不足时吞异常仅告警、返回 false，绝不打断调度线程。
+ * 实际 abort 由 MinIO 服务端按规则执行。读取既有规则失败时采用 fail-closed：仅告警并返回 false，
+ * 不调用整桶生命周期写入，也不打断调度线程。
  */
 @Slf4j
 @Service
@@ -35,6 +38,7 @@ public class FileMaintenanceService {
 
     /** 我们这条生命周期规则的稳定 id（用于幂等识别/更新，不误伤运维手工添加的其它规则） */
     static final String ABORT_RULE_ID = "tcp-abort-incomplete-multipart-uploads";
+    private static final String NO_SUCH_LIFECYCLE_CONFIGURATION = "NoSuchLifecycleConfiguration";
 
     private final MinioClient minioClient;
     private final MinioProperties props;
@@ -80,22 +84,31 @@ public class FileMaintenanceService {
                     bucket, abortDays);
             return true;
         } catch (Exception e) {
-            log.warn("MinIO 桶 {} 未完成分片 abort 生命周期规则设置失败(稍后可重试): {}", bucket, e.getMessage());
+            // 不记录服务端可控 message 或内部 endpoint/path；异常类型足以支持无敏感信息的告警聚合。
+            log.warn("MinIO 桶 {} 未完成分片 abort 生命周期规则确保失败(稍后可重试，type={})",
+                    bucket, e.getClass().getSimpleName());
             return false;
         }
     }
 
-    private List<LifecycleRule> currentRules(String bucket) {
+    private List<LifecycleRule> currentRules(String bucket) throws Exception {
         try {
             LifecycleConfiguration cfg = minioClient.getBucketLifecycle(
                     GetBucketLifecycleArgs.builder().bucket(bucket).build());
-            if (cfg != null && cfg.rules() != null) {
-                return new ArrayList<>(cfg.rules());
+            List<LifecycleRule> rules = cfg == null ? null : cfg.rules();
+            if (rules == null || rules.isEmpty()) {
+                throw new IllegalStateException("MinIO 生命周期配置读取结果不完整");
             }
-        } catch (Exception e) {
-            // 无生命周期配置(NoSuchLifecycleConfiguration)或读取失败：按空处理，后续 set 新建即可
-            log.debug("读取 MinIO 桶 {} 生命周期配置为空/失败: {}", bucket, e.getMessage());
+            return new ArrayList<>(rules);
+        } catch (ErrorResponseException e) {
+            ErrorResponse response = e.errorResponse();
+            if (response != null
+                    && NO_SUCH_LIFECYCLE_CONFIGURATION.equals(response.code())) {
+                // 只有服务端明确确认“尚无配置”时才允许按空集合创建；其它读取失败必须 fail-closed。
+                log.debug("MinIO 桶 {} 尚未配置生命周期规则，将创建托管规则", bucket);
+                return new ArrayList<>();
+            }
+            throw e;
         }
-        return new ArrayList<>();
     }
 }
