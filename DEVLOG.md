@@ -15,6 +15,16 @@
 
 ---
 
+## [2026-07-27] GOV-026 Phase 44 第四轮退回整改候选 — `228a355` 待用户动态门禁与独立复核
+- 做了什么：针对第三轮正式报告的 1 Medium / 4 Low，先以 `69f7462` 独立归档第三轮报告与治理状态，再形成代码/测试/部署合同候选 `228a355`（`69f7462..228a355`，11 路径，`+1136/-27`）。READ Lua 在 writers 为空但 `P:` 尚存时继续失败关闭且不刷新 positive recovery TTL；新增固定分片的 `DictRedisPublishGuard`，把 canonical typeCode 的本地 active writer 计数与整段 Redis PUT 在线性化锁内判定，并保持到 afterCompletion 全部清理结束。所有字典写窗口登记前移到 mapper DML 之前，注册失败时数据库尚无未提交变更。
+- 关键决策与理由：Redis writers/version 是跨节点第一道保护；本地 guard 专门覆盖“本 JVM 的 Redis 协调状态整体丢失”边界。writer 先进入则 PUT action 不执行，PUT 先进入则 BEGIN 随后删除 payload；`markLost` 不释放 guard。残留 `P:` 只能由原 recovery TTL 自然到期，不能从“当前看不到 owner”推断事务已结束。固定 stripe 避免 per-key 锁回收的 ABA，且只让哈希碰撞类型在短时 Redis PUT 上串行。
+- 问题与解决：只读对抗复核指出三类潜在假绿：旧 16/16 XML 仍是第三轮方法名；owner-loss 用例只验证返回 V1、不能发现 guard 永久泄漏；单次 READ 不能完全证明 TTL 不被同值重置。门禁现先删旧报告并强制两个第四轮 testcase 名；owner-loss 回滚后要求 Redis 成功回填 V1；crash 用例用 4 秒 TTL、两次间隔 READ 和三次 PTTL 严格递减证明不续期。另补 5 条 DML-before-registration ordering 单测，关闭外层事务捕获同步注册异常后的未提交发布边界。
+- 4 个 Low：新增精确 Failsafe 门禁脚本（reactor safeguard + 16/16 XML/summary/方法名校验）；Compose/.env 显式透传 `DICT_CACHE_WRITER_*`；Phase 14/README 增加停写、全停旧节点、等待 legacy pending、禁止混部/旧 binary 回滚合同；新增只读棕地 collation/非法及非 canonical/collision preflight，失败后只允许独立 Flyway，不手改库。
+- 与规格的偏差/疑问：无 Flyway、API、返回结构、权限点或业务规则变更。跨 JVM Caffeine 广播、Redis Cluster 同槽与 durable post-commit revision 仍是既有 long-term/final-audit 边界，不冒充本轮闭环。
+- 测试：安全离线 `platform-system` **53/53**、Boot 49 个测试源 test-compile、后端 package **9/9 modules**、前端 type-check/build、两个脚本 Git Bash `-n` 与 diff check 均 PASS。当前磁盘旧 Failsafe XML 明确含第三轮旧方法名，不作为本候选动态证据。
+- 安全边界：Codex 未启动或连接 Docker、MySQL、Redis、MinIO、网络、浏览器或服务，未执行 owner/version 删除、故障注入、棕地查询、Compose 展开或其它可能属于 cyber 的动作；未 merge/push/deploy/切流。
+- 下一步：用户在获授权全新隔离 MySQL/Redis 环境执行 `scripts/test-phase44-cache-commit-window-real.sh`，使用只读账号执行 `scripts/preflight-phase44-dict-identity.sh`，并自行核对 Compose 非默认值展开；随后独立复核冻结 `69f7462..228a355`。Phase 44 正式 PASS 前不进入 Phase 0。
+
 ## [2026-07-26] GOV-025 Phase 44 第三轮独立增量复核 — CHANGES_REQUESTED（1 Medium / 4 Low）
 - 做了什么：冻结 `25f8b1c0683dae38f930a8cb94baf937a446013d..8ff544db37b7cd89a9f8463de4d1696b46c50f45`（16 个代码/测试路径，`+952/-172`），并核对其直接子提交、材料 HEAD `890aa6ebc919f13036caf3f87b13779a97120539`。产出正式报告 `docs/reviews/phase-44-third-remediation-rereview-2026-07-26.md`、证据摘要与审计元数据。
 - 关键决策与理由：正式结论为 **CHANGES_REQUESTED（0 Critical / 0 High / 1 Medium / 4 Low）**。typeCode canonical identity Medium 与上一轮 `@Param`、registration、publishLock 三个 Low 全部关闭；逐 owner ZSET、Redis TIME、续租、`beforeCommit` 和最后 owner 恢复的正常路径成立。但 READ 在 writers ZSET 为空且 version 仍为 `P:ACTIVE` 时立即恢复普通版本；同一写事务随后 `listItems` 会从 MySQL 读到自身未提交 V2，PUT 又只检查 Redis writers/version，因此可把 V2 发布到共享 Redis，直到 `beforeCommit` 才发现 owner 丢失并回滚。这违反“未提交值不得跨请求可见”，故为阻断 Medium。
