@@ -1,0 +1,237 @@
+Phase 44 second remediation independent incremental rereview
+Date: 2026-07-26
+Safety boundary: local Git/source/bytecode/XML inspection plus naturally exiting offline Maven only.
+No network, Docker, database, Redis, MinIO, browser, service, scan, credential attempt,
+fault injection, malicious payload, fuzz, stress, permission change, stage, commit, merge,
+push or deployment action was executed.
+
+1. Frozen candidate
+
+Baseline:
+  f9aec54ddfce7202bfcbeb576e6d8c989f21a6e7
+
+Candidate:
+  25f8b1c0683dae38f930a8cb94baf937a446013d
+
+Parent line:
+  25f8b1c0683dae38f930a8cb94baf937a446013d
+  parent=f9aec54ddfce7202bfcbeb576e6d8c989f21a6e7
+
+Subject:
+  fix(phase44): 关闭缓存陈旧值公开窗口与 Redis 失效原子性（第二轮）
+
+Commit time:
+  2026-07-26T19:41:39+08:00
+
+Diff:
+  20 files changed, 2175 insertions(+), 228 deletions(-)
+
+git diff --check f9aec54..25f8b1c:
+  PASS
+
+Initial tracked worktree:
+  clean
+
+Preserved unrelated untracked paths:
+  .agents/
+  .claude/audits/
+  .claude/tmp-audit-prompt.txt
+  audit-report-teacher-cert-platform-2026-07-05.html
+  docs/audit-remediation-plan.md
+  docs/prompts/
+
+2. Independent offline gates
+
+Command:
+  mvn -o -B -ntp -pl platform-system -am test
+
+Result:
+  BUILD SUCCESS
+  EpochGuardedCacheTest                 19/19
+  ReferenceCacheInvalidatorTest        10/10
+  DictCacheKeyTest                     13/13
+  InAppNotifyChannelBatchTest           4/4
+  Total                                46/46
+  Failures=0 Errors=0 Skipped=0
+
+Command:
+  mvn -o -B -ntp -DskipTests package
+
+Result:
+  BUILD SUCCESS
+  Reactor modules 9/9 SUCCESS
+  Includes testCompile of Phase44CacheCommitWindowIT and Phase44NotificationBatchIT
+
+No frontend production file changed in f9aec54..25f8b1c, so the developer frontend
+type-check/build excerpt was inspected but not independently rerun.
+
+3. Candidate XML cross-evidence
+
+Initial local target inventory before the independent system test:
+  Surefire: 24 XML, tests=241, failures=0, errors=0, skipped=0
+  Failsafe: 30 XML, tests=200, failures=0, errors=0, skipped=0
+  Combined: 441/441
+
+Relevant Failsafe XML:
+  Phase44CacheCommitWindowIT   tests=10 failures=0 errors=0 skipped=0 time=3.145
+  Phase44NotificationBatchIT  tests=5  failures=0 errors=0 skipped=0 time=3.259
+  Phase44CachingIT            tests=3  failures=0 errors=0 skipped=0 time=0.247
+  Phase1DictIT                tests=2  failures=0 errors=0 skipped=0 time=1.880
+
+Source/artifact time chain:
+  latest changed Java source                 2026-07-26 19:21:13
+  system/boot compile and testCompile        2026-07-26 19:26:36..19:26:57
+  Surefire execution                         2026-07-26 19:26:40..19:27:09
+  Failsafe execution                         2026-07-26 19:27:36..19:37:24
+  verify summary                             2026-07-26 19:37:29
+  frontend dist                              2026-07-26 19:38:48
+  round-2 gate excerpt                       2026-07-26 19:39:19
+  remediation submission                     2026-07-26 19:40:24
+  candidate commit                           2026-07-26 19:41:39
+
+All 11 changed Java worktree blobs matched candidate 25f8b1c at the initial snapshot.
+The boot test bytecode contained sessionLockWaitTimeout/restoreSession and the four
+new Phase44 cache IT method names.
+
+Limitation:
+  target XML and full Maven logs are ignored/untracked and do not embed candidate SHA.
+  The committed gate file is an excerpt, not the raw complete run log. The ordered
+  source/artifact/XML chain is high-confidence evidence on this machine, but is not a
+  fresh-clone-portable strict commit-level dynamic proof.
+
+The independent platform-system test later refreshed its own four Surefire XML files at
+21:24 while preserving the same 46/46 result. Candidate Failsafe XML remained unchanged.
+
+4. Previous finding closure checks
+
+M1 Caffeine publish window:
+  CLOSED for one exact Java key.
+  EpochGuardedCache.put validates pending/epoch and calls delegate.put while holding
+  publishLock. evict/clear/invalidate/begin/end use the same lock.
+
+M2 Redis concrete protocol gaps:
+  CLOSED as originally described.
+  BUMP_VERSION_AND_DROP_PAYLOAD performs SET version + DEL payload in one Lua script.
+  READ_ITEMS_WITH_VERSION atomically returns payload/version.
+  Payload envelope carries v/items and the hit path validates v == current version.
+  PUT_IF_VERSION_UNCHANGED rejects missing/pending/mismatched versions.
+  ReferenceCacheInvalidator executes named steps independently and catches RuntimeException
+  per step, so Redis failure no longer suppresses the two local evictions.
+
+M3 payload/version namespace collision:
+  CLOSED as originally described.
+  dict:items: and dict:items-version: diverge at a fixed prefix character.
+  DTO @Pattern plus service normalizeTypeCode validate write paths.
+
+M4 pooled MySQL session pollution:
+  CLOSED for the normal 1205 path.
+  Phase44NotificationBatchIT saves original autocommit and session
+  innodb_lock_wait_timeout, rolls back, restores both, rereads the session variable on
+  the same connection, and only then returns it to the pool.
+
+L1 exact-key uncommitted read-through:
+  CLOSED for one exact key by pending read bypass + put rejection + completion eviction.
+
+L2 @Param explanation:
+  NOT CLOSED.
+  NotificationMapper lines 19-27 still claim @Param("rows") prevents element fill.
+  Locked MyBatis-Plus 3.5.16 bytecode proves:
+    processParameter(Object) -> extractParameters(Object)
+    Map branch iterates map values, deduplicates them with HashSet, converts collections,
+    and processes every element.
+  Submission R2-6 states this correct model and says the comment was rewritten, so the
+  current source and submission contradict each other.
+
+L3 candidate metadata:
+  Original exact branch/scope/count issue is closed. Current formal state is updated by
+  this independent report rather than accepted from the remediation author's self-status.
+
+5. Confirmed new blocking sequence A: Redis pending ownership
+
+Current state machine:
+  begin(type)      = SET version P:<uuid> EX 60; DEL payload
+  complete(type)   = SET version <normal uuid> EX 24h; DEL payload
+
+There is one Redis value, no transaction owner set and no reference count.
+
+Deterministic sequence:
+  T1 modifies item A of type X -> begin writes P1
+  T2 modifies item B of type X -> begin overwrites with P2
+  T1 commits -> its afterCompletion writes normal N1 even though T2 is still active
+  a reader may fill/serve the T1-only committed state under N1
+  T2 physically commits -> before T2 afterCompletion, N1 payload is stale
+  a process exit after physical commit but before callback can leave that stale payload
+  until its 12-hour TTL
+
+Same root:
+  No forced transaction timeout was found. If one transaction remains active beyond the
+  fixed 60-second pending TTL, READ_ITEMS_WITH_VERSION creates a normal version and
+  reopens publishing while the write transaction is still active.
+
+Existing Phase44 tests cover one Redis writer only. The local pending reentrancy test
+proves a Caffeine counter but cannot be extended to the Redis single-value protocol.
+
+6. Confirmed new blocking sequence B: database/cache typeCode identity
+
+Production MySQL:
+  utf8mb4_0900_ai_ci
+
+DDL:
+  sys_dict_type.type_code and sys_dict_item.type_code inherit the case-insensitive
+  table/database collation.
+
+Backend validation:
+  ^[A-Za-z0-9_]{1,64}$
+  trim only; no case canonicalization.
+
+Cache identity:
+  raw/trimmed Java String for Redis payload/version, Caffeine @Cacheable key,
+  pending map and eviction.
+
+Deterministic sequence:
+  DB contains type material_category
+  listItems/dictLabels("material_category") warms lower-case keys
+  createItem request uses legal MATERIAL_CATEGORY
+  requireType matches the lower-case DB type under _ai_ci
+  the item is stored/invalidated using upper-case MATERIAL_CATEGORY
+  lower-case Redis and Caffeine entries are never pending or evicted
+  normal callers continue seeing stale data up to 12 hours
+
+7. Confirmed non-blocking findings
+
+@Param comment:
+  See section 4 L2.
+
+Registration failure test:
+  ReferenceCacheInvalidatorTest.registrationFailureReleasesTheWindowImmediately does not
+  activate transaction synchronization. Production immediately takes lines 64-70,
+  executes steps/finally/end and returns. registerSynchronization/catch lines 72-87 are
+  never executed.
+
+Lock tests:
+  invalidationCannotInterleaveBetweenTheCheckAndThePublish and
+  windowCannotOpenBetweenTheCheckAndThePublish submit the contender and infer blocking
+  solely from future.get timing out after 300 ms. There is no contender-started probe.
+
+Non-counted hardening observation:
+  EpochGuardedCache stores one epoch per thread/key. A future same-thread same-key nested
+  loader could overwrite/consume the outer snapshot. No current repository call path uses
+  such nesting or @Cacheable(sync=true), so this is scheduled-later hardening rather than
+  a current Phase 44 finding.
+
+8. Final independent result
+
+Verdict:
+  CHANGES_REQUESTED
+
+Counts:
+  Critical 0
+  High     0
+  Medium   2
+  Low      3
+
+Phase consequence:
+  Phase 44 remains returned.
+  Phase 0 is not released.
+  Full-project status remains CHANGES_REQUESTED.
+  No merge, push, deployment, traffic switch, stable-release or final-full-audit GO.
