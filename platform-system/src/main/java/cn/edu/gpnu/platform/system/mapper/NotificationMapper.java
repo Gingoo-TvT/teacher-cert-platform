@@ -3,11 +3,47 @@ package cn.edu.gpnu.platform.system.mapper;
 import cn.edu.gpnu.platform.system.entity.Notification;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import org.apache.ibatis.annotations.Delete;
+import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Param;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 public interface NotificationMapper extends BaseMapper<Notification> {
+
+    /**
+     * Phase 44（PG-M3 整改）：站内信真批量写——一条 multi-values {@code INSERT}，走<b>当前 SqlSession/连接</b>，
+     * 因此完整参与外层 {@code @Transactional}（与 44a 的 {@code Db.saveBatch} 相反：后者以 BATCH 执行器另开
+     * SqlSession/连接、不参与外层事务，与外层事务持有的行锁互等，间歇触发 {@code Lock wait timeout}）。
+     *
+     * <p><b>参数刻意不加 {@code @Param}</b>：MyBatis 会把单个 {@code List} 参数包成含 {@code list}/{@code collection}
+     * 键的 ParamMap，而 MyBatis-Plus 的 {@code MybatisParameterHandler} 正是按这些键取出集合、对<b>每个元素</b>
+     * 执行 {@code populateKeys}（{@code IdType.ASSIGN_ID} 主键）与 {@code MetaObjectHandler.insertFill}（审计字段），
+     * 与逐行 {@code insert} 的填充链完全一致。若加 {@code @Param}，参数映射只剩自定义键、上述填充不会发生，
+     * 主键与审计字段将全为 null 并直接撞 {@code id} 主键非空约束。
+     *
+     * <p>{@code deleted} 列刻意不出现在列清单里：交由 DDL 的 {@code DEFAULT 0}，与 MP 单行 insert 忽略 null
+     * 字段的行为一致。可空列显式声明 {@code jdbcType}，避免 null 走 {@code JdbcType.OTHER} 依赖驱动实现。
+     *
+     * <p><b>为什么不用 MP 内置的批量 API</b>：3.5.16 的 {@code BaseMapper.insert(Collection)} 与
+     * {@code Db.saveBatch} 一样经 {@code MybatisBatchUtils.execute(SqlSessionFactory, ...)} 从工厂<b>新开</b>
+     * SqlSession（BATCH 执行器），正是 44a 事故的成因；且 JDBC batch 仍是 N 条语句，不是 multi-values。
+     *
+     * @param rows 待插入通知（调用方保证非空、且已完成字段裁剪/兜底）
+     * @return 实际插入行数
+     */
+    @Insert("<script>"
+            + "INSERT INTO notification (id, user_id, type, title, content, biz_type, biz_id, read_flag,"
+            + " created_by, created_at, updated_by, updated_at) VALUES "
+            + "<foreach collection='list' item='row' separator=','>"
+            + "(#{row.id,jdbcType=BIGINT}, #{row.userId,jdbcType=BIGINT}, #{row.type,jdbcType=VARCHAR},"
+            + " #{row.title,jdbcType=VARCHAR}, #{row.content,jdbcType=VARCHAR}, #{row.bizType,jdbcType=VARCHAR},"
+            + " #{row.bizId,jdbcType=VARCHAR}, #{row.readFlag,jdbcType=TINYINT},"
+            + " #{row.createdBy,jdbcType=BIGINT}, #{row.createdAt,jdbcType=TIMESTAMP},"
+            + " #{row.updatedBy,jdbcType=BIGINT}, #{row.updatedAt,jdbcType=TIMESTAMP})"
+            + "</foreach>"
+            + "</script>")
+    int insertBatch(List<Notification> rows);
 
     /**
      * Phase 47（P1-9 定时清理）：物理删除 created_at 早于 cutoff 的通知，单次至多 batchSize 行。

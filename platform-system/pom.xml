@@ -52,5 +52,12 @@
             <groupId>jakarta.servlet</groupId>
             <artifactId>jakarta.servlet-api</artifactId>
         </dependency>
+        <!-- Phase 44（PG-M3/PG-M4 整改）：本模块的离线单测（纪元守卫缓存、事务感知失效器、通知批量写），
+             与 platform-file 同口径，仅 test 作用域。 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 </project>

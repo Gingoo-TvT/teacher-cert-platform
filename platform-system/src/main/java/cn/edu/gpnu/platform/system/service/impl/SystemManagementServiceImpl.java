@@ -6,6 +6,7 @@ import cn.edu.gpnu.platform.common.api.ResultCode;
 import cn.edu.gpnu.platform.common.context.DataScopeContext;
 import cn.edu.gpnu.platform.common.context.UserContext;
 import cn.edu.gpnu.platform.common.exception.BizException;
+import cn.edu.gpnu.platform.system.cache.ReferenceCacheInvalidator;
 import cn.edu.gpnu.platform.system.config.CacheConfig;
 import cn.edu.gpnu.platform.system.dto.AuditLogQuery;
 import cn.edu.gpnu.platform.system.dto.BackupTriggerRequest;
@@ -25,7 +26,6 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import lombok.RequiredArgsConstructor;
-import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -52,6 +52,7 @@ public class SystemManagementServiceImpl implements SystemManagementService {
     private final DataScopeService dataScopeService;
     private final AuditLogService auditLogService;
     private final DatabaseBackupService databaseBackupService;
+    private final ReferenceCacheInvalidator referenceCacheInvalidator;
 
     // Phase 44e-contract（P1-1 真分页样例 · 非数据范围列表）：由全表 selectList 改为 selectPage 真分页。
     // 本接口无 @DataScope（系统参数为全局参考数据、无行级归属），DataScopeContext 为空、数据权限拦截器
@@ -76,9 +77,12 @@ public class SystemManagementServiceImpl implements SystemManagementService {
     }
 
     // Phase 44c（§7.3）：参数唯一生产写路径 → 逐出整个 sysParam 缓存（key 含默认值无法精准逐单键，且参数写罕见，allEntries 简单可靠）。
+    // Phase 44（PG-M4 整改）：由 @CacheEvict 改为 ReferenceCacheInvalidator。原因有二：
+    // ①@CacheEvict 默认在方法返回后逐出，但此时仍在 @Transactional 内（且缓存切面与事务切面默认同序、
+    //   相对顺序未定义），并发读可在逐出后把提交前旧值重填进缓存；②本方法回滚时 @CacheEvict 不执行，
+    //   而失败前若已有读穿把未提交值缓存，脏值会留到 TTL。失效器改为事务完成后（提交/回滚都做）清空。
     @Override
     @Transactional(rollbackFor = Exception.class)
-    @CacheEvict(cacheNames = CacheConfig.SYS_PARAM, allEntries = true)
     public SysParamVO updateParam(Long id, SysParamUpdateRequest request) {
         if (id == null) {
             throw new BizException("参数ID不能为空");
@@ -97,6 +101,7 @@ public class SystemManagementServiceImpl implements SystemManagementService {
             entity.setDescription(request.getDescription().trim());
         }
         paramMapper.updateById(entity);
+        referenceCacheInvalidator.clearAfterCompletion(CacheConfig.SYS_PARAM);
         return toParamVO(paramMapper.selectById(id));
     }
 

@@ -1,6 +1,7 @@
 package cn.edu.gpnu.platform.system.service.impl;
 
 import cn.edu.gpnu.platform.common.exception.BizException;
+import cn.edu.gpnu.platform.system.cache.ReferenceCacheInvalidator;
 import cn.edu.gpnu.platform.system.config.CacheConfig;
 import cn.edu.gpnu.platform.system.dto.DictItemSaveRequest;
 import cn.edu.gpnu.platform.system.dto.DictTypeSaveRequest;
@@ -15,10 +16,13 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
+import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -28,7 +32,9 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class DictServiceImpl implements DictService {
@@ -38,11 +44,36 @@ public class DictServiceImpl implements DictService {
     private static final String CACHE_PREFIX = "dict:items:";
     private static final Duration CACHE_TTL = Duration.ofHours(12);
 
+    /**
+     * Phase 44（PG-M4 整改）：Redis 侧内容版本键。逐出时先把它换成新 UUID 再删负载；读穿在<b>数据库读之前</b>
+     * 捕获版本，回填时用 Lua 做 CAS，只有版本未变才写入。于是「提交前载入旧值、逐出后回填」被拒绝，
+     * 且该保护<b>跨节点成立</b>（与 Caffeine 的进程内纪元守卫互补）。
+     *
+     * <p>版本键 TTL 必须长于负载 TTL，否则版本先过期、CAS 退化为「无版本=允许写」。用随机 UUID 而非 INCR：
+     * 版本键若因内存压力被驱逐后重建，随机值不可能与此前捕获值相等，不会误判为「未变」。
+     *
+     * <p>集群部署下两个键分属不同 slot，Lua 需要 hash tag 才能同槽；本项目为单实例 Redis，暂不引入 tag
+     * 以免改动既有负载键格式。
+     */
+    private static final String CACHE_VERSION_PREFIX = "dict:items:ver:";
+    private static final Duration CACHE_VERSION_TTL = Duration.ofHours(24);
+    private static final String ABSENT_VERSION = "";
+
+    private static final RedisScript<Long> PUT_IF_VERSION_UNCHANGED = new DefaultRedisScript<>(
+            "local current = redis.call('GET', KEYS[2])\n"
+                    + "local expected = ARGV[2]\n"
+                    + "if (current == false and expected == '') or (current ~= false and current == expected) then\n"
+                    + "  redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[3])\n"
+                    + "  return 1\n"
+                    + "end\n"
+                    + "return 0", Long.class);
+
     private final SysDictTypeMapper dictTypeMapper;
     private final SysDictItemMapper dictItemMapper;
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
     private final CacheManager cacheManager;
+    private final ReferenceCacheInvalidator referenceCacheInvalidator;
 
     @Override
     public List<DictTypeVO> listTypes() {
@@ -108,9 +139,12 @@ public class DictServiceImpl implements DictService {
                 return cached;
             }
         }
+        // Phase 44（PG-M4 整改）：版本必须在数据库读<b>之前</b>捕获——只有这样，「本次读到的数据早于某次逐出」
+        // 才能表现为「回填时版本已变」。放到读之后捕获等于把窗口保留下来。
+        String versionToken = enabledOnly ? readVersionToken(normalizedTypeCode) : null;
         List<DictItemVO> items = queryItems(normalizedTypeCode, enabledOnly);
         if (enabledOnly) {
-            putCachedItems(normalizedTypeCode, items);
+            putCachedItems(normalizedTypeCode, items, versionToken);
         }
         return items;
     }
@@ -168,12 +202,20 @@ public class DictServiceImpl implements DictService {
     public void evictItemsCache(String typeCode) {
         if (StringUtils.hasText(typeCode)) {
             String normalized = typeCode.trim();
-            redisTemplate.delete(cacheKey(normalized));
-            // Phase 44c（§7.3）：同步逐出进程内 Caffeine 参考缓存。evictItemsCache 是所有字典增改删的唯一 choke point
-            // （createItem/updateItem×2/deleteItem/updateType×2/deleteType 都调它），故按 typeCode 逐出即覆盖全部写路径。
+            // Phase 44（PG-M4 整改）：逐出推迟到事务完成之后（提交与回滚都执行），不再在事务内逐出。
+            // ①事务内逐出会让本事务后续读穿把<b>未提交</b>值装进共享缓存，其它请求由此读到脏值、回滚后还留存；
+            // ②提交前逐出还给并发读留下「读旧值 → 逐出 → 回填旧值」的窗口。
+            // 供应端时序由 ReferenceCacheInvalidator 保证；回填端由 Caffeine 的纪元守卫与 Redis 的版本 CAS 拒绝。
+            // evictItemsCache 是所有字典增改删的唯一 choke point（createItem/updateItem×2/deleteItem/
+            // updateType×2/deleteType 都调它），故按 typeCode 逐出即覆盖全部写路径。
             // 手工逐出（非 @CacheEvict）：本方法被同类的写方法内部调用（self-invocation），注解式 AOP 不会生效。
-            evictCaffeine(CacheConfig.DICT_LABELS, normalized);
-            evictCaffeine(CacheConfig.ORG_DICT_ITEMS, normalized);
+            referenceCacheInvalidator.afterCompletion("dict:" + normalized, () -> {
+                // 先推进 Redis 内容版本、再删负载：反序会留下「删后、置新版本前」的回填缝隙。
+                redisTemplate.opsForValue().set(versionKey(normalized), UUID.randomUUID().toString(), CACHE_VERSION_TTL);
+                redisTemplate.delete(cacheKey(normalized));
+                evictCaffeine(CacheConfig.DICT_LABELS, normalized);
+                evictCaffeine(CacheConfig.ORG_DICT_ITEMS, normalized);
+            });
         }
     }
 
@@ -239,16 +281,39 @@ public class DictServiceImpl implements DictService {
         }
     }
 
-    private void putCachedItems(String typeCode, List<DictItemVO> items) {
+    private void putCachedItems(String typeCode, List<DictItemVO> items, String expectedVersion) {
         try {
-            redisTemplate.opsForValue().set(cacheKey(typeCode), objectMapper.writeValueAsString(items), CACHE_TTL);
+            String payload = objectMapper.writeValueAsString(items);
+            Long stored = redisTemplate.execute(PUT_IF_VERSION_UNCHANGED,
+                    List.of(cacheKey(typeCode), versionKey(typeCode)),
+                    payload,
+                    expectedVersion == null ? ABSENT_VERSION : expectedVersion,
+                    String.valueOf(CACHE_TTL.toSeconds()));
+            if (stored == null || stored == 0L) {
+                // 装载期间发生过逐出：本次结果可能来自提交前快照，丢弃即可（下次读重新装载）。
+                log.debug("字典项缓存回填被版本守卫拒绝，typeCode={}", typeCode);
+            }
         } catch (Exception e) {
             redisTemplate.delete(cacheKey(typeCode));
         }
     }
 
+    private String readVersionToken(String typeCode) {
+        try {
+            return redisTemplate.opsForValue().get(versionKey(typeCode));
+        } catch (Exception e) {
+            // 读不到版本就不能安全回填：返回一个绝不可能与真实版本相等的哨兵，使本次回填被 CAS 拒绝。
+            log.warn("读取字典项缓存版本失败，本次不回填缓存，typeCode={}", typeCode, e);
+            return "unreadable-" + UUID.randomUUID();
+        }
+    }
+
     private String cacheKey(String typeCode) {
         return CACHE_PREFIX + typeCode;
+    }
+
+    private String versionKey(String typeCode) {
+        return CACHE_VERSION_PREFIX + typeCode;
     }
 
     private boolean existsTypeCode(String typeCode, Long excludeId) {

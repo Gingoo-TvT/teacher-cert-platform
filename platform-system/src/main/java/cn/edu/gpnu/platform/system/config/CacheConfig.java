@@ -1,5 +1,7 @@
 package cn.edu.gpnu.platform.system.config;
 
+import cn.edu.gpnu.platform.system.cache.EpochGuardedCacheManager;
+import cn.edu.gpnu.platform.system.cache.ReferenceCacheInvalidator;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.EnableCaching;
@@ -16,7 +18,8 @@ import java.time.Duration;
  * <ul>
  *   <li>{@link #SYS_PARAM}：{@code ParamServiceImpl.getInt/getBoolean/getString}——证书生成等每请求读约 6 个参数，
  *       每次原为一次 DB 命中。<b>逐出</b>：{@code SystemManagementServiceImpl.updateParam}（唯一生产写路径，
- *       {@code @CacheEvict(allEntries)}）。测试 {@code resetParam} 越过 service 直接改 mapper，故其 helper 亦清该缓存。</li>
+ *       Phase 44 整改后经 {@code ReferenceCacheInvalidator} 在<b>事务完成后</b>整体清空）。测试 {@code resetParam}
+ *       越过 service 直接改 mapper，故其 helper 亦清该缓存。</li>
  *   <li>{@link #REGION_CHILDREN}/{@link #REGION_PATH}/{@link #REGION_FULL_NAME}：{@code RegionServiceImpl} 的
  *       {@code children/path/fullName}（{@code path} 原按层级 while 循环逐级查库）。行政区划为迁移灌入的静态基础数据，
  *       <b>应用层无任何运行时写路径</b>（{@code SysRegionMapper} 无 insert/update/delete 调用），故仅靠 TTL 兜底、无需逐出。</li>
@@ -33,6 +36,11 @@ import java.time.Duration;
  *
  * <p>{@code @Cacheable} 方法返回不可变视图（{@code dictLabels}/{@code globalEnabledDictItems} 返回
  * {@code unmodifiableMap}；调用方各自复制后再改），杜绝共享缓存对象被调用方原地改写而污染。
+ *
+ * <p><b>Phase 44（PG-M4 整改）逐出时序</b>：全部参考数据逐出经 {@link ReferenceCacheInvalidator} 推迟到
+ * <b>事务完成之后</b>（提交与回滚都执行），并由 {@link EpochGuardedCacheManager} 包装的
+ * {@link cn.edu.gpnu.platform.system.cache.EpochGuardedCache} 拒绝「逐出前已载入旧值的并发读」的回填。
+ * 两者配套才能同时关掉旧值供应与旧值重填，单做任何一半都留窗口，理由见两个类的类注释。
  */
 @Configuration
 @EnableCaching
@@ -61,6 +69,8 @@ public class CacheConfig {
                 Caffeine.newBuilder().expireAfterWrite(Duration.ofHours(12)).maximumSize(512).build());
         manager.registerCustomCache(ORG_DICT_ITEMS,
                 Caffeine.newBuilder().expireAfterWrite(Duration.ofHours(12)).maximumSize(512).build());
-        return manager;
+        // Phase 44（PG-M4 整改）：对外只暴露纪元守卫包装后的管理器，任何取到本 bean 的代码（生产逐出、
+        // 测试 helper、Spring 缓存切面）都走同一守卫，不存在绕过路径。
+        return new EpochGuardedCacheManager(manager);
     }
 }

@@ -1,0 +1,141 @@
+# Phase 44 退回整改 — 门禁证据摘录（整改者自测，2026-07-26）
+# 脱敏：仓库绝对路径统一替换为 <REPO>，用户主目录替换为 <HOME>；未包含任何凭据、令牌或预签名参数。
+# 说明：本地一次性隔离栈的口令与仓库已跟踪的 docker-compose.dev.yml 完全相同，此处仍做占位替换以免证据树重复散布凭据串；栈已在门禁后 down -v 销毁。
+
+== 1. 专用隔离依赖栈（compose 项目 tcp-phase44，容器名与既有 tcp-* 开发栈区分，数据卷全新） ==
+    # Phase 44 整改专用隔离依赖：容器名与既有 tcp-* 开发栈区分，数据卷全新（tcp-phase44_*），
+    # 端口沿用测试配置期望的 localhost:3306/6379/9000。用完 down -v 清理。
+    services:
+      mysql:
+        image: mysql:8.0
+        container_name: tcp-p44-mysql
+        environment:
+          MYSQL_ROOT_PASSWORD: [REDACTED — 与仓库已跟踪的 docker-compose.dev.yml 同值]
+          MYSQL_DATABASE: teacher_cert
+          TZ: Asia/Shanghai
+        command:
+          - --character-set-server=utf8mb4
+          - --collation-server=utf8mb4_0900_ai_ci
+          - --max-allowed-packet=64M
+        ports:
+          - "3306:3306"
+        volumes:
+          - mysql-data:/var/lib/mysql
+        healthcheck:
+          test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p[REDACTED — 与仓库已跟踪的 docker-compose.dev.yml 同值]"]
+          interval: 5s
+          timeout: 5s
+          retries: 30
+          start_period: 30s
+
+      redis:
+        image: redis:7
+        container_name: tcp-p44-redis
+        ports:
+          - "6379:6379"
+        volumes:
+          - redis-data:/data
+
+      minio:
+        image: minio/minio:latest
+        container_name: tcp-p44-minio
+        command: server /data --console-address ":9001"
+        environment:
+          MINIO_ROOT_USER: minioadmin
+          MINIO_ROOT_PASSWORD: [REDACTED — 与仓库已跟踪的 docker-compose.dev.yml 同值]
+          # 必须与 docker-compose.dev.yml 一致：Phase 7 预签名直传 IT 断言非白名单 Origin 不得回 CORS 允许头。
+          MINIO_API_CORS_ALLOW_ORIGIN: http://localhost:5173,http://127.0.0.1:5173
+        ports:
+          - "9000:9000"
+          - "9001:9001"
+        volumes:
+          - minio-data:/data
+
+    volumes:
+      mysql-data:
+      redis-data:
+      minio-data:
+
+== 2. 全量跑前：schema 为空（0 张表） ==
+    $ docker exec tcp-p44-mysql mysql -h 127.0.0.1 -uroot -p*** -N -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='teacher_cert';"
+    0
+
+== 3. Flyway（空库 → 最终版本） ==
+    2026-07-26T17:46:53.533+08:00  INFO 26204 --- [teacher-cert-platform] [           main] o.f.core.internal.command.DbMigrate      : Successfully applied 33 migrations to schema `teacher_cert`, now at version v32 (execution time 00:06.714s)
+
+== 4. mvn -B -ntp -o clean verify（本轮专用隔离依赖） ==
+    [INFO] Tests run: 10, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.065 s -- in cn.edu.gpnu.platform.system.cache.EpochGuardedCacheTest
+    [INFO] Tests run: 7, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.061 s -- in cn.edu.gpnu.platform.system.cache.ReferenceCacheInvalidatorTest
+    [INFO] Tests run: 4, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 1.038 s -- in cn.edu.gpnu.platform.system.service.impl.InAppNotifyChannelBatchTest
+    [INFO] Tests run: 21, Failures: 0, Errors: 0, Skipped: 0
+    [INFO] Tests run: 3, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.530 s -- in cn.edu.gpnu.platform.file.config.MinioConfigTest
+    [INFO] Tests run: 15, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.954 s -- in cn.edu.gpnu.platform.file.service.impl.FileMaintenanceServiceTest
+    [INFO] Tests run: 18, Failures: 0, Errors: 0, Skipped: 0
+    [INFO] Tests run: 8, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 2.717 s -- in cn.edu.gpnu.platform.boot.config.CredentialHardeningTest
+    [INFO] Tests run: 21, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.609 s -- in cn.edu.gpnu.platform.boot.config.DemoDataInitializerTest
+    [INFO] Tests run: 60, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.226 s -- in cn.edu.gpnu.platform.boot.config.RbacAuthorizationGuardTest
+    [INFO] Tests run: 6, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.647 s -- in cn.edu.gpnu.platform.boot.config.RuntimeProfileGuardTest
+    [INFO] Tests run: 9, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.081 s -- in cn.edu.gpnu.platform.boot.config.SecurityAdminServiceImplTest
+    [INFO] Tests run: 11, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.198 s -- in cn.edu.gpnu.platform.boot.config.StudentServiceRbacTest
+    [INFO] Tests run: 5, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.024 s -- in cn.edu.gpnu.platform.boot.config.UserSecurityConcurrencyTest
+    [INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.078 s -- in cn.edu.gpnu.platform.boot.config.VideoFinalizationReconciliationScheduleConfigTest
+    [INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 2.491 s -- in cn.edu.gpnu.platform.boot.config.VideoFinalizationSchedulingIsolationTest
+    [INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.010 s -- in cn.edu.gpnu.platform.boot.controller.SystemSecurityControllerAuthorizationTest
+    [INFO] Tests run: 3, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.075 s -- in cn.edu.gpnu.platform.business.video.support.ProcessVideoMediaWorkerTest
+    [INFO] Tests run: 10, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.010 s -- in cn.edu.gpnu.platform.business.video.support.VideoMediaAcceptancePolicyTest
+    [INFO] Tests run: 5, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.129 s -- in cn.edu.gpnu.platform.business.video.support.VideoProbeCapacityGuardTest
+    [INFO] Tests run: 5, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.046 s -- in cn.edu.gpnu.platform.business.video.support.VideoProbeTempArtifactManagerTest
+    [INFO] Tests run: 9, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 1.316 s -- in cn.edu.gpnu.platform.business.video.support.VideoProbeWorkerBoundaryTest
+    [INFO] Tests run: 4, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.166 s -- in cn.edu.gpnu.platform.security.service.AuthServiceConcurrencyTest
+    [INFO] Tests run: 7, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.169 s -- in cn.edu.gpnu.platform.security.service.TokenRevocationServiceTest
+    [INFO] Tests run: 10, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.013 s -- in cn.edu.gpnu.platform.system.service.DataScopeServiceImplTest
+    [INFO] Tests run: 177, Failures: 0, Errors: 0, Skipped: 0
+    [INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 17.78 s -- in cn.edu.gpnu.platform.boot.CredentialHardeningIT
+    [INFO] Tests run: 13, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 23.51 s -- in cn.edu.gpnu.platform.boot.Phase10ExchangeIT
+    [INFO] Tests run: 9, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 10.07 s -- in cn.edu.gpnu.platform.boot.Phase11StatsIT
+    [INFO] Tests run: 5, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 8.327 s -- in cn.edu.gpnu.platform.boot.Phase12NotificationIT
+    [INFO] Tests run: 9, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 18.11 s -- in cn.edu.gpnu.platform.boot.Phase13SystemAuditIT
+    [INFO] Tests run: 14, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 14.99 s -- in cn.edu.gpnu.platform.boot.Phase14E2EIT
+    [INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 2.162 s -- in cn.edu.gpnu.platform.boot.Phase1DictIT
+    [INFO] Tests run: 3, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 11.92 s -- in cn.edu.gpnu.platform.boot.Phase24AcceptanceIT
+    [INFO] Tests run: 3, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 15.91 s -- in cn.edu.gpnu.platform.boot.Phase2SecurityIT
+    [INFO] Tests run: 11, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 4.581 s -- in cn.edu.gpnu.platform.boot.Phase39CollegeIntegrityIT
+    [INFO] Tests run: 9, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 30.09 s -- in cn.edu.gpnu.platform.boot.Phase3StudentIT
+    [INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 31.53 s -- in cn.edu.gpnu.platform.boot.Phase41BackupIT
+    [INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 2.904 s -- in cn.edu.gpnu.platform.boot.Phase43CertRoundTripIT
+    [INFO] Tests run: 6, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 2.676 s -- in cn.edu.gpnu.platform.boot.Phase44CacheCommitWindowIT
+    [INFO] Tests run: 3, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.240 s -- in cn.edu.gpnu.platform.boot.Phase44CachingIT
+    [INFO] Tests run: 5, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 3.494 s -- in cn.edu.gpnu.platform.boot.Phase44NotificationBatchIT
+    [INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 2.074 s -- in cn.edu.gpnu.platform.boot.Phase47CleanupIT
+    [INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 2.936 s -- in cn.edu.gpnu.platform.boot.Phase48CertImportGuardIT
+    [INFO] Tests run: 6, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 18.13 s -- in cn.edu.gpnu.platform.boot.Phase4TrainingIT
+    [INFO] Tests run: 18, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 54.34 s -- in cn.edu.gpnu.platform.boot.Phase5MaterialIT
+    [INFO] Tests run: 5, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 19.16 s -- in cn.edu.gpnu.platform.boot.Phase6ExemptionIT
+    [INFO] Tests run: 44, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 241.7 s -- in cn.edu.gpnu.platform.boot.Phase7VideoReviewIT
+    [INFO] Tests run: 7, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 17.47 s -- in cn.edu.gpnu.platform.boot.Phase8TestResultIT
+    [INFO] Tests run: 8, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 25.02 s -- in cn.edu.gpnu.platform.boot.Phase9CertificateIT
+    [INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 9.226 s -- in cn.edu.gpnu.platform.boot.V29MigrationRecoveryIT
+    [INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 9.558 s -- in cn.edu.gpnu.platform.boot.V31FinalizationHighWaterMigrationIT
+    [INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 9.769 s -- in cn.edu.gpnu.platform.boot.V32VideoFinalizationObjectReconciliationMigrationIT
+    [INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 11.82 s -- in cn.edu.gpnu.platform.boot.Ws03CandidateBackupRestoreIT
+    [INFO] Tests run: 4, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 11.63 s -- in cn.edu.gpnu.platform.boot.Ws13RbacCeilingIT
+    [INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.607 s -- in cn.edu.gpnu.platform.business.video.support.FatJarVideoProbeWorkerIT
+    [INFO] Tests run: 196, Failures: 0, Errors: 0, Skipped: 0
+    [INFO] teacher-cert-platform .............................. SUCCESS [  0.270 s]
+    [INFO] platform-common .................................... SUCCESS [  2.089 s]
+    [INFO] platform-system .................................... SUCCESS [  6.050 s]
+    [INFO] platform-security .................................. SUCCESS [  1.449 s]
+    [INFO] platform-file ...................................... SUCCESS [  4.137 s]
+    [INFO] platform-business .................................. SUCCESS [  3.184 s]
+    [INFO] platform-exchange .................................. SUCCESS [  1.464 s]
+    [INFO] platform-statistics ................................ SUCCESS [  1.103 s]
+    [INFO] platform-boot ...................................... SUCCESS [10:52 min]
+    [INFO] BUILD SUCCESS
+
+== 5. 前端门禁 ==
+    $ npm --prefix frontend run type-check   → exit 0（vue-tsc --noEmit 无输出）
+    npm run build: (!) Some chunks are larger than 900 kB after minification. Consider:
+    npm run build: ✓ built in 10.36s
+
+== 6. git diff --check ==
+    PASS（暂存全部整改改动后无空白/冲突标记告警）
