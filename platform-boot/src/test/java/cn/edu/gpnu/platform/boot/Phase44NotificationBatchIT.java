@@ -30,6 +30,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
@@ -263,9 +264,17 @@ class Phase44NotificationBatchIT {
                 seedId(userId), userId, TYPE, TITLE, CONTENT, BIZ_TYPE, bizId);
     }
 
-    /** 从连接池另取一条连接插同一 user_id；1 秒锁等待上限，返回捕获到的异常（未被阻塞时返回 null）。 */
+    /**
+     * 从连接池另取一条连接插同一 user_id；1 秒锁等待上限，返回捕获到的异常（未被阻塞时返回 null）。
+     *
+     * <p>{@code innodb_lock_wait_timeout} 是<b>会话</b>变量，而这条连接来自 Hikari 池、用完会被归还复用；
+     * 若不还原，后续拿到它的测试/业务代码会带着 1 秒锁等待上限运行，形成跨用例污染。故先读原值、在 finally 里还原，
+     * 并把 autocommit 一并复位。
+     */
     private SQLException insertFromSeparateConnection(long userId) {
         try (Connection connection = dataSource.getConnection()) {
+            boolean originalAutoCommit = connection.getAutoCommit();
+            long originalLockWaitTimeout = sessionLockWaitTimeout(connection);
             connection.setAutoCommit(false);
             try (Statement statement = connection.createStatement()) {
                 statement.execute("SET SESSION innodb_lock_wait_timeout = 1");
@@ -287,9 +296,34 @@ class Phase44NotificationBatchIT {
                 return e;
             } finally {
                 connection.rollback();
+                restoreSession(connection, originalLockWaitTimeout, originalAutoCommit);
             }
         } catch (SQLException e) {
             throw new IllegalStateException("反例连接执行失败", e);
+        }
+    }
+
+    private long sessionLockWaitTimeout(Connection connection) throws SQLException {
+        try (Statement statement = connection.createStatement();
+             ResultSet resultSet = statement.executeQuery("SELECT @@SESSION.innodb_lock_wait_timeout")) {
+            assertThat(resultSet.next()).as("应能读到会话级 innodb_lock_wait_timeout").isTrue();
+            return resultSet.getLong(1);
+        }
+    }
+
+    /** 还原会话变量后再归还连接池；还原失败必须让用例失败，否则污染会静默扩散到其它用例。 */
+    private void restoreSession(Connection connection, long lockWaitTimeout, boolean autoCommit) {
+        try (Statement statement = connection.createStatement()) {
+            statement.execute("SET SESSION innodb_lock_wait_timeout = " + lockWaitTimeout);
+            connection.setAutoCommit(autoCommit);
+            try (ResultSet resultSet = statement.executeQuery("SELECT @@SESSION.innodb_lock_wait_timeout")) {
+                assertThat(resultSet.next()).isTrue();
+                assertThat(resultSet.getLong(1))
+                        .as("归还连接池前必须还原会话锁等待上限，否则污染后续使用者")
+                        .isEqualTo(lockWaitTimeout);
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("还原池化连接会话变量失败", e);
         }
     }
 

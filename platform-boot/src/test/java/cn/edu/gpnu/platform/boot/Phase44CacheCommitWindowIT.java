@@ -1,6 +1,7 @@
 package cn.edu.gpnu.platform.boot;
 
 import cn.edu.gpnu.platform.PlatformApplication;
+import cn.edu.gpnu.platform.common.exception.BizException;
 import cn.edu.gpnu.platform.system.config.CacheConfig;
 import cn.edu.gpnu.platform.system.dto.DictItemSaveRequest;
 import cn.edu.gpnu.platform.system.dto.DictTypeSaveRequest;
@@ -37,9 +38,11 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.sql.Statement;
+import java.time.Duration;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -48,6 +51,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Phase 44（PG-M4 整改）：参考数据缓存「提交窗口」与「并发重填」的真实交错反例。
@@ -75,12 +79,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 class Phase44CacheCommitWindowIT {
 
     private static final String TYPE_CODE = "p44_commit_window";
+    private static final String TYPE_CODE_B = "p44_commit_window_b";
     private static final String ITEM_CODE = "ALPHA";
     private static final String PARAM_KEY = "video.diffThreshold";
     private static final int PARAM_SENTINEL = -424242;
     private static final String PARAM_CACHE_KEY = "getInt:" + PARAM_KEY + ":" + PARAM_SENTINEL;
     private static final String ITEMS_CACHE_KEY = "dict:items:" + TYPE_CODE;
-    private static final String ITEMS_VERSION_KEY = "dict:items:ver:" + TYPE_CODE;
+    private static final String ITEMS_VERSION_KEY = "dict:items-version:" + TYPE_CODE;
+    /** 与 {@code DictServiceImpl.PENDING_VERSION_PREFIX} 同值：写窗口令牌前缀。 */
+    private static final String PENDING_VERSION_PREFIX = "P:";
 
     @Autowired
     private DictService dictService;
@@ -195,28 +202,82 @@ class Phase44CacheCommitWindowIT {
                 .isNotBlank();
     }
 
-    // ---------------------------------------------------------------- 字典：提交/回滚时序
+    // ---------------------------------------------------------------- 字典：写窗口时序
 
     @Test
-    void dictEvictionIsDeferredUntilCommitAndFirstReadAfterCommitIsFresh() {
+    @Timeout(120)
+    void dictWriteWindowNeitherServesStaleValueNorPublishesUncommitted() {
         Long itemId = createFixture("V1");
         Cache labels = cacheManager.getCache(CacheConfig.DICT_LABELS);
         assertThat(dictService.dictLabels(TYPE_CODE)).containsEntry(ITEM_CODE, "V1");
-        assertThat(labels.get(TYPE_CODE)).isNotNull();
+        assertThat(labels.get(TYPE_CODE)).as("预热后应已缓存").isNotNull();
 
         transactionTemplate.executeWithoutResult(status -> {
             dictService.updateItem(itemId, dictItem("V2", 1));
+
+            // ①写窗口内不得再对外供应缓存里的旧值——这正是上一轮复核指出的「提交完成到逐出执行之间」的公开窗口。
             assertThat(labels.get(TYPE_CODE))
-                    .as("提交前不得逐出：否则并发读会把提交前旧值回填")
-                    .isNotNull();
+                    .as("写窗口内缓存必须停止供应该键")
+                    .isNull();
+
+            // ②并发读只能看到旧的「已提交」值，且不得把它回填进缓存。
+            Map<String, String> concurrentRead = readInAnotherThread(() -> dictService.dictLabels(TYPE_CODE));
+            assertThat(concurrentRead)
+                    .as("并发读应看到旧的已提交值，而不是本事务未提交的新值")
+                    .containsEntry(ITEM_CODE, "V1");
+            assertThat(labels.get(TYPE_CODE))
+                    .as("写窗口内的并发读不得回填缓存")
+                    .isNull();
+
+            // ③本事务自己的读穿看到自己的未提交值是正常的，但同样不得发布到共享缓存。
+            assertThat(dictService.dictLabels(TYPE_CODE)).containsEntry(ITEM_CODE, "V2");
+            assertThat(labels.get(TYPE_CODE))
+                    .as("未提交值不得进入共享缓存")
+                    .isNull();
         });
 
-        assertThat(labels.get(TYPE_CODE)).as("事务提交后必须已逐出").isNull();
-        assertThat(dictService.dictLabels(TYPE_CODE)).containsEntry(ITEM_CODE, "V2");
+        assertThat(dictService.dictLabels(TYPE_CODE))
+                .as("提交后首次读取必须得到新值")
+                .containsEntry(ITEM_CODE, "V2");
+        assertThat(labels.get(TYPE_CODE))
+                .as("窗口结束后缓存必须恢复可用，否则等于把缓存禁用了")
+                .isNotNull();
     }
 
     @Test
-    void dictEvictionAlsoRunsOnRollbackSoUncommittedValuesNeverSurvive() {
+    @Timeout(120)
+    void redisWriteWindowNeitherServesStaleValueNorPublishesUncommitted() {
+        Long itemId = createFixture("V1");
+        assertThat(dictService.listItems(TYPE_CODE, true)).extracting(DictItemVO::getItemValue).containsExactly("V1");
+        assertThat(redisTemplate.opsForValue().get(ITEMS_CACHE_KEY)).as("预热后应已缓存").isNotBlank();
+
+        transactionTemplate.executeWithoutResult(status -> {
+            dictService.updateItem(itemId, dictItem("V2", 1));
+
+            assertThat(redisTemplate.opsForValue().get(ITEMS_VERSION_KEY))
+                    .as("写窗口内版本必须是写窗口令牌——其它节点也据它拒绝供应/回填")
+                    .startsWith(PENDING_VERSION_PREFIX);
+
+            List<DictItemVO> concurrentRead = readInAnotherThread(() -> dictService.listItems(TYPE_CODE, true));
+            assertThat(concurrentRead).extracting(DictItemVO::getItemValue)
+                    .as("并发读应看到旧的已提交值")
+                    .containsExactly("V1");
+            assertThat(redisTemplate.opsForValue().get(ITEMS_CACHE_KEY))
+                    .as("写窗口内不得回填 Redis 负载")
+                    .isNull();
+        });
+
+        assertThat(dictService.listItems(TYPE_CODE, true)).extracting(DictItemVO::getItemValue).containsExactly("V2");
+        assertThat(redisTemplate.opsForValue().get(ITEMS_VERSION_KEY))
+                .as("窗口结束后版本必须换成正常令牌")
+                .doesNotStartWith(PENDING_VERSION_PREFIX);
+        assertThat(redisTemplate.opsForValue().get(ITEMS_CACHE_KEY))
+                .as("窗口结束后正常回填必须生效")
+                .isNotBlank();
+    }
+
+    @Test
+    void dictWriteWindowClosesOnRollbackAndLeavesNoUncommittedValue() {
         Long itemId = createFixture("V1");
         Cache labels = cacheManager.getCache(CacheConfig.DICT_LABELS);
         labels.evict(TYPE_CODE);
@@ -224,8 +285,9 @@ class Phase44CacheCommitWindowIT {
 
         transactionTemplate.executeWithoutResult(status -> {
             dictService.updateItem(itemId, dictItem("V2", 1));
-            // 冷缓存下本事务自身的读穿会把未提交值装进共享缓存——afterCommit 语义会把它留到 TTL。
+            // 冷缓存下本事务自身的读穿会看到未提交值；写窗口保证它不会被发布出去。
             insideTransaction.set(dictService.dictLabels(TYPE_CODE));
+            assertThat(labels.get(TYPE_CODE)).as("未提交值不得进入共享缓存").isNull();
             status.setRollbackOnly();
         });
 
@@ -236,12 +298,14 @@ class Phase44CacheCommitWindowIT {
         assertThat(dictService.dictLabels(TYPE_CODE))
                 .as("回滚后应回到 V1")
                 .containsEntry(ITEM_CODE, "V1");
+        assertThat(labels.get(TYPE_CODE)).as("窗口已解除，读取应能正常回填").isNotNull();
     }
 
-    // ---------------------------------------------------------------- 参数：提交/回滚时序
+    // ---------------------------------------------------------------- 参数：写窗口时序
 
     @Test
-    void paramCacheEvictionIsDeferredUntilCommitAndFirstReadAfterCommitIsFresh() {
+    @Timeout(120)
+    void paramWriteWindowNeitherServesStaleValueNorPublishesUncommitted() {
         SysParam original = editableParam();
         Cache params = cacheManager.getCache(CacheConfig.SYS_PARAM);
         int originalValue = paramService.getInt(PARAM_KEY, PARAM_SENTINEL);
@@ -251,15 +315,22 @@ class Phase44CacheCommitWindowIT {
         try {
             transactionTemplate.executeWithoutResult(status -> {
                 systemManagementService.updateParam(original.getId(), paramRequest(String.valueOf(changed)));
+
                 assertThat(params.get(PARAM_CACHE_KEY))
-                        .as("提交前不得逐出参数缓存")
-                        .isNotNull();
+                        .as("写窗口内参数缓存必须停止供应（allEntries 口径下抑制整缓存）")
+                        .isNull();
+                assertThat(readInAnotherThread(() -> paramService.getInt(PARAM_KEY, PARAM_SENTINEL)))
+                        .as("并发读应看到旧的已提交值")
+                        .isEqualTo(originalValue);
+                assertThat(params.get(PARAM_CACHE_KEY))
+                        .as("写窗口内的并发读不得回填")
+                        .isNull();
             });
 
-            assertThat(params.get(PARAM_CACHE_KEY)).as("提交后必须已清空").isNull();
             assertThat(paramService.getInt(PARAM_KEY, PARAM_SENTINEL))
                     .as("提交后首次读取必须得到新值")
                     .isEqualTo(changed);
+            assertThat(params.get(PARAM_CACHE_KEY)).as("窗口结束后缓存恢复可用").isNotNull();
         } finally {
             systemManagementService.updateParam(original.getId(), paramRequest(original.getParamValue()));
         }
@@ -279,6 +350,9 @@ class Phase44CacheCommitWindowIT {
             assertThat(paramService.getInt(PARAM_KEY, PARAM_SENTINEL))
                     .as("冷缓存下事务内读穿会看到自己的未提交值")
                     .isEqualTo(changed);
+            assertThat(params.get(PARAM_CACHE_KEY))
+                    .as("但未提交值不得进入共享缓存")
+                    .isNull();
             status.setRollbackOnly();
         });
 
@@ -290,7 +364,71 @@ class Phase44CacheCommitWindowIT {
                 .isEqualTo(originalValue);
     }
 
+    // ---------------------------------------------------------------- Redis 键空间与残留负载
+
+    @Test
+    void stalePayloadWithOutdatedVersionStampIsNeverServed() {
+        // 复刻「版本已推进、负载删除未生效」的部分失败：负载自带版本戳，戳不符即不得作为有效命中。
+        Long itemId = createFixture("V1");
+        assertThat(dictService.listItems(TYPE_CODE, true)).extracting(DictItemVO::getItemValue).containsExactly("V1");
+        String stalePayload = redisTemplate.opsForValue().get(ITEMS_CACHE_KEY);
+        assertThat(stalePayload).as("预热后应有负载").isNotBlank();
+
+        dictService.updateItem(itemId, dictItem("V2", 1));           // 原子推进版本 + 删除负载
+        redisTemplate.opsForValue().set(ITEMS_CACHE_KEY, stalePayload, Duration.ofMinutes(5)); // 旧负载“复活”
+
+        assertThat(dictService.listItems(TYPE_CODE, true))
+                .as("版本戳与当前版本不符的残留负载绝不能作为有效命中")
+                .extracting(DictItemVO::getItemValue)
+                .containsExactly("V2");
+    }
+
+    @Test
+    void typeCodesThatWouldPolluteTheRedisKeyspaceAreRejectedByTheBackend() {
+        // 上一轮版本键前缀嵌套在负载前缀内，合法 typeCode "ver:xxx" 会让两类键互相覆盖。
+        // 现在既改成不相交前缀，也把字符集变成后端硬约束（红线 R7：前端规则不可作为唯一防线）。
+        for (String polluting : List.of("ver:" + TYPE_CODE, "dict:items:" + TYPE_CODE, TYPE_CODE + ":x",
+                TYPE_CODE + "-version:x")) {
+            assertThatThrownBy(() -> dictService.createType(dictType(polluting)))
+                    .as("含分隔符的类型编码必须被后端拒绝：%s", polluting)
+                    .isInstanceOf(BizException.class)
+                    .hasMessageContaining("仅支持英文、数字、下划线");
+        }
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM sys_dict_type WHERE type_code LIKE ?", Long.class, "%:%"))
+                .as("被拒绝的类型不得落库")
+                .isZero();
+    }
+
+    @Test
+    void writesToOneDictTypeDoNotDisturbAnotherTypesCache() {
+        createFixture("V1");
+        createFixtureOf(TYPE_CODE_B, "B1");
+        assertThat(dictService.listItems(TYPE_CODE, true)).extracting(DictItemVO::getItemValue).containsExactly("V1");
+        assertThat(dictService.listItems(TYPE_CODE_B, true)).extracting(DictItemVO::getItemValue).containsExactly("B1");
+        assertThat(dictService.dictLabels(TYPE_CODE_B)).containsEntry(ITEM_CODE, "B1");
+
+        Long itemIdA = dictService.listItems(TYPE_CODE, true).get(0).getId();
+        dictService.updateItem(itemIdA, dictItem("V2", 1));
+
+        assertThat(redisTemplate.opsForValue().get("dict:items:" + TYPE_CODE_B))
+                .as("另一类型的负载不得被波及")
+                .isNotBlank();
+        assertThat(dictService.listItems(TYPE_CODE_B, true)).extracting(DictItemVO::getItemValue).containsExactly("B1");
+        assertThat(dictService.dictLabels(TYPE_CODE_B)).containsEntry(ITEM_CODE, "B1");
+        assertThat(dictService.listItems(TYPE_CODE, true)).extracting(DictItemVO::getItemValue).containsExactly("V2");
+    }
+
     // ---------------------------------------------------------------- fixtures
+
+    /** 在另一线程执行读取：与写事务真正并发，避免同线程复用写事务的连接与事务上下文。 */
+    private <T> T readInAnotherThread(Callable<T> read) {
+        try {
+            return readers.submit(read).get(20, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            throw new IllegalStateException("并发读执行失败", e);
+        }
+    }
 
     private SysParam editableParam() {
         SysParam param = paramMapper.selectOne(new LambdaQueryWrapper<SysParam>()
@@ -306,17 +444,29 @@ class Phase44CacheCommitWindowIT {
     }
 
     private Long createFixture(String itemValue) {
+        return createFixtureOf(TYPE_CODE, itemValue);
+    }
+
+    private Long createFixtureOf(String typeCode, String itemValue) {
+        dictService.createType(dictType(typeCode));
+        return dictService.createItem(dictItemOf(typeCode, itemValue, 1));
+    }
+
+    private DictTypeSaveRequest dictType(String typeCode) {
         DictTypeSaveRequest type = new DictTypeSaveRequest();
-        type.setTypeCode(TYPE_CODE);
+        type.setTypeCode(typeCode);
         type.setTypeName("Phase44 提交窗口测试类型");
         type.setStatus(1);
-        dictService.createType(type);
-        return dictService.createItem(dictItem(itemValue, 1));
+        return type;
     }
 
     private DictItemSaveRequest dictItem(String itemValue, int status) {
+        return dictItemOf(TYPE_CODE, itemValue, status);
+    }
+
+    private DictItemSaveRequest dictItemOf(String typeCode, String itemValue, int status) {
         DictItemSaveRequest request = new DictItemSaveRequest();
-        request.setTypeCode(TYPE_CODE);
+        request.setTypeCode(typeCode);
         request.setItemCode(ITEM_CODE);
         request.setItemValue(itemValue);
         request.setYearVersion("GLOBAL");
@@ -326,16 +476,16 @@ class Phase44CacheCommitWindowIT {
 
     private void hardDeleteFixture() {
         // 物理删除（绕过 @TableLogic），保证跨运行可重复；软删残行会撞 existsTypeCode/existsItem。
-        jdbcTemplate.update("DELETE FROM sys_dict_item WHERE type_code = ?", TYPE_CODE);
-        jdbcTemplate.update("DELETE FROM sys_dict_type WHERE type_code = ?", TYPE_CODE);
-        redisTemplate.delete(List.of(ITEMS_CACHE_KEY, ITEMS_VERSION_KEY));
-        Cache labels = cacheManager.getCache(CacheConfig.DICT_LABELS);
-        if (labels != null) {
-            labels.evict(TYPE_CODE);
-        }
-        Cache orgItems = cacheManager.getCache(CacheConfig.ORG_DICT_ITEMS);
-        if (orgItems != null) {
-            orgItems.evict(TYPE_CODE);
+        for (String typeCode : List.of(TYPE_CODE, TYPE_CODE_B)) {
+            jdbcTemplate.update("DELETE FROM sys_dict_item WHERE type_code = ?", typeCode);
+            jdbcTemplate.update("DELETE FROM sys_dict_type WHERE type_code = ?", typeCode);
+            redisTemplate.delete(List.of("dict:items:" + typeCode, "dict:items-version:" + typeCode));
+            for (String cacheName : List.of(CacheConfig.DICT_LABELS, CacheConfig.ORG_DICT_ITEMS)) {
+                Cache cache = cacheManager.getCache(cacheName);
+                if (cache != null) {
+                    cache.evict(typeCode);
+                }
+            }
         }
     }
 

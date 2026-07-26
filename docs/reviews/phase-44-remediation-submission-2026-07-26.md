@@ -4,10 +4,18 @@
 > 增量复核报告为准（`docs/REVIEW-GATE.md`）。
 
 - 依据：`docs/reviews/phase-44-review.md`（CHANGES REQUESTED，2 Major）与阶段总审计 `docs/reviews/phase-gap-audit-2026-07-23.md`
-  的 **PG-M3**、**PG-M4**
+  的 **PG-M3**、**PG-M4**；第二轮另依据 `docs/reviews/phase-44-remediation-rereview-2026-07-26.md`
+  （CHANGES_REQUESTED，0 Critical / 0 High / 4 Medium / 3 Low）
 - 分支：`codex/phase44-remediation`（自 `codex/phase53-demo-reconcile` 的 `f9ccda3` 起）
-- 范围：`platform-system` 生产代码 6 文件 + 新增 `system/cache` 包 3 类 + 新增 3 个测试类；无 Flyway 迁移、无 API 变更、
-  无权限点变更、无前端改动
+- 范围（相对分支基线 `f9ccda3`，与 `git diff --stat` 逐项对齐）：
+  - 生产代码 **10 个文件**：`platform-system` 新增 `system/cache` 包 3 个类（`EpochGuardedCache`、
+    `EpochGuardedCacheManager`、`ReferenceCacheInvalidator`），修改 `CacheConfig`、`NotificationMapper`、
+    `DictServiceImpl`、`InAppNotifyChannel`、`SystemManagementServiceImpl`、`DictTypeSaveRequest`、`DictItemSaveRequest`
+  - 构建：`platform-system/pom.xml` 增加 `spring-boot-starter-test`（test 作用域）
+  - 测试 **6 个新增测试类**：`platform-system` 离线单测 4 个（`EpochGuardedCacheTest`、
+    `ReferenceCacheInvalidatorTest`、`InAppNotifyChannelBatchTest`、`DictCacheKeyTest`）+ `platform-boot`
+    真实依赖 IT 2 个（`Phase44NotificationBatchIT`、`Phase44CacheCommitWindowIT`）
+  - 无 Flyway 迁移、无 API 路径/返回结构变更、无权限点变更、无前端改动
 - 用户在本轮开工前书面确认两项路线：Major-1 走「真正实现同连接批量写」，Major-2 做到「提交后逐出 + 纪元防重填」
 
 ---
@@ -143,20 +151,21 @@ Docker 依赖均以 `-d` 分离方式运行。
 
 本轮专用隔离依赖（跑前 `information_schema` 0 张表）上的一次 `mvn -B -ntp -o clean verify`：
 
-| 门禁 | 结果 |
-|---|---|
-| Flyway（空库→最终版本） | **33 个迁移**（32 个版本化 + 1 个可重复 `R__testseed`），最终 **V32** |
-| Surefire（单测） | **216/216**（`platform-system` 21 + `platform-file` 18 + `platform-boot` 177），0 failure/error/skip |
-| Failsafe（IT） | **196/196**，0 failure/error/skip |
-| 合计 | **412/412** |
-| 9 个 reactor 模块 | 全部 SUCCESS |
-| `Phase44NotificationBatchIT`（新增） | 5/5 |
-| `Phase44CacheCommitWindowIT`（新增） | 6/6 |
-| `platform-system` 新增离线单测 | 21/21（`EpochGuardedCacheTest` 10 + `ReferenceCacheInvalidatorTest` 7 + `InAppNotifyChannelBatchTest` 4） |
-| `Phase44CachingIT`（既有逐出正确性） | 3/3，未改动 |
-| `Phase5MaterialIT` / `Phase12NotificationIT` / `Phase7VideoReviewIT` | 18/18 · 5/5 · 44/44（历史上因 `sendBatch` 锁等待间歇失败的正是 `Phase5MaterialIT` 的二审通知路径） |
-| 前端 `type-check` / `build` | 均通过（build 仍有既有 `echarts`/`naive` 大 chunk 警告） |
-| `git diff --check` | PASS |
+| 门禁 | 第一轮 | 第二轮（最终） |
+|---|---|---|
+| Flyway（空库→最终版本） | 33 个迁移（32 版本化 + `R__testseed`），V32 | 同左 |
+| Surefire（单测） | **216/216**（system 21 + file 18 + boot 177） | **241/241**（system 46 + file 18 + boot 177） |
+| Failsafe（IT） | **196/196** | **200/200** |
+| 合计 | **412/412** | **441/441**，0 failure/error/skip |
+| 9 个 reactor 模块 | 全部 SUCCESS | 全部 SUCCESS |
+| `Phase44NotificationBatchIT` | 5/5 | 5/5（新增会话变量还原断言） |
+| `Phase44CacheCommitWindowIT` | 6/6 | **10/10**（新增 Redis 写窗口、残留负载、污染 typeCode 拒绝、跨类型互不影响） |
+| `platform-system` 离线单测 | 21/21 | **46/46**（19 + 10 + 13 + 4） |
+| `Phase44CachingIT`（既有逐出正确性） | 3/3 | 3/3，未改动 |
+| `Phase1DictIT`（既有字典写路径） | 2/2 | 2/2（覆盖新增 typeCode 硬校验后的既有写路径） |
+| `Phase5MaterialIT` / `Phase12NotificationIT` / `Phase7VideoReviewIT` | 18/18 · 5/5 · 44/44 | 18/18 · 5/5 · 44/44 |
+| 前端 `type-check` / `build` | 通过 | 通过（build 仍有既有大 chunk 警告） |
+| `git diff --check` | PASS | PASS |
 
 **一次诚实记录的中途失败**：首跑 `Phase7VideoReviewIT.presignedUploadCompleteResumeAndInstantHitWorkWithValidation`
 失败（`Expecting empty but was: "https://evil.example"`）。根因是我为本轮临时写的隔离 compose **漏了**
@@ -183,3 +192,94 @@ Docker 依赖均以 `-d` 分离方式运行。
 `docs/reviews/evidence/phase44-remediation-2026-07-26/gates-2026-07-26.txt`：隔离栈 compose 全文、跑前空 schema、
 Flyway 收尾行、逐测试类计数、reactor 结果、前端与 diff check。已按 Phase 53 的证据卫生口径脱敏——仓库绝对路径与
 本机用户名替换为 `<REPO>`/`<HOME>`/`<USER>`，本地一次性栈的口令占位替换（与仓库已跟踪的 `docker-compose.dev.yml` 同值）。
+
+---
+
+# 第二轮整改（针对 `phase-44-remediation-rereview-2026-07-26.md` 的 4 Medium / 3 Low）
+
+第一轮结论：PG-M3 已关闭（同事务、同连接的 multi-values 批量写成立）；PG-M4 未关闭。以下逐条对应复核给出的
+「Minimal fix」与「Regression test suggestion」。
+
+## R2-1 关闭 `EpochGuardedCache` 的陈旧值公开窗口（Medium，Concurrency/Data Integrity）
+
+- **复核指出**：`put` 先 `delegate.put` 再二次比对补删，只保证最终状态，不保证陈旧值从未被读到；补删还会误删
+  另一线程刚发布的新值。要求「对同一 cache 的 get/publish/invalidate 建立真正线性化的锁或等价原子协议」。
+- **改法**：`put` 与全部失效动作（`evict`/`evictIfPresent`/`clear`/`invalidate`/`beginPendingInvalidation`/
+  `endPendingInvalidation`）在同一把 `publishLock` 下串行；校验 epoch/写窗口与写入底层之间<b>不可能</b>插入失效，
+  **校验不过就直接不写**，补删逻辑整体删除。读路径 `get` 刻意不加锁：底层缓存线程安全，而任何被写入的值都已在锁内
+  校验过，读者不可能看到未经校验的值。
+- **另加写窗口**：从失效登记（写事务内、提交前）到事务完成，受影响的键进入 pending——`get` 一律按未命中返回、
+  `put` 一律拒绝。这同时关闭了「提交完成到逐出执行之间仍供应旧值」的窗口，以及下面 R2-5 的 Low。
+  窗口内的 `get` 仍记录装载纪元，避免「窗口结束后迟到的 put」绕过 epoch 校验。
+- **反例**：`staleValueNeverReachesTheUnderlyingCacheSoNoReaderCanObserveIt`（RecordingCache 断言 STALE 从未进入底层，
+  故不存在「能否被读到」的时间窗）、`rejectedStaleLoaderDoesNotDeleteFreshValuePublishedByAnotherThread`
+  （旧 loader 迟到发布不得删除另一线程的 FRESH）、`invalidationCannotInterleaveBetweenTheCheckAndThePublish` 与
+  `windowCannotOpenBetweenTheCheckAndThePublish`（发布线程停在 `delegate.put` 内时，另一线程的逐出/开窗必须被锁挡住）。
+
+## R2-2 Redis 版本与负载的原子协议 + 故障隔离（Medium，Data Integrity/Stability）
+
+- **复核指出**：`SET version`、`DEL payload`、两个 Caffeine evict 串在同一个 Runnable，前一步异常会跳过全部后续动作；
+  正常执行也存在「version 已更新、旧 payload 尚未删除」的可读窗口；payload 命中不校验 version。
+- **改法**三条，与 Minimal fix 一一对应：
+  1. **单 Lua 原子**：`BUMP_VERSION_AND_DROP_PAYLOAD` 在一个脚本内完成版本推进 + 负载删除，中间态不可观测；
+  2. **步骤隔离**：失效动作拆成 3 个具名步骤（`caffeine:dictLabels`、`caffeine:orgDictItems`、
+     `redis:version-and-payload`），由 `ReferenceCacheInvalidator.runIsolated` 逐个执行，任一异常只记 ERROR 且**不影响**
+     其余步骤；本地逐出排在 Redis 之前，Redis 故障绝不会跳过本地逐出；写窗口解除在 `finally`；
+  3. **负载自带版本戳**：payload 存 `{"v":"<token>","items":[...]}`，读路径一次 EVAL 原子取回负载 + 版本，
+     **只有戳与当前版本相同才作为有效命中**。于是即便删除因故未生效，残留负载也永远不会被当作有效数据。
+     旧格式（裸数组）没有版本戳，升级后自然判定为无效并重新装载。
+- **反例**：`stalePayloadWithOutdatedVersionStampIsNeverServed`（真实 Redis 上把旧负载“复活”，断言读取仍得新值）、
+  `failingStepDoesNotBlockTheRemainingSteps`、`windowIsReleasedEvenWhenEveryStepFails`。
+
+## R2-3 Redis 键命名空间碰撞（Medium，Configuration/Data Integrity）
+
+- **复核指出**：`version(foo)` 与 `payload(ver:foo)` 都是 `dict:items:ver:foo`；typeCode 仅 `@NotBlank`，字符集限制只在前端。
+- **改法**（两条 Minimal fix 都做）：
+  1. 版本前缀改为 `dict:items-version:`，与负载前缀 `dict:items:` 在同一位置分别为 `-` 与 `:`，**任何** typeCode
+     都无法让两类键相等；
+  2. typeCode 字符集变成**后端硬约束**（红线 R7）：`DictServiceImpl.normalizeTypeCode` 对全部写路径
+     （createType/updateType/createItem/updateItem）强制 `^[A-Za-z0-9_]{1,64}$`，DTO 另加 `@Pattern` 给出 400 级提示。
+     已核对迁移种子与运行库：`sys_dict_type`/`sys_dict_item` 现存 type_code 全部满足该模式，不影响存量维护。
+- **反例**：`DictCacheKeyTest` 13 例（对抗性 typeCode 的键不相交、旧前缀确实会碰撞、前缀在首个分歧字符处不同）、
+  `typeCodesThatWouldPolluteTheRedisKeyspaceAreRejectedByTheBackend`（经生产 service 拒绝并断言不落库）、
+  `writesToOneDictTypeDoNotDisturbAnotherTypesCache`。
+
+## R2-4 锁等待 IT 归还池化连接前还原会话变量（Medium，Testing）
+
+- **复核指出**：`SET SESSION innodb_lock_wait_timeout = 1` 后直接归还 Hikari 连接，污染后续使用者。
+- **改法**：先读 `@@SESSION.innodb_lock_wait_timeout` 与 `autoCommit` 原值，`finally` 中还原并**再读一次断言**还原生效；
+  还原失败直接让用例失败，不让污染静默扩散。
+
+## R2-5 事务期间未提交读穿值可见（Low）
+
+由 R2-1 的写窗口一并关闭：窗口自写事务内开启，本事务自身的读穿不再把未提交值发布到共享缓存。
+IT `dictWriteWindowNeitherServesStaleValueNorPublishesUncommitted` 断言写事务内的并发读只看到旧的**已提交**值，
+本事务自己看到的未提交值不进缓存；`dictWriteWindowClosesOnRollbackAndLeavesNoUncommittedValue` 覆盖回滚侧。
+
+## R2-6 `@Param` 说明与锁定版本不符（Low）
+
+- **复核指出**：MP 3.5.16 的 `processParameter` 走 `extractParameters(Map)`——遍历 ParamMap values、去重后逐项转集合，
+  因此加 `@Param("rows")` **仍然**会逐元素填充；原注释「加了就不填充、主键为 null」是错误的框架模型。
+- **核对**：本轮重新反编译 `MybatisParameterHandler`，确认 `processParameter` 调用的是 `extractParameters`
+  （遍历 Map values + HashSet 去重 + `toCollection`），而不是按 `collection/coll/list/array` 取键的 `getParameters`。
+  复核结论成立，注释已按事实重写：真正需要保持一致的是 `<foreach collection='list'>` 与参数绑定名
+  （无注解的单个 List 由 MyBatis 暴露为 `list`/`collection`），自动填充合同由真实 IT
+  `batchRowsCarryTheSameGeneratedKeysAndAuditFieldsAsPerRowInsert` 保证。
+
+## R2-7 候选元数据漂移（Low）
+
+`HANDOFF.md` 与 `CURRENT-EXECUTION-PLAN.md` 的「当前分支」已由复核方同步改正；本提交材料的范围摘要改为与
+`git diff --stat f9ccda3` 逐项对齐的 10 个生产文件 + 1 个构建文件 + **6 个新增测试类**（此前写作 3 个，只算了
+`platform-system` 侧）。
+
+## R2-8 第二轮门禁
+
+见 §5 表格的第二轮列与 `evidence/phase44-remediation-2026-07-26/gates-round2-2026-07-26.txt`。
+
+## R2-9 第二轮新增的已知边界
+
+- 写窗口是**单 JVM + 本节点 Redis 令牌**语义：B 节点的进程内 Caffeine 仍不受 A 节点写的影响（TTL 收敛），
+  这与第一轮登记的跨节点广播失效开放项是同一项，未扩大也未关闭。
+- 写窗口内该 typeCode/参数缓存全部回源数据库；字典与参数写是低频管理操作，未做压测量化。
+- typeCode 字符集只在**写路径**强制；读路径（`listItems` 等）仍接受任意字符串，只会产生一次查空并按新协议缓存，
+  不造成键碰撞，但理论上可被大量无效 typeCode 撑大 Redis 键空间——属既有行为，本轮未改，单独记录。

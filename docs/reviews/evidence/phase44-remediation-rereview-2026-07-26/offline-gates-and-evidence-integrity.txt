@@ -1,0 +1,194 @@
+# Phase 44 退回整改候选 — 独立增量复核离线证据
+
+reviewed_at=2026-07-26T18:34:11+08:00
+reviewer=OpenAI Codex（用户授权独立复核）
+baseline=f9ccda310c479cd9a7c9dd39b8e1c73494a71cb4
+candidate=f9aec54ddfce7202bfcbeb576e6d8c989f21a6e7
+branch=codex/phase44-remediation
+scope=f9ccda310c479cd9a7c9dd39b8e1c73494a71cb4..f9aec54ddfce7202bfcbeb576e6d8c989f21a6e7
+
+## 1. Git 范围与工作树
+
+- `git rev-list --parents -n 1 f9aec54...`
+  - candidate 的唯一父提交为 `f9ccda310c479cd9a7c9dd39b8e1c73494a71cb4`。
+  - 本轮是直接父子之间的单提交增量。
+- `git diff --stat f9ccda3..f9aec54`
+  - 21 个路径，+2063/-44。
+- `git diff --check f9ccda3..f9aec54`
+  - PASS。
+- 复核开始时 tracked worktree clean。
+- 既有未跟踪审计资料未被加入候选，也未被修改、暂存或删除。
+
+## 2. 独立安全离线门禁
+
+### 2.1 platform-system 聚焦测试
+
+命令：
+
+`mvn -o -B -ntp -pl platform-system -am test`
+
+结果：
+
+- `EpochGuardedCacheTest`: 10/10
+- `ReferenceCacheInvalidatorTest`: 7/7
+- `InAppNotifyChannelBatchTest`: 4/4
+- 合计：21/21，0 failure / 0 error / 0 skip
+
+说明：这些测试真实执行并证明其现有断言成立；本报告的并发 finding 指向现有断言没有
+覆盖的交错，不把“测试全绿”等同于算法已经线性化。
+
+### 2.2 后端全 reactor 编译与打包
+
+命令：
+
+`mvn -o -B -ntp -DskipTests package`
+
+结果：
+
+- 9/9 reactor modules SUCCESS
+- production sources、platform-system 三个新增测试类、platform-boot 两个新增 IT 均完成
+  testCompile
+- BUILD SUCCESS
+- finished_at=2026-07-26T18:30:39+08:00
+
+### 2.3 候选动态证据计数交叉核验
+
+本轮未重跑 MySQL/Redis/MinIO。只读解析候选运行后留存的 XML：
+
+- Surefire：23 个 XML，216/216，0 failure / 0 error / 0 skip
+- Failsafe：30 个 XML，196/196，0 failure / 0 error / 0 skip
+- `Phase44CacheCommitWindowIT`: 6/6
+- `Phase44NotificationBatchIT`: 5/5
+- 三个新增 platform-system 测试：10/10 + 7/7 + 4/4 = 21/21
+
+提交内 `gates-2026-07-26.txt` 的计数与 XML 完全相同。重点测试源码、编译产物、XML、
+提交材料和 candidate commit 的时间顺序连续；XML 没有内嵌 candidate SHA，因此属于
+高置信交叉证据，不是加密绑定的 fresh-clone 动态证明。
+
+## 3. 重点文件 SHA-256
+
+- `EpochGuardedCache.java`
+  - `2BD4CC051AD6C60EEE852294817EC5EF4596E9071E2976CBBA4D928D69F1CA69`
+- `DictServiceImpl.java`
+  - `3D20238C8F0F55FC057B9C86D69813A1D81A8246423D3D2A2AB609CA629AB55B`
+- `NotificationMapper.java`
+  - `B970A385104DEDA95E4FE84B054806892A906FDFFC6F441ACE51C7A0B027F839`
+- `InAppNotifyChannel.java`
+  - `F573C96C51BD4EE79A3EE347CC5BA13F7DD16955FFAD201C6F015590E2682D8D`
+- `Phase44CacheCommitWindowIT.java`
+  - `A0498B46F3FB049750B063F912352C40FFA7C8DBC44871D2D643E63B3AA58281`
+- `Phase44NotificationBatchIT.java`
+  - `8E7754DB041109D43C56704089836C75A01651AD75CC7B741F07C0EEE8BDB6D6`
+
+当前上述生产/测试源文件与 candidate Git blob 一致。
+
+独立执行后的 Surefire XML：
+
+- `EpochGuardedCacheTest.xml`
+  - `E27412A12579F6B7EDA0A728BDF4C8E343E79036196C2F61D1BB20EE53A936E2`
+- `ReferenceCacheInvalidatorTest.xml`
+  - `CCF24080B40022A5D52C310BE2F214B3135960DB6F18C298C1892A26249BD255`
+- `InAppNotifyChannelBatchTest.xml`
+  - `7FAD8A00C46D1F123AF2E8027C80F8AE4D10CC3A1928201831D256DAC35A74D6`
+
+候选动态 Failsafe XML：
+
+- `Phase44CacheCommitWindowIT.xml`
+  - `BEFEFEF6775E6327C6CC35426C368F19FD65A2C30791D3E6D14F756360A97F10`
+- `Phase44NotificationBatchIT.xml`
+  - `AB35414E9E6A9799D68CDA6AE8840BEF809F5EE4990873A099C6286EFC8CD9C9`
+
+## 4. PG-M3 生产行为裁决
+
+- `NotificationMapper.insertBatch` 是一条 12 列 multi-values INSERT，不是逐行循环或
+  `Db.saveBatch`/JDBC batch 的包装。
+- `InAppNotifyChannel` 以 500 行分块；1001 行对应 500/500/1。
+- 普通 mapper 调用位于既有外层事务时复用事务绑定 SqlSession/Connection。
+- 候选真实 MySQL IT 断言 1/3 条语句、12*N 占位符、Connection identity、外层 rollback
+  零残留、另连接 1205 与同连接无自等待、ASSIGN_ID/审计/default 字段。
+- 独立复核未重跑数据库，因此上述动态事实以源码、XML、产物时间链和已归档 gate
+  交叉确认，不冒充本轮独立动态执行。
+
+结论：原 PG-M3 Major 的生产行为可以关闭。
+
+## 5. PG-M4 静态反例
+
+### 5.1 Caffeine 旧值可在补偿删除前被读取
+
+确定性交错：
+
+1. 旧 loader 在 epoch=0 的 miss 后持有提交前旧值。
+2. `put` 读取 `before=0`，第一次比较通过。
+3. afterCompletion 线程把 epoch 推进为 1，并完成底层 evict。
+4. 旧 loader 执行 `delegate.put(key, STALE)`。
+5. 第三线程在旧 loader 做第二次 epoch 比较前执行 `get`，直接命中 STALE。
+6. 旧 loader 随后发现 epoch 已变并补偿删除。
+
+候选测试只检查步骤 6 之后缓存为空，没有在步骤 4/5 插入第三个读者。因此“写后补删”
+不能证明旧值从未被供应。
+
+### 5.2 Redis version/payload 非原子且命中不校验 version
+
+确定性交错：
+
+1. 数据库事务提交。
+2. afterCompletion 完成 `SET dict:items:ver:<type> <uuid>`。
+3. `DEL dict:items:<type>` 尚未执行。
+4. 并发 `getCachedItems` 直接 GET/反序列化旧 payload，不读取或比对 version。
+
+若 DEL 抛错或进程在步骤 2/3 之间停止，旧 payload 与新 version 可并存到 payload 的
+12 小时 TTL；读路径仍会返回旧 payload。相同 Runnable 中 Redis 异常还会跳过两个
+后续 Caffeine evict，异常只在事务完成回调外层记录。
+
+### 5.3 Redis key namespace 碰撞
+
+- payload(`ver:foo`) = `dict:items:ver:foo`
+- version(`foo`) = `dict:items:ver:foo`
+
+后端 DTO 仅 `@NotBlank`，数据库 `VARCHAR(64)` 允许 `:`；只有前端限制
+`[A-Za-z0-9_]+`。因此两个合法后端输入会共享同一 Redis key。
+
+结论：PG-M4 未关闭。
+
+## 6. 测试隔离合同核验
+
+`Phase44NotificationBatchIT.insertFromSeparateConnection` 执行：
+
+`SET SESSION innodb_lock_wait_timeout = 1`
+
+finally 只 rollback/close，没有恢复 session variable。锁定的 HikariCP 5.1.0
+`PoolBase.resetConnectionState` 字节码只恢复 JDBC readOnly、autoCommit、
+transactionIsolation、catalog、networkTimeout、schema；不会恢复任意 MySQL session
+variable。1205 也不会必然淘汰该物理连接。
+
+因此后续 IT 若借到该连接，会继承 1 秒锁等待上限，形成执行顺序/连接池分配相关 flake。
+
+## 7. 框架注释核验
+
+锁定的 MyBatis-Plus 3.5.16 `MybatisParameterHandler.extractParameters(Map)` 会遍历
+ParamMap 全部 value，以 Set 去重后逐项 `toCollection` 并执行填充。因此
+`NotificationMapper` 中“加 @Param 后参数映射只剩自定义键，主键/审计填充必然失效”
+的说明不准确。当前无 `@Param` + `<foreach collection='list'>` 实现本身正确。
+
+## 8. 安全边界与排除项
+
+- 未启动常驻服务。
+- 未调用 Docker、数据库、Redis、MinIO、HTTP、浏览器或网络。
+- 未创建、修改或删除 schema、对象、账号、容器、镜像、卷或共享数据。
+- 未执行漏洞扫描、攻击性探测、凭据尝试、恶意载荷、fuzz、压力、故障注入、权限变更
+  或任何可能属于 cyber 的动作。
+- 未重跑并发锁等待、真实 MySQL/Redis 或用户动态栈。
+- 未把候选自测当作独立 PASS；动态材料只作为被交叉核验的开发者证据。
+
+## 9. 结论
+
+CHANGES_REQUESTED
+
+- 0 Critical
+- 0 High
+- 4 Medium
+- 3 Low
+
+PG-M3 原 Major 按生产行为关闭；PG-M4 因 Caffeine 发布窗口、Redis 非原子/故障耦合和
+key namespace 碰撞仍未关闭。另有一个真实 IT 会话状态污染 Medium。Phase 44 不放行
+Phase 0；本结论不构成 merge、push、部署、切流、稳定发布或全项目发布 GO。

@@ -4,6 +4,17 @@ import org.junit.jupiter.api.Test;
 import org.springframework.cache.Cache;
 import org.springframework.cache.concurrent.ConcurrentMapCache;
 
+import java.util.List;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -67,16 +78,93 @@ class EpochGuardedCacheTest {
     }
 
     @Test
-    void putIsUndoneWhenEvictionInterleavesAfterTheEpochCheck() {
-        // 覆盖 check-then-act 交错：比对通过、写入完成之后才发生逐出。写后二次比对必须撤销该键。
-        EvictDuringPutCache delegate = new EvictDuringPutCache();
+    void staleValueNeverReachesTheUnderlyingCacheSoNoReaderCanObserveIt() throws Exception {
+        // 上一轮复核 Medium：旧实现先 delegate.put(STALE) 再补删，补删之前任何读者都可能命中陈旧值。
+        // 现在「校验 + 发布」在同一把锁内串行，校验不过就根本不写——底层缓存<b>从未</b>出现过该值，
+        // 因此不存在「能不能被读到」的时间窗（比事后断言最终状态强得多）。
+        RecordingCache delegate = new RecordingCache();
         EpochGuardedCache cache = new EpochGuardedCache(delegate);
-        delegate.onPut = () -> cache.evict("T");
 
+        ExecutorService staleLoader = Executors.newSingleThreadExecutor();
+        try {
+            run(staleLoader, () -> cache.get("T"));   // 旧 loader 在自己的线程上开始读穿
+            cache.evict("T");                         // 写事务完成后逐出
+            run(staleLoader, () -> {
+                cache.put("T", "STALE");
+                return null;
+            });
+        } finally {
+            staleLoader.shutdownNow();
+        }
+
+        assertThat(delegate.putValues())
+                .as("陈旧值必须从未写入底层缓存")
+                .doesNotContain("STALE");
         assertThat(cache.get("T")).isNull();
-        cache.put("T", "STALE");
+    }
 
-        assertThat(cache.get("T")).as("写入后发生的逐出必须撤销本次写入").isNull();
+    @Test
+    void rejectedStaleLoaderDoesNotDeleteFreshValuePublishedByAnotherThread() throws Exception {
+        // 旧实现的补删会连带删掉另一线程刚发布的<b>新</b>值；现在拒绝＝不写，不再触碰既有条目。
+        RecordingCache delegate = new RecordingCache();
+        EpochGuardedCache cache = new EpochGuardedCache(delegate);
+
+        ExecutorService staleLoader = Executors.newSingleThreadExecutor();
+        ExecutorService freshLoader = Executors.newSingleThreadExecutor();
+        try {
+            run(staleLoader, () -> cache.get("T"));       // 旧 loader 取快照
+            cache.evict("T");                             // 写完成、纪元推进
+            run(freshLoader, () -> {                      // 新 loader 合法发布
+                cache.get("T");
+                cache.put("T", "FRESH");
+                return null;
+            });
+            run(staleLoader, () -> {                      // 旧 loader 迟到发布
+                cache.put("T", "STALE");
+                return null;
+            });
+        } finally {
+            staleLoader.shutdownNow();
+            freshLoader.shutdownNow();
+        }
+
+        assertThat(cache.get("T")).as("新值必须保留").isNotNull();
+        assertThat(cache.get("T").get()).isEqualTo("FRESH");
+        assertThat(delegate.putValues()).doesNotContain("STALE");
+    }
+
+    @Test
+    void invalidationCannotInterleaveBetweenTheCheckAndThePublish() throws Exception {
+        // 直接验证串行化本身：发布线程停在 delegate.put 之内时，另一线程的逐出必须被挡在锁外。
+        BlockingPutCache delegate = new BlockingPutCache();
+        EpochGuardedCache cache = new EpochGuardedCache(delegate);
+        ExecutorService publisher = Executors.newSingleThreadExecutor();
+        ExecutorService invalidator = Executors.newSingleThreadExecutor();
+        try {
+            cache.get("T");
+            Future<?> publishing = publisher.submit(() -> {
+                cache.get("T");
+                cache.put("T", "FRESH");
+            });
+            assertThat(delegate.awaitInsidePut(5, TimeUnit.SECONDS))
+                    .as("发布线程应已进入 delegate.put")
+                    .isTrue();
+
+            Future<?> evicting = invalidator.submit(() -> cache.evict("T"));
+            assertThat(awaitDone(evicting, 300, TimeUnit.MILLISECONDS))
+                    .as("发布未结束前，失效必须被锁挡住（否则校验与发布之间可插入失效）")
+                    .isFalse();
+
+            delegate.releasePut();
+            publishing.get(5, TimeUnit.SECONDS);
+            evicting.get(5, TimeUnit.SECONDS);
+        } finally {
+            delegate.releasePut();
+            publisher.shutdownNow();
+            invalidator.shutdownNow();
+        }
+
+        assertThat(cache.get("T")).as("失效发生在发布之后，最终应为空").isNull();
     }
 
     @Test
@@ -137,23 +225,200 @@ class EpochGuardedCacheTest {
         assertThat(cache.getNativeCache()).isSameAs(delegate.getNativeCache());
     }
 
-    /** 在底层 put 完成后立即触发一次逐出，用于确定性构造「比对通过之后才逐出」的交错。 */
-    private static final class EvictDuringPutCache extends ConcurrentMapCache {
+    // ---------------------------------------------------------------- 写窗口（复核 Medium：陈旧值短暂公开窗口）
 
-        private Runnable onPut;
+    @Test
+    void pendingWindowStopsServingAlreadyCachedValue() {
+        // 写发生到事务完成之间，缓存里的旧值一定已被本次写作废，不得再对外供应（哪怕逐出还没执行）。
+        EpochGuardedCache cache = new EpochGuardedCache(new ConcurrentMapCache("dictLabels"));
+        cache.get("T");
+        cache.put("T", "V1");
+        assertThat(cache.get("T")).isNotNull();
 
-        private EvictDuringPutCache() {
+        cache.beginPendingInvalidation("T");
+
+        assertThat(cache.get("T")).as("写窗口内必须停止供应").isNull();
+        assertThat(cache.isPendingInvalidation("T")).isTrue();
+    }
+
+    @Test
+    void pendingWindowRejectsRefillAndCompletionEvictionClearsTheEntry() {
+        RecordingCache delegate = new RecordingCache();
+        EpochGuardedCache cache = new EpochGuardedCache(delegate);
+        cache.get("T");
+        cache.put("T", "V1");
+
+        cache.beginPendingInvalidation("T");
+        assertThat(cache.get("T")).as("窗口内不供应").isNull();
+        cache.put("T", "V1");   // 窗口内的回填尝试（无论旧值还是未提交新值都不许进）
+
+        assertThat(delegate.putValues())
+                .as("窗口内的回填不得写入底层；且刻意不顺手删除既有条目，以免误删他人刚发布的新值")
+                .containsExactly("V1");
+
+        cache.evict("T");       // 事务完成后的逐出步骤
+        cache.endPendingInvalidation("T");
+        assertThat(cache.get("T")).as("完成后条目必须已清理").isNull();
+    }
+
+    @Test
+    void cacheIsUsableAgainAfterWindowCloses() {
+        EpochGuardedCache cache = new EpochGuardedCache(new ConcurrentMapCache("dictLabels"));
+        cache.beginPendingInvalidation("T");
+        cache.endPendingInvalidation("T");
+
+        assertThat(cache.get("T")).isNull();
+        cache.put("T", "V2");
+
+        assertThat(cache.get("T")).as("窗口结束后必须恢复缓存能力，否则等于把缓存禁用了").isNotNull();
+        assertThat(cache.get("T").get()).isEqualTo("V2");
+    }
+
+    @Test
+    void pendingWindowsAreReentrantAndCountedPerKey() {
+        // updateItem 会对 oldTypeCode/newTypeCode 各登记一次；并发事务也可能同时登记同一键。
+        EpochGuardedCache cache = new EpochGuardedCache(new ConcurrentMapCache("dictLabels"));
+        cache.beginPendingInvalidation("T");
+        cache.beginPendingInvalidation("T");
+        cache.endPendingInvalidation("T");
+
+        assertThat(cache.isPendingInvalidation("T")).as("仍有一层窗口未解除").isTrue();
+
+        cache.endPendingInvalidation("T");
+        assertThat(cache.isPendingInvalidation("T")).isFalse();
+        // 多余的解除不得把计数压成负数（否则下一次窗口会被提前失效）
+        cache.endPendingInvalidation("T");
+        cache.beginPendingInvalidation("T");
+        assertThat(cache.isPendingInvalidation("T")).isTrue();
+    }
+
+    @Test
+    void pendingWindowIsScopedToItsKey() {
+        EpochGuardedCache cache = new EpochGuardedCache(new ConcurrentMapCache("dictLabels"));
+        cache.get("OTHER");
+        cache.put("OTHER", "V1");
+
+        cache.beginPendingInvalidation("T");
+
+        assertThat(cache.get("OTHER")).as("不相关的键不应被写窗口波及").isNotNull();
+    }
+
+    @Test
+    void wholeCacheWindowSuppressesEveryKey() {
+        // 参数缓存的键含默认值成分，生产按 allEntries 清空，故窗口也必须是整缓存维度。
+        EpochGuardedCache cache = new EpochGuardedCache(new ConcurrentMapCache("sysParam"));
+        cache.get("getInt:a:0");
+        cache.put("getInt:a:0", 1);
+
+        cache.beginPendingInvalidation(null);
+
+        assertThat(cache.get("getInt:a:0")).isNull();
+        assertThat(cache.get("getInt:b:0")).isNull();
+        cache.put("getInt:b:0", 2);
+        cache.endPendingInvalidation(null);
+        assertThat(cache.get("getInt:b:0")).as("整缓存窗口内的回填同样必须被拒绝").isNull();
+    }
+
+    @Test
+    void windowCannotOpenBetweenTheCheckAndThePublish() throws Exception {
+        // 与失效同理：写窗口的开启也必须被 publishLock 挡在发布之外。
+        BlockingPutCache delegate = new BlockingPutCache();
+        EpochGuardedCache cache = new EpochGuardedCache(delegate);
+        ExecutorService publisher = Executors.newSingleThreadExecutor();
+        ExecutorService writer = Executors.newSingleThreadExecutor();
+        try {
+            Future<?> publishing = publisher.submit(() -> {
+                cache.get("T");
+                cache.put("T", "FRESH");
+            });
+            assertThat(delegate.awaitInsidePut(5, TimeUnit.SECONDS)).isTrue();
+
+            Future<?> opening = writer.submit(() -> cache.beginPendingInvalidation("T"));
+            assertThat(awaitDone(opening, 300, TimeUnit.MILLISECONDS))
+                    .as("发布未结束前，写窗口的开启必须被锁挡住")
+                    .isFalse();
+
+            delegate.releasePut();
+            publishing.get(5, TimeUnit.SECONDS);
+            opening.get(5, TimeUnit.SECONDS);
+        } finally {
+            delegate.releasePut();
+            publisher.shutdownNow();
+            writer.shutdownNow();
+        }
+
+        assertThat(cache.isPendingInvalidation("T")).isTrue();
+        assertThat(cache.get("T")).as("窗口已开启，即便条目还在也不得供应").isNull();
+    }
+
+    // ---------------------------------------------------------------- helpers
+
+    /** 在指定线程上执行一次缓存操作：{@code loadEpochs} 是线程本地的，模拟不同请求必须换线程。 */
+    private static <T> T run(ExecutorService executor, Callable<T> task) throws Exception {
+        return executor.submit(task).get(5, TimeUnit.SECONDS);
+    }
+
+    private static boolean awaitDone(Future<?> future, long timeout, TimeUnit unit) throws InterruptedException {
+        try {
+            future.get(timeout, unit);
+            return true;
+        } catch (TimeoutException e) {
+            return false;
+        } catch (ExecutionException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    /** 记录底层实际收到的 put，用于断言「陈旧值从未写入」。 */
+    private static final class RecordingCache extends ConcurrentMapCache {
+
+        private final List<Object> putValues = new CopyOnWriteArrayList<>();
+
+        private RecordingCache() {
             super("dictLabels");
         }
 
         @Override
         public void put(Object key, Object value) {
+            putValues.add(value);
             super.put(key, value);
-            Runnable hook = this.onPut;
-            if (hook != null) {
-                this.onPut = null;
-                hook.run();
+        }
+
+        List<Object> putValues() {
+            return List.copyOf(putValues);
+        }
+    }
+
+    /** 在底层 put 内部阻塞，用于确定性观察「发布进行中」时其它操作是否被串行化挡住。 */
+    private static final class BlockingPutCache extends ConcurrentMapCache {
+
+        private final CountDownLatch insidePut = new CountDownLatch(1);
+        private final CountDownLatch release = new CountDownLatch(1);
+
+        private BlockingPutCache() {
+            super("dictLabels");
+        }
+
+        @Override
+        public void put(Object key, Object value) {
+            insidePut.countDown();
+            try {
+                if (!release.await(10, TimeUnit.SECONDS)) {
+                    throw new IllegalStateException("put 未在 10s 内被放行");
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(e);
             }
+            super.put(key, value);
+        }
+
+        boolean awaitInsidePut(long timeout, TimeUnit unit) throws InterruptedException {
+            return insidePut.await(timeout, unit);
+        }
+
+        void releasePut() {
+            release.countDown();
         }
     }
 }

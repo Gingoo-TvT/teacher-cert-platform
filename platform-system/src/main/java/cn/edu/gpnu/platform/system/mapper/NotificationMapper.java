@@ -16,11 +16,15 @@ public interface NotificationMapper extends BaseMapper<Notification> {
      * 因此完整参与外层 {@code @Transactional}（与 44a 的 {@code Db.saveBatch} 相反：后者以 BATCH 执行器另开
      * SqlSession/连接、不参与外层事务，与外层事务持有的行锁互等，间歇触发 {@code Lock wait timeout}）。
      *
-     * <p><b>参数刻意不加 {@code @Param}</b>：MyBatis 会把单个 {@code List} 参数包成含 {@code list}/{@code collection}
-     * 键的 ParamMap，而 MyBatis-Plus 的 {@code MybatisParameterHandler} 正是按这些键取出集合、对<b>每个元素</b>
-     * 执行 {@code populateKeys}（{@code IdType.ASSIGN_ID} 主键）与 {@code MetaObjectHandler.insertFill}（审计字段），
-     * 与逐行 {@code insert} 的填充链完全一致。若加 {@code @Param}，参数映射只剩自定义键、上述填充不会发生，
-     * 主键与审计字段将全为 null 并直接撞 {@code id} 主键非空约束。
+     * <p><b>参数刻意不加 {@code @Param}</b>：MyBatis 的 {@code ParamNameResolver} 只在「单参数且无 {@code @Param}」
+     * 时才调 {@code wrapToMapIfCollection}，把 {@code List} 包成含 {@code list}/{@code collection} 键的 ParamMap；
+     * MyBatis-Plus 的 {@code MybatisParameterHandler.getParameters} 正是按 {@code collection}/{@code coll}/{@code list}/
+     * {@code array} 这几个键取出集合、对<b>每个元素</b>执行 {@code populateKeys}（{@code IdType.ASSIGN_ID} 主键）与
+     * {@code MetaObjectHandler.insertFill}（审计字段），与逐行 {@code insert} 的填充链完全一致。
+     * 加上 {@code @Param("rows")} 后 ParamMap 只有 {@code rows} 与 {@code param1}，上述取值失败、逐元素填充不再发生，
+     * 主键与审计字段全为 null，直接撞 {@code id} 列的 NOT NULL 约束。
+     * （严格地说，只有<b>恰好</b>命名为上述四个键之一时填充才仍然成立——例如 {@code @Param("list")}；这属于依赖巧合的写法，
+     * 本仓不采用，一律以「不加 {@code @Param}」表达该契约。）
      *
      * <p>{@code deleted} 列刻意不出现在列清单里：交由 DDL 的 {@code DEFAULT 0}，与 MP 单行 insert 忽略 null
      * 字段的行为一致。可空列显式声明 {@code jdbcType}，避免 null 走 {@code JdbcType.OTHER} 依赖驱动实现。

@@ -5,12 +5,11 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**🟦 Phase 44 退回整改候选完成，待独立增量复核**（分支 `codex/phase44-remediation`）。此前 Phase 53 证据整改已由独立增量复核确认 **PASS（0 Critical / 0 High / 0 Medium / 3 Low，均非阻断）**；正式报告为 `docs/reviews/phase-53-evidence-remediation-rereview-2026-07-26.md`，冻结 `8d42dcc..34e4d51`，代码仍为 `b9abc6c`。12 个启动日志的可移植归档与逐字节同源性关闭上一轮唯一 Medium；packaged MP4 真实探测自动化、凭据派生片段/secret-lint 可复现性和本机路径证据卫生 3 个 Low 留稳定发布前处理。统一入口为 `docs/CURRENT-EXECUTION-PLAN.md`。
+- 当前阶段：**🟦 Phase 44 第二轮退回整改候选完成，待独立增量复核**（分支 `codex/phase44-remediation`）。第一轮候选 `f9aec54` 的独立报告 `docs/reviews/phase-44-remediation-rereview-2026-07-26.md` 为 **CHANGES_REQUESTED（0 Critical / 0 High / 4 Medium / 3 Low）**：PG-M3 的同事务/同连接 multi-values 真批量已可关闭；PG-M4 因 Caffeine 陈旧值公开窗口、Redis 失效非原子且故障耦合、Redis key namespace 碰撞未关闭，另有锁等待 IT 污染池化 MySQL session 的新 Medium。第二轮已逐条整改：串行化「校验+发布」并新增写窗口、单 Lua 原子推进版本+删负载 + 步骤级故障隔离 + 负载自带版本戳、版本前缀改为可证不相交并把 typeCode 字符集提升为后端硬约束（R7）、IT 归还连接前还原并复读断言会话变量；3 个 Low 一并关闭。此前 Phase 53 证据整改已独立 PASS；统一入口为 `docs/CURRENT-EXECUTION-PLAN.md`。
 - 当前结论：WS-1/WS-2/WS-3/WS-10/WS-13 PASS；U-001 CI 零状态契约 PASS。Phase 42、Phase 39、Phase 41、Phase 47 与 Phase 53 均已独立 PASS；全项目当前仍由 **Phase 0、44** 两个退回阶段保持 **CHANGES_REQUESTED**。
 - P0 放行项：Phase 41 上一轮 1 High / 2 Medium / 1 Low 全部关闭；正式 PASS 时新增的 1 个非阻断 Low 已在后续闭环——Gate A 示例补齐冷认证参数，runner 在 Maven 前强制受验证 TLS / `allowPublicKeyRetrieval=true` / 受控 RSA 公钥文件三选一，并由纯 stub 静态契约覆盖失败关闭。正式报告仍保留当时的 1 Low 快照。约 24 MiB 以上原始整行 fail-closed、写入侧未同界继续留最终全量审计。
-- 最近更新：2026-07-26（Phase 53 证据整改提交 `34e4d51` 已独立复核 PASS：12/12 归档日志四路哈希同源、tracked-path 与 `-text -diff` 属性成立，旧完整秘密值已移除；离线 `clean test` 195/195、报告 lint 与 diff check 均 PASS。独立证据见 `docs/reviews/evidence/phase53-evidence-remediation-rereview-2026-07-26/`）。
-- 下一步：Phase 44 两项 Major 已按用户确认口径整改完成（PG-M3 同事务/同连接 multi-values 通知批量写；PG-M4 逐出移到事务 `afterCompletion` + 纪元/版本防重填），提交材料 `docs/reviews/phase-44-remediation-submission-2026-07-26.md` 待独立增量复核；PASS 后进入 Phase 0，全部退回项关闭后执行最终全量审计。
-
+- 最近更新：2026-07-26（Phase 44 第二轮整改候选完成：`platform-system` 离线单测 46/46、`Phase44CacheCommitWindowIT` 10/10、`Phase44NotificationBatchIT` 5/5、既有 `Phase44CachingIT` 3/3 与 `Phase1DictIT` 2/2 全绿；本轮专用隔离依赖全量 `clean verify` 计数见提交材料 §5。第一轮独立复核证据保留于 `docs/reviews/evidence/phase44-remediation-rereview-2026-07-26/`）。
+- 下一步：第二轮候选待独立增量复核（只需增量 + 必要离线回归）；Phase 44 PASS 前不进入 Phase 0，全部退回项关闭后再执行最终全量审计。
 ## 审计整改工作流
 | WS | 内容 | 状态 |
 |---|---|---|
@@ -36,7 +35,7 @@
 | Phase 39 | 第二轮整改 `73406ed` | `phase-39-second-remediation-rereview-2026-07-24.md` PASS；第一轮 1 High / 1 Low 全部关闭 | ✅ 独立复核 PASS；三个基线债务候选留最终全量审计 |
 | Phase 41 | 第二轮整改 `b5ed7f5`；材料/HEAD `ef6b550` | `phase-41-second-remediation-dynamic-evidence-rereview-2026-07-25.md` PASS；真实 MySQL 8.4 恢复与账号/授权两项门禁闭合 | ✅ 独立复核 PASS；上一轮 1 High / 2 Medium / 1 Low 全部关闭；正式 PASS 时的 1 Low 已后续闭环 |
 | Phase 47 | 原实现已合并；第二轮整改 `3bddf6c`、PASS 后 Low 闭环 `191a3ad` 未合并 | `phase-47-second-remediation-rereview-2026-07-26.md` PASS | ✅ 独立复核 PASS；第一轮 1 Medium / 1 Low 全部关闭；正式 PASS 时新增的 1 Low 已后续闭环 |
-| Phase 44 | 已合并；退回整改候选 `codex/phase44-remediation` 未合并 | `phase-44-review.md` CHANGES REQUESTED；整改候选材料 `phase-44-remediation-submission-2026-07-26.md` | 🟦 整改候选待独立复核（PG-M3 真批量同连接写、PG-M4 提交后逐出+防重填已落地并附反例） |
+| Phase 44 | 已合并；退回整改候选 `codex/phase44-remediation`（第二轮）未合并 | 第一轮 `phase-44-remediation-rereview-2026-07-26.md` CHANGES REQUESTED（4 Medium / 3 Low）；第二轮候选材料 `phase-44-remediation-submission-2026-07-26.md` | 🟦 第二轮整改候选待独立复核：PG-M3 已关闭；陈旧值公开窗口、Redis 原子失效协议、键空间碰撞、IT 会话污染与 3 个 Low 均已整改并附反例 |
 | Phase 53 | 原实现已合并；代码整改 `b9abc6c`、证据整改 `34e4d51` 未合并 | `phase-53-evidence-remediation-rereview-2026-07-26.md` PASS（3 Low，均非阻断） | ✅ 独立增量复核 PASS；上一轮 1 Medium 与完整秘密值证据 Low 关闭，packaged MP4 自动探测及两项证据卫生 Low 留稳定发布前处理 |
 
 逐 Phase 结论、报告路径与后续顺序以 `docs/CURRENT-EXECUTION-PLAN.md` 为准。
