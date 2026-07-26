@@ -3,7 +3,7 @@
 --
 -- 目的：测试者以各角色登录 dev 环境时看到「有内容」的界面（学生列表/审核队列/视频评审任务/
 --       测试成绩/证书/站内信），而非空屏。本脚本只插入「演示实体数据」，样例文件（PDF/图片/MP4）
---       由 DemoDataInitializer 幂等上传到 MinIO 固定 object key（见下方 file_path）。
+--       由 DemoDataInitializer 幂等上传到按内容 SHA-256 派生的 MinIO object key（见下方 file_path）。
 --
 -- 关键约束（务必遵守，勿破坏 IT 套件）：
 --   · 本脚本【不是】Flyway 迁移，不参与 mvn verify；仅在 platform.demo.enabled=true 时运行。
@@ -14,6 +14,8 @@
 --   · 全部 INSERT ... ON DUPLICATE KEY UPDATE，可安全重跑（幂等，不产生重复行）。
 --   · 引用的学院(201/202)、角色(STUDENT)、字典项(学段/学科/材料类别/证书状态等)均来自基础种子，需 dev 环境已加载。
 --   · student.idcard_key / certificate.active_key 为 STORED 生成列，INSERT 不显式赋值（由 MySQL 计算）。
+--   · DEMO_* 占位符由 DemoDataInitializer 在全部对象内容对账 + 受信媒体探测通过后注入；
+--     禁止手写视频大小、指纹、时长、编码、策略哈希或探测器版本。
 --
 -- 年度统一 assessment_year='2026'（与 current_assessment_year 参数默认一致，保证 UI 默认年度筛选可见）。
 -- =============================================================
@@ -40,29 +42,35 @@ FROM sys_role r WHERE r.code = 'STUDENT' AND r.deleted = 0
 ON DUPLICATE KEY UPDATE user_id = VALUES(user_id), role_id = VALUES(role_id), updated_at = NOW(), deleted = 0;
 
 -- =====================================================================================
--- 1) 文件登记 file_object（bucket=teacher-cert；object_key 由 DemoDataInitializer 上传样例文件到 MinIO）
+-- 1) 文件登记 file_object（bucket 与 object_key 由 DemoDataInitializer 按运行时配置/manifest 注入）
 --    预览/播放走 FileService.presignedGet(fileId) → 读 file_object(bucket+object_key) → MinIO 预签名。
 --    多行可共享同一 object_key（同一物理样例对象），演示足够且省存储。
 -- =====================================================================================
 INSERT INTO file_object
-(id, original_name, stored_name, bucket, object_key, `size`, content_type, md5, biz_type, uploader_id, upload_time, created_at, updated_at, deleted)
+(id, original_name, stored_name, bucket, object_key, `size`, content_type, md5, biz_type, status,
+ checksum_algorithm, content_hash_verified, media_codec, media_validation_policy_hash, media_probe_version,
+ uploader_id, upload_time, created_at, updated_at, deleted)
 VALUES
 -- 教学能力视频（video/mp4），供 video_review.video_file_id 引用
-(8100000000000001, '教学能力展示-陈晓明.mp4', 'demo-teaching-video.mp4', 'teacher-cert', 'teaching-video/demo-teaching-video.mp4', 528, 'video/mp4', 'a1b2c3d4e5f60110101112131415161a', 'teaching-video', 800000000000003003, NOW(), NOW(), NOW(), 0),
-(8100000000000002, '教学能力展示-周雅婷.mp4', 'demo-teaching-video.mp4', 'teacher-cert', 'teaching-video/demo-teaching-video.mp4', 528, 'video/mp4', 'a1b2c3d4e5f60110101112131415162b', 'teaching-video', 800000000000003003, NOW(), NOW(), NOW(), 0),
-(8100000000000003, '教学能力展示-郑丽华.mp4', 'demo-teaching-video.mp4', 'teacher-cert', 'teaching-video/demo-teaching-video.mp4', 528, 'video/mp4', 'a1b2c3d4e5f60110101112131415163c', 'teaching-video', 800000000000003003, NOW(), NOW(), NOW(), 0),
+(8100000000000001, '教学能力展示-陈晓明.mp4', 'demo-teaching-video.mp4', {{DEMO_BUCKET}}, {{DEMO_VIDEO_OBJECT_KEY}}, {{DEMO_VIDEO_SIZE}}, {{DEMO_VIDEO_CONTENT_TYPE}}, {{DEMO_VIDEO_FINGERPRINT}}, 'teaching-video', 'READY', {{DEMO_VIDEO_CHECKSUM_ALGORITHM}}, 1, {{DEMO_VIDEO_CODEC}}, {{DEMO_VIDEO_POLICY_HASH}}, {{DEMO_VIDEO_PROBE_VERSION}}, 800000000000003003, NOW(), NOW(), NOW(), 0),
+(8100000000000002, '教学能力展示-周雅婷.mp4', 'demo-teaching-video.mp4', {{DEMO_BUCKET}}, {{DEMO_VIDEO_OBJECT_KEY}}, {{DEMO_VIDEO_SIZE}}, {{DEMO_VIDEO_CONTENT_TYPE}}, {{DEMO_VIDEO_FINGERPRINT}}, 'teaching-video', 'READY', {{DEMO_VIDEO_CHECKSUM_ALGORITHM}}, 1, {{DEMO_VIDEO_CODEC}}, {{DEMO_VIDEO_POLICY_HASH}}, {{DEMO_VIDEO_PROBE_VERSION}}, 800000000000003003, NOW(), NOW(), NOW(), 0),
+(8100000000000003, '教学能力展示-郑丽华.mp4', 'demo-teaching-video.mp4', {{DEMO_BUCKET}}, {{DEMO_VIDEO_OBJECT_KEY}}, {{DEMO_VIDEO_SIZE}}, {{DEMO_VIDEO_CONTENT_TYPE}}, {{DEMO_VIDEO_FINGERPRINT}}, 'teaching-video', 'READY', {{DEMO_VIDEO_CHECKSUM_ALGORITHM}}, 1, {{DEMO_VIDEO_CODEC}}, {{DEMO_VIDEO_POLICY_HASH}}, {{DEMO_VIDEO_PROBE_VERSION}}, 800000000000003003, NOW(), NOW(), NOW(), 0),
 -- 过程材料 PDF，供 process_material.file_id 引用
-(8100000000000011, '教育实习实践证明.pdf', 'demo-material.pdf', 'teacher-cert', 'process-material/demo-material.pdf', 659, 'application/pdf', 'b1b2c3d4e5f60110101112131415160d', 'process-material', 800000000000003003, NOW(), NOW(), NOW(), 0),
-(8100000000000013, '教师教育课程成绩单.pdf', 'demo-material.pdf', 'teacher-cert', 'process-material/demo-material.pdf', 659, 'application/pdf', 'b1b2c3d4e5f60110101112131415161e', 'process-material', 800000000000003003, NOW(), NOW(), NOW(), 0),
-(8100000000000014, '专业技能培训证明.pdf', 'demo-material.pdf', 'teacher-cert', 'process-material/demo-material.pdf', 659, 'application/pdf', 'b1b2c3d4e5f60110101112131415162f', 'process-material', 800000000000003003, NOW(), NOW(), NOW(), 0),
+(8100000000000011, '教育实习实践证明.pdf', 'demo-material.pdf', {{DEMO_BUCKET}}, {{DEMO_MATERIAL_OBJECT_KEY}}, {{DEMO_MATERIAL_SIZE}}, {{DEMO_MATERIAL_CONTENT_TYPE}}, {{DEMO_MATERIAL_MD5}}, 'process-material', 'READY', NULL, 0, NULL, NULL, NULL, 800000000000003003, NOW(), NOW(), NOW(), 0),
+(8100000000000013, '教师教育课程成绩单.pdf', 'demo-material.pdf', {{DEMO_BUCKET}}, {{DEMO_MATERIAL_OBJECT_KEY}}, {{DEMO_MATERIAL_SIZE}}, {{DEMO_MATERIAL_CONTENT_TYPE}}, {{DEMO_MATERIAL_MD5}}, 'process-material', 'READY', NULL, 0, NULL, NULL, NULL, 800000000000003003, NOW(), NOW(), NOW(), 0),
+(8100000000000014, '专业技能培训证明.pdf', 'demo-material.pdf', {{DEMO_BUCKET}}, {{DEMO_MATERIAL_OBJECT_KEY}}, {{DEMO_MATERIAL_SIZE}}, {{DEMO_MATERIAL_CONTENT_TYPE}}, {{DEMO_MATERIAL_MD5}}, 'process-material', 'READY', NULL, 0, NULL, NULL, NULL, 800000000000003003, NOW(), NOW(), NOW(), 0),
 -- 过程材料 图片（image/png）
-(8100000000000012, '师德素养佐证.png', 'demo-material-image.png', 'teacher-cert', 'process-material/demo-material-image.png', 99, 'image/png', 'c1b2c3d4e5f60110101112131415160a', 'process-material', 800000000000003003, NOW(), NOW(), NOW(), 0),
+(8100000000000012, '师德素养佐证.png', 'demo-material-image.png', {{DEMO_BUCKET}}, {{DEMO_IMAGE_OBJECT_KEY}}, {{DEMO_IMAGE_SIZE}}, {{DEMO_IMAGE_CONTENT_TYPE}}, {{DEMO_IMAGE_MD5}}, 'process-material', 'READY', NULL, 0, NULL, NULL, NULL, 800000000000003003, NOW(), NOW(), NOW(), 0),
 -- 免考佐证 PDF，供 exemption_material.file_id 引用
-(8100000000000021, '免考佐证-统考成绩单.pdf', 'demo-exemption.pdf', 'teacher-cert', 'exemption-material/demo-exemption.pdf', 659, 'application/pdf', 'd1b2c3d4e5f60110101112131415160b', 'exemption-material', 800000000000003003, NOW(), NOW(), NOW(), 0)
+(8100000000000021, '免考佐证-统考成绩单.pdf', 'demo-exemption.pdf', {{DEMO_BUCKET}}, {{DEMO_EXEMPTION_OBJECT_KEY}}, {{DEMO_EXEMPTION_SIZE}}, {{DEMO_EXEMPTION_CONTENT_TYPE}}, {{DEMO_EXEMPTION_MD5}}, 'exemption-material', 'READY', NULL, 0, NULL, NULL, NULL, 800000000000003003, NOW(), NOW(), NOW(), 0)
 ON DUPLICATE KEY UPDATE
     original_name = VALUES(original_name), stored_name = VALUES(stored_name), bucket = VALUES(bucket),
     object_key = VALUES(object_key), `size` = VALUES(`size`), content_type = VALUES(content_type),
-    md5 = VALUES(md5), biz_type = VALUES(biz_type), upload_time = VALUES(upload_time), updated_at = NOW(), deleted = 0;
+    md5 = VALUES(md5), biz_type = VALUES(biz_type), status = VALUES(status),
+    checksum_algorithm = VALUES(checksum_algorithm), content_hash_verified = VALUES(content_hash_verified),
+    media_codec = VALUES(media_codec), media_validation_policy_hash = VALUES(media_validation_policy_hash),
+    media_probe_version = VALUES(media_probe_version),
+    uploader_id = VALUES(uploader_id), upload_time = VALUES(upload_time), updated_at = NOW(), deleted = 0;
 
 -- =====================================================================================
 -- 2) 演示学生 student（8 名，跨学院 201(A)/202(B)，覆盖多状态：DRAFT/FIRST_REVIEW/SECOND_REVIEW/FIRST_REJECTED/PASSED）
@@ -122,10 +130,10 @@ INSERT INTO process_material
  uploader_id, upload_time, first_review_status, first_reviewer_id, first_review_time,
  second_review_status, second_reviewer_id, second_review_time, status, locked, created_at, updated_at, deleted)
 VALUES
-(8100000000002001, 9101, 800000000000000201, '2026', 'education_internship_practice', 8100000000000011, '教育实习实践证明.pdf', 'process-material/demo-material.pdf',       659, 'application/pdf', 8100000000000901, NOW(), 'PASS', 800000000000003003, NOW(), 'PASS', 800000000000003004, NOW(), 'PASSED',       1, NOW(), NOW(), 0),
-(8100000000002002, 9101, 800000000000000201, '2026', 'morality_teacher_ethics',       8100000000000012, '师德素养佐证.png',     'process-material/demo-material-image.png', 99,  'image/png',       8100000000000901, NOW(), 'PASS', 800000000000003003, NOW(), 'PASS', 800000000000003004, NOW(), 'PASSED',       1, NOW(), NOW(), 0),
-(8100000000002003, 9103, 800000000000000201, '2026', 'teacher_education_course',       8100000000000013, '教师教育课程成绩单.pdf', 'process-material/demo-material.pdf',     659, 'application/pdf', 800000000000003003, NOW(), NULL,   NULL, NULL, NULL, NULL, NULL, 'FIRST_REVIEW', 0, NOW(), NOW(), 0),
-(8100000000002004, 9106, 800000000000000202, '2026', 'professional_ability_skill_training', 8100000000000014, '专业技能培训证明.pdf', 'process-material/demo-material.pdf',   659, 'application/pdf', 800000000000003003, NOW(), NULL,   NULL, NULL, NULL, NULL, NULL, 'FIRST_REVIEW', 0, NOW(), NOW(), 0)
+(8100000000002001, 9101, 800000000000000201, '2026', 'education_internship_practice', 8100000000000011, '教育实习实践证明.pdf', {{DEMO_MATERIAL_OBJECT_KEY}}, {{DEMO_MATERIAL_SIZE}}, {{DEMO_MATERIAL_CONTENT_TYPE}}, 8100000000000901, NOW(), 'PASS', 800000000000003003, NOW(), 'PASS', 800000000000003004, NOW(), 'PASSED',       1, NOW(), NOW(), 0),
+(8100000000002002, 9101, 800000000000000201, '2026', 'morality_teacher_ethics',       8100000000000012, '师德素养佐证.png',     {{DEMO_IMAGE_OBJECT_KEY}}, {{DEMO_IMAGE_SIZE}}, {{DEMO_IMAGE_CONTENT_TYPE}}, 8100000000000901, NOW(), 'PASS', 800000000000003003, NOW(), 'PASS', 800000000000003004, NOW(), 'PASSED',       1, NOW(), NOW(), 0),
+(8100000000002003, 9103, 800000000000000201, '2026', 'teacher_education_course',       8100000000000013, '教师教育课程成绩单.pdf', {{DEMO_MATERIAL_OBJECT_KEY}}, {{DEMO_MATERIAL_SIZE}}, {{DEMO_MATERIAL_CONTENT_TYPE}}, 800000000000003003, NOW(), NULL,   NULL, NULL, NULL, NULL, NULL, 'FIRST_REVIEW', 0, NOW(), NOW(), 0),
+(8100000000002004, 9106, 800000000000000202, '2026', 'professional_ability_skill_training', 8100000000000014, '专业技能培训证明.pdf', {{DEMO_MATERIAL_OBJECT_KEY}}, {{DEMO_MATERIAL_SIZE}}, {{DEMO_MATERIAL_CONTENT_TYPE}}, 800000000000003003, NOW(), NULL,   NULL, NULL, NULL, NULL, NULL, 'FIRST_REVIEW', 0, NOW(), NOW(), 0)
 ON DUPLICATE KEY UPDATE
     category = VALUES(category), file_id = VALUES(file_id), file_name = VALUES(file_name), file_path = VALUES(file_path),
     file_size = VALUES(file_size), content_type = VALUES(content_type), first_review_status = VALUES(first_review_status),
@@ -153,7 +161,7 @@ INSERT INTO exemption_material
 (id, exemption_request_id, student_id, college_id, file_id, file_name, file_path, file_size, content_type,
  uploader_id, upload_time, created_at, updated_at, deleted)
 VALUES
-(8100000000003101, 8100000000003001, 9107, 800000000000000202, 8100000000000021, '免考佐证-统考成绩单.pdf', 'exemption-material/demo-exemption.pdf', 659, 'application/pdf', 800000000000003003, NOW(), NOW(), NOW(), 0)
+(8100000000003101, 8100000000003001, 9107, 800000000000000202, 8100000000000021, '免考佐证-统考成绩单.pdf', {{DEMO_EXEMPTION_OBJECT_KEY}}, {{DEMO_EXEMPTION_SIZE}}, {{DEMO_EXEMPTION_CONTENT_TYPE}}, 800000000000003003, NOW(), NOW(), NOW(), 0)
 ON DUPLICATE KEY UPDATE
     exemption_request_id = VALUES(exemption_request_id), file_id = VALUES(file_id), file_name = VALUES(file_name),
     file_path = VALUES(file_path), file_size = VALUES(file_size), content_type = VALUES(content_type),
@@ -168,26 +176,34 @@ INSERT INTO video_review
 (id, student_id, college_id, assessment_year, video_file_id, video_file_name, file_md5, duration_seconds,
  format_check, validation_message, status, final_score, final_conclusion, confirmed_by, confirmed_at, locked, created_at, updated_at, deleted)
 VALUES
-(8100000000004001, 9101, 800000000000000201, '2026', 8100000000000001, '教学能力展示-陈晓明.mp4', 'a1b2c3d4e5f60110101112131415161a', 905, 'PASS', '格式校验通过', 'CONFIRMED',   85, 'PASS', 800000000000003004, NOW(), 1, NOW(), NOW(), 0),
-(8100000000004002, 9104, 800000000000000201, '2026', 8100000000000002, '教学能力展示-周雅婷.mp4', 'a1b2c3d4e5f60110101112131415162b', 890, 'PASS', '格式校验通过', 'REVIEWING',   NULL, NULL, NULL, NULL, 0, NOW(), NOW(), 0),
-(8100000000004003, 9107, 800000000000000202, '2026', 8100000000000003, '教学能力展示-郑丽华.mp4', 'a1b2c3d4e5f60110101112131415163c', 910, 'PASS', '格式校验通过', 'WAIT_REVIEW', NULL, NULL, NULL, NULL, 0, NOW(), NOW(), 0)
+(8100000000004001, 9101, 800000000000000201, '2026', 8100000000000001, '教学能力展示-陈晓明.mp4', {{DEMO_VIDEO_FINGERPRINT}}, {{DEMO_VIDEO_DURATION_SECONDS}}, 'PASS', '服务端媒体探测通过', 'CONFIRMED',   85, 'PASS', 800000000000003004, NOW(), 1, NOW(), NOW(), 0),
+(8100000000004002, 9104, 800000000000000201, '2026', 8100000000000002, '教学能力展示-周雅婷.mp4', {{DEMO_VIDEO_FINGERPRINT}}, {{DEMO_VIDEO_DURATION_SECONDS}}, 'PASS', '服务端媒体探测通过', 'REVIEWING',   NULL, NULL, NULL, NULL, 0, NOW(), NOW(), 0),
+(8100000000004003, 9107, 800000000000000202, '2026', 8100000000000003, '教学能力展示-郑丽华.mp4', {{DEMO_VIDEO_FINGERPRINT}}, {{DEMO_VIDEO_DURATION_SECONDS}}, 'PASS', '服务端媒体探测通过', 'WAIT_REVIEW', NULL, NULL, NULL, NULL, 0, NOW(), NOW(), 0)
 ON DUPLICATE KEY UPDATE
     video_file_id = VALUES(video_file_id), video_file_name = VALUES(video_file_name), file_md5 = VALUES(file_md5),
-    duration_seconds = VALUES(duration_seconds), format_check = VALUES(format_check), status = VALUES(status),
+    duration_seconds = VALUES(duration_seconds), format_check = VALUES(format_check),
+    validation_message = VALUES(validation_message), status = VALUES(status),
     final_score = VALUES(final_score), final_conclusion = VALUES(final_conclusion), confirmed_by = VALUES(confirmed_by),
     confirmed_at = VALUES(confirmed_at), locked = VALUES(locked), updated_at = NOW(), deleted = 0;
 
 INSERT INTO video_upload_session
-(id, upload_id, student_id, college_id, assessment_year, file_md5, file_name, file_size, content_type,
+(id, upload_id, upload_mode, s3_upload_id, object_key, presign_expires_at, slot_claimed,
+ student_id, college_id, assessment_year, file_md5, file_name, file_size, content_type,
  chunk_size, total_chunks, uploaded_chunks, uploaded_bytes, duration_seconds, status, file_id, validation_message, created_at, updated_at, deleted)
 VALUES
-(8100000000004201, 'demo-upload-9101', 9101, 800000000000000201, '2026', 'a1b2c3d4e5f60110101112131415161a', '教学能力展示-陈晓明.mp4', 528, 'video/mp4', 8388608, 1, 1, 528, 905, 'MERGED', 8100000000000001, '合并完成', NOW(), NOW(), 0),
-(8100000000004202, 'demo-upload-9104', 9104, 800000000000000201, '2026', 'a1b2c3d4e5f60110101112131415162b', '教学能力展示-周雅婷.mp4', 528, 'video/mp4', 8388608, 1, 1, 528, 890, 'MERGED', 8100000000000002, '合并完成', NOW(), NOW(), 0),
-(8100000000004203, 'demo-upload-9107', 9107, 800000000000000202, '2026', 'a1b2c3d4e5f60110101112131415163c', '教学能力展示-郑丽华.mp4', 528, 'video/mp4', 8388608, 1, 1, 528, 910, 'MERGED', 8100000000000003, '合并完成', NOW(), NOW(), 0)
+(8100000000004201, 'demo-upload-9101', 'SERVER_CHUNK', NULL, {{DEMO_VIDEO_OBJECT_KEY}}, NULL, 0, 9101, 800000000000000201, '2026', {{DEMO_VIDEO_FINGERPRINT}}, '教学能力展示-陈晓明.mp4', {{DEMO_VIDEO_SIZE}}, {{DEMO_VIDEO_CONTENT_TYPE}}, 8388608, 1, 1, {{DEMO_VIDEO_SIZE}}, {{DEMO_VIDEO_DURATION_SECONDS}}, 'MERGED', 8100000000000001, '服务端媒体探测通过', NOW(), NOW(), 0),
+(8100000000004202, 'demo-upload-9104', 'SERVER_CHUNK', NULL, {{DEMO_VIDEO_OBJECT_KEY}}, NULL, 0, 9104, 800000000000000201, '2026', {{DEMO_VIDEO_FINGERPRINT}}, '教学能力展示-周雅婷.mp4', {{DEMO_VIDEO_SIZE}}, {{DEMO_VIDEO_CONTENT_TYPE}}, 8388608, 1, 1, {{DEMO_VIDEO_SIZE}}, {{DEMO_VIDEO_DURATION_SECONDS}}, 'MERGED', 8100000000000002, '服务端媒体探测通过', NOW(), NOW(), 0),
+(8100000000004203, 'demo-upload-9107', 'SERVER_CHUNK', NULL, {{DEMO_VIDEO_OBJECT_KEY}}, NULL, 0, 9107, 800000000000000202, '2026', {{DEMO_VIDEO_FINGERPRINT}}, '教学能力展示-郑丽华.mp4', {{DEMO_VIDEO_SIZE}}, {{DEMO_VIDEO_CONTENT_TYPE}}, 8388608, 1, 1, {{DEMO_VIDEO_SIZE}}, {{DEMO_VIDEO_DURATION_SECONDS}}, 'MERGED', 8100000000000003, '服务端媒体探测通过', NOW(), NOW(), 0)
 ON DUPLICATE KEY UPDATE
-    student_id = VALUES(student_id), file_md5 = VALUES(file_md5), file_size = VALUES(file_size),
-    uploaded_chunks = VALUES(uploaded_chunks), uploaded_bytes = VALUES(uploaded_bytes), status = VALUES(status),
-    file_id = VALUES(file_id), updated_at = NOW(), deleted = 0;
+    upload_mode = VALUES(upload_mode), s3_upload_id = VALUES(s3_upload_id),
+    object_key = VALUES(object_key), presign_expires_at = VALUES(presign_expires_at),
+    slot_claimed = VALUES(slot_claimed), student_id = VALUES(student_id),
+    file_md5 = VALUES(file_md5), file_name = VALUES(file_name),
+    file_size = VALUES(file_size), content_type = VALUES(content_type), chunk_size = VALUES(chunk_size),
+    total_chunks = VALUES(total_chunks), uploaded_chunks = VALUES(uploaded_chunks),
+    uploaded_bytes = VALUES(uploaded_bytes), duration_seconds = VALUES(duration_seconds),
+    status = VALUES(status), file_id = VALUES(file_id), validation_message = VALUES(validation_message),
+    updated_at = NOW(), deleted = 0;
 
 INSERT INTO video_review_task
 (id, video_review_id, student_id, college_id, reviewer_id, reviewer_role, score, dimension_scores_json, comment,

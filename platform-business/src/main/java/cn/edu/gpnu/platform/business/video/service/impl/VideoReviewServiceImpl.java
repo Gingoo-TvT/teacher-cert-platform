@@ -29,6 +29,7 @@ import cn.edu.gpnu.platform.business.video.support.VideoFinalizeSingleFlight;
 import cn.edu.gpnu.platform.business.video.support.VideoFinalizationHook;
 import cn.edu.gpnu.platform.business.video.support.VideoFinalizationObjectLifecycleService;
 import cn.edu.gpnu.platform.business.video.support.VideoFinalizationObjectReconciler;
+import cn.edu.gpnu.platform.business.video.support.VideoMediaAcceptancePolicy;
 import cn.edu.gpnu.platform.business.video.support.VideoMediaInspection;
 import cn.edu.gpnu.platform.business.video.support.VideoMediaProbe;
 import cn.edu.gpnu.platform.business.video.support.VideoProbeCapacityGuard;
@@ -113,15 +114,12 @@ public class VideoReviewServiceImpl implements VideoReviewService {
     private static final String CHUNK_BIZ_TYPE = "video-chunk";
     private static final String PRESIGNED_MULTIPART_MODE = "PRESIGNED_MULTIPART";
     private static final String SERVER_CHUNK_MODE = "SERVER_CHUNK";
-    private static final long DEFAULT_MAX_VIDEO_SIZE = 2_147_483_648L;
     // MinIO/S3 服务端合并（composeObject→multipart UploadPartCopy）要求：除最后一片外每一源片 ≥5MiB
     // （io.minio.ObjectWriteArgs.MIN_MULTIPART_SIZE）。前端分片 8MiB（VIDEO_UPLOAD_CHUNK_SIZE）即满足此下限，
     // 令多分片上传走服务端合并快路径；小于此阈值的分片（末片/单分片场景）回退流式拼接。此常量即与 SDK 下限锁步。
     private static final long MIN_COMPOSE_PART_SIZE = ObjectWriteArgs.MIN_MULTIPART_SIZE;
     private static final long MAX_DIRECT_PART_SIZE = 67_108_864L;
     private static final int MAX_DIRECT_PARTS = 10_000;
-    private static final int DEFAULT_DURATION_TARGET = 900;
-    private static final int DEFAULT_DURATION_TOLERANCE = 60;
     private static final int DEFAULT_PASS_LINE = 60;
     private static final int DEFAULT_DIFF_THRESHOLD = 12;
     private static final int DEFAULT_REVIEWER_COUNT = 2;
@@ -1738,44 +1736,12 @@ public class VideoReviewServiceImpl implements VideoReviewService {
     private void validateMergedVideo(VideoReview review, FileObject file,
                                      VideoMediaInspection inspection, boolean instantHit) {
         String normalized = normalizeContentType(file.getOriginalName(), file.getContentType());
-        if (!"video/mp4".equals(normalized)) {
+        VideoMediaAcceptancePolicy.Result acceptance = VideoMediaAcceptancePolicy.validate(
+                normalized, file.getSize(), inspection, videoMediaProbe, paramService);
+        if (!acceptance.accepted()) {
             review.setFormatCheck("FAIL");
             review.setStatus(VideoReviewStatus.VALIDATION_FAILED.name());
-            review.setValidationMessage("视频格式必须为MP4");
-            return;
-        }
-        if (file.getSize() != null && file.getSize() > maxVideoSize()) {
-            review.setFormatCheck("FAIL");
-            review.setStatus(VideoReviewStatus.VALIDATION_FAILED.name());
-            review.setValidationMessage("视频大小超过限制");
-            return;
-        }
-        if (!Objects.equals(inspection.probeVersion(), videoMediaProbe.probeVersion())
-                || !Objects.equals(inspection.policyHash(), videoMediaProbe.currentPolicyHash())) {
-            review.setFormatCheck("FAIL");
-            review.setStatus(VideoReviewStatus.VALIDATION_FAILED.name());
-            review.setValidationMessage("视频校验策略已变化，请重新提交");
-            return;
-        }
-        if (!inspection.valid()) {
-            review.setFormatCheck("FAIL");
-            review.setStatus(VideoReviewStatus.VALIDATION_FAILED.name());
-            review.setValidationMessage(inspection.message());
-            return;
-        }
-        Integer durationSeconds = inspection.durationSeconds();
-        if (durationSeconds == null) {
-            review.setFormatCheck("FAIL");
-            review.setStatus(VideoReviewStatus.VALIDATION_FAILED.name());
-            review.setValidationMessage("视频时长不能为空");
-            return;
-        }
-        int target = paramService.getInt("video.durationTarget", DEFAULT_DURATION_TARGET);
-        int tolerance = paramService.getInt("video.durationTolerance", DEFAULT_DURATION_TOLERANCE);
-        if (Math.abs((long) durationSeconds - target) > tolerance) {
-            review.setFormatCheck("FAIL");
-            review.setStatus(VideoReviewStatus.VALIDATION_FAILED.name());
-            review.setValidationMessage("视频时长超出容差");
+            review.setValidationMessage(acceptance.message());
             return;
         }
         review.setFormatCheck("PASS");
@@ -2604,12 +2570,7 @@ public class VideoReviewServiceImpl implements VideoReviewService {
     }
 
     private long maxVideoSize() {
-        String value = paramService.getString("file.maxSize.video", String.valueOf(DEFAULT_MAX_VIDEO_SIZE));
-        try {
-            return Long.parseLong(value);
-        } catch (NumberFormatException ignored) {
-            return DEFAULT_MAX_VIDEO_SIZE;
-        }
+        return VideoMediaAcceptancePolicy.maxVideoSize(paramService);
     }
 
     private String normalizeContentType(String originalFilename, String contentType) {
