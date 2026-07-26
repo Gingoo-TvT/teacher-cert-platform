@@ -15,6 +15,15 @@
 
 ---
 
+## [2026-07-26] GOV-020 Phase 53 整改独立增量复核 — CHANGES REQUESTED（1 Medium / 2 Low）
+- 做了什么：冻结基线 `4996811`、整改代码 `b9abc6c`、提交材料 `724e07d` 与动态证据 `8a772fe`，按 incremental + security/stability/testing-authenticity/release/configuration/data-integrity/concurrency 全面复核六个变更文件、继承并冻结的真实 demo 资源、fat JAR、32 个已跟踪动态材料文件和当前机器 12 个原始启动日志；产出 `docs/reviews/phase-53-remediation-rereview-2026-07-26.md`、独立证据与 metadata。确认原 Phase 53 Major 和 WS-3 补充 High 的生产行为已关闭：真实 H.264 MP4、SHA 内容版本 key、旧 key 保留、污染失败关闭、可信探测、五类引用单事务切换、旧库升级/幂等/SQL 故障回滚/恢复与浏览器播放证据成立。
+- 关键决策与理由：正式结论仍为 **CHANGES_REQUESTED（0 Critical / 0 High / 1 Medium / 2 Low）**。唯一阻断 Medium 是动态报告五处引用的 12 个 `logs/*.log` 被 `.gitignore:7` 的 `*.log` 排除，当前机器虽可核对且 SHA-256 已记录，但 `8a772fe`/fresh clone/最终全量审计拿不到原始证据；不能把本机残留当作已提交归档。两个 Low 为聚焦单测全部 stub 真实视频探测，以及已跟踪证据保存已销毁环境的临时口令和完整已过期 localhost 预签名查询材料。最小重交只处理证据，不要求改生产代码。
+- 问题与解决：候选的 10/10 动态结果与当前本机日志、数据库/对象快照、ffprobe、首帧/拖动截图一致，未发现行为矛盾；因此不重新打开原 Major/High，而把缺陷精确归类为证据可移植性。完整日志不宜原样强制提交，整改应先脱敏，再以 `.txt` 或足量摘录 + 原始 SHA-256 归档，并增加报告引用路径必须被 Git 跟踪的检查。秘密值在报告和独立证据中统一写为 `[REDACTED_SECRET]`。
+- 与规格的偏差/疑问：Phase 7 文档要求“拿到有效预签名链接后未登录也失败”，但现有 MinIO 预签名 URL 是有效期内 bearer URL；用户证据也显示有效签名裸 GET 在过期前成功。该冲突在 `b9abc6c` 前已存在且本候选未改播放路径，不计 Phase 53 finding，已合并进 `docs/CURRENT-EXECUTION-PLAN.md` 的最终全量审计保留项。`stat(MISSING) → put` 无对象 CAS 与旧新初始化器禁止混部同样保持既有发布边界。
+- 测试：独立 `mvn -o -B -ntp -pl platform-boot -am clean test` **195/195**（`platform-file` 18/18、`platform-boot` 177/177；初始化器 21/21、共享策略 10/10）；`mvn -o -B -ntp -DskipTests package` **9/9 modules BUILD SUCCESS**；前端 type-check/build PASS；fat JAR 内 demo SQL/MP4/PDF/PNG 摘要与源码一致；`git diff --check 4996811..b9abc6c` PASS。报告 lint 与最终工作树校验见本会话收尾。
+- 安全边界：未启动常驻服务，未运行 Docker、数据库、真实 MinIO、浏览器、网络、权限变更、故障注入、扫描、凭据尝试、恶意载荷、fuzz、压力、对象/镜像/数据卷删除或任何可能属于 cyber 的动作。
+- 下一步：提交 12 个脱敏启动日志或足量摘录 + 原始 SHA-256，修正动态报告引用并加 tracked-path 检查；把两处已跟踪秘密值替换为 `[REDACTED_SECRET]`，可选同轮补真实 packaged MP4 探测测试。随后只做证据增量 + 必要离线回归；PASS 后才进入 Phase 44，再处理 Phase 0，最终执行全量审计。
+
 ## [2026-07-26] U-003 / Phase 53 用户动态门禁执行完毕 — 10/10 符合预期，证据已归档
 - 做了什么：按 `docs/reviews/phase-53-remediation-submission-2026-07-26.md` §5 在用户授权的本机会话逐项执行 10 步动态门禁。三套一次性隔离环境（schema `phase53_demo_a/b/c` + bucket `phase53-demo-a/b/c` + redis db15/14/13）：A=旧 528B 升级主路径 + 幂等 + 浏览器/鉴权；B=预存污染拒绝（同长度错内容、错 Content-Type 两变体）；C=实体 SQL 故障回滚 + 恢复链。全程使用同一候选构建产物（`mvn -o -DskipTests package`，jar SHA-256 `be0cbea3…`，工作树与 `b9abc6c` 仅差文档提交）。
 - 关键结果：①升级首启「新建 4/跳过 0/SQL 成功」，五表引用一次性切到内容版本 key（900 秒/tree 指纹/H264/策略哈希/`JCODEC_PROCESS_V4`，`video_upload_session.object_key/uploaded_bytes/duration_seconds` 同步收敛），旧固定 key 对象 ETag 不变且数据库残留引用 0，行数与升级前一致；②读回对象 SHA-256 精确匹配清单，ffprobe 独立探测 h264/900 帧/900.000 秒/首帧可解码，旧 528B 对照组无法解析 header；③二次启动「新建 0/跳过 4」，DB 快照与对象 ETag/mtime diff 均为空；④两种污染变体均启动拒绝、进程退出、污染对象字节与属性原样、demo 表 0 行；⑤SQL 故障（隔离 schema 触发器注入）时四对象已建而事务整体回滚，DB 快照与故障前 diff 为空，仅遗留无引用版本对象；清障后恢复+再重启均「跳过 4」且行数稳定；⑥鉴权矩阵 5 正例（含 ASSIGNED 跨学院）全部取得播放地址+水印+300 秒 expiry，4 越权反例 403、未认证 401、篡改签名 403、Range 206；浏览器实测首帧/时长 15:00/拖动至 450 秒续播/动态水印 overlay，300 秒预签名 URL 自然过期后 403 "Request has expired"。

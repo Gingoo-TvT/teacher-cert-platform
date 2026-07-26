@@ -5,11 +5,11 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**❌ Phase 53 复核退回；整改候选完成，用户动态门禁 10/10 已执行并归档证据，待正式独立增量复核**（当前分支 `codex/phase53-demo-reconcile`，代码候选 `b9abc6c`，建议增量 `4996811..b9abc6c`，提交材料 `docs/reviews/phase-53-remediation-submission-2026-07-26.md`，动态证据 `docs/reviews/phase-53-dynamic-evidence-2026-07-26.md`）。Phase 47 第二轮代码点 `3bddf6c` 已由 `docs/reviews/phase-47-second-remediation-rereview-2026-07-26.md` 正式判定 **PASS（0 Critical / 0 High / 0 Medium / 1 Low 非阻断）**；该 1 Low 已在 PASS 后由 `191a3ad` 闭环，原报告保留复核时快照。统一入口为 `docs/CURRENT-EXECUTION-PLAN.md`。
+- 当前阶段：**❌ Phase 53 独立增量复核退回（0 Critical / 0 High / 1 Medium / 2 Low）**（当前分支 `codex/phase53-demo-reconcile`，代码候选 `b9abc6c`，正式报告 `docs/reviews/phase-53-remediation-rereview-2026-07-26.md`）。原 Major 与补充 High 的生产行为已关闭；唯一阻断 Medium 是动态报告引用的 12 个启动日志被 `.gitignore` 排除、未进入证据提交，fresh clone 与最终全量审计无法复核。两个 Low 为 packaged MP4 的真实探测尚无自动化门禁，以及已跟踪证据含已失效但未脱敏的临时口令/完整预签名查询材料。统一入口为 `docs/CURRENT-EXECUTION-PLAN.md`。
 - 当前结论：WS-1/WS-2/WS-3/WS-10/WS-13 PASS；U-001 CI 零状态契约 PASS。Phase 42、Phase 39、Phase 41 与 Phase 47 第二轮均已独立 PASS；全项目当前仍由 **Phase 0、44、53** 三个退回阶段保持 **CHANGES_REQUESTED**。
 - P0 放行项：Phase 41 上一轮 1 High / 2 Medium / 1 Low 全部关闭；正式 PASS 时新增的 1 个非阻断 Low 已在后续闭环——Gate A 示例补齐冷认证参数，runner 在 Maven 前强制受验证 TLS / `allowPublicKeyRetrieval=true` / 受控 RSA 公钥文件三选一，并由纯 stub 静态契约覆盖失败关闭。正式报告仍保留当时的 1 Low 快照。约 24 MiB 以上原始整行 fail-closed、写入侧未同界继续留最终全量审计。
-- 最近更新：2026-07-26（Phase 53 用户动态门禁 10/10 执行完毕：旧 528B 隔离环境升级切换、读回 SHA-256/ffprobe 独立探测、二启幂等零漂移、两种预存污染拒绝且不覆盖不执行 SQL、实体 SQL 故障整体回滚旧对象不变、恢复链稳定、鉴权矩阵 5 正例/4 越权 403/未认证 401/篡改 403/Range 206、浏览器首帧+15:00+拖动+动态水印、预签名 URL 自然过期 403。证据 `docs/reviews/phase-53-dynamic-evidence-2026-07-26.md`；隔离资源已逐项确认清理。正式独立报告尚未产生）。
-- 下一步：发起 Phase 53 正式独立增量复核（冻结 `4996811..b9abc6c` 与动态证据记录）。新报告 PASS 后依次 Phase 44 → Phase 0，全部退回项关闭后执行最终全量审计。
+- 最近更新：2026-07-26（Phase 53 正式独立增量复核完成。冻结 `4996811..b9abc6c`、材料 `724e07d`、动态证据 `8a772fe`；独立全量离线测试 195/195、聚焦 31/31、后端 9 模块 package、前端 type-check/build、fat JAR 资源与 diff check 均 PASS。当前机器 12 个原始日志与动态报告一致，但整目录因 `*.log` 未提交，故正式结论仍为 CHANGES_REQUESTED）。
+- 下一步：仅做 Phase 53 证据归档/脱敏整改：提交 12 个脱敏日志或足量摘录 + 原始 SHA-256，修正引用并加 tracked-path 检查，同时脱敏两处已跟踪凭据材料；再做证据增量复核。PASS 后依次 Phase 44 → Phase 0，全部退回项关闭后执行最终全量审计。
 
 ## 审计整改工作流
 | WS | 内容 | 状态 |
@@ -37,7 +37,7 @@
 | Phase 41 | 第二轮整改 `b5ed7f5`；材料/HEAD `ef6b550` | `phase-41-second-remediation-dynamic-evidence-rereview-2026-07-25.md` PASS；真实 MySQL 8.4 恢复与账号/授权两项门禁闭合 | ✅ 独立复核 PASS；上一轮 1 High / 2 Medium / 1 Low 全部关闭；正式 PASS 时的 1 Low 已后续闭环 |
 | Phase 47 | 原实现已合并；第二轮整改 `3bddf6c`、PASS 后 Low 闭环 `191a3ad` 未合并 | `phase-47-second-remediation-rereview-2026-07-26.md` PASS | ✅ 独立复核 PASS；第一轮 1 Medium / 1 Low 全部关闭；正式 PASS 时新增的 1 Low 已后续闭环 |
 | Phase 44 | 已合并 | `phase-44-review.md` CHANGES REQUESTED | ❌ 复核退回 |
-| Phase 53 | 原实现已合并；整改候选 `b9abc6c` 未合并 | `phase-53-review.md` CHANGES REQUESTED；候选材料 `phase-53-remediation-submission-2026-07-26.md`；动态证据 `phase-53-dynamic-evidence-2026-07-26.md` | ❌ 复核退回；整改候选完成 + 用户动态门禁 10/10 已归档，待正式独立增量复核 |
+| Phase 53 | 原实现已合并；整改候选 `b9abc6c` 未合并 | `phase-53-remediation-rereview-2026-07-26.md` CHANGES REQUESTED（1 Medium / 2 Low） | ❌ 独立增量复核退回；原 Major/补充 High 行为已关闭，待证据日志可移植归档与脱敏后重交 |
 
 逐 Phase 结论、报告路径与后续顺序以 `docs/CURRENT-EXECUTION-PLAN.md` 为准。
 

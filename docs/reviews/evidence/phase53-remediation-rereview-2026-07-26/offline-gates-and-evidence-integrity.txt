@@ -1,0 +1,187 @@
+Phase 53 remediation independent rereview evidence
+Date: 2026-07-26
+Reviewer: OpenAI Codex
+Baseline: 4996811a028016280d63437c6336af3678cd5128
+Code commit: b9abc6c2614e98cd52e271bb5882383e03b25c09
+Submission commit: 724e07d3cb58876fd475291c5e9714321e8c9c87
+Evidence commit / review-start HEAD: 8a772fe2fb25bbb63c317bdec8ebf06eb2d19408
+
+Safety boundary
+- No service, Docker, database, MinIO, browser, network request, permission
+  change, fault injection, scanner, malicious payload, fuzz, stress,
+  container-image or data-volume mutation was executed.
+- User-provided dynamic evidence was inspected read-only.
+- No credential value is reproduced in this file.
+
+Incremental provenance
+- git diff --shortstat 4996811..b9abc6c
+  PASS: 6 files changed, 1356 insertions(+), 121 deletions(-)
+- git diff --quiet b9abc6c HEAD -- scoped production/test paths
+  PASS: code blobs after freeze are unchanged
+- git diff --check 4996811..b9abc6c
+  PASS
+- git diff --check
+  PASS at the point the independent checks were executed
+
+Selected Git blobs
+- DemoDataInitializer.java:
+  91ae74db379b6ca4e3113c86ec80c1d6c3a0d355
+- demo-data.sql:
+  8a129332c1cf49ad4b4d7b10ffbafe83ba89d46f
+- VideoMediaAcceptancePolicy.java:
+  83f78eb77566ff7013e7817f603fd81818d5c296
+- sample-video.mp4:
+  31205d6cc42d9c850713e806b744446326cc807a
+
+Independent offline tests
+- Command:
+  mvn -o -B -ntp -pl platform-boot -am clean test
+- Result:
+  BUILD SUCCESS; 195 tests, 0 failures, 0 errors, 0 skipped
+- Module counts:
+  platform-file 18/18
+  platform-boot 177/177
+- Focused counts:
+  DemoDataInitializerTest 21/21
+  VideoMediaAcceptancePolicyTest 10/10
+- Focused XML SHA-256:
+  DemoDataInitializerTest:
+  7E9E7B29F6FECDABF44C02282BC75EDFE010D2463E145DED25D3590DC837EB1F
+  VideoMediaAcceptancePolicyTest:
+  F28B94B7C6846C15917FB0CD9BA2C7541D1FFE16E691DBC148A9A3C11336D38B
+
+Independent builds
+- Command:
+  mvn -o -B -ntp -DskipTests package
+- Result:
+  BUILD SUCCESS; 9/9 reactor modules
+- Command:
+  npm --prefix frontend run type-check
+- Result:
+  PASS
+- Command:
+  npm --prefix frontend run build
+- Result:
+  PASS; Vite 5.4.21, 4969 modules transformed
+- Existing warning:
+  echarts and naive chunks exceed the configured warning threshold; this is
+  pre-existing and not a Phase 53 incremental blocker.
+
+Report validation
+- Command:
+  python report_lint.py --modes
+  security,stability,testing-authenticity,release,configuration,data-integrity
+  docs/reviews/phase-53-remediation-rereview-2026-07-26.md
+- Result:
+  PASS
+- Note:
+  The linter version has no concurrency mode mapping; the report's Concurrency
+  Analysis section was checked directly.
+- Metadata JSON parse:
+  PASS
+- Final git diff --check:
+  PASS
+
+Fat JAR read-only content verification
+- BOOT-INF/classes/db/demo/demo-data.sql
+  bytes=33362
+  sha256=1A24AEB7D2C69B5BEC859FACAF988E015209E8803E9A8AAF3B7E45EFDD0BBC25
+- BOOT-INF/classes/db/demo/sample-video.mp4
+  bytes=1605702
+  sha256=0A15C2E382438F3FBBD1E9B5302514AD35DA07B33B44F7EB61FBB5C8B31D611D
+- BOOT-INF/classes/db/demo/sample-material.pdf
+  bytes=659
+  sha256=53AECE50AEFAF8236338F0DDADA8469E54D1422D26DA0A975A2F81C873BA9268
+- BOOT-INF/classes/db/demo/sample-image.png
+  bytes=99
+  sha256=C589A04293EA064C50A46E8FEC832E6920B28EA3CF3718AED18B929F9FB631EE
+- DemoDataInitializer.class present: yes
+- nested platform-business jar present: yes
+
+User dynamic evidence cross-check
+- Tracked DB/object snapshots, API matrices, expiry record, extracted first
+  frame, two browser screenshots and cleanup record were inspected.
+- The first-frame screenshot shows a real generated frame and visible dynamic
+  watermark.
+- The seek screenshot shows playback near the middle of the 15:00 asset and a
+  visible dynamic watermark.
+- Tracked before/after data supports old-key reference convergence, idempotent
+  rerun, polluted-object preservation, SQL-fault rollback and final recovery.
+- Current local raw logs were inspected read-only. Their success/failure
+  categories and timing agree with the dynamic report; no behavioral
+  contradiction was found.
+
+Raw log integrity inventory
+- envA-run0-migrate-demo-off.log
+  bytes=104688
+  sha256=188B072948FE94D8AB9B578A84096C919B482E21E4A13217461B8AA18F0316C2
+- envA-run1-demo-on.log
+  bytes=8062
+  sha256=375B49FE307A891871C639E4D3609F28140B2D315CF0A0CF32F477A7CFDF9A4A
+- envA-run2-demo-on-idempotent.log
+  bytes=8050
+  sha256=96613F98657868E3C9A2BC077E7E105B557CC5FA25B4F83FF3D1FEB0D6C5D098
+- envA-run3-demo-on-for-authz.log
+  bytes=8775
+  sha256=9BFC20CBF59175ED22E7529B5DDD1B17BB6CF3A31478378EA9448E1F46C48EEA
+- envB-run0-migrate-demo-off.log
+  bytes=104688
+  sha256=21FC7B9860FA64E915A510BA74B4160E070D5DD627D1D032493791C80E9F2C31
+- envB-run1-demo-on-polluted-content.log
+  bytes=10212
+  sha256=2D97416C8CED31E5D081C9DCB54599BBF6E2A3CDD1B04606D4E17A7AE56193E9
+- envB-run2-demo-on-wrong-contenttype.log
+  bytes=10867
+  sha256=8CDF662A3544D995144005EA624FFB744676A98E3F900318FB26792E4F667C9C
+- envC-run0-migrate-demo-off.log
+  bytes=104688
+  sha256=FA73EDC78EB49960EE89F3AAE66B7A2091C956D27CF3E48F598FCEC7AE4892F9
+- envC-run1-demo-on-sql-fault.log
+  bytes=11881
+  sha256=0544EAA18D15BCF1D9866C785628743CAF4EC54A290CDADEA99AA0F99AA653A4
+- envC-run2-demo-on-fault-cleared.log
+  bytes=8050
+  sha256=F0764D9C22EE6940164FFF140F8A0FED7614399B0D86C951A250BB2B98F12C00
+- envC-run3-demo-on-restart.log
+  bytes=8050
+  sha256=220C4DB3C8579983E6A6AB3E9075C5C9F984B29FB67FC98635D624E860964D4B
+- frontend-dev.log
+  bytes=299
+  sha256=A89EE74D9863A939377F16B58FB922583E661D9F3A8E64C56B9C3107B4564102
+
+Evidence portability result
+- .gitignore line 7 ignores *.log.
+- git status --ignored reports the whole dynamic evidence logs directory as
+  ignored.
+- git ls-tree -r 8a772fe for the Phase 53 evidence path contains zero /logs/
+  entries.
+- The dynamic evidence report nevertheless cites those log paths for startup,
+  pollution fail-closed, SQL fault and recovery claims.
+- Verdict: confirmed Medium evidence-portability defect. The hash inventory
+  above establishes what was inspected in this workspace but does not replace
+  committing sanitized, portable evidence.
+
+Evidence hygiene result
+- One tracked browser summary contains a temporary plaintext credential from a
+  destroyed isolated schema.
+- One tracked expiry record contains a complete expired localhost presigned
+  query, including credential identifier and signature.
+- The corresponding schema and bucket were destroyed and the URL expired, so
+  no currently usable access was identified.
+- Verdict: confirmed Low evidence-hygiene defect. Replace values with
+  [REDACTED_SECRET]; rotate only if any value was reused elsewhere.
+
+Testing authenticity result
+- DemoDataInitializerTest stubs VideoMediaProbe.inspect and returns a prepared
+  valid inspection.
+- VideoMediaAcceptancePolicyTest uses a probe whose inspect method is not
+  executed.
+- The current asset is independently supported by user ffprobe/screenshots,
+  but the packaged resource has no automatic real-probe regression gate.
+- Verdict: confirmed Low testing-authenticity gap.
+
+Final independent verdict
+- Production/code closure: PASS for the original Phase 53 Major and the
+  supplemental WS-3 High.
+- Formal Phase gate: CHANGES REQUESTED
+- Findings: 0 Critical / 0 High / 1 Medium / 2 Low
