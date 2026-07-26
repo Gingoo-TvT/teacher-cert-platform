@@ -1,4 +1,6 @@
+# 2026-07-26 证据脱敏（与 18b 同口径）：X-Amz-Credential/X-Amz-Signature 值替换为 [REDACTED_SECRET]；
+# 脱敏前文件 SHA-256=70cfef377fa03ea568f16b217888b30f790809b4e893f0a747100ce342dd0f32。
 # 浏览器播放期间对 MinIO 的网络请求（Playwright network log 摘录）
-86. [GET] http://localhost:9000/phase53-demo-a/teaching-video/demo/0a15c2e382438f3fbbd1e9b5302514ad35da07b33b44f7eb61fbb5c8b31d611d.mp4?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Date=20260726T035702Z&X-Amz-SignedHeaders=host&X-Amz-Credential=minioadmin%2F20260726%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Expires=300&X-Amz-Signature=e7ae66dc… => [206] Partial Content
+86. [GET] http://localhost:9000/phase53-demo-a/teaching-video/demo/0a15c2e382438f3fbbd1e9b5302514ad35da07b33b44f7eb61fbb5c8b31d611d.mp4?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Date=20260726T035702Z&X-Amz-SignedHeaders=host&X-Amz-Credential=[REDACTED_SECRET]&X-Amz-Expires=300&X-Amz-Signature=[REDACTED_SECRET] => [206] Partial Content
 87. 同 URL => [206] Partial Content
 89. 同 URL（seek 至 450s 后） => [206] Partial Content

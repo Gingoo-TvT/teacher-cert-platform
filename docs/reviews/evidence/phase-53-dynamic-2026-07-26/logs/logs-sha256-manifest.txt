@@ -1,0 +1,38 @@
+# Phase 53 动态门禁 12 个启动日志归档清单（2026-07-26 证据整改）
+#
+# 背景：.gitignore 第 7 行的全局 *.log 规则导致本目录 12 个原始日志未进入证据提交 8a772fe
+#（正式复核报告 phase-53-remediation-rereview-2026-07-26.md 唯一 Medium）。
+# 整改：每个 X.log 以逐字节相同的 X.log.txt 归档提交（*.log.txt 不命中忽略规则）。
+# 脱敏：对 12 个日志执行敏感模式扫描（password/passwd/secret/minioadmin/root123/
+# X-Amz-Signature/Authorization/Bearer/eyJhb/ChangeMe/Phase53!Verify）零命中，
+# 无需内容修改；归档 SHA-256 = 原始 SHA-256。
+# 同源性：以下原始哈希与独立复核证据 docs/reviews/evidence/phase53-remediation-rereview-2026-07-26/
+# offline-gates-and-evidence-integrity.txt 的 'Raw log integrity inventory' 12 项逐一相同。
+
+## 原始 .log（bytes / sha256）
+envA-run0-migrate-demo-off.log bytes=104688 sha256=188b072948fe94d8ab9b578a84096c919b482e21e4a13217461b8aa18f0316c2
+envA-run1-demo-on.log bytes=8062 sha256=375b49fe307a891871c639e4d3609f28140b2d315cf0a0cf32f477a7cfdf9a4a
+envA-run2-demo-on-idempotent.log bytes=8050 sha256=96613f98657868e3c9a2bc077e7e105b557cc5fa25b4f83ff3d1feb0d6c5d098
+envA-run3-demo-on-for-authz.log bytes=8775 sha256=9bfc20cbf59175ed22e7529b5ddd1b17bb6cf3a31478378ea9448e1f46c48eea
+envB-run0-migrate-demo-off.log bytes=104688 sha256=21fc7b9860fa64e915a510ba74b4160e070d5dd627d1d032493791c80e9f2c31
+envB-run1-demo-on-polluted-content.log bytes=10212 sha256=2d97416c8ced31e5d081c9dcb54599bbf6e2a3cdd1b04606d4e17a7ae56193e9
+envB-run2-demo-on-wrong-contenttype.log bytes=10867 sha256=8cdf662a3544d995144005ea624ffb744676a98e3f900318fb26792e4f667c9c
+envC-run0-migrate-demo-off.log bytes=104688 sha256=fa73edc78eb49960ee89f3aae66b7a2091c956d27cf3e48f598fcec7ae4892f9
+envC-run1-demo-on-sql-fault.log bytes=11881 sha256=0544eaa18d15bcf1d9866c785628743caf4ec54a290cdadea99aa0f99aa653a4
+envC-run2-demo-on-fault-cleared.log bytes=8050 sha256=f0764d9c22ee6940164fff140f8a0fed7614399b0d86c951a250bb2b98f12c00
+envC-run3-demo-on-restart.log bytes=8050 sha256=220c4db3c8579983e6a6ab3e9075c5c9f984b29fb67fc98635d624e860964d4b
+frontend-dev.log bytes=299 sha256=a89ee74d9863a939377f16b58fb922583e661d9f3a8e64c56b9c3107b4564102
+
+## 归档 .log.txt（bytes / sha256，应与上表一致）
+envA-run0-migrate-demo-off.log.txt bytes=104688 sha256=188b072948fe94d8ab9b578a84096c919b482e21e4a13217461b8aa18f0316c2
+envA-run1-demo-on.log.txt bytes=8062 sha256=375b49fe307a891871c639e4d3609f28140b2d315cf0a0cf32f477a7cfdf9a4a
+envA-run2-demo-on-idempotent.log.txt bytes=8050 sha256=96613f98657868e3c9a2bc077e7e105b557cc5fa25b4f83ff3d1feb0d6c5d098
+envA-run3-demo-on-for-authz.log.txt bytes=8775 sha256=9bfc20cbf59175ed22e7529b5ddd1b17bb6cf3a31478378ea9448e1f46c48eea
+envB-run0-migrate-demo-off.log.txt bytes=104688 sha256=21fc7b9860fa64e915a510ba74b4160e070d5dd627d1d032493791c80e9f2c31
+envB-run1-demo-on-polluted-content.log.txt bytes=10212 sha256=2d97416c8ced31e5d081c9dcb54599bbf6e2a3cdd1b04606d4e17a7ae56193e9
+envB-run2-demo-on-wrong-contenttype.log.txt bytes=10867 sha256=8cdf662a3544d995144005ea624ffb744676a98e3f900318fb26792e4f667c9c
+envC-run0-migrate-demo-off.log.txt bytes=104688 sha256=fa73edc78eb49960ee89f3aae66b7a2091c956d27cf3e48f598fcec7ae4892f9
+envC-run1-demo-on-sql-fault.log.txt bytes=11881 sha256=0544eaa18d15bcf1d9866c785628743caf4ec54a290cdadea99aa0f99aa653a4
+envC-run2-demo-on-fault-cleared.log.txt bytes=8050 sha256=f0764d9c22ee6940164fff140f8a0fed7614399b0d86c951a250bb2b98f12c00
+envC-run3-demo-on-restart.log.txt bytes=8050 sha256=220c4db3c8579983e6a6ab3e9075c5c9f984b29fb67fc98635d624e860964d4b
+frontend-dev.log.txt bytes=299 sha256=a89ee74d9863a939377f16b58fb922583e661d9f3a8e64c56b9c3107b4564102

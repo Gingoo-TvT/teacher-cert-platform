@@ -1,0 +1,50 @@
+Standard Commons Logging discovery in action with spring-jcl: please remove commons-logging.jar from classpath in order to avoid potential conflicts
+
+  .   ____          _            __ _ _
+ /\\ / ___'_ __ _ _(_)_ __  __ _ \ \ \ \
+( ( )\___ | '_ | '_| | '_ \/ _` | \ \ \ \
+ \\/  ___)| |_)| | | | | || (_| |  ) ) ) )
+  '  |____| .__|_| |_|_| |_\__, | / / / /
+ =========|_|==============|___/=/_/_/_/
+
+ :: Spring Boot ::               (v3.4.13)
+
+2026-07-26T11:51:53.010+08:00  INFO 71164 --- [teacher-cert-platform] [           main] c.edu.gpnu.platform.PlatformApplication  : Starting PlatformApplication v1.0.0-SNAPSHOT using Java 17.0.19 with PID 71164 (C:\Users\wenbibuhaoqwq\Desktop\teacher-cert-platform\platform-boot\target\teacher-cert-platform.jar started by wenbibuhaoqwq in C:\Users\wenbibuhaoqwq\Desktop\teacher-cert-platform)
+2026-07-26T11:51:53.015+08:00  INFO 71164 --- [teacher-cert-platform] [           main] c.edu.gpnu.platform.PlatformApplication  : The following 2 profiles are active: "dev", "demo"
+2026-07-26T11:51:54.508+08:00  INFO 71164 --- [teacher-cert-platform] [           main] .s.d.r.c.RepositoryConfigurationDelegate : Multiple Spring Data modules found, entering strict repository configuration mode
+2026-07-26T11:51:54.511+08:00  INFO 71164 --- [teacher-cert-platform] [           main] .s.d.r.c.RepositoryConfigurationDelegate : Bootstrapping Spring Data Redis repositories in DEFAULT mode.
+2026-07-26T11:51:54.546+08:00  INFO 71164 --- [teacher-cert-platform] [           main] .s.d.r.c.RepositoryConfigurationDelegate : Finished Spring Data repository scanning in 19 ms. Found 0 Redis repository interfaces.
+2026-07-26T11:51:56.081+08:00  INFO 71164 --- [teacher-cert-platform] [           main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat initialized with port 8080 (http)
+2026-07-26T11:51:56.124+08:00  INFO 71164 --- [teacher-cert-platform] [           main] o.apache.catalina.core.StandardService   : Starting service [Tomcat]
+2026-07-26T11:51:56.125+08:00  INFO 71164 --- [teacher-cert-platform] [           main] o.apache.catalina.core.StandardEngine    : Starting Servlet engine: [Apache Tomcat/10.1.50]
+2026-07-26T11:51:56.246+08:00  INFO 71164 --- [teacher-cert-platform] [           main] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring embedded WebApplicationContext
+2026-07-26T11:51:56.248+08:00  INFO 71164 --- [teacher-cert-platform] [           main] w.s.c.ServletWebServerApplicationContext : Root WebApplicationContext: initialization completed in 3187 ms
+Standard Commons Logging discovery in action with spring-jcl: please remove commons-logging.jar from classpath in order to avoid potential conflicts
+2026-07-26T11:51:56.990+08:00  INFO 71164 --- [teacher-cert-platform] [           main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Starting...
+2026-07-26T11:51:57.226+08:00  INFO 71164 --- [teacher-cert-platform] [           main] com.zaxxer.hikari.pool.HikariPool        : HikariPool-1 - Added connection com.mysql.cj.jdbc.ConnectionImpl@72d16d6
+2026-07-26T11:51:57.227+08:00  INFO 71164 --- [teacher-cert-platform] [           main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Start completed.
+2026-07-26T11:51:57.302+08:00  INFO 71164 --- [teacher-cert-platform] [           main] org.flywaydb.core.FlywayExecutor         : Database: jdbc:mysql://localhost:3306/phase53_demo_a?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false (MySQL 8.0)
+2026-07-26T11:51:57.481+08:00  INFO 71164 --- [teacher-cert-platform] [           main] o.f.core.internal.command.DbValidate     : Successfully validated 33 migrations (execution time 00:00.114s)
+2026-07-26T11:51:57.503+08:00  INFO 71164 --- [teacher-cert-platform] [           main] o.f.core.internal.command.DbMigrate      : Current version of schema `phase53_demo_a`: 32
+2026-07-26T11:51:57.507+08:00  INFO 71164 --- [teacher-cert-platform] [           main] o.f.core.internal.command.DbMigrate      : Schema `phase53_demo_a` is up to date. No migration necessary.
+2026-07-26T11:52:00.758+08:00  INFO 71164 --- [teacher-cert-platform] [           main] c.e.g.p.f.config.MinioBucketInitializer  : MinIO bucket 已存在: phase53-demo-a
+2026-07-26T11:52:00.923+08:00  INFO 71164 --- [teacher-cert-platform] [           main] r$InitializeUserDetailsManagerConfigurer : Global AuthenticationManager configured with UserDetailsService bean with name userDetailsService
+2026-07-26T11:52:01.430+08:00  INFO 71164 --- [teacher-cert-platform] [           main] m.e.s.MybatisPlusApplicationContextAware : Register ApplicationContext instances org.springframework.boot.web.servlet.context.AnnotationConfigServletWebServerApplicationContext@20a14b55
+2026-07-26T11:52:01.690+08:00  INFO 71164 --- [teacher-cert-platform] [           main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat started on port 8080 (http) with context path '/'
+2026-07-26T11:52:01.706+08:00  INFO 71164 --- [teacher-cert-platform] [           main] c.edu.gpnu.platform.PlatformApplication  : Started PlatformApplication in 9.215 seconds (process running for 9.94)
+2026-07-26T11:52:01.715+08:00  INFO 71164 --- [teacher-cert-platform] [           main] c.e.g.p.boot.config.DemoDataInitializer  : [demo] platform.demo.enabled=true —— 开始装载各角色 demo/mock 数据（TEST/DEV 专用）
+2026-07-26T11:52:01.799+08:00  INFO 71164 --- [teacher-cert-platform] [           main] c.e.g.p.boot.config.DemoDataInitializer  : [demo] MinIO 内容版本对象一致，跳过：phase53-demo-a/teaching-video/demo/0a15c2e382438f3fbbd1e9b5302514ad35da07b33b44f7eb61fbb5c8b31d611d.mp4
+2026-07-26T11:52:01.807+08:00  INFO 71164 --- [teacher-cert-platform] [           main] c.e.g.p.boot.config.DemoDataInitializer  : [demo] MinIO 内容版本对象一致，跳过：phase53-demo-a/process-material/demo/53aece50aefaf8236338f0ddada8469e54d1422d26da0a975a2f81c873ba9268.pdf
+2026-07-26T11:52:01.815+08:00  INFO 71164 --- [teacher-cert-platform] [           main] c.e.g.p.boot.config.DemoDataInitializer  : [demo] MinIO 内容版本对象一致，跳过：phase53-demo-a/process-material/demo/c589a04293ea064c50a46e8fec832e6920b28ea3cf3718aed18b929f9fb631ee.png
+2026-07-26T11:52:01.822+08:00  INFO 71164 --- [teacher-cert-platform] [           main] c.e.g.p.boot.config.DemoDataInitializer  : [demo] MinIO 内容版本对象一致，跳过：phase53-demo-a/exemption-material/demo/53aece50aefaf8236338f0ddada8469e54d1422d26da0a975a2f81c873ba9268.pdf
+2026-07-26T11:52:02.244+08:00  INFO 71164 --- [teacher-cert-platform] [nio-8080-exec-1] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring DispatcherServlet 'dispatcherServlet'
+2026-07-26T11:52:02.244+08:00  INFO 71164 --- [teacher-cert-platform] [nio-8080-exec-1] o.s.web.servlet.DispatcherServlet        : Initializing Servlet 'dispatcherServlet'
+2026-07-26T11:52:02.245+08:00  INFO 71164 --- [teacher-cert-platform] [nio-8080-exec-1] o.s.web.servlet.DispatcherServlet        : Completed initialization in 1 ms
+2026-07-26T11:52:03.097+08:00  INFO 71164 --- [teacher-cert-platform] [           main] c.e.g.p.boot.config.DemoDataInitializer  : [demo] 已执行演示实体脚本 db/demo/demo-data.sql
+2026-07-26T11:52:03.097+08:00  INFO 71164 --- [teacher-cert-platform] [           main] c.e.g.p.boot.config.DemoDataInitializer  : [demo] 演示数据装载完成：内容版本对象新建 0、一致跳过 4，实体 SQL 执行=成功
+2026-07-26T11:52:03.099+08:00  WARN 71164 --- [teacher-cert-platform] [           main] o.s.core.events.SpringDocAppInitializer  : SpringDoc /v3/api-docs endpoint is enabled by default. To disable it in production, set the property 'springdoc.api-docs.enabled=false'
+2026-07-26T11:52:03.099+08:00  WARN 71164 --- [teacher-cert-platform] [           main] o.s.core.events.SpringDocAppInitializer  : SpringDoc /swagger-ui.html endpoint is enabled by default. To disable it in production, set the property 'springdoc.swagger-ui.enabled=false'
+2026-07-26T11:53:06.371+08:00  WARN 71164 --- [teacher-cert-platform] [nio-8080-exec-9] c.e.g.p.b.h.GlobalExceptionHandler       : 业务异常: code=403, msg=无权访问该视频
+2026-07-26T11:53:07.051+08:00  WARN 71164 --- [teacher-cert-platform] [nio-8080-exec-2] c.e.g.p.b.h.GlobalExceptionHandler       : 业务异常: code=403, msg=无权访问该视频
+2026-07-26T11:53:07.728+08:00  WARN 71164 --- [teacher-cert-platform] [nio-8080-exec-4] c.e.g.p.b.h.GlobalExceptionHandler       : 业务异常: code=403, msg=无权访问该视频
+2026-07-26T11:53:08.359+08:00  WARN 71164 --- [teacher-cert-platform] [nio-8080-exec-6] c.e.g.p.b.h.GlobalExceptionHandler       : 业务异常: code=403, msg=无权访问该视频

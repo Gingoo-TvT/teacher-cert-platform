@@ -1,0 +1,78 @@
+# Phase 53 证据 tracked-path 一次性检查（2026-07-26 证据整改）
+# 对 git 索引执行，随本提交生效。检查时间: 2026-07-26 13:08:16 +0800
+
+## A. 动态报告显式引用的日志路径 → git ls-files --error-unmatch
+TRACKED  docs/reviews/evidence/phase-53-dynamic-2026-07-26/logs/envA-run1-demo-on.log.txt
+TRACKED  docs/reviews/evidence/phase-53-dynamic-2026-07-26/logs/envA-run2-demo-on-idempotent.log.txt
+TRACKED  docs/reviews/evidence/phase-53-dynamic-2026-07-26/logs/envB-run1-demo-on-polluted-content.log.txt
+TRACKED  docs/reviews/evidence/phase-53-dynamic-2026-07-26/logs/envC-run1-demo-on-sql-fault.log.txt
+TRACKED  docs/reviews/evidence/phase-53-dynamic-2026-07-26/logs/envC-run2-demo-on-fault-cleared.log.txt
+TRACKED  docs/reviews/evidence/phase-53-dynamic-2026-07-26/logs/envC-run3-demo-on-restart.log.txt
+
+## B. 证据目录全部非 .log 文件的跟踪状态（原始 .log 按 .gitignore 有意留存本机）
+TRACKED  docs/reviews/evidence/phase-53-dynamic-2026-07-26/00-env-meta.txt
+TRACKED  docs/reviews/evidence/phase-53-dynamic-2026-07-26/01-candidate-jar-sha256.txt
+TRACKED  docs/reviews/evidence/phase-53-dynamic-2026-07-26/02-envA-old-objects-uploaded.txt
+TRACKED  docs/reviews/evidence/phase-53-dynamic-2026-07-26/03-envA-db-before.txt
+TRACKED  docs/reviews/evidence/phase-53-dynamic-2026-07-26/04-envA-objects-after-run1.txt
+TRACKED  docs/reviews/evidence/phase-53-dynamic-2026-07-26/05-envA-db-after-run1.txt
+TRACKED  docs/reviews/evidence/phase-53-dynamic-2026-07-26/06-envA-media-probe.txt
+TRACKED  docs/reviews/evidence/phase-53-dynamic-2026-07-26/06b-ffmpeg-extracted-first-frame.png
+TRACKED  docs/reviews/evidence/phase-53-dynamic-2026-07-26/07-envA-db-after-run2.txt
+TRACKED  docs/reviews/evidence/phase-53-dynamic-2026-07-26/08-envA-objects-after-run2.txt
+TRACKED  docs/reviews/evidence/phase-53-dynamic-2026-07-26/09-envA-run1-vs-run2-diff.txt
+TRACKED  docs/reviews/evidence/phase-53-dynamic-2026-07-26/10-envB-pollution-before-run1.txt
+TRACKED  docs/reviews/evidence/phase-53-dynamic-2026-07-26/11-envB-after-run1-objects.txt
+TRACKED  docs/reviews/evidence/phase-53-dynamic-2026-07-26/12-envB-pollution2-before-run2.txt
+TRACKED  docs/reviews/evidence/phase-53-dynamic-2026-07-26/13-envB-after-run2-objects.txt
+TRACKED  docs/reviews/evidence/phase-53-dynamic-2026-07-26/14-envC-db-before-fault.txt
+TRACKED  docs/reviews/evidence/phase-53-dynamic-2026-07-26/15-envC-db-after-fault.txt
+TRACKED  docs/reviews/evidence/phase-53-dynamic-2026-07-26/16-envC-rollback-diff.txt
+TRACKED  docs/reviews/evidence/phase-53-dynamic-2026-07-26/17-envC-db-final.txt
+TRACKED  docs/reviews/evidence/phase-53-dynamic-2026-07-26/18-envA-authz-api-matrix.txt
+TRACKED  docs/reviews/evidence/phase-53-dynamic-2026-07-26/18b-presigned-url-expiry-record.txt
+TRACKED  docs/reviews/evidence/phase-53-dynamic-2026-07-26/19-browser-playing-with-watermark.png
+TRACKED  docs/reviews/evidence/phase-53-dynamic-2026-07-26/20-browser-after-seek-450s.png
+TRACKED  docs/reviews/evidence/phase-53-dynamic-2026-07-26/21-browser-verification-summary.txt
+TRACKED  docs/reviews/evidence/phase-53-dynamic-2026-07-26/22-browser-network-206.txt
+TRACKED  docs/reviews/evidence/phase-53-dynamic-2026-07-26/23-cleanup-confirmation.txt
+TRACKED  docs/reviews/evidence/phase-53-dynamic-2026-07-26/24-tracked-path-check.txt
+TRACKED  docs/reviews/evidence/phase-53-dynamic-2026-07-26/logs/envA-run0-migrate-demo-off.log.txt
+TRACKED  docs/reviews/evidence/phase-53-dynamic-2026-07-26/logs/envA-run1-demo-on.log.txt
+TRACKED  docs/reviews/evidence/phase-53-dynamic-2026-07-26/logs/envA-run2-demo-on-idempotent.log.txt
+TRACKED  docs/reviews/evidence/phase-53-dynamic-2026-07-26/logs/envA-run3-demo-on-for-authz.log.txt
+TRACKED  docs/reviews/evidence/phase-53-dynamic-2026-07-26/logs/envB-run0-migrate-demo-off.log.txt
+TRACKED  docs/reviews/evidence/phase-53-dynamic-2026-07-26/logs/envB-run1-demo-on-polluted-content.log.txt
+TRACKED  docs/reviews/evidence/phase-53-dynamic-2026-07-26/logs/envB-run2-demo-on-wrong-contenttype.log.txt
+TRACKED  docs/reviews/evidence/phase-53-dynamic-2026-07-26/logs/envC-run0-migrate-demo-off.log.txt
+TRACKED  docs/reviews/evidence/phase-53-dynamic-2026-07-26/logs/envC-run1-demo-on-sql-fault.log.txt
+TRACKED  docs/reviews/evidence/phase-53-dynamic-2026-07-26/logs/envC-run2-demo-on-fault-cleared.log.txt
+TRACKED  docs/reviews/evidence/phase-53-dynamic-2026-07-26/logs/envC-run3-demo-on-restart.log.txt
+TRACKED  docs/reviews/evidence/phase-53-dynamic-2026-07-26/logs/frontend-dev.log.txt
+TRACKED  docs/reviews/evidence/phase-53-dynamic-2026-07-26/logs/logs-sha256-manifest.txt
+TRACKED  docs/reviews/evidence/phase-53-dynamic-2026-07-26/old-baseline/demo-data-old-4996811.sql
+TRACKED  docs/reviews/evidence/phase-53-dynamic-2026-07-26/old-baseline/demo-data-old-envA.sql
+TRACKED  docs/reviews/evidence/phase-53-dynamic-2026-07-26/old-baseline/old-baseline-hashes.txt
+TRACKED  docs/reviews/evidence/phase-53-dynamic-2026-07-26/old-baseline/old-sample-image.png
+TRACKED  docs/reviews/evidence/phase-53-dynamic-2026-07-26/old-baseline/old-sample-material.pdf
+TRACKED  docs/reviews/evidence/phase-53-dynamic-2026-07-26/old-baseline/old-sample-video-528B.mp4
+
+## C. 脱敏后 secret lint 复扫（暂存内容；期望零命中）
+(零命中)
+
+## D. 归档字节同源核验：暂存 blob SHA-256 == 原始 .log SHA-256（== 独立复核 Raw log integrity inventory）
+#（.gitattributes 已为 logs/*.log.txt 设 -text -diff，与 phase41 证据日志同口径）
+MATCH    envA-run0-migrate-demo-off.log.txt sha256=188b072948fe94d8ab9b578a84096c919b482e21e4a13217461b8aa18f0316c2
+MATCH    envA-run1-demo-on.log.txt sha256=375b49fe307a891871c639e4d3609f28140b2d315cf0a0cf32f477a7cfdf9a4a
+MATCH    envA-run2-demo-on-idempotent.log.txt sha256=96613f98657868e3c9a2bc077e7e105b557cc5fa25b4f83ff3d1feb0d6c5d098
+MATCH    envA-run3-demo-on-for-authz.log.txt sha256=9bfc20cbf59175ed22e7529b5ddd1b17bb6cf3a31478378ea9448e1f46c48eea
+MATCH    envB-run0-migrate-demo-off.log.txt sha256=21fc7b9860fa64e915a510ba74b4160e070d5dd627d1d032493791c80e9f2c31
+MATCH    envB-run1-demo-on-polluted-content.log.txt sha256=2d97416c8ced31e5d081c9dcb54599bbf6e2a3cdd1b04606d4e17a7ae56193e9
+MATCH    envB-run2-demo-on-wrong-contenttype.log.txt sha256=8cdf662a3544d995144005ea624ffb744676a98e3f900318fb26792e4f667c9c
+MATCH    envC-run0-migrate-demo-off.log.txt sha256=fa73edc78eb49960ee89f3aae66b7a2091c956d27cf3e48f598fcec7ae4892f9
+MATCH    envC-run1-demo-on-sql-fault.log.txt sha256=0544eaa18d15bcf1d9866c785628743caf4ec54a290cdadea99aa0f99aa653a4
+MATCH    envC-run2-demo-on-fault-cleared.log.txt sha256=f0764d9c22ee6940164fff140f8a0fed7614399b0d86c951a250bb2b98f12c00
+MATCH    envC-run3-demo-on-restart.log.txt sha256=220c4db3c8579983e6a6ab3e9075c5c9f984b29fb67fc98635d624e860964d4b
+MATCH    frontend-dev.log.txt sha256=a89ee74d9863a939377f16b58fb922583e661d9f3a8e64c56b9c3107b4564102
+
+RESULT: PASS —— 引用路径全部受跟踪、敏感值零残留、12 个归档日志与原始及独立复核清单字节同源

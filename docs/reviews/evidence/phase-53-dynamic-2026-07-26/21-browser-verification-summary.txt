@@ -1,7 +1,9 @@
+# 2026-07-26 证据脱敏（正式复核 Low 整改）：临时口令替换为 [REDACTED_SECRET]（仅曾在已销毁的隔离 schema 生效）；
+# 脱敏前文件 SHA-256=f739594fe155e6e61d4fda111cbac840a6969eaa373718f6bc88ebb12ea73cd2。
 # 浏览器端验证摘要（环境 A，evidence 19/20 截图 + 18 API 记录佐证）
 执行时间: 2026-07-26 11:54–12:00 (+08:00)
 前端: vite dev @ http://localhost:5173 （proxy → 候选后端 8080）
-账号: test_review_teacher（首登强制改密后为 Phase53!Verify1，仅隔离 schema phase53_demo_a 内有效）
+账号: test_review_teacher（首登强制改密后为 [REDACTED_SECRET]，仅隔离 schema phase53_demo_a 内有效）
 
 1. 登录/待办: 工作台显示 2 条视频指派通知（学生 9104/9107）——demo 实体数据在 UI 生效。
 2. 播放: "我的评审" S9104/周雅婷 → 播放。<video> src = phase53-demo-a 桶新内容版本 key 的预签名 URL

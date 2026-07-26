@@ -1,0 +1,46 @@
+Standard Commons Logging discovery in action with spring-jcl: please remove commons-logging.jar from classpath in order to avoid potential conflicts
+
+  .   ____          _            __ _ _
+ /\\ / ___'_ __ _ _(_)_ __  __ _ \ \ \ \
+( ( )\___ | '_ | '_| | '_ \/ _` | \ \ \ \
+ \\/  ___)| |_)| | | | | || (_| |  ) ) ) )
+  '  |____| .__|_| |_|_| |_\__, | / / / /
+ =========|_|==============|___/=/_/_/_/
+
+ :: Spring Boot ::               (v3.4.13)
+
+2026-07-26T11:34:53.289+08:00  INFO 22988 --- [teacher-cert-platform] [           main] c.edu.gpnu.platform.PlatformApplication  : Starting PlatformApplication v1.0.0-SNAPSHOT using Java 17.0.19 with PID 22988 (C:\Users\wenbibuhaoqwq\Desktop\teacher-cert-platform\platform-boot\target\teacher-cert-platform.jar started by wenbibuhaoqwq in C:\Users\wenbibuhaoqwq\Desktop\teacher-cert-platform)
+2026-07-26T11:34:53.299+08:00  INFO 22988 --- [teacher-cert-platform] [           main] c.edu.gpnu.platform.PlatformApplication  : The following 2 profiles are active: "dev", "demo"
+2026-07-26T11:34:54.741+08:00  INFO 22988 --- [teacher-cert-platform] [           main] .s.d.r.c.RepositoryConfigurationDelegate : Multiple Spring Data modules found, entering strict repository configuration mode
+2026-07-26T11:34:54.743+08:00  INFO 22988 --- [teacher-cert-platform] [           main] .s.d.r.c.RepositoryConfigurationDelegate : Bootstrapping Spring Data Redis repositories in DEFAULT mode.
+2026-07-26T11:34:54.779+08:00  INFO 22988 --- [teacher-cert-platform] [           main] .s.d.r.c.RepositoryConfigurationDelegate : Finished Spring Data repository scanning in 19 ms. Found 0 Redis repository interfaces.
+2026-07-26T11:34:56.361+08:00  INFO 22988 --- [teacher-cert-platform] [           main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat initialized with port 8080 (http)
+2026-07-26T11:34:56.384+08:00  INFO 22988 --- [teacher-cert-platform] [           main] o.apache.catalina.core.StandardService   : Starting service [Tomcat]
+2026-07-26T11:34:56.384+08:00  INFO 22988 --- [teacher-cert-platform] [           main] o.apache.catalina.core.StandardEngine    : Starting Servlet engine: [Apache Tomcat/10.1.50]
+2026-07-26T11:34:56.438+08:00  INFO 22988 --- [teacher-cert-platform] [           main] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring embedded WebApplicationContext
+2026-07-26T11:34:56.439+08:00  INFO 22988 --- [teacher-cert-platform] [           main] w.s.c.ServletWebServerApplicationContext : Root WebApplicationContext: initialization completed in 3089 ms
+Standard Commons Logging discovery in action with spring-jcl: please remove commons-logging.jar from classpath in order to avoid potential conflicts
+2026-07-26T11:34:57.297+08:00  INFO 22988 --- [teacher-cert-platform] [           main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Starting...
+2026-07-26T11:34:57.565+08:00  INFO 22988 --- [teacher-cert-platform] [           main] com.zaxxer.hikari.pool.HikariPool        : HikariPool-1 - Added connection com.mysql.cj.jdbc.ConnectionImpl@443dae2
+2026-07-26T11:34:57.567+08:00  INFO 22988 --- [teacher-cert-platform] [           main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Start completed.
+2026-07-26T11:34:57.636+08:00  INFO 22988 --- [teacher-cert-platform] [           main] org.flywaydb.core.FlywayExecutor         : Database: jdbc:mysql://localhost:3306/phase53_demo_a?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false (MySQL 8.0)
+2026-07-26T11:34:57.802+08:00  INFO 22988 --- [teacher-cert-platform] [           main] o.f.core.internal.command.DbValidate     : Successfully validated 33 migrations (execution time 00:00.114s)
+2026-07-26T11:34:57.832+08:00  INFO 22988 --- [teacher-cert-platform] [           main] o.f.core.internal.command.DbMigrate      : Current version of schema `phase53_demo_a`: 32
+2026-07-26T11:34:57.837+08:00  INFO 22988 --- [teacher-cert-platform] [           main] o.f.core.internal.command.DbMigrate      : Schema `phase53_demo_a` is up to date. No migration necessary.
+2026-07-26T11:35:01.913+08:00  INFO 22988 --- [teacher-cert-platform] [           main] c.e.g.p.f.config.MinioBucketInitializer  : MinIO bucket 已存在: phase53-demo-a
+2026-07-26T11:35:02.170+08:00  INFO 22988 --- [teacher-cert-platform] [           main] r$InitializeUserDetailsManagerConfigurer : Global AuthenticationManager configured with UserDetailsService bean with name userDetailsService
+2026-07-26T11:35:03.119+08:00  INFO 22988 --- [teacher-cert-platform] [           main] m.e.s.MybatisPlusApplicationContextAware : Register ApplicationContext instances org.springframework.boot.web.servlet.context.AnnotationConfigServletWebServerApplicationContext@20a14b55
+2026-07-26T11:35:03.626+08:00  INFO 22988 --- [teacher-cert-platform] [           main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat started on port 8080 (http) with context path '/'
+2026-07-26T11:35:03.644+08:00  INFO 22988 --- [teacher-cert-platform] [           main] c.edu.gpnu.platform.PlatformApplication  : Started PlatformApplication in 10.845 seconds (process running for 11.507)
+2026-07-26T11:35:03.651+08:00  INFO 22988 --- [teacher-cert-platform] [           main] c.e.g.p.boot.config.DemoDataInitializer  : [demo] platform.demo.enabled=true —— 开始装载各角色 demo/mock 数据（TEST/DEV 专用）
+2026-07-26T11:35:03.793+08:00  INFO 22988 --- [teacher-cert-platform] [           main] c.e.g.p.boot.config.DemoDataInitializer  : [demo] MinIO 内容版本对象已新建并验证：phase53-demo-a/teaching-video/demo/0a15c2e382438f3fbbd1e9b5302514ad35da07b33b44f7eb61fbb5c8b31d611d.mp4
+2026-07-26T11:35:03.823+08:00  INFO 22988 --- [teacher-cert-platform] [           main] c.e.g.p.boot.config.DemoDataInitializer  : [demo] MinIO 内容版本对象已新建并验证：phase53-demo-a/process-material/demo/53aece50aefaf8236338f0ddada8469e54d1422d26da0a975a2f81c873ba9268.pdf
+2026-07-26T11:35:03.854+08:00  INFO 22988 --- [teacher-cert-platform] [           main] c.e.g.p.boot.config.DemoDataInitializer  : [demo] MinIO 内容版本对象已新建并验证：phase53-demo-a/process-material/demo/c589a04293ea064c50a46e8fec832e6920b28ea3cf3718aed18b929f9fb631ee.png
+2026-07-26T11:35:03.875+08:00  INFO 22988 --- [teacher-cert-platform] [           main] c.e.g.p.boot.config.DemoDataInitializer  : [demo] MinIO 内容版本对象已新建并验证：phase53-demo-a/exemption-material/demo/53aece50aefaf8236338f0ddada8469e54d1422d26da0a975a2f81c873ba9268.pdf
+2026-07-26T11:35:04.676+08:00  INFO 22988 --- [teacher-cert-platform] [nio-8080-exec-1] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring DispatcherServlet 'dispatcherServlet'
+2026-07-26T11:35:04.676+08:00  INFO 22988 --- [teacher-cert-platform] [nio-8080-exec-1] o.s.web.servlet.DispatcherServlet        : Initializing Servlet 'dispatcherServlet'
+2026-07-26T11:35:04.678+08:00  INFO 22988 --- [teacher-cert-platform] [nio-8080-exec-1] o.s.web.servlet.DispatcherServlet        : Completed initialization in 2 ms
+2026-07-26T11:35:05.108+08:00  INFO 22988 --- [teacher-cert-platform] [           main] c.e.g.p.boot.config.DemoDataInitializer  : [demo] 已执行演示实体脚本 db/demo/demo-data.sql
+2026-07-26T11:35:05.108+08:00  INFO 22988 --- [teacher-cert-platform] [           main] c.e.g.p.boot.config.DemoDataInitializer  : [demo] 演示数据装载完成：内容版本对象新建 4、一致跳过 0，实体 SQL 执行=成功
+2026-07-26T11:35:05.110+08:00  WARN 22988 --- [teacher-cert-platform] [           main] o.s.core.events.SpringDocAppInitializer  : SpringDoc /v3/api-docs endpoint is enabled by default. To disable it in production, set the property 'springdoc.api-docs.enabled=false'
+2026-07-26T11:35:05.110+08:00  WARN 22988 --- [teacher-cert-platform] [           main] o.s.core.events.SpringDocAppInitializer  : SpringDoc /swagger-ui.html endpoint is enabled by default. To disable it in production, set the property 'springdoc.swagger-ui.enabled=false'

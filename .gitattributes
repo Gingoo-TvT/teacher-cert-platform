@@ -15,3 +15,6 @@
 
 # Phase 41 独立复核原始日志：保留字节与已归档 SHA-256，不做文本归一化或 diff。
 docs/reviews/evidence/phase41-real-gates-2026-07-25/*.log -text -diff
+
+# Phase 53 动态门禁归档日志（.log.txt）：保留字节与原始 SHA-256（与上述 phase41 同口径），不做文本归一化或 diff。
+docs/reviews/evidence/phase-53-dynamic-2026-07-26/logs/*.log.txt -text -diff

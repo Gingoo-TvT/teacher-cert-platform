@@ -15,6 +15,13 @@
 
 ---
 
+## [2026-07-26] U-003 / Phase 53 证据归档/脱敏整改 — 关闭复核 Medium 与证据卫生 Low
+- 做了什么：按正式报告 `phase-53-remediation-rereview-2026-07-26.md` §15 "Fix Immediately" 三项完成最小证据整改。①12 个原始启动日志敏感模式扫描零命中，以逐字节相同的 `.log.txt` 归档进 `docs/reviews/evidence/phase-53-dynamic-2026-07-26/logs/`，`.gitattributes` 为其设 `-text -diff`（phase41 同口径）防换行归一化破坏哈希；`logs-sha256-manifest.txt` 记录原始=归档 SHA-256，且与独立复核 "Raw log integrity inventory" 12 项逐一相同。②动态报告 5 处 `logs/*.log` 引用改为 `.log.txt` 跟踪路径，新增 §6 整改附录；`24-tracked-path-check.txt` 归档四段一次性检查（引用路径 `git ls-files --error-unmatch`、目录非 `.log` 文件全跟踪、secret lint 复扫零命中、12 个暂存 blob SHA-256 与原始/复核清单逐一 MATCH），RESULT: PASS。③`18b`/`21`（复核点名）及同类主动补充的 `22` 中临时口令、`X-Amz-Credential`、`X-Amz-Signature` 值替换为 `[REDACTED_SECRET]`，文件头注记脱敏前 SHA-256；原值仅属已销毁隔离环境且 URL 已过期，无处复用，无需轮换。
+- 关键决策与理由：归档采用"逐字节 `.log.txt` + `-text -diff`"而非摘录，使归档哈希=原始哈希=复核者清单哈希，同源链在 fresh clone 可机械复核；不改 `.gitignore` 全局 `*.log` 规则，避免影响仓库其它路径。packaged MP4 真实探测自动化属另一 Low 的测试代码变更，按报告 §15 划入 "Fix Before Stable Release"，不混入本次仅证据范围。
+- 与规格的偏差/疑问：无代码/配置行为变更（`.gitattributes` 仅新增证据路径属性行）。复核者报告与独立证据已先行归档为 `8d42dcc`。
+- 测试：`24-tracked-path-check.txt` RESULT: PASS（64 项 TRACKED/MATCH）；`git diff --check` PASS。无生产/测试代码变更，不触发离线回归重跑；重交复核按报告仅需证据增量 + 必要离线回归。
+- 下一步：发起 Phase 53 证据增量复核；PASS 后依次 Phase 44 → Phase 0，全部退回项关闭后执行最终全量审计。
+
 ## [2026-07-26] GOV-020 Phase 53 整改独立增量复核 — CHANGES REQUESTED（1 Medium / 2 Low）
 - 做了什么：冻结基线 `4996811`、整改代码 `b9abc6c`、提交材料 `724e07d` 与动态证据 `8a772fe`，按 incremental + security/stability/testing-authenticity/release/configuration/data-integrity/concurrency 全面复核六个变更文件、继承并冻结的真实 demo 资源、fat JAR、32 个已跟踪动态材料文件和当前机器 12 个原始启动日志；产出 `docs/reviews/phase-53-remediation-rereview-2026-07-26.md`、独立证据与 metadata。确认原 Phase 53 Major 和 WS-3 补充 High 的生产行为已关闭：真实 H.264 MP4、SHA 内容版本 key、旧 key 保留、污染失败关闭、可信探测、五类引用单事务切换、旧库升级/幂等/SQL 故障回滚/恢复与浏览器播放证据成立。
 - 关键决策与理由：正式结论仍为 **CHANGES_REQUESTED（0 Critical / 0 High / 1 Medium / 2 Low）**。唯一阻断 Medium 是动态报告五处引用的 12 个 `logs/*.log` 被 `.gitignore:7` 的 `*.log` 排除，当前机器虽可核对且 SHA-256 已记录，但 `8a772fe`/fresh clone/最终全量审计拿不到原始证据；不能把本机残留当作已提交归档。两个 Low 为聚焦单测全部 stub 真实视频探测，以及已跟踪证据保存已销毁环境的临时口令和完整已过期 localhost 预签名查询材料。最小重交只处理证据，不要求改生产代码。
