@@ -15,6 +15,16 @@
 
 ---
 
+## [2026-07-26] U-003 / Phase 53 退回整改候选完成 — 内容版本对象与 demo 元数据原子切换
+- 做了什么：在 `codex/phase53-demo-reconcile` 形成代码候选 `b9abc6c`。`DemoDataInitializer` 先有界读取并核对四个对象候选所用的三个 classpath 媒体资源之精确大小/原始 SHA-256，再以内容摘要派生内容版本 object key；版本对象不存在才上传，检查时已存在则完整核对大小、Content-Type 和读回摘要，预存污染失败关闭且不覆盖。视频对象另经服务端探测核对 tree 指纹、900 秒、900 帧、H264、策略哈希和 `JCODEC_PROCESS_V4`，并复用从生产 `VideoReviewServiceImpl` 抽出的 `VideoMediaAcceptancePolicy`。`demo-data.sql` 的 bucket、四类 key、真实大小/MD5、可信视频元数据与 `video_upload_session.object_key` 全部由已验证 manifest 渲染，并在单个数据库事务中统一切换引用。
+- 关键决策与理由：不再覆盖旧固定 key，也不在发布事务中删除旧 528B 对象。新版本对象先独立验证，数据库提交作为唯一可见切换点；SQL 失败只留下无引用的新版本对象，旧数据库仍指向被保留的旧对象。内容版本写入和幂等 upsert 已足以处理并发初始化，因此移除跨池连接的 MySQL `GET_LOCK` 正确性依赖；资源大小限制改为最多读取上限加 1 字节后判断，避免先完整分配再拒绝。
+- 问题与解决：第一轮只读代码审查发现对象覆盖与 SQL 非原子 1 Medium、池连接 named lock 与无效读取上限 2 Low；全部按内容版本 key、旧 key 保留、事务切换、移除 named lock 和有界读取关闭。SQL 复查随后发现 `video_upload_session.object_key` 未收敛及非视频 key/旧摘要断言不足，均已补齐。最终生产代码复查为 **0 Critical / 0 High / 0 Medium / 0 Low**；SQL/渲染仅剩 1 个运行期证据 Low，即真实 MySQL SQL/回滚/旧库收敛尚未由自动化执行。
+- 与规格的偏差/疑问：无 DDL/Flyway、权限点、业务状态集合、外部 API、前端或生产部署配置变化。旧固定对象刻意保留以保证失败恢复，不在本阶段自动清理；其无引用状态须由用户动态证据确认。原 `phase-53-review.md` 仍为 **CHANGES REQUESTED**，本条与提交材料只代表整改候选，不构成阶段 PASS。
+- 已知并发边界：`stat(MISSING) → put` 之间没有对象存储 CAS，极窄的外部并发写窗口按专用隔离 demo 初始化的已知边界披露，不冒充全局不可变存储。
+- 测试：`DemoDataInitializerTest` **21/21**、`VideoMediaAcceptancePolicyTest` **10/10**，聚焦 **31/31**；两次最终全量离线测试均为 `platform-file` **18/18** + `platform-boot` **177/177** = **195/195**；后端离线 package **9/9 modules BUILD SUCCESS**；fat JAR 含初始化器、demo SQL、MP4/PDF/PNG；`git diff --check` PASS。提交材料为 `docs/reviews/phase-53-remediation-submission-2026-07-26.md`，建议独立复核增量 `4996811..b9abc6c`。
+- 安全边界：未启动常驻服务，未运行 Docker、网络、真实 MinIO/MySQL、HTTP 登录、浏览器、权限变更、故障注入、对象删除、扫描、凭据尝试、恶意载荷、fuzz、压力或任何可能属于 cyber 的动作。真实旧环境升级、事务故障、浏览器首帧/时长/水印/鉴权及隔离资源清理均已明确列为“可能涉及 cyber，仅由用户执行”。
+- 下一步：用户在专用隔离 schema/bucket 完成提交材料 §5 的动态门禁并归档证据；随后由独立复核者冻结 `4996811..b9abc6c` 复核。只有新报告 PASS 后才关闭 Phase 53、进入 Phase 44；之后 Phase 0，全部关闭后执行最终全量审计。
+
 ## [2026-07-26] GOV-019 Phase 47 PASS 后日志测试 Low 闭环
 - 做了什么：在第二轮正式 PASS 后按报告唯一非阻断 Low 补强 `FileMaintenanceServiceTest`，形成提交 `191a3ad`。日志断言现在要求 raw `argumentArray` 恰好一个参数、运行时类型精确为生产 `FileMaintenanceService$LifecycleFailureCategory`、枚举名称匹配预期分类、不得含 Throwable，且格式化消息和允许的 raw 参数都逐项检查固定/附加敏感哨兵；新增未知 S3 code + HTTP 503 的 `SERVER_ERROR` 回退反例。
 - 关键决策与理由：正式报告的 **PASS（0 Critical / 0 High / 0 Medium / 1 Low 非阻断）** 是复核时快照，保持原计数不改写；本条只记录 PASS 后关闭该 Low。负向自证先触发真实 service 失败并证明单一生产枚举可通过，再复用捕获的生产枚举构造“分类 + 敏感 String”，证明即使格式化消息干净，helper 仍会因额外 raw 参数拒绝。
