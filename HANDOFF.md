@@ -7,8 +7,8 @@
 ---
 
 ## 0. 当前接力快照（2026-07-26）
-- 当前分支 `codex/phase44-remediation`；第二轮独立报告仍为 **CHANGES_REQUESTED（0 Critical / 0 High / 2 Medium / 3 Low）**。第三轮候选 `8ff544d` 已冻结 `25f8b1c..8ff544d`，提交材料为 `docs/reviews/phase-44-third-remediation-submission-2026-07-26.md`；`main` 仍为 `e4f8228`，无 remote，禁止 push/擅自 merge。Phase 53 证据整改此前已独立 PASS（3 Low 非阻断）。
-- Phase 44 第三轮候选：逐 owner Redis ZSET 可续租写窗口与 `beforeCommit` fail-closed、typeCode 全链路 canonical identity、payload schema v2 和 3 个 Low 已落地；整改者门禁为 `platform-system` 44/44、boot test-compile、9 模块 package、前端 type-check/build、diff check PASS。真实 MySQL/Redis 的 `Phase44CacheCommitWindowIT` 16/16 因用户 cyber 边界未由 Codex 执行，必须由用户在隔离环境运行后再做独立增量复核。Phase 44 正式 PASS 前不进入 Phase 0。
+- 当前分支 `codex/phase44-remediation`；第三轮独立增量报告 `docs/reviews/phase-44-third-remediation-rereview-2026-07-26.md` 为 **CHANGES_REQUESTED（0 Critical / 0 High / 1 Medium / 4 Low）**。代码候选 `8ff544d` 冻结 `25f8b1c..8ff544d`，材料/HEAD 为 `890aa6e`；`main` 仍为 `e4f8228`，无 remote，禁止 push/擅自 merge。Phase 53 证据整改此前已独立 PASS（3 Low 非阻断）。
+- Phase 44 第三轮结论：逐 owner Redis ZSET、后台续租、正常双 writer、typeCode canonical identity、payload schema v2 与上一轮 3 Low 均成立；用户在专用全新 MySQL 8.0 / Redis 7 / MinIO 栈执行修正门禁取得 `Phase44CacheCommitWindowIT` **16/16**，证据哈希/时序已核对。但 writers ZSET 丢失后 READ 会把尚存 `P:ACTIVE` 提前恢复成普通版本，同一事务可把最终回滚的未提交 V2 发布到共享 Redis，故仍有 1 个阻断 Medium。Phase 44 正式 PASS 前不进入 Phase 0。
 - Phase 53 候选把四类对象发布到原始 SHA-256 派生的内容版本 key；检查时已存在的污染对象失败关闭且不覆盖，旧固定 key 保留。视频经完整读回、可信 tree 指纹、900 秒/900 帧/H264/策略与探测版本核对后，单个数据库事务统一切换 `file_object`、过程/免考材料、`video_review` 和 `video_upload_session.object_key`。独立聚焦 31/31、证据整改复核全量离线 195/195、9 模块 package、前端 type-check/build、fat JAR 内容与 diff check 均 PASS；12 份关键日志现可由 fresh clone 取得并按已归档哈希复核。
 - WS-3 原有预签名直传能力保持不变；整改包新增服务端逐字节读取最终 MinIO 对象、计算受信 SHA-256 tree 指纹并用 JCodec 校验实际 MP4/H.264/时长/首帧，校验失败关闭。秒传只允许同 uploader、同 student、同一受信对象及已有合格视频记录复用，普通响应不再暴露内部内容指纹。
 - 2026-07-23 用户在 Claude 不可用期间明确授权 Codex 独立复核。WS-3 第二轮 `32da735` 的独立报告 `docs/reviews/ws-03-second-remediation-rereview-2026-07-23.md` 仍为 **CHANGES REQUESTED**：时间线、fast-hit、review 行锁和 V29 已闭环，但 `SERVER_CHUNK` 崩溃恢复、并发总磁盘预留、可终止探测时限仍有 3 High，另有 lease 续租/生产配置/资源测试 3 Medium。Phase 53 demo 元数据失配是 U-003 的独立 High，未混入本次报告。
@@ -150,8 +150,8 @@ git -C "$REPO" add -A && git -C "$REPO" commit -m "feat(T-0xx): ..."
 - 实体继承 `BaseEntity`（id/审计字段/逻辑删除自动）；Mapper 放 `**/mapper`（已 `@MapperScan("cn.edu.gpnu.platform.**.mapper")`）；统一返回 `Result`；写操作 `@AuditLog`；列表/导出/统计查询 `@DataScope`；当前用户取 `UserContext`。
 - **文本化字段全链路 String + Excel `@`**（学校代码/学号/证件号/出生日期/证书编号/有效期限）——AT-01 生命线，勿用数值/日期类型。
 
-## 5. 当前整改入口 → Phase 44 第三轮动态门禁与独立复核
-1. 先读 `AGENTS.md` → `docs/REVIEW-GATE.md` → `docs/CURRENT-EXECUTION-PLAN.md` → `docs/reviews/phase-44-second-remediation-rereview-2026-07-26.md` → `docs/reviews/phase-44-third-remediation-submission-2026-07-26.md`。代码候选已冻结为 `8ff544d`，不要继续扩写或重写已闭环逻辑；下一步只执行材料 §5 的隔离动态门禁并复核 `25f8b1c..8ff544d`。Phase 53 已由 `docs/reviews/phase-53-evidence-remediation-rereview-2026-07-26.md` 独立 PASS，不要重写。
+## 5. 当前整改入口 → Phase 44 第四轮最小整改
+1. 先读 `AGENTS.md` → `docs/REVIEW-GATE.md` → `docs/CURRENT-EXECUTION-PLAN.md` → `docs/reviews/phase-44-third-remediation-rereview-2026-07-26.md`。不要重写已经关闭的 canonical identity、逐 owner 正常路径或 3 个历史 Low；只修 owner-loss recovery：writers 为空但 pending 尚存时保持 fail-closed，并阻止当前写事务发布自身未提交 read-through。补报告指定的决定性交错，再按修正后的 Maven 命令执行并精确核对 16+ 条目标测试。Phase 53 已由 `docs/reviews/phase-53-evidence-remediation-rereview-2026-07-26.md` 独立 PASS，不要重写。
 2. 已闭环：服务端 `SHA256_TREE_V1` 可信指纹；同 uploader/student + 既有 PASS 的秒传边界；普通 VO 去 `fileMd5`；GitHub Actions 真实 MinIO/桶初始化与前端 type-check。U-001 可视为 PASS。
 3. 第二轮已闭环：JCodec 三时长交叉核验与唯一视频轨；当前策略/探测器版本 + MinIO HEAD 的 fast-hit；定稿与 assign 共用 review 行锁；V29 逐项检测恢复。
 4. 第三轮已实现：`SERVER_CHUNK /merge` 使用可续租 lease、稳定 object key 和数据库当前 token；磁盘按活跃任务累计总预留准入；JCodec 在受限堆独立 JVM 内运行；S3 超时、官方 Compose/.env/专用临时卷一并落地。这些正常路径已确认有效，但不能视为完整 fencing/recovery。
@@ -178,7 +178,7 @@ git -C "$REPO" add -A && git -C "$REPO" commit -m "feat(T-0xx): ..."
 25. Phase 53 证据整改独立增量复核 **PASS**：冻结 `8d42dcc..34e4d51`，12/12 归档日志四路哈希同源且全部受跟踪，旧完整秘密值已移除；独立离线 `clean test` 195/195、报告 lint 与 diff check 均 PASS。3 个非阻断 Low 为 packaged MP4 自动探测、凭据派生片段/secret-lint 可复现性和本机路径证据卫生。`stat(MISSING) → put` 无 CAS、旧新节点禁止混部和 Phase 7 有效预签名链接合同冲突留既有边界/最终全量审计。该 PASS 仅放行 Phase 44 整改；merge、push、部署、切流和项目发布仍未获 GO。
 26. Phase 44 退回整改独立增量复核 **CHANGES_REQUESTED（4 Medium / 3 Low）**：冻结 `f9ccda3..f9aec54`。PG-M3 真批量关闭；PG-M4 因本地 publish 窗口、Redis 非原子/故障耦合与 namespace 碰撞未关闭，另有 MySQL 池化 session 污染 Medium。正式报告与独立证据分别为 `docs/reviews/phase-44-remediation-rereview-2026-07-26.md`、`docs/reviews/evidence/phase44-remediation-rereview-2026-07-26/`。仅运行本地只读检查与自然退出的离线 Maven；没有 cyber 类动作。
 27. Phase 44 第二轮整改独立增量复核 **CHANGES_REQUESTED（2 Medium / 3 Low）**：冻结 `f9aec54..25f8b1c`。上一轮 4 Medium 的具体缺口与 2 Low 已关闭；新阻断为 Redis pending 无 owner/refcount 且 60 秒租约无事务上界、MySQL `_ai_ci` identity 与大小写敏感缓存键不一致。上一轮 `@Param` Low 仍未关闭，另有 registration 分支空转测试和锁 contender 无 started 探针两个 Low。正式报告与证据分别为 `docs/reviews/phase-44-second-remediation-rereview-2026-07-26.md`、`docs/reviews/evidence/phase44-second-remediation-rereview-2026-07-26/`。仅运行本地只读检查与自然退出的离线 Maven；没有 cyber 类动作。
-28. Phase 44 第三轮整改候选 `8ff544d`：Redis pending 改为 Redis TIME 驱动的逐 owner ZSET 租约，后台续租且 `beforeCommit` 丢 owner 即中止事务；typeCode 统一 canonical identity，payload 升 schema v2；`@Param`、registration 与锁排队 Low 闭环。离线 `platform-system` 44/44、boot test-compile、9 模块 package、前端 type-check/build、diff check PASS；16 条真实 MySQL/Redis IT 只生成源码，未由 Codex 执行。下一步由用户执行隔离动态门禁后独立复核，不能自行 PASS。
+28. Phase 44 第三轮整改候选 `8ff544d` 与独立重核：Redis pending 改为 Redis TIME 驱动的逐 owner ZSET 租约，后台续租且 `beforeCommit` 丢 owner 即中止事务；typeCode 统一 canonical identity，payload 升 schema v2；`@Param`、registration 与锁排队 Low 闭环。用户修正 reactor 命令后真实 MySQL/Redis IT **16/16**，独立离线 `platform-system` 44/44、9 模块 package、前端 type-check/build、diff check PASS。但正式重核仍为 **CHANGES_REQUESTED（1 Medium / 4 Low）**：READ 在 writers 丢失但 pending 尚存时过早恢复普通版本，可让同事务未提交值短暂进入共享 Redis；下一步只做第四轮最小整改。
 
 ## 6. 已知坑与规避（别重复踩）
 - Lombok `optional` 不向子模块传递 → 已在父 POM 解决。

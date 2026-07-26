@@ -15,6 +15,15 @@
 
 ---
 
+## [2026-07-26] GOV-025 Phase 44 第三轮独立增量复核 — CHANGES_REQUESTED（1 Medium / 4 Low）
+- 做了什么：冻结 `25f8b1c0683dae38f930a8cb94baf937a446013d..8ff544db37b7cd89a9f8463de4d1696b46c50f45`（16 个代码/测试路径，`+952/-172`），并核对其直接子提交、材料 HEAD `890aa6ebc919f13036caf3f87b13779a97120539`。产出正式报告 `docs/reviews/phase-44-third-remediation-rereview-2026-07-26.md`、证据摘要与审计元数据。
+- 关键决策与理由：正式结论为 **CHANGES_REQUESTED（0 Critical / 0 High / 1 Medium / 4 Low）**。typeCode canonical identity Medium 与上一轮 `@Param`、registration、publishLock 三个 Low 全部关闭；逐 owner ZSET、Redis TIME、续租、`beforeCommit` 和最后 owner 恢复的正常路径成立。但 READ 在 writers ZSET 为空且 version 仍为 `P:ACTIVE` 时立即恢复普通版本；同一写事务随后 `listItems` 会从 MySQL 读到自身未提交 V2，PUT 又只检查 Redis writers/version，因此可把 V2 发布到共享 Redis，直到 `beforeCommit` 才发现 owner 丢失并回滚。这违反“未提交值不得跨请求可见”，故为阻断 Medium。
+- 问题与解决：用户逐字执行候选材料命令时，parent reactor 的 Failsafe 因 root 无匹配目标 IT 在 0.5 秒内失败、未运行测试；按 Maven 提示加 `-Dfailsafe.failIfNoSpecifiedTests=false` 后，真实 `Phase44CacheCommitWindowIT` **16/16 PASS**。独立核对目标 XML/testcase 集合、summary、SHA-256 与 source/class/commit/XML 时间链，确认动态结果真实但漏掉“删 writers → 同事务回读 → 并发观察”的决定性交错。另记录 4 Low：原门禁命令不可复制、两个 lease 环境变量未进入 Compose/.env、禁新旧协议混部未进入 Phase 14/README、棕地 collation/历史 typeCode 缺发布前 preflight。
+- 与规格的偏差/疑问：无业务规则、DDL、权限点或 API 变更。修复应保持 owner ZSET、canonical identity 与 schema v2，不需重写已闭环逻辑。安全恢复口径改为“writers 缺失但 pending 尚存时继续失败关闭，等待 pending recovery TTL”；若需物理归一存量 identity，必须先碰撞检查并走 Flyway。
+- 测试：用户专用全新 MySQL 8.0 / Redis 7 / MinIO 栈上，修正门禁后 Failsafe **16/16**、同轮 Surefire `platform-system` **44/44**、`platform-file` **18/18**、`platform-boot` **177/177**，0 failure/error/skip；目标 XML SHA-256 `DAE10E02F342523B306D6E7BD0C70BE9DC3FBD9E7F720126B56A64A4C73B75AC`。独立安全离线门禁为 `platform-system` **44/44**、后端 package **9/9 modules**、前端 type-check/build 与 `git diff --check` PASS。
+- 安全边界：Codex 未启动或连接 Docker、MySQL、Redis、MinIO、网络、浏览器或服务，未执行 owner 删除、故障注入、扫描、fuzz、压力、凭据/权限操作或其它可能属于 cyber 的动作；动态环境与清理由用户执行并陈述。本轮未 stage/commit/merge/push/deploy。
+- 下一步：第四轮只修 owner-loss recovery 与本事务发布 guard，补精确真实交错；门禁命令统一加 `-Dfailsafe.failIfNoSpecifiedTests=false` 且核对目标 completed/tests，随后再做最小独立增量复核。Phase 44 PASS 前不进入 Phase 0。
+
 ## [2026-07-26] GOV-024 Phase 44 第三轮退回整改候选 — `8ff544d` 待动态门禁与独立复核
 - 做了什么：针对第二轮正式报告的 2 Medium / 3 Low，冻结候选 `25f8b1c0683dae38f930a8cb94baf937a446013d..8ff544db37b7cd89a9f8463de4d1696b46c50f45`（16 路径）。Redis pending 从可覆盖的单值改为 Redis TIME 驱动的逐 owner ZSET 租约；后台续租贯穿活事务，`beforeCommit` 强校验 owner，丢失即抛 `BizException` 阻止提交；READ/PUT/COMPLETE Lua 按 owner 数 fail-closed 并安全回收崩溃孤儿。typeCode 统一 `trim + ASCII 后端硬校验 + Locale.ROOT 小写`，贯穿 DB、Redis 三类键、两个 Caffeine 缓存、pending/逐出、VO 与前端，payload 升 schema v2 拒绝同版本旧包络。修正 NotificationMapper 框架说明、registration 真实异常分支与两个 publishLock 真实排队探针。
 - 关键决策与理由：多 owner 不能只用无 TTL Hash，否则进程崩溃/AOF 恢复后会永久旁路；采用“逐 owner 到期分数 + 活事务续租 + 提交前最后确认”，同时满足重叠事务、任意长活事务和崩溃后恢复。续租一旦不确定即把 owner 标为 lost 且不重建，宁可回滚字典管理写也不允许无跨节点保护地提交。数据库 collation 既为 `_ai_ci`，故缓存 identity 必须映射到同一等价类；选择既有前端允许的 ASCII 编码并持久化小写，避免引入 Flyway/collation 变更。schema v2 是为了使 `25f8b1c` 可能留下的同 version 旧 `{v,items}` 也确定失效。

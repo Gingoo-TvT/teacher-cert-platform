@@ -1,0 +1,206 @@
+Phase 44 third-remediation independent rereview evidence
+Date: 2026-07-26
+Reviewer: OpenAI Codex
+
+1. Frozen scope
+
+- Baseline:
+  25f8b1c0683dae38f930a8cb94baf937a446013d
+- Code/test candidate:
+  8ff544db37b7cd89a9f8463de4d1696b46c50f45
+- Candidate parent relation:
+  8ff544db37b7cd89a9f8463de4d1696b46c50f45
+  25f8b1c0683dae38f930a8cb94baf937a446013d
+- Material / review HEAD:
+  890aa6ebc919f13036caf3f87b13779a97120539
+- Material parent relation:
+  890aa6ebc919f13036caf3f87b13779a97120539
+  8ff544db37b7cd89a9f8463de4d1696b46c50f45
+- Code/test delta:
+  16 paths, 952 insertions, 172 deletions
+- Candidate branch:
+  codex/phase44-remediation
+- The pre-existing untracked paths were preserved and were not treated as
+  candidate content.
+
+2. User-operated real dependency gate
+
+The user first executed the command printed by the candidate submission:
+
+  mvn -B -ntp -o -pl platform-boot -am
+    "-Dit.test=Phase44CacheCommitWindowIT" verify
+
+Observed result: BUILD FAILURE before any test ran. The reactor root POM binds
+maven-failsafe-plugin, but it has no matching Phase44CacheCommitWindowIT. Maven
+therefore stopped at the root with "No tests matching pattern ... were
+executed". This is a command/runbook defect, not a product-test failure.
+
+The user then added only Maven's stated reactor safeguard:
+
+  mvn -B -ntp -o -pl platform-boot -am
+    "-Dit.test=Phase44CacheCommitWindowIT"
+    -Dfailsafe.failIfNoSpecifiedTests=false verify
+
+Observed result:
+
+- Phase44CacheCommitWindowIT: 16 tests, 0 failures, 0 errors, 0 skipped,
+  38.756 seconds.
+- Failsafe summary: completed=16, errors=0, failures=0, skipped=0, flakes=0.
+- Reactor: 9/9 modules SUCCESS.
+- Alongside Surefire results reported by the user:
+  platform-system 44/44, platform-file 18/18, platform-boot 177/177.
+- The XML properties contain:
+  it.test=Phase44CacheCommitWindowIT
+  failsafe.failIfNoSpecifiedTests=false
+- The 16 source @Test methods and 16 XML testcase names match. The six new
+  headline cases are present: overlapping writers, renewal beyond two lease
+  periods, owner loss, case aliases, expired crash owner, and legacy envelope.
+
+Local report artifacts inspected:
+
+- platform-boot/target/failsafe-reports/
+  TEST-cn.edu.gpnu.platform.boot.Phase44CacheCommitWindowIT.xml
+  SHA-256:
+  DAE10E02F342523B306D6E7BD0C70BE9DC3FBD9E7F720126B56A64A4C73B75AC
+- platform-boot/target/failsafe-reports/
+  cn.edu.gpnu.platform.boot.Phase44CacheCommitWindowIT.txt
+  SHA-256:
+  A26DA3944D27BCD88F77524B5B070006748262A84E7856443F9ABF19C0E54DC1
+- platform-boot/target/failsafe-reports/failsafe-summary.xml
+  SHA-256:
+  9837639A9B473949DC02BCCB0BE1C3AA1B6B46854C0636A9757BAE844CB93301
+
+Artifact time chain:
+
+- candidate source edits: 2026-07-26 22:16-22:31 +08:00
+- test classes: 2026-07-26 22:30-22:32 +08:00
+- code/test commit 8ff544d: 2026-07-26 22:33 +08:00
+- material commit 890aa6e: 2026-07-26 22:42 +08:00
+- Surefire XML: 2026-07-26 22:49 +08:00
+- Phase44 Failsafe XML/text: 2026-07-26 22:50:26 +08:00
+
+The time chain and candidate blobs are consistent. The target reports are
+ignored and do not embed a candidate Git SHA, so they are high-confidence
+evidence from this machine, not a portable fresh-clone proof.
+
+The XML confirms MySQL 8.0, an initially absent schema history table, and the
+Flyway migration run. Exact container patch versions, the dedicated network
+topology, the before/after residue checks, and down -v cleanup are accepted as
+the user's contemporaneous environment statement; Codex did not independently
+operate Docker, MySQL, Redis, or MinIO.
+
+The phrase "0 [ERROR] / 0 [WARNING]" is accurate for Maven result markers and
+test counts, not for all application logs: the XML includes expected Flyway
+MySQL deprecation WARN records and the deliberate owner-loss test emits an
+expected application ERROR before asserting rollback.
+
+3. Independent safe offline gates
+
+Command:
+
+  mvn -o -B -ntp -pl platform-system -am test
+
+Result:
+
+- BUILD SUCCESS
+- platform-system 44/44
+- EpochGuardedCacheTest 19/19
+- ReferenceCacheInvalidatorTest 12/12
+- DictCachePropertiesTest 5/5
+- DictCacheKeyTest 4/4
+- InAppNotifyChannelBatchTest 4/4
+- 0 failures, 0 errors, 0 skipped
+- completed 2026-07-26 23:10:18 +08:00
+- ERROR log records in ReferenceCacheInvalidatorTest are deliberate
+  failure-isolation fixtures; the Maven gate passed.
+
+Command:
+
+  mvn -o -B -ntp -DskipTests package
+
+Result:
+
+- BUILD SUCCESS
+- 9/9 reactor modules SUCCESS
+- completed 2026-07-26 23:10:26 +08:00
+
+Command:
+
+  npm --prefix frontend run type-check
+
+Result:
+
+- PASS
+- vue-tsc --noEmit exited 0
+
+Command:
+
+  npm --prefix frontend run build
+
+Result:
+
+- PASS
+- 4969 modules transformed
+- only the existing large-chunk advisory was emitted
+
+Command:
+
+  git diff --check 25f8b1c0683dae38f930a8cb94baf937a446013d..
+    890aa6ebc919f13036caf3f87b13779a97120539
+
+Result:
+
+- PASS
+
+4. Finding-defining static interleaving
+
+The real 16/16 gate proves the intended normal paths, but its owner-loss test
+deletes the writers key and immediately releases the transaction to commit. It
+does not read through from that same transaction after owner loss or let a
+second reader inspect the shared payload before beforeCommit.
+
+Confirmed production sequence:
+
+1. A transaction updates V1 to V2 and opens owner + P:ACTIVE.
+2. The writers ZSET disappears while P:ACTIVE remains.
+3. READ_ITEMS_WITH_VERSION sees ZCARD=0 and immediately replaces P:ACTIVE with
+   a normal random version.
+4. The same transaction calls listItems and MySQL read-your-writes returns its
+   uncommitted V2.
+5. PUT_IF_VERSION_UNCHANGED sees no writer and a matching normal version, so it
+   stores V2 in shared Redis.
+6. Another request can hit V2.
+7. Only at beforeCommit does renewOrThrow discover the missing owner and force
+   database rollback; afterCompletion clears the payload later.
+
+Relevant implementation:
+
+- DictServiceImpl.java:115-127
+- DictServiceImpl.java:275-289
+- DictServiceImpl.java:457-480
+- DictServiceImpl.java:498-515
+- DictServiceImpl.java:596-611
+- Phase44CacheCommitWindowIT.java:415-447
+
+This violates the stated invariant that uncommitted dictionary values are never
+published to shared cache. It is the basis for the independent Medium finding
+and CHANGES_REQUESTED verdict.
+
+5. Safety boundary
+
+Codex did not start or connect to Docker, MySQL, Redis, MinIO, any service,
+browser, or network. It did not execute fault injection, owner deletion,
+scanning, fuzzing, stress, credential, permission, or other cyber-like
+operations. The only executed gates were local, offline, naturally exiting
+Maven/npm/Git checks. No stage, commit, merge, push, deploy, or cleanup command
+was performed.
+
+6. Report and metadata validation
+
+- Audit report lint for all tool-supported selected dimensions:
+  security, stability, performance, testing-authenticity, release,
+  configuration, data-integrity: PASS.
+- The lint tool does not implement section checks for the incremental or
+  concurrency mode names; those two sections were reviewed manually.
+- Audit metadata JSON parsed successfully with PowerShell ConvertFrom-Json.
+- git diff --check after report/governance edits: PASS.
