@@ -1,0 +1,134 @@
+Phase 53 evidence-remediation independent rereview
+Date: 2026-07-26
+Reviewer: OpenAI Codex
+Baseline / prior independent report commit:
+8d42dcc146e272d9a170b8b64837395c5758853b
+Evidence remediation commit:
+34e4d51789892f6737c1e9cfaaf7b998f390fa9f
+Production code commit:
+b9abc6c2614e98cd52e271bb5882383e03b25c09
+
+Safety boundary
+- No network request, Docker, database, MinIO, browser, service, login,
+  permission change, scanner, fault injection, malicious payload, fuzz,
+  stress, image/volume mutation, merge, push or deployment was executed.
+- Only local Git/content inspection and a naturally exiting offline Maven test
+  command were executed.
+- No credential value or sensitive fragment is reproduced in this evidence.
+
+Incremental provenance
+- 34e4d51 is the direct child of 8d42dcc: PASS
+- git diff --shortstat 8d42dcc..34e4d51:
+  22 files changed, 152 insertions(+), 13 deletions(-)
+- commits in range: 1
+- git diff --check 8d42dcc..34e4d51: PASS
+- production/test/build file changes in the range: 0
+- b9abc6c..34e4d51 scoped production/test/build blobs: UNCHANGED
+
+Archive inventory
+- committed *.log.txt files: 12
+- committed manifest files in logs/: 1
+- submitted evidence-tree files: 46
+- explicit log paths in the dynamic report: 6
+- all 6 explicit log paths are committed Git paths: PASS
+- submitted tracked-path list equals the 46-file commit tree: PASS
+
+Git serialization contract
+- target .gitattributes rule: text=unset, diff=unset
+- target archive filter: unspecified
+- raw working-tree blob SHA-1 equals HEAD blob SHA-1 for 12/12 files: PASS
+- EOL/text filtering cannot rewrite the 12 archive blobs: PASS
+
+Archive SHA-256 cross-check
+- envA-run0-migrate-demo-off.log.txt
+  bytes=104688
+  sha256=188B072948FE94D8AB9B578A84096C919B482E21E4A13217461B8AA18F0316C2
+- envA-run1-demo-on.log.txt
+  bytes=8062
+  sha256=375B49FE307A891871C639E4D3609F28140B2D315CF0A0CF32F477A7CFDF9A4A
+- envA-run2-demo-on-idempotent.log.txt
+  bytes=8050
+  sha256=96613F98657868E3C9A2BC077E7E105B557CC5FA25B4F83FF3D1FEB0D6C5D098
+- envA-run3-demo-on-for-authz.log.txt
+  bytes=8775
+  sha256=9BFC20CBF59175ED22E7529B5DDD1B17BB6CF3A31478378EA9448E1F46C48EEA
+- envB-run0-migrate-demo-off.log.txt
+  bytes=104688
+  sha256=21FC7B9860FA64E915A510BA74B4160E070D5DD627D1D032493791C80E9F2C31
+- envB-run1-demo-on-polluted-content.log.txt
+  bytes=10212
+  sha256=2D97416C8CED31E5D081C9DCB54599BBF6E2A3CDD1B04606D4E17A7AE56193E9
+- envB-run2-demo-on-wrong-contenttype.log.txt
+  bytes=10867
+  sha256=8CDF662A3544D995144005EA624FFB744676A98E3F900318FB26792E4F667C9C
+- envC-run0-migrate-demo-off.log.txt
+  bytes=104688
+  sha256=FA73EDC78EB49960EE89F3AAE66B7A2091C956D27CF3E48F598FCEC7AE4892F9
+- envC-run1-demo-on-sql-fault.log.txt
+  bytes=11881
+  sha256=0544EAA18D15BCF1D9866C785628743CAF4EC54A290CDADEA99AA0F99AA653A4
+- envC-run2-demo-on-fault-cleared.log.txt
+  bytes=8050
+  sha256=F0764D9C22EE6940164FFF140F8A0FED7614399B0D86C951A250BB2B98F12C00
+- envC-run3-demo-on-restart.log.txt
+  bytes=8050
+  sha256=220C4DB3C8579983E6A6AB3E9075C5C9F984B29FB67FC98635D624E860964D4B
+- frontend-dev.log.txt
+  bytes=299
+  sha256=A89EE74D9863A939377F16B58FB922583E661D9F3A8E64C56B9C3107B4564102
+
+For every archive above:
+- actual committed bytes/size equals the manifest archive row: PASS
+- manifest archive row equals the manifest original row: PASS
+- SHA-256 equals the prior independent raw-log inventory: PASS
+
+Target redaction contract
+- complete old temporary password value in the current Phase 53 evidence tree:
+  absent
+- complete old X-Amz-Credential value in the current Phase 53 evidence tree:
+  absent
+- complete old X-Amz-Signature value in the current Phase 53 evidence tree:
+  absent
+- 18b, 21 and 22 contain [REDACTED_SECRET] in the required fields: PASS
+- pre-redaction hashes in 18b, 21 and 22 match their 8d42dcc blobs: PASS
+
+Residual evidence hygiene
+- a credential-derived password fragment remains in two scan-rule
+  descriptions; the value is intentionally not reproduced here
+- the submitted secret-lint record has no executable command, file scope,
+  exclusions or allowlist, so its zero-hit claim is not independently
+  reproducible
+- 11/12 backend archive logs contain the local Windows user name and absolute
+  workspace path on line 12; no live credential is present
+
+Independent offline regression
+- Command:
+  mvn -o -B -ntp -pl platform-boot -am clean test
+- Result:
+  BUILD SUCCESS
+- platform-file: 18 tests, 0 failures, 0 errors, 0 skipped
+- platform-boot: 177 tests, 0 failures, 0 errors, 0 skipped
+- total: 195 tests, 0 failures, 0 errors, 0 skipped
+- DemoDataInitializerTest: 21/21
+- VideoMediaAcceptancePolicyTest: 10/10
+- current focused XML SHA-256:
+  DemoDataInitializerTest:
+  D5F82E555D131AEE599E53DCBD973C9C70AABAC9D4B066FD025C37B5E04AE38C
+  VideoMediaAcceptancePolicyTest:
+  BBE7B1FCF58C4B50C0C31C51F77432014EE5DA87050F89F7A02E2E4FC4BA04A4
+
+Closure result
+- previous blocking Medium, raw logs absent from Git: CLOSED
+- previous evidence-hygiene Low, complete target values: CLOSED by original
+  issue definition
+- new evidence-hygiene Low, credential-derived fragment and non-reproducible
+  zero-hit claim: CONFIRMED, non-blocking
+- new evidence-hygiene Low, local user/absolute path: CONFIRMED, non-blocking
+- carry-forward Low, real packaged-MP4 probe automation: OPEN, non-blocking
+
+Final independent verdict
+- Phase 53: PASS
+- Findings: 0 Critical / 0 High / 0 Medium / 3 Low
+- Phase 44 may proceed to remediation/review only
+- Project release status remains CHANGES_REQUESTED because Phase 0 and
+  Phase 44 are still returned

@@ -15,6 +15,15 @@
 
 ---
 
+## [2026-07-26] GOV-021 Phase 53 证据整改独立增量复核 — PASS（3 Low，均非阻断）
+- 做了什么：冻结上一轮正式报告/证据提交 `8d42dcc` 与证据整改提交 `34e4d51`，只复核直接一提交增量；确认没有生产、测试、构建、依赖、Flyway 或前端代码变化。对 12 份 `.log.txt` 逐一核对 manifest 归档摘要、上一轮原始日志清单、当前文件与 Git blob 四路 SHA-256，全部一致；确认文件全部受跟踪且 `.gitattributes -text -diff` 生效。对 `18b/21/22` 做定向脱敏复核，旧完整临时口令与完整预签名凭据/签名值已从当前 Phase 53 证据树移除。产出 `docs/reviews/phase-53-evidence-remediation-rereview-2026-07-26.md` 与 `docs/reviews/evidence/phase53-evidence-remediation-rereview-2026-07-26/offline-integrity-and-regression.txt`。
+- 关键决策与理由：正式结论为 **PASS（0 Critical / 0 High / 0 Medium / 3 Low，均非阻断）**。上一轮唯一 Medium 已由可移植日志归档关闭，上一轮“完整秘密值留在证据中”的 Low 也按原问题口径关闭；新增/保留 Low 为：packaged MP4 仍仅由 stub 探测覆盖、扫描说明保留凭据派生片段且 secret-lint 零命中记录缺命令/作用域/排除项、11 份后端日志保留本机用户名和绝对路径。按 `REVIEW-GATE`，这些证据卫生与稳定发布前测试债不阻断阶段 PASS。
+- 问题与解决：整改材料的 tracked-path 自证不足以单独证明 secret-lint 的扫描语义，故没有把“零命中”扩写为更强结论，而是作为 Low 留档；同时复核了三类环境日志的关键时序，确认首次发布、幂等跳过、两类污染失败关闭、SQL 故障终止与恢复结果均与动态报告一致。没有改写上一轮 CHANGES_REQUESTED 历史报告，新增后续 PASS 报告保留审计时间线。
+- 与规格的偏差/疑问：无业务规格或代码行为变更。`stat(MISSING) → put` 的外部并发无 CAS、旧新初始化器禁止混部、Phase 7 有效预签名链接合同冲突仍留最终全量审计；本次 PASS 只放行 Phase 44 整改，不等于 merge、部署、切流或项目发布 GO。
+- 测试：`mvn -o -B -ntp -pl platform-boot -am clean test` **195/195**（`platform-file` 18/18、`platform-boot` 177/177；`DemoDataInitializerTest` 21/21、`VideoMediaAcceptancePolicyTest` 10/10）；审计报告 lint PASS；`git diff --check 8d42dcc..34e4d51` PASS；12/12 归档日志哈希/跟踪/属性检查 PASS。
+- 安全边界：仅执行本地只读 Git/文本检查和会自然退出的 Maven 离线测试；未运行网络、Docker、数据库、MinIO、浏览器、服务、扫描、凭据尝试、故障注入、压力、权限变更或任何可能属于 cyber 的动作。
+- 下一步：按 `docs/reviews/phase-44-review.md` 处理通知批量交付完成声明与缓存提交窗口两项 Major；Phase 44 独立 PASS 后进入 Phase 0，全部退回阶段关闭后执行最终全量审计。
+
 ## [2026-07-26] U-003 / Phase 53 证据归档/脱敏整改 — 关闭复核 Medium 与证据卫生 Low
 - 做了什么：按正式报告 `phase-53-remediation-rereview-2026-07-26.md` §15 "Fix Immediately" 三项完成最小证据整改。①12 个原始启动日志敏感模式扫描零命中，以逐字节相同的 `.log.txt` 归档进 `docs/reviews/evidence/phase-53-dynamic-2026-07-26/logs/`，`.gitattributes` 为其设 `-text -diff`（phase41 同口径）防换行归一化破坏哈希；`logs-sha256-manifest.txt` 记录原始=归档 SHA-256，且与独立复核 "Raw log integrity inventory" 12 项逐一相同。②动态报告 5 处 `logs/*.log` 引用改为 `.log.txt` 跟踪路径，新增 §6 整改附录；`24-tracked-path-check.txt` 归档四段一次性检查（引用路径 `git ls-files --error-unmatch`、目录非 `.log` 文件全跟踪、secret lint 复扫零命中、12 个暂存 blob SHA-256 与原始/复核清单逐一 MATCH），RESULT: PASS。③`18b`/`21`（复核点名）及同类主动补充的 `22` 中临时口令、`X-Amz-Credential`、`X-Amz-Signature` 值替换为 `[REDACTED_SECRET]`，文件头注记脱敏前 SHA-256；原值仅属已销毁隔离环境且 URL 已过期，无处复用，无需轮换。
 - 关键决策与理由：归档采用"逐字节 `.log.txt` + `-text -diff`"而非摘录，使归档哈希=原始哈希=复核者清单哈希，同源链在 fresh clone 可机械复核；不改 `.gitignore` 全局 `*.log` 规则，避免影响仓库其它路径。packaged MP4 真实探测自动化属另一 Low 的测试代码变更，按报告 §15 划入 "Fix Before Stable Release"，不混入本次仅证据范围。

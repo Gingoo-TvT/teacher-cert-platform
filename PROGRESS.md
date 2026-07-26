@@ -5,11 +5,11 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**❌ Phase 53 独立增量复核退回（0 Critical / 0 High / 1 Medium / 2 Low）；证据归档/脱敏整改已完成，待证据增量复核**（当前分支 `codex/phase53-demo-reconcile`，代码候选 `b9abc6c`，正式报告 `docs/reviews/phase-53-remediation-rereview-2026-07-26.md`）。原 Major 与补充 High 的生产行为已关闭；阻断 Medium（12 个启动日志未入库）已按逐字节 `.log.txt` + `-text -diff` + SHA-256 清单 + tracked-path 检查 PASS 关闭待复核；证据卫生 Low 的两处（另主动补充一处同类）秘密值已替换为 `[REDACTED_SECRET]`。packaged MP4 真实探测自动化 Low 按报告划入 Fix Before Stable Release。统一入口为 `docs/CURRENT-EXECUTION-PLAN.md`。
-- 当前结论：WS-1/WS-2/WS-3/WS-10/WS-13 PASS；U-001 CI 零状态契约 PASS。Phase 42、Phase 39、Phase 41 与 Phase 47 第二轮均已独立 PASS；全项目当前仍由 **Phase 0、44、53** 三个退回阶段保持 **CHANGES_REQUESTED**。
+- 当前阶段：**❌ Phase 44 复核退回，进入既有整改队列**。Phase 53 证据整改已由独立增量复核确认 **PASS（0 Critical / 0 High / 0 Medium / 3 Low，均非阻断）**；正式报告为 `docs/reviews/phase-53-evidence-remediation-rereview-2026-07-26.md`，冻结 `8d42dcc..34e4d51`，代码仍为 `b9abc6c`。12 个启动日志的可移植归档与逐字节同源性关闭上一轮唯一 Medium；packaged MP4 真实探测自动化、凭据派生片段/secret-lint 可复现性和本机路径证据卫生 3 个 Low 留稳定发布前处理。统一入口为 `docs/CURRENT-EXECUTION-PLAN.md`。
+- 当前结论：WS-1/WS-2/WS-3/WS-10/WS-13 PASS；U-001 CI 零状态契约 PASS。Phase 42、Phase 39、Phase 41、Phase 47 与 Phase 53 均已独立 PASS；全项目当前仍由 **Phase 0、44** 两个退回阶段保持 **CHANGES_REQUESTED**。
 - P0 放行项：Phase 41 上一轮 1 High / 2 Medium / 1 Low 全部关闭；正式 PASS 时新增的 1 个非阻断 Low 已在后续闭环——Gate A 示例补齐冷认证参数，runner 在 Maven 前强制受验证 TLS / `allowPublicKeyRetrieval=true` / 受控 RSA 公钥文件三选一，并由纯 stub 静态契约覆盖失败关闭。正式报告仍保留当时的 1 Low 快照。约 24 MiB 以上原始整行 fail-closed、写入侧未同界继续留最终全量审计。
-- 最近更新：2026-07-26（Phase 53 证据整改完成：12 个日志以逐字节 `.log.txt` 归档并由 `logs-sha256-manifest.txt` 与独立复核清单逐一同源，动态报告引用修正并新增 §6 整改附录，`24-tracked-path-check.txt` 四段检查 RESULT: PASS，`18b/21/22` 秘密值替换为 `[REDACTED_SECRET]`。复核报告与独立证据归档于 `8d42dcc`）。
-- 下一步：发起 Phase 53 证据增量复核（按正式报告只需证据增量 + tracked-path 自洽 + 必要离线回归，不重跑 Docker/MySQL/MinIO/浏览器/故障注入）。PASS 后依次 Phase 44 → Phase 0，全部退回项关闭后执行最终全量审计。
+- 最近更新：2026-07-26（Phase 53 证据整改提交 `34e4d51` 已独立复核 PASS：12/12 归档日志四路哈希同源、tracked-path 与 `-text -diff` 属性成立，旧完整秘密值已移除；离线 `clean test` 195/195、报告 lint 与 diff check 均 PASS。独立证据见 `docs/reviews/evidence/phase53-evidence-remediation-rereview-2026-07-26/`）。
+- 下一步：按既有 `phase-44-review.md` 处理通知批量交付完成声明与缓存提交窗口两项 Major，独立复核 PASS 后进入 Phase 0；全部退回项关闭后执行最终全量审计。
 
 ## 审计整改工作流
 | WS | 内容 | 状态 |
@@ -37,7 +37,7 @@
 | Phase 41 | 第二轮整改 `b5ed7f5`；材料/HEAD `ef6b550` | `phase-41-second-remediation-dynamic-evidence-rereview-2026-07-25.md` PASS；真实 MySQL 8.4 恢复与账号/授权两项门禁闭合 | ✅ 独立复核 PASS；上一轮 1 High / 2 Medium / 1 Low 全部关闭；正式 PASS 时的 1 Low 已后续闭环 |
 | Phase 47 | 原实现已合并；第二轮整改 `3bddf6c`、PASS 后 Low 闭环 `191a3ad` 未合并 | `phase-47-second-remediation-rereview-2026-07-26.md` PASS | ✅ 独立复核 PASS；第一轮 1 Medium / 1 Low 全部关闭；正式 PASS 时新增的 1 Low 已后续闭环 |
 | Phase 44 | 已合并 | `phase-44-review.md` CHANGES REQUESTED | ❌ 复核退回 |
-| Phase 53 | 原实现已合并；整改候选 `b9abc6c` 未合并 | `phase-53-remediation-rereview-2026-07-26.md` CHANGES REQUESTED（1 Medium / 2 Low） | ❌ 独立增量复核退回；原 Major/补充 High 行为已关闭；证据日志归档 + 凭据脱敏整改已完成并通过 tracked-path 检查，待证据增量复核 |
+| Phase 53 | 原实现已合并；代码整改 `b9abc6c`、证据整改 `34e4d51` 未合并 | `phase-53-evidence-remediation-rereview-2026-07-26.md` PASS（3 Low，均非阻断） | ✅ 独立增量复核 PASS；上一轮 1 Medium 与完整秘密值证据 Low 关闭，packaged MP4 自动探测及两项证据卫生 Low 留稳定发布前处理 |
 
 逐 Phase 结论、报告路径与后续顺序以 `docs/CURRENT-EXECUTION-PLAN.md` 为准。
 
