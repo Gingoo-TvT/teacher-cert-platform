@@ -62,7 +62,7 @@ const rules: FormRules = {
 
 function reset() {
   editingId.value = null
-  form.typeCode = props.typeCode
+  form.typeCode = normalizeTypeCode(props.typeCode)
   form.itemCode = ''
   form.itemValue = ''
   form.parentCode = ''
@@ -76,7 +76,7 @@ function open(row?: DictItem) {
   reset()
   if (row) {
     editingId.value = row.id
-    form.typeCode = row.typeCode
+    form.typeCode = normalizeTypeCode(row.typeCode)
     form.itemCode = row.itemCode
     form.itemValue = row.itemValue
     form.parentCode = row.parentCode || ''
@@ -93,7 +93,7 @@ async function save() {
   saving.value = true
   try {
     const payload: DictItemPayload = {
-      typeCode: form.typeCode.trim(),
+      typeCode: normalizeTypeCode(form.typeCode),
       itemCode: form.itemCode.trim(),
       itemValue: form.itemValue.trim(),
       parentCode: cleanOptional(form.parentCode),
@@ -117,6 +117,10 @@ async function save() {
 function cleanOptional(value: string | null | undefined) {
   const text = value?.trim()
   return text ? text : null
+}
+
+function normalizeTypeCode(value: string) {
+  return value.trim().toLowerCase()
 }
 
 function showError(error: unknown, fallback: string) {

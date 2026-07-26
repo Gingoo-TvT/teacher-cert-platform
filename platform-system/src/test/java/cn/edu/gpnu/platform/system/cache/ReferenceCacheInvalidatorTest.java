@@ -13,6 +13,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Phase 44（PG-M4 整改）：失效时序单测——证明「写窗口」与「完成后失效」两段都成立。
@@ -127,8 +128,7 @@ class ReferenceCacheInvalidatorTest {
     }
 
     @Test
-    void registrationFailureReleasesTheWindowImmediately() {
-        // 没有活动同步时 registerSynchronization 会抛异常；此时若不解除，该键将被永久旁路。
+    void withoutSynchronizationRunsStepsImmediatelyAndReleasesWindow() {
         EpochGuardedCache cache = (EpochGuardedCache) cacheManager.getCache(CACHE);
         List<String> executed = new ArrayList<>();
 
@@ -139,6 +139,65 @@ class ReferenceCacheInvalidatorTest {
 
         assertThat(executed).as("无事务时应就地执行").containsExactly("evict");
         assertThat(cache.isPendingInvalidation("k")).isFalse();
+    }
+
+    @Test
+    void registrationFailureReleasesTheWindowAndPropagatesTheOriginalException() {
+        EpochGuardedCache cache = (EpochGuardedCache) cacheManager.getCache(CACHE);
+        List<String> executed = new ArrayList<>();
+        IllegalStateException registrationFailure = new IllegalStateException("registration rejected");
+        ReferenceCacheInvalidator failingRegistrar = new ReferenceCacheInvalidator(cacheManager) {
+            @Override
+            void registerSynchronization(TransactionSynchronization synchronization) {
+                throw registrationFailure;
+            }
+        };
+        TransactionSynchronizationManager.initSynchronization();
+
+        assertThatThrownBy(() -> failingRegistrar.invalidateAfterCompletion("registration-failure",
+                () -> {
+                    executed.add("begin");
+                    cache.beginPendingInvalidation("k");
+                },
+                List.of(ReferenceCacheInvalidator.step("must-not-run", () -> executed.add("step"))),
+                () -> {
+                    executed.add("end");
+                    cache.endPendingInvalidation("k");
+                }))
+                .isSameAs(registrationFailure);
+
+        assertThat(executed).as("注册失败只应解除已经开启的窗口，不得冒充完成后失效").containsExactly("begin", "end");
+        assertThat(cache.isPendingInvalidation("k")).isFalse();
+        assertThat(TransactionSynchronizationManager.getSynchronizations()).isEmpty();
+    }
+
+    @Test
+    void beforeCommitGuardRunsAtTheRealSynchronizationBoundaryAndCanAbortCommit() {
+        List<String> executed = new ArrayList<>();
+        IllegalStateException leaseLost = new IllegalStateException("lease lost");
+        TransactionSynchronizationManager.initSynchronization();
+
+        invalidator.invalidateAfterCompletion("before-commit",
+                () -> executed.add("begin"),
+                () -> {
+                    executed.add("guard");
+                    throw leaseLost;
+                },
+                List.of(ReferenceCacheInvalidator.step("evict", () -> executed.add("evict"))),
+                () -> executed.add("end"));
+
+        TransactionSynchronization synchronization =
+                TransactionSynchronizationManager.getSynchronizations().get(0);
+        assertThat(executed).as("登记阶段不得提前冒充提交前校验").containsExactly("begin");
+        assertThatThrownBy(() -> synchronization.beforeCommit(false))
+                .as("租约校验失败必须原样中止提交")
+                .isSameAs(leaseLost);
+        assertThat(executed).containsExactly("begin", "guard");
+
+        synchronization.afterCompletion(TransactionSynchronization.STATUS_ROLLED_BACK);
+        assertThat(executed)
+                .as("提交被阻止后仍必须按回滚路径失效并解除窗口")
+                .containsExactly("begin", "guard", "evict", "end");
     }
 
     @Test

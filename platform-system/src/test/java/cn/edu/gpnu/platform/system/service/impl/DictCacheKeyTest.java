@@ -1,85 +1,72 @@
 package cn.edu.gpnu.platform.system.service.impl;
 
+import cn.edu.gpnu.platform.common.exception.BizException;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.ArrayList;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Phase 44（PG-M4 第二轮整改）：字典缓存 Redis 键的<b>命名空间不相交</b>反例。
+ * Phase 44（PG-M4 第三轮整改）：字典 identity 与 Redis 键的反例。
  *
- * <p>上一轮版本键前缀是 {@code dict:items:ver:}，与负载前缀 {@code dict:items:} 嵌套：合法 typeCode
- * {@code "ver:X"} 会让「类型 {@code ver:X} 的负载键」与「类型 {@code X} 的版本键」变成同一个键——
- * 负载 JSON 会被当成版本令牌、版本令牌会被当成负载，缓存语义直接错乱。{@code type_code} 只是
- * {@code VARCHAR(64)}，应用层没有字符集约束，故这是合法输入而非畸形输入。
- *
- * <p>现前缀改为 {@code dict:items-version:}：两者在第 11 个字符上分别是 {@code ':'} 与 {@code '-'}，
- * 无论 typeCode 取什么值都不可能相等。本类用对抗性 typeCode 直接验证该性质。
+ * <p>MySQL {@code *_ai_ci} 把大小写别名视为同一字典；测试必须证明 Java、Redis 与 Caffeine 也使用同一个
+ * {@code trim + Locale.ROOT 小写} identity，不能再用 raw String 不相等推导“不同类型”。同时保留三个 Redis
+ * 命名空间（负载、版本、writer owners）的机械不碰撞证明。
  */
 class DictCacheKeyTest {
 
-    @ParameterizedTest
-    @ValueSource(strings = {"X", "ver:X", "version:X", "items:X", "dict:items:X", ":", "", "  ", "中文类型",
-            "-version:X", "items-version:X"})
-    void payloadKeyNeverCollidesWithVersionKeyOfAnyOtherTypeCode(String typeCode) {
-        List<String> allTypeCodes = adversarialTypeCodes();
+    @Test
+    void databaseEquivalentCaseAliasesShareOneCanonicalIdentityAndEveryRedisKey() {
+        String canonical = "material_category";
 
-        String payloadKey = DictServiceImpl.cacheKey(typeCode);
-        String versionKey = DictServiceImpl.versionKey(typeCode);
-
-        assertThat(payloadKey).isNotEqualTo(versionKey);
-        for (String other : allTypeCodes) {
-            assertThat(payloadKey)
-                    .as("类型 [%s] 的负载键不得等于类型 [%s] 的版本键", typeCode, other)
-                    .isNotEqualTo(DictServiceImpl.versionKey(other));
-            if (!other.equals(typeCode)) {
-                assertThat(payloadKey)
-                        .as("不同类型的负载键必须互不相同：[%s] vs [%s]", typeCode, other)
-                        .isNotEqualTo(DictServiceImpl.cacheKey(other));
-                assertThat(versionKey)
-                        .as("不同类型的版本键必须互不相同：[%s] vs [%s]", typeCode, other)
-                        .isNotEqualTo(DictServiceImpl.versionKey(other));
-            }
+        for (String alias : List.of(canonical, "MATERIAL_CATEGORY", " Material_Category ")) {
+            assertThat(DictServiceImpl.normalizeTypeCode(alias)).isEqualTo(canonical);
+            assertThat(DictServiceImpl.cacheKey(alias)).isEqualTo(DictServiceImpl.cacheKey(canonical));
+            assertThat(DictServiceImpl.versionKey(alias)).isEqualTo(DictServiceImpl.versionKey(canonical));
+            assertThat(DictServiceImpl.writersKey(alias)).isEqualTo(DictServiceImpl.writersKey(canonical));
         }
     }
 
     @Test
-    void oldNestedPrefixWouldHaveCollided() {
-        // 记录上一轮的真实缺陷形态：旧前缀下 "ver:X" 的负载键 == "X" 的版本键。
+    void payloadVersionAndWriterNamespacesArePairwiseDisjointForEveryValidIdentity() {
+        List<String> allKeys = new ArrayList<>();
+        List<String> canonicalTypes = List.of("x", "ver_x", "version_x", "items_x", "dict_items_x", "a".repeat(64));
+        for (String typeCode : canonicalTypes) {
+            allKeys.add(DictServiceImpl.cacheKey(typeCode));
+            allKeys.add(DictServiceImpl.versionKey(typeCode));
+            allKeys.add(DictServiceImpl.writersKey(typeCode));
+        }
+
+        assertThat(allKeys)
+                .as("每个 canonical type 的三类键及不同 type 之间都不得碰撞")
+                .hasSize(canonicalTypes.size() * 3)
+                .doesNotHaveDuplicates();
+    }
+
+    @Test
+    void oldNestedPrefixWouldHaveCollidedButItsInputIsNowRejected() {
         String oldPayloadKey = "dict:items:" + "ver:X";
         String oldVersionKey = "dict:items:ver:" + "X";
-        assertThat(oldPayloadKey).as("旧前缀确实会碰撞，这正是本次改名的原因").isEqualTo(oldVersionKey);
+        assertThat(oldPayloadKey).as("旧前缀确实会碰撞，这正是改名与字符集约束的原因").isEqualTo(oldVersionKey);
 
-        assertThat(DictServiceImpl.cacheKey("ver:X"))
-                .as("新前缀下同一输入不得再碰撞")
-                .isNotEqualTo(DictServiceImpl.versionKey("X"));
+        assertThatThrownBy(() -> DictServiceImpl.cacheKey("ver:X"))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("仅支持英文、数字、下划线");
     }
 
     @Test
-    void keyPrefixesDifferAtTheFirstDivergingCharacter() {
-        // 不相交性的机械证明：两个前缀在同一位置上分别是 ':' 与 '-'，任何后缀都无法弥合。
-        String payloadPrefix = DictServiceImpl.cacheKey("");
-        String versionPrefix = DictServiceImpl.versionKey("");
-        int divergence = 0;
-        while (divergence < Math.min(payloadPrefix.length(), versionPrefix.length())
-                && payloadPrefix.charAt(divergence) == versionPrefix.charAt(divergence)) {
-            divergence++;
-        }
-        assertThat(divergence).isLessThan(payloadPrefix.length());
-        assertThat(divergence).isLessThan(versionPrefix.length());
-        assertThat(payloadPrefix.charAt(divergence)).isNotEqualTo(versionPrefix.charAt(divergence));
-    }
+    void invalidOrNonAsciiAliasesCannotExploitAiCiEquivalenceOrExpandTheKeyspace() {
+        List<String> invalid = new ArrayList<>(List.of("", "  ", "ver:X", "dict:items:X", "中文类型",
+                "matérial_category", "-version_x"));
+        invalid.add("a".repeat(65));
 
-    private List<String> adversarialTypeCodes() {
-        List<String> codes = new ArrayList<>(List.of("X", "ver:X", "version:X", "items:X", "dict:items:X",
-                ":", "中文类型", "-version:X", "items-version:X"));
-        codes.add("");
-        codes.add("  ");
-        codes.add("a".repeat(64));
-        return codes;
+        for (String typeCode : invalid) {
+            assertThatThrownBy(() -> DictServiceImpl.normalizeTypeCode(typeCode))
+                    .as("非法 typeCode 必须在进入 DB/cache 前失败关闭：[%s]", typeCode)
+                    .isInstanceOf(BizException.class);
+        }
     }
 }

@@ -196,7 +196,7 @@ function openItemDrawer(row?: DictItem) {
 }
 
 function onTypeSaved(typeCode: string) {
-  selectedTypeCode.value = typeCode
+  selectedTypeCode.value = typeCode.trim().toLowerCase()
   loadTypes()
 }
 

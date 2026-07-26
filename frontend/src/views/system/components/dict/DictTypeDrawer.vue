@@ -65,7 +65,8 @@ async function save() {
   saving.value = true
   try {
     const payload: DictTypePayload = {
-      typeCode: form.typeCode.trim(),
+      // 后端与 MySQL/Redis/Caffeine 统一使用小写 canonical identity；前端同步收敛，避免保存后选择键漂移。
+      typeCode: form.typeCode.trim().toLowerCase(),
       typeName: form.typeName.trim(),
       description: cleanOptional(form.description),
       sort: form.sort ?? 0,

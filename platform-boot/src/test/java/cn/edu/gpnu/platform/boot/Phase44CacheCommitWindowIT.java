@@ -13,6 +13,8 @@ import cn.edu.gpnu.platform.system.service.ParamService;
 import cn.edu.gpnu.platform.system.service.SystemManagementService;
 import cn.edu.gpnu.platform.system.vo.DictItemVO;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.ibatis.executor.statement.StatementHandler;
 import org.apache.ibatis.plugin.Interceptor;
 import org.apache.ibatis.plugin.Intercepts;
@@ -72,20 +74,25 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @SpringBootTest(classes = PlatformApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @TestPropertySource(properties = {
         "platform.security.jwt.secret=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-        "platform.security.jwt.access-ttl-seconds=30"
+        "platform.security.jwt.access-ttl-seconds=30",
+        "platform.cache.dictionary.writer-lease=6s",
+        "platform.cache.dictionary.writer-renew-interval=1s"
 })
 @Import(Phase44CacheCommitWindowIT.DictReadBarrierTestConfiguration.class)
 @Execution(ExecutionMode.SAME_THREAD)
 class Phase44CacheCommitWindowIT {
 
     private static final String TYPE_CODE = "p44_commit_window";
+    private static final String TYPE_CODE_ALIAS = "P44_COMMIT_WINDOW";
     private static final String TYPE_CODE_B = "p44_commit_window_b";
     private static final String ITEM_CODE = "ALPHA";
+    private static final String ITEM_CODE_B = "BETA";
     private static final String PARAM_KEY = "video.diffThreshold";
     private static final int PARAM_SENTINEL = -424242;
     private static final String PARAM_CACHE_KEY = "getInt:" + PARAM_KEY + ":" + PARAM_SENTINEL;
     private static final String ITEMS_CACHE_KEY = "dict:items:" + TYPE_CODE;
     private static final String ITEMS_VERSION_KEY = "dict:items-version:" + TYPE_CODE;
+    private static final String ITEMS_WRITERS_KEY = "dict:items-writers:" + TYPE_CODE;
     /** 与 {@code DictServiceImpl.PENDING_VERSION_PREFIX} 同值：写窗口令牌前缀。 */
     private static final String PENDING_VERSION_PREFIX = "P:";
 
@@ -112,6 +119,9 @@ class Phase44CacheCommitWindowIT {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private ObjectMapper objectMapper;
 
     @Autowired
     private DictReadBarrier barrier;
@@ -277,6 +287,209 @@ class Phase44CacheCommitWindowIT {
     }
 
     @Test
+    @Timeout(120)
+    void overlappingWritersKeepRedisPendingUntilTheLastOwnerCompletes() throws Exception {
+        Long firstItemId = createFixture("A1");
+        Long secondItemId = dictService.createItem(dictItemOf(TYPE_CODE, ITEM_CODE_B, "B1", 1));
+        assertThat(dictService.listItems(TYPE_CODE, true)).extracting(DictItemVO::getItemValue)
+                .containsExactly("A1", "B1");
+
+        CountDownLatch firstWindowOpen = new CountDownLatch(1);
+        CountDownLatch secondWindowOpen = new CountDownLatch(1);
+        CountDownLatch finishFirst = new CountDownLatch(1);
+        CountDownLatch finishSecond = new CountDownLatch(1);
+        ExecutorService writers = Executors.newFixedThreadPool(2);
+        try {
+            Future<?> first = writers.submit(() -> transactionTemplate.executeWithoutResult(status -> {
+                dictService.updateItem(firstItemId, dictItemOf(TYPE_CODE, ITEM_CODE, "A2", 1));
+                firstWindowOpen.countDown();
+                awaitOrThrow(finishFirst, "第一写事务未获放行");
+            }));
+            assertThat(firstWindowOpen.await(20, TimeUnit.SECONDS)).as("第一写事务必须已进入 pending").isTrue();
+
+            Future<?> second = writers.submit(() -> transactionTemplate.executeWithoutResult(status -> {
+                dictService.updateItem(secondItemId, dictItemOf(TYPE_CODE, ITEM_CODE_B, "B2", 1));
+                secondWindowOpen.countDown();
+                awaitOrThrow(finishSecond, "第二写事务未获放行");
+            }));
+            assertThat(secondWindowOpen.await(20, TimeUnit.SECONDS)).as("第二写事务必须与第一事务重叠").isTrue();
+            assertThat(redisTemplate.opsForZSet().size(ITEMS_WRITERS_KEY))
+                    .as("每个活跃事务必须有独立 owner，不能互相覆盖")
+                    .isEqualTo(2L);
+            assertThat(redisTemplate.getExpire(ITEMS_WRITERS_KEY))
+                    .as("writer 容器使用可续租的崩溃回收 TTL，而不是永久残留")
+                    .isPositive();
+
+            finishFirst.countDown();
+            first.get(20, TimeUnit.SECONDS);
+
+            assertThat(redisTemplate.opsForZSet().size(ITEMS_WRITERS_KEY))
+                    .as("先完成者只能移除自己的 owner")
+                    .isEqualTo(1L);
+            assertThat(redisTemplate.opsForValue().get(ITEMS_VERSION_KEY))
+                    .as("仍有写事务时必须继续 pending")
+                    .startsWith(PENDING_VERSION_PREFIX);
+            assertThat(readInAnotherThread(() -> dictService.listItems(TYPE_CODE, true)))
+                    .extracting(DictItemVO::getItemValue)
+                    .as("中间读只能看到第一事务已提交、第二事务未提交的数据库快照")
+                    .containsExactly("A2", "B1");
+            assertThat(redisTemplate.opsForValue().get(ITEMS_CACHE_KEY))
+                    .as("仍有 owner 时中间快照不得回填")
+                    .isNull();
+
+            finishSecond.countDown();
+            second.get(20, TimeUnit.SECONDS);
+
+            assertThat(redisTemplate.hasKey(ITEMS_WRITERS_KEY)).isFalse();
+            assertThat(redisTemplate.opsForValue().get(ITEMS_VERSION_KEY))
+                    .as("最后一个 owner 离开后才恢复正常版本")
+                    .doesNotStartWith(PENDING_VERSION_PREFIX);
+            assertThat(dictService.listItems(TYPE_CODE, true))
+                    .extracting(DictItemVO::getItemValue)
+                    .containsExactly("A2", "B2");
+        } finally {
+            finishFirst.countDown();
+            finishSecond.countDown();
+            writers.shutdownNow();
+        }
+    }
+
+    @Test
+    @Timeout(120)
+    void liveWriterRenewsItsOwnerBeyondTwoLeasePeriods() throws Exception {
+        Long itemId = createFixture("V1");
+        CountDownLatch windowOpen = new CountDownLatch(1);
+        CountDownLatch finish = new CountDownLatch(1);
+        ExecutorService writer = Executors.newSingleThreadExecutor();
+        try {
+            Future<?> transaction = writer.submit(() -> transactionTemplate.executeWithoutResult(status -> {
+                dictService.updateItem(itemId, dictItem("V2", 1));
+                windowOpen.countDown();
+                awaitOrThrow(finish, "长事务未获放行");
+            }));
+            assertThat(windowOpen.await(20, TimeUnit.SECONDS)).as("写事务必须已进入 pending").isTrue();
+
+            Double initialExpiry = redisTemplate.opsForZSet().score(ITEMS_WRITERS_KEY,
+                    onlyWriterOwner(ITEMS_WRITERS_KEY));
+            assertThat(initialExpiry).as("owner 必须携带独立到期分数").isNotNull();
+
+            // 测试租约为 6s；保持事务 13s，跨过两个原始租约周期。若没有后台续租，owner 会在读 Lua 中被清理。
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(13);
+            while (System.nanoTime() < deadline) {
+                TimeUnit.MILLISECONDS.sleep(750);
+                assertThat(readInAnotherThread(() -> dictService.listItems(TYPE_CODE, true)))
+                        .extracting(DictItemVO::getItemValue)
+                        .as("真实 READ Lua 应持续看到活跃 owner，并只从数据库取得已提交旧值")
+                        .containsExactly("V1");
+                assertThat(redisTemplate.opsForZSet().size(ITEMS_WRITERS_KEY))
+                        .as("READ Lua 已执行 prune 后，存活事务的 owner 仍不得消失")
+                        .isEqualTo(1L);
+                assertThat(redisTemplate.opsForValue().get(ITEMS_VERSION_KEY))
+                        .as("续租期间必须持续 fail closed")
+                        .startsWith(PENDING_VERSION_PREFIX);
+                assertThat(redisTemplate.opsForValue().get(ITEMS_CACHE_KEY))
+                        .as("长事务窗口内的已提交旧快照也不得回填")
+                        .isNull();
+            }
+
+            Double renewedExpiry = redisTemplate.opsForZSet().score(ITEMS_WRITERS_KEY,
+                    onlyWriterOwner(ITEMS_WRITERS_KEY));
+            assertThat(renewedExpiry)
+                    .as("owner 到期分数必须由后台线程推进，不能仍是登记时的固定 TTL")
+                    .isGreaterThan(initialExpiry);
+
+            finish.countDown();
+            transaction.get(20, TimeUnit.SECONDS);
+            assertThat(redisTemplate.hasKey(ITEMS_WRITERS_KEY)).isFalse();
+            assertThat(dictService.listItems(TYPE_CODE, true))
+                    .extracting(DictItemVO::getItemValue)
+                    .containsExactly("V2");
+        } finally {
+            finish.countDown();
+            writer.shutdownNow();
+        }
+    }
+
+    @Test
+    @Timeout(120)
+    void ownerLossBeforeCommitAbortsTheTransactionAndRollsBackDb() throws Exception {
+        Long itemId = createFixture("V1");
+        CountDownLatch windowOpen = new CountDownLatch(1);
+        CountDownLatch finish = new CountDownLatch(1);
+        ExecutorService writer = Executors.newSingleThreadExecutor();
+        try {
+            Future<?> transaction = writer.submit(() -> transactionTemplate.executeWithoutResult(status -> {
+                dictService.updateItem(itemId, dictItem("V2", 1));
+                windowOpen.countDown();
+                awaitOrThrow(finish, "丢租约事务未获放行");
+            }));
+            assertThat(windowOpen.await(20, TimeUnit.SECONDS)).as("写事务必须已进入 pending").isTrue();
+            assertThat(redisTemplate.delete(ITEMS_WRITERS_KEY))
+                    .as("故障注入必须真实删除当前事务的 owner，而不是空转")
+                    .isTrue();
+
+            finish.countDown();
+            assertThatThrownBy(() -> transaction.get(20, TimeUnit.SECONDS))
+                    .as("beforeCommit 发现 owner 丢失时必须阻止提交")
+                    .hasRootCauseInstanceOf(BizException.class)
+                    .hasRootCauseMessage("字典缓存写窗口租约已丢失，事务已中止");
+
+            assertThat(jdbcTemplate.queryForObject("SELECT item_value FROM sys_dict_item WHERE id = ?",
+                    String.class, itemId))
+                    .as("提交被阻止后数据库必须保持 V1")
+                    .isEqualTo("V1");
+            assertThat(dictService.listItems(TYPE_CODE, true))
+                    .extracting(DictItemVO::getItemValue)
+                    .containsExactly("V1");
+        } finally {
+            finish.countDown();
+            writer.shutdownNow();
+        }
+    }
+
+    @Test
+    @Timeout(120)
+    void caseAliasesShareCanonicalDbRedisAndCaffeineIdentityOnCommitAndRollback() {
+        Long itemId = createFixture("V1");
+        Cache labels = cacheManager.getCache(CacheConfig.DICT_LABELS);
+        Cache orgItems = cacheManager.getCache(CacheConfig.ORG_DICT_ITEMS);
+
+        assertThat(dictService.listItems(TYPE_CODE_ALIAS, true)).extracting(DictItemVO::getItemValue)
+                .containsExactly("V1");
+        assertThat(dictService.dictLabels(TYPE_CODE_ALIAS)).containsEntry(ITEM_CODE, "V1");
+        assertThat(dictService.globalEnabledDictItems(TYPE_CODE_ALIAS)).containsKey(ITEM_CODE);
+        assertThat(labels.get(TYPE_CODE)).as("Caffeine 必须只使用 canonical 小写键").isNotNull();
+        assertThat(labels.get(TYPE_CODE_ALIAS)).as("大小写别名不得形成第二个 Caffeine 键").isNull();
+        assertThat(orgItems.get(TYPE_CODE)).as("组织字典缓存同样必须使用 canonical 小写键").isNotNull();
+        assertThat(orgItems.get(TYPE_CODE_ALIAS)).as("组织字典缓存不得形成大小写别名键").isNull();
+        assertNoUppercaseRedisAlias();
+
+        dictService.updateItem(itemId, dictItemOf(TYPE_CODE_ALIAS, ITEM_CODE, "V2", 1));
+
+        assertThat(jdbcTemplate.queryForObject("SELECT type_code FROM sys_dict_item WHERE id = ?",
+                String.class, itemId)).isEqualTo(TYPE_CODE);
+        assertThat(dictService.listItems(TYPE_CODE, true)).extracting(DictItemVO::getItemValue).containsExactly("V2");
+        assertThat(dictService.listItems(TYPE_CODE_ALIAS, true)).extracting(DictItemVO::getItemValue).containsExactly("V2");
+        assertThat(dictService.dictLabels(TYPE_CODE)).containsEntry(ITEM_CODE, "V2");
+        assertThat(dictService.dictLabels(TYPE_CODE_ALIAS)).containsEntry(ITEM_CODE, "V2");
+        assertThat(dictService.globalEnabledDictItems(TYPE_CODE_ALIAS).get(ITEM_CODE).getItemValue()).isEqualTo("V2");
+        assertNoUppercaseRedisAlias();
+
+        transactionTemplate.executeWithoutResult(status -> {
+            dictService.updateItem(itemId, dictItemOf(TYPE_CODE_ALIAS, ITEM_CODE, "V3", 1));
+            assertThat(redisTemplate.opsForValue().get(ITEMS_VERSION_KEY)).startsWith(PENDING_VERSION_PREFIX);
+            assertNoUppercaseRedisAlias();
+            status.setRollbackOnly();
+        });
+
+        assertThat(dictService.listItems(TYPE_CODE, true)).extracting(DictItemVO::getItemValue).containsExactly("V2");
+        assertThat(dictService.listItems(TYPE_CODE_ALIAS, true)).extracting(DictItemVO::getItemValue).containsExactly("V2");
+        assertThat(dictService.dictLabels(TYPE_CODE_ALIAS)).containsEntry(ITEM_CODE, "V2");
+        assertThat(dictService.globalEnabledDictItems(TYPE_CODE_ALIAS).get(ITEM_CODE).getItemValue()).isEqualTo("V2");
+        assertNoUppercaseRedisAlias();
+    }
+
+    @Test
     void dictWriteWindowClosesOnRollbackAndLeavesNoUncommittedValue() {
         Long itemId = createFixture("V1");
         Cache labels = cacheManager.getCache(CacheConfig.DICT_LABELS);
@@ -384,6 +597,55 @@ class Phase44CacheCommitWindowIT {
     }
 
     @Test
+    void expiredCrashOwnerAndPendingVersionRecoverFromCommittedDbTruth() {
+        Long itemId = createFixture("V1");
+        assertThat(dictService.listItems(TYPE_CODE, true))
+                .extracting(DictItemVO::getItemValue)
+                .containsExactly("V1");
+        String stalePayload = redisTemplate.opsForValue().get(ITEMS_CACHE_KEY);
+        assertThat(stalePayload).as("预热后必须有可用于故障注入的旧 payload").isNotBlank();
+
+        // 复刻“数据库已提交、进程在 afterCompletion 前崩溃”：owner 已过租约，pending/payload 仍可能残留。
+        jdbcTemplate.update("UPDATE sys_dict_item SET item_value = ? WHERE id = ?", "V2", itemId);
+        redisTemplate.opsForZSet().add(ITEMS_WRITERS_KEY, "crashed-owner", 0D);
+        redisTemplate.opsForValue().set(ITEMS_VERSION_KEY, PENDING_VERSION_PREFIX + "ACTIVE",
+                Duration.ofMinutes(5));
+        redisTemplate.opsForValue().set(ITEMS_CACHE_KEY, stalePayload, Duration.ofMinutes(5));
+
+        assertThat(dictService.listItems(TYPE_CODE, true))
+                .as("READ Lua 必须清理过期 owner/pending/旧 payload，再从已提交数据库真值重建")
+                .extracting(DictItemVO::getItemValue)
+                .containsExactly("V2");
+        assertThat(redisTemplate.hasKey(ITEMS_WRITERS_KEY)).isFalse();
+        assertThat(redisTemplate.opsForValue().get(ITEMS_VERSION_KEY)).doesNotStartWith(PENDING_VERSION_PREFIX);
+        assertThat(redisTemplate.opsForValue().get(ITEMS_CACHE_KEY)).contains("\"itemValue\":\"V2\"");
+    }
+
+    @Test
+    void legacyEnvelopeWithMatchingVersionCannotSurviveCaseAliasUpgrade() throws Exception {
+        Long itemId = createFixture("V1");
+        List<DictItemVO> v1 = dictService.listItems(TYPE_CODE, true);
+        String version = redisTemplate.opsForValue().get(ITEMS_VERSION_KEY);
+        assertThat(version).isNotBlank();
+
+        // 复刻旧节点留下的 {v,items} 包络：它没有 schema/canonical identity，但版本仍与当前键匹配。
+        String legacyEnvelope = objectMapper.writeValueAsString(Map.of("v", version, "items", v1));
+        redisTemplate.opsForValue().set(ITEMS_CACHE_KEY, legacyEnvelope, Duration.ofMinutes(5));
+        jdbcTemplate.update("UPDATE sys_dict_item SET item_value = ? WHERE id = ?", "V2", itemId);
+
+        assertThat(dictService.listItems(TYPE_CODE_ALIAS, true))
+                .as("旧包络即使版本匹配也必须被拒绝，并从 canonical DB identity 重载")
+                .extracting(DictItemVO::getItemValue)
+                .containsExactly("V2");
+
+        JsonNode upgraded = objectMapper.readTree(redisTemplate.opsForValue().get(ITEMS_CACHE_KEY));
+        assertThat(upgraded.path("schema").asInt()).isEqualTo(2);
+        assertThat(upgraded.path("typeCode").asText()).isEqualTo(TYPE_CODE);
+        assertThat(upgraded.path("items").get(0).path("itemValue").asText()).isEqualTo("V2");
+        assertNoUppercaseRedisAlias();
+    }
+
+    @Test
     void typeCodesThatWouldPolluteTheRedisKeyspaceAreRejectedByTheBackend() {
         // 上一轮版本键前缀嵌套在负载前缀内，合法 typeCode "ver:xxx" 会让两类键互相覆盖。
         // 现在既改成不相交前缀，也把字符集变成后端硬约束（红线 R7：前端规则不可作为唯一防线）。
@@ -430,6 +692,29 @@ class Phase44CacheCommitWindowIT {
         }
     }
 
+    private void awaitOrThrow(CountDownLatch latch, String message) {
+        try {
+            if (!latch.await(30, TimeUnit.SECONDS)) {
+                throw new IllegalStateException(message);
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(e);
+        }
+    }
+
+    private String onlyWriterOwner(String writersKey) {
+        assertThat(redisTemplate.opsForZSet().size(writersKey)).isEqualTo(1L);
+        return redisTemplate.opsForZSet().range(writersKey, 0, 0).stream().findFirst()
+                .orElseThrow(() -> new IllegalStateException("writer owner 不存在"));
+    }
+
+    private void assertNoUppercaseRedisAlias() {
+        assertThat(redisTemplate.hasKey("dict:items:" + TYPE_CODE_ALIAS)).isFalse();
+        assertThat(redisTemplate.hasKey("dict:items-version:" + TYPE_CODE_ALIAS)).isFalse();
+        assertThat(redisTemplate.hasKey("dict:items-writers:" + TYPE_CODE_ALIAS)).isFalse();
+    }
+
     private SysParam editableParam() {
         SysParam param = paramMapper.selectOne(new LambdaQueryWrapper<SysParam>()
                 .eq(SysParam::getParamKey, PARAM_KEY).last("LIMIT 1"));
@@ -465,9 +750,13 @@ class Phase44CacheCommitWindowIT {
     }
 
     private DictItemSaveRequest dictItemOf(String typeCode, String itemValue, int status) {
+        return dictItemOf(typeCode, ITEM_CODE, itemValue, status);
+    }
+
+    private DictItemSaveRequest dictItemOf(String typeCode, String itemCode, String itemValue, int status) {
         DictItemSaveRequest request = new DictItemSaveRequest();
         request.setTypeCode(typeCode);
-        request.setItemCode(ITEM_CODE);
+        request.setItemCode(itemCode);
         request.setItemValue(itemValue);
         request.setYearVersion("GLOBAL");
         request.setStatus(status);
@@ -479,14 +768,19 @@ class Phase44CacheCommitWindowIT {
         for (String typeCode : List.of(TYPE_CODE, TYPE_CODE_B)) {
             jdbcTemplate.update("DELETE FROM sys_dict_item WHERE type_code = ?", typeCode);
             jdbcTemplate.update("DELETE FROM sys_dict_type WHERE type_code = ?", typeCode);
-            redisTemplate.delete(List.of("dict:items:" + typeCode, "dict:items-version:" + typeCode));
+            redisTemplate.delete(List.of("dict:items:" + typeCode, "dict:items-version:" + typeCode,
+                    "dict:items-writers:" + typeCode));
             for (String cacheName : List.of(CacheConfig.DICT_LABELS, CacheConfig.ORG_DICT_ITEMS)) {
                 Cache cache = cacheManager.getCache(cacheName);
                 if (cache != null) {
                     cache.evict(typeCode);
+                    cache.evict(typeCode.toUpperCase(Locale.ROOT));
                 }
             }
         }
+        redisTemplate.delete(List.of("dict:items:" + TYPE_CODE_ALIAS,
+                "dict:items-version:" + TYPE_CODE_ALIAS,
+                "dict:items-writers:" + TYPE_CODE_ALIAS));
     }
 
     @TestConfiguration(proxyBeanMethods = false)

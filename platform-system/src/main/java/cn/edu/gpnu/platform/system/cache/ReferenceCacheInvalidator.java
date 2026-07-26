@@ -20,17 +20,19 @@ import java.util.List;
  * ①并发读可在逐出后把提交前的旧值重填进缓存，提交后继续供旧值直到 TTL；
  * ②逐出后本事务自身的读穿会把<b>未提交</b>值装进共享缓存，其它请求由此读到脏值，事务回滚后该值还会留存。
  *
- * <p>本失效器把一次写的缓存失效拆成<b>三段</b>：
+ * <p>本失效器把一次写的缓存失效拆成<b>四段</b>：
  * <ol>
  *   <li><b>登记即进入写窗口</b>（{@code begin}，同步执行）：受影响的键立刻停止对外供应缓存值、也不再接受回填。
  *       这一段关掉了「提交完成 → 逐出执行」之间仍能读到旧值的窗口，也杜绝本事务未提交值被读穿发布出去；</li>
+ *   <li><b>提交前校验</b>（{@code beforeCommit}）：需要跨进程 owner 的调用方可在真正提交前确认保护仍有效；
+ *       失败直接抛出并阻止业务事务提交；</li>
  *   <li><b>事务完成后逐条执行失效步骤</b>（{@code steps}，用 {@code afterCompletion} 而非 {@code afterCommit}——
  *       回滚同样必须清理，否则窗口期内装入的任何值都会留到 TTL）。<b>每个步骤彼此隔离</b>：任一步骤抛异常只记 ERROR，
  *       不影响其余步骤，避免「Redis 故障连带本地缓存也不失效」这类故障耦合；</li>
  *   <li><b>无条件离开写窗口</b>（{@code end}，放在 {@code finally}）：即使全部步骤都失败也要解除，否则该键将被永久旁路。</li>
  * </ol>
  *
- * <p>无事务上下文（带外维护、测试直改）时三段就地顺序执行，语义与原来一致。
+ * <p>无事务上下文（带外维护、测试直改）时四段就地顺序执行，语义与原来一致。
  *
  * <p>失效步骤失败只能记 ERROR：事务已完成，不能因缓存清理失败回滚业务；此时该缓存最长陈旧到 TTL
  * （字典 12h / 参数 30m），运维据日志处理。
@@ -60,9 +62,20 @@ public class ReferenceCacheInvalidator {
      */
     public void invalidateAfterCompletion(String description, Runnable begin,
                                           List<InvalidationStep> steps, Runnable end) {
+        invalidateAfterCompletion(description, begin, () -> { }, steps, end);
+    }
+
+    /**
+     * 登记一次带提交前守卫的写窗口失效。
+     *
+     * @param beforeCommit 事务真正提交前执行；抛异常会阻止提交。用于确认跨节点写窗口 owner 仍有效
+     */
+    public void invalidateAfterCompletion(String description, Runnable begin, Runnable beforeCommit,
+                                          List<InvalidationStep> steps, Runnable end) {
         begin.run();
         if (!TransactionSynchronizationManager.isSynchronizationActive()) {
             try {
+                beforeCommit.run();
                 runIsolated(description, steps);
             } finally {
                 end.run();
@@ -70,7 +83,12 @@ public class ReferenceCacheInvalidator {
             return;
         }
         try {
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void beforeCommit(boolean readOnly) {
+                    beforeCommit.run();
+                }
+
                 @Override
                 public void afterCompletion(int status) {
                     try {
@@ -85,6 +103,13 @@ public class ReferenceCacheInvalidator {
             end.run();
             throw e;
         }
+    }
+
+    /**
+     * 包内测试缝：生产始终委托 Spring；测试可确定性注入“同步注册失败”，避免用未激活事务的另一分支冒充覆盖。
+     */
+    void registerSynchronization(TransactionSynchronization synchronization) {
+        TransactionSynchronizationManager.registerSynchronization(synchronization);
     }
 
     /** 事务完成后逐出单键；窗口期内该键不供应缓存值也不接受回填。 */

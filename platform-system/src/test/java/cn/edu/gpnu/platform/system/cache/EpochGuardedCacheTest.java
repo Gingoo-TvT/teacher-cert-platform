@@ -8,12 +8,11 @@ import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -150,13 +149,33 @@ class EpochGuardedCacheTest {
                     .as("发布线程应已进入 delegate.put")
                     .isTrue();
 
-            Future<?> evicting = invalidator.submit(() -> cache.evict("T"));
-            assertThat(awaitDone(evicting, 300, TimeUnit.MILLISECONDS))
-                    .as("发布未结束前，失效必须被锁挡住（否则校验与发布之间可插入失效）")
+            CountDownLatch contenderStarted = new CountDownLatch(1);
+            CountDownLatch contenderCompleted = new CountDownLatch(1);
+            AtomicReference<Thread> contenderThread = new AtomicReference<>();
+            Future<?> evicting = invalidator.submit(() -> {
+                contenderThread.set(Thread.currentThread());
+                contenderStarted.countDown();
+                try {
+                    cache.evict("T");
+                } finally {
+                    contenderCompleted.countDown();
+                }
+            });
+            assertThat(contenderStarted.await(5, TimeUnit.SECONDS))
+                    .as("失效线程必须已被调度并开始尝试目标操作")
+                    .isTrue();
+            assertThat(awaitPublishLockQueue(cache, contenderThread.get(), 5, TimeUnit.SECONDS))
+                    .as("失效线程必须已真实排队等待 publishLock，不能用调用前信号冒充锁竞争")
+                    .isTrue();
+            assertThat(contenderCompleted.await(300, TimeUnit.MILLISECONDS))
+                    .as("已启动的失效在发布结束前必须被锁挡住（否则校验与发布之间可插入失效）")
                     .isFalse();
 
             delegate.releasePut();
             publishing.get(5, TimeUnit.SECONDS);
+            assertThat(contenderCompleted.await(5, TimeUnit.SECONDS))
+                    .as("发布放行后失效必须完成")
+                    .isTrue();
             evicting.get(5, TimeUnit.SECONDS);
         } finally {
             delegate.releasePut();
@@ -333,13 +352,33 @@ class EpochGuardedCacheTest {
             });
             assertThat(delegate.awaitInsidePut(5, TimeUnit.SECONDS)).isTrue();
 
-            Future<?> opening = writer.submit(() -> cache.beginPendingInvalidation("T"));
-            assertThat(awaitDone(opening, 300, TimeUnit.MILLISECONDS))
-                    .as("发布未结束前，写窗口的开启必须被锁挡住")
+            CountDownLatch contenderStarted = new CountDownLatch(1);
+            CountDownLatch contenderCompleted = new CountDownLatch(1);
+            AtomicReference<Thread> contenderThread = new AtomicReference<>();
+            Future<?> opening = writer.submit(() -> {
+                contenderThread.set(Thread.currentThread());
+                contenderStarted.countDown();
+                try {
+                    cache.beginPendingInvalidation("T");
+                } finally {
+                    contenderCompleted.countDown();
+                }
+            });
+            assertThat(contenderStarted.await(5, TimeUnit.SECONDS))
+                    .as("写线程必须已被调度并开始尝试开启窗口")
+                    .isTrue();
+            assertThat(awaitPublishLockQueue(cache, contenderThread.get(), 5, TimeUnit.SECONDS))
+                    .as("写线程必须已真实排队等待 publishLock，不能用调用前信号冒充锁竞争")
+                    .isTrue();
+            assertThat(contenderCompleted.await(300, TimeUnit.MILLISECONDS))
+                    .as("已启动的写窗口操作在发布结束前必须被锁挡住")
                     .isFalse();
 
             delegate.releasePut();
             publishing.get(5, TimeUnit.SECONDS);
+            assertThat(contenderCompleted.await(5, TimeUnit.SECONDS))
+                    .as("发布放行后写窗口必须成功开启")
+                    .isTrue();
             opening.get(5, TimeUnit.SECONDS);
         } finally {
             delegate.releasePut();
@@ -358,15 +397,16 @@ class EpochGuardedCacheTest {
         return executor.submit(task).get(5, TimeUnit.SECONDS);
     }
 
-    private static boolean awaitDone(Future<?> future, long timeout, TimeUnit unit) throws InterruptedException {
-        try {
-            future.get(timeout, unit);
-            return true;
-        } catch (TimeoutException e) {
-            return false;
-        } catch (ExecutionException e) {
-            throw new IllegalStateException(e);
+    private static boolean awaitPublishLockQueue(EpochGuardedCache cache, Thread contender,
+                                                 long timeout, TimeUnit unit) throws InterruptedException {
+        long deadline = System.nanoTime() + unit.toNanos(timeout);
+        while (System.nanoTime() < deadline) {
+            if (cache.isPublishOperationQueued(contender)) {
+                return true;
+            }
+            TimeUnit.MILLISECONDS.sleep(5);
         }
+        return cache.isPublishOperationQueued(contender);
     }
 
     /** 记录底层实际收到的 put，用于断言「陈旧值从未写入」。 */

@@ -28,6 +28,11 @@ logging:
     cn.edu.gpnu.platform: info
 
 platform:
+  cache:
+    dictionary:
+      # 活事务会后台续租，并在提交前强制验证；租约只承担崩溃后的 owner 回收。
+      writer-lease: ${DICT_CACHE_WRITER_LEASE:2m}
+      writer-renew-interval: ${DICT_CACHE_WRITER_RENEW_INTERVAL:20s}
   video:
     probe:
       # 媒体真实性校验在主进程中的临时资源硬上限；生产可用同名环境变量覆盖。

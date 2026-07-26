@@ -252,6 +252,14 @@ public class EpochGuardedCache implements Cache {
         return epoch.get();
     }
 
+    /**
+     * 包内只读诊断：目标线程是否已经真实排队等待 publishLock。
+     * 用于并发反例排除“任务已提交但尚未进入目标方法”的调度假绿，不暴露为业务 API。
+     */
+    boolean isPublishOperationQueued(Thread thread) {
+        return publishLock.hasQueuedThread(thread);
+    }
+
     private void rememberLoadEpoch(Object key) {
         Map<Object, Long> tracked = loadEpochs.get();
         if (tracked.size() >= MAX_TRACKED_LOADS) {
