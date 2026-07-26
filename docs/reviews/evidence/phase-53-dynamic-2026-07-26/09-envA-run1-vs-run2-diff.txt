@@ -1,0 +1,23 @@
+=== envA DB 快照 diff：run1(首次切换后) vs run2(二次启动后) ===
+(diff 为空 —— 行数与全部引用字段零漂移)
+
+=== envA 对象 Name/Size/ETag（按行排序后）diff：run1 vs run2 ===
+(diff 为空 —— 8 个对象 Name/Size/ETag 全部一致，未被触碰)
+
+=== run2 对象 Date 佐证（版本 key=run1 上传时刻 03:35:03Z；旧 key=升级前 03:31:34/35Z；run2 启动为 03:38Z）===
+Name      : 0a15c2e382438f3fbbd1e9b5302514ad35da07b33b44f7eb61fbb5c8b31d611d.mp4
+Date      : 2026-07-26 03:35:03 UTC 
+Name      : 53aece50aefaf8236338f0ddada8469e54d1422d26da0a975a2f81c873ba9268.pdf
+Date      : 2026-07-26 03:35:03 UTC 
+Name      : c589a04293ea064c50a46e8fec832e6920b28ea3cf3718aed18b929f9fb631ee.png
+Date      : 2026-07-26 03:35:03 UTC 
+Name      : 53aece50aefaf8236338f0ddada8469e54d1422d26da0a975a2f81c873ba9268.pdf
+Date      : 2026-07-26 03:35:03 UTC 
+Name      : demo-teaching-video.mp4
+Date      : 2026-07-26 03:31:34 UTC 
+Name      : demo-material.pdf
+Date      : 2026-07-26 03:31:34 UTC 
+Name      : demo-material-image.png
+Date      : 2026-07-26 03:31:35 UTC 
+Name      : demo-exemption.pdf
+Date      : 2026-07-26 03:31:35 UTC 

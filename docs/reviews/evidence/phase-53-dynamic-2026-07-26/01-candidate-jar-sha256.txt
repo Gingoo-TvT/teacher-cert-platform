@@ -1,0 +1,1 @@
+be0cbea35040eee2af04e1c0ea6a3975e35d5604aaf066803d15dfc2ffeb74ca *platform-boot/target/teacher-cert-platform.jar

@@ -15,6 +15,15 @@
 
 ---
 
+## [2026-07-26] U-003 / Phase 53 用户动态门禁执行完毕 — 10/10 符合预期，证据已归档
+- 做了什么：按 `docs/reviews/phase-53-remediation-submission-2026-07-26.md` §5 在用户授权的本机会话逐项执行 10 步动态门禁。三套一次性隔离环境（schema `phase53_demo_a/b/c` + bucket `phase53-demo-a/b/c` + redis db15/14/13）：A=旧 528B 升级主路径 + 幂等 + 浏览器/鉴权；B=预存污染拒绝（同长度错内容、错 Content-Type 两变体）；C=实体 SQL 故障回滚 + 恢复链。全程使用同一候选构建产物（`mvn -o -DskipTests package`，jar SHA-256 `be0cbea3…`，工作树与 `b9abc6c` 仅差文档提交）。
+- 关键结果：①升级首启「新建 4/跳过 0/SQL 成功」，五表引用一次性切到内容版本 key（900 秒/tree 指纹/H264/策略哈希/`JCODEC_PROCESS_V4`，`video_upload_session.object_key/uploaded_bytes/duration_seconds` 同步收敛），旧固定 key 对象 ETag 不变且数据库残留引用 0，行数与升级前一致；②读回对象 SHA-256 精确匹配清单，ffprobe 独立探测 h264/900 帧/900.000 秒/首帧可解码，旧 528B 对照组无法解析 header；③二次启动「新建 0/跳过 4」，DB 快照与对象 ETag/mtime diff 均为空；④两种污染变体均启动拒绝、进程退出、污染对象字节与属性原样、demo 表 0 行；⑤SQL 故障（隔离 schema 触发器注入）时四对象已建而事务整体回滚，DB 快照与故障前 diff 为空，仅遗留无引用版本对象；清障后恢复+再重启均「跳过 4」且行数稳定；⑥鉴权矩阵 5 正例（含 ASSIGNED 跨学院）全部取得播放地址+水印+300 秒 expiry，4 越权反例 403、未认证 401、篡改签名 403、Range 206；浏览器实测首帧/时长 15:00/拖动至 450 秒续播/动态水印 overlay，300 秒预签名 URL 自然过期后 403 "Request has expired"。
+- 问题与解决：旧 demo SQL 硬编码 bucket `'teacher-cert'`，为使旧快照自洽改为隔离 bucket 名（其余逐字节取自 `4996811`）；SQL 故障注入采用隔离 schema 内 `notification` BEFORE INSERT 触发器，不触碰候选产物与共享资源。差异均已在证据记录 §4 披露。
+- 与规格的偏差/疑问：无代码改动。`test_*` 账号首登改密仅存在于已销毁的隔离 schema。
+- 测试：动态门禁 10/10 符合预期，无一项与候选声明不符。证据：`docs/reviews/phase-53-dynamic-evidence-2026-07-26.md` + `docs/reviews/evidence/phase-53-dynamic-2026-07-26/`（23 组文件 + 全部启动日志 + 截图）。
+- 清理：逐项确认后仅删除本次创建的 3 schema、3 bucket、redis db13/14/15 键、临时目录与 Playwright 工件；`teacher_cert`/`teacher-cert`/db0 未触碰；dev 容器恢复会话前停止状态，容器/卷未删除。
+- 下一步：发起 Phase 53 正式独立增量复核（冻结 `4996811..b9abc6c` + 本证据记录）；PASS 后依次 Phase 44 → Phase 0。在此之前 Phase 53 维持 CHANGES REQUESTED，不 merge/push/部署。
+
 ## [2026-07-26] U-003 / Phase 53 退回整改候选完成 — 内容版本对象与 demo 元数据原子切换
 - 做了什么：在 `codex/phase53-demo-reconcile` 形成代码候选 `b9abc6c`。`DemoDataInitializer` 先有界读取并核对四个对象候选所用的三个 classpath 媒体资源之精确大小/原始 SHA-256，再以内容摘要派生内容版本 object key；版本对象不存在才上传，检查时已存在则完整核对大小、Content-Type 和读回摘要，预存污染失败关闭且不覆盖。视频对象另经服务端探测核对 tree 指纹、900 秒、900 帧、H264、策略哈希和 `JCODEC_PROCESS_V4`，并复用从生产 `VideoReviewServiceImpl` 抽出的 `VideoMediaAcceptancePolicy`。`demo-data.sql` 的 bucket、四类 key、真实大小/MD5、可信视频元数据与 `video_upload_session.object_key` 全部由已验证 manifest 渲染，并在单个数据库事务中统一切换引用。
 - 关键决策与理由：不再覆盖旧固定 key，也不在发布事务中删除旧 528B 对象。新版本对象先独立验证，数据库提交作为唯一可见切换点；SQL 失败只留下无引用的新版本对象，旧数据库仍指向被保留的旧对象。内容版本写入和幂等 upsert 已足以处理并发初始化，因此移除跨池连接的 MySQL `GET_LOCK` 正确性依赖；资源大小限制改为最多读取上限加 1 字节后判断，避免先完整分配再拒绝。

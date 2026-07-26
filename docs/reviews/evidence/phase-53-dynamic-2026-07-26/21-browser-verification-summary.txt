@@ -1,0 +1,18 @@
+# 浏览器端验证摘要（环境 A，evidence 19/20 截图 + 18 API 记录佐证）
+执行时间: 2026-07-26 11:54–12:00 (+08:00)
+前端: vite dev @ http://localhost:5173 （proxy → 候选后端 8080）
+账号: test_review_teacher（首登强制改密后为 Phase53!Verify1，仅隔离 schema phase53_demo_a 内有效）
+
+1. 登录/待办: 工作台显示 2 条视频指派通知（学生 9104/9107）——demo 实体数据在 UI 生效。
+2. 播放: "我的评审" S9104/周雅婷 → 播放。<video> src = phase53-demo-a 桶新内容版本 key 的预签名 URL
+   （X-Amz-Expires=300），duration=900.000、320x180、readyState=4。
+   截图 19: 画面为真实 H.264 帧（Teacher Cert Demo + 帧内计数 0045/0900 sec），播放器时长 15:00，
+   首帧/前段帧可见非黑屏。
+3. 动态水印: 播放层 overlay 文本 = "评审教师测试账号 test_review_teacher 2026-07-26T03:57:02.351361900Z"
+   （服务端 playback API 下发的 watermarkText：姓名+用户名+签发时刻），截图 19/20 均可见。
+4. 拖动: JS currentTime=450 → onseeked 触发（450.000475），继续播放至 0473/0900（7:51/15:00），截图 20。
+   浏览器网络日志: 对 MinIO 预签名 URL 的分段请求返回 [206 Partial Content]（见 22-browser-network-206.txt）。
+5. 限时 URL: 03:53:52Z 签发的 URL（记录于 18b）于 300 秒窗口后 GET → HTTP 403 AccessDenied
+   "Request has expired"（记录于 18 文件末尾，测试时刻 04:00:13Z）。
+6. 越权反例（API 证据，18 文件）: demo_student→他人/跨学院 403；教务员→跨学院 403；
+   test_student→无关联 403；未认证 401；篡改签名 403。

@@ -1,0 +1,34 @@
+########## 1. 账号准备（首登改密仅隔离 schema A 内生效） ##########
+[test_review_teacher] first-login mustChangePwd=True
+[test_review_teacher] change-pwd => {"code":0,"msg":"成功","data":null}
+[test_college_clerk] first-login mustChangePwd=True
+[test_college_clerk] change-pwd => {"code":0,"msg":"成功","data":null}
+[test_student] first-login mustChangePwd=True
+[test_student] change-pwd => {"code":0,"msg":"成功","data":null}
+tokens acquired: teacher=eyJhbGciOiJIUzUxMiJ9... clerk=eyJhbGciOiJIUzUxMiJ9... student=eyJhbGciOiJIUzUxMiJ9... demo=eyJhbGciOiJIUzUxMiJ9...
+########## 2. 授权正例 ##########
+[评审教师(ASSIGNED,3任务全指派) -> review 8100000000004001] code=0 msg=成功 url=YES expiry=300 watermark=评审教师测试账号 test_review_teacher 2026-07-26T03:53:03.386973800Z
+[评审教师(ASSIGNED) -> review 8100000000004002] code=0 msg=成功 url=YES expiry=300 watermark=评审教师测试账号 test_review_teacher 2026-07-26T03:53:03.983432100Z
+[评审教师(ASSIGNED,跨学院9107) -> review 8100000000004003] code=0 msg=成功 url=YES expiry=300 watermark=评审教师测试账号 test_review_teacher 2026-07-26T03:53:04.569522900Z
+[demo_student(SELF,本人9101) -> review 8100000000004001] code=0 msg=成功 url=YES expiry=300 watermark=演示学生-陈晓明 demo_student 2026-07-26T03:53:05.202022400Z
+[教务员(COLLEGE=201,9104属201) -> review 8100000000004002] code=0 msg=成功 url=YES expiry=300 watermark=学院教务员测试账号 test_college_clerk 2026-07-26T03:53:05.770659600Z
+########## 3. 越权反例 ##########
+[demo_student(SELF,他人9104) -> review 8100000000004002] code=403 msg=无权访问该视频 url=NO expiry=- watermark=-
+[demo_student(SELF,跨学院9107) -> review 8100000000004003] code=403 msg=无权访问该视频 url=NO expiry=- watermark=-
+[教务员(COLLEGE=201,9107属202跨范围) -> review 8100000000004003] code=403 msg=无权访问该视频 url=NO expiry=- watermark=-
+[test_student(SELF,student=9001无关联) -> review 8100000000004001] code=403 msg=无权访问该视频 url=NO expiry=- watermark=-
+-- 未认证请求 --
+[no-token -> review 4001] HTTP 401
+########## 4. 限时 URL / Range / 篡改签名 ##########
+playback url host/query: localhost:9000 /phase53-demo-a/teaching-video/demo/0a15c2e382438f3fbbd1e9b5302514ad35da07b33b44f7eb61fbb5c8b31d611d.mp4
+X-Amz-Expires= ['300']
+GET presigned          => HTTP 200 size=1605702
+Range bytes=0-1023     => HTTP 206 size=1024
+Range bytes=800000-800999 => HTTP 206 size=1000
+�۸�ǩ��               => HTTP 403
+URL 签发于 2026-07-26T03:53:52Z，X-Amz-Expires=300（应于 03:58:52Z 过期）
+当前 UTC: 2026-07-26T04:00:13Z
+--- 过期后 GET ---
+HTTP 403
+<?xml version="1.0" encoding="UTF-8"?>
+<Error><Code>AccessDenied</Code><Message>Request has expired</Message><Key>teaching-video/demo/0a15c2e382438f3fbbd1e9b5302514ad35da07b33b44f7eb61fbb5c8b31d611d.mp4</Key><BucketName>phase53-demo-a</BucketName><Resource>/phase53-demo-a/teaching-video/demo/0a15c2e382438f3fbbd1e9b5302514ad35da07b33b44f7eb61fbb5c8b31d611d.mp4</Resource><RequestId>18C5BAFAA9EA4133</RequestId><HostId>dd9025bab4ad464b049177c95eb6ebf374d3b3fd1af9251148b658df7ac2e3e8</HostId></Error>

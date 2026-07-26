@@ -1,0 +1,18 @@
+=== run2 失败后 image 污染对象 stat（应仍为 application/octet-stream、ETag 2fba59bf） ===
+Name      : c589a04293ea064c50a46e8fec832e6920b28ea3cf3718aed18b929f9fb631ee.png
+Date      : 2026-07-26 03:43:49 UTC 
+Size      : 99 B   
+ETag      : 2fba59bf7077925f03e1d9431b792bed 
+Type      : file 
+Metadata  :
+  Content-Type: application/octet-stream 
+
+=== bucket B 全量清单 ===
+[2026-07-26 03:43:59 UTC]   659B STANDARD process-material/demo/53aece50aefaf8236338f0ddada8469e54d1422d26da0a975a2f81c873ba9268.pdf
+[2026-07-26 03:43:49 UTC]    99B STANDARD process-material/demo/c589a04293ea064c50a46e8fec832e6920b28ea3cf3718aed18b929f9fb631ee.png
+[2026-07-26 03:42:44 UTC] 1.5MiB STANDARD teaching-video/demo/0a15c2e382438f3fbbd1e9b5302514ad35da07b33b44f7eb61fbb5c8b31d611d.mp4
++---------------+------+
+| t             | c    |
++---------------+------+
+| demo任意行 |    0 |
++---------------+------+

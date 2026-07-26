@@ -1,0 +1,3 @@
+issued_at_utc=2026-07-26T03:53:52Z
+expiry_seconds=300
+url=http://localhost:9000/phase53-demo-a/teaching-video/demo/0a15c2e382438f3fbbd1e9b5302514ad35da07b33b44f7eb61fbb5c8b31d611d.mp4?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Date=20260726T035351Z&X-Amz-SignedHeaders=host&X-Amz-Credential=minioadmin%2F20260726%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Expires=300&X-Amz-Signature=36ff270e8980781f3bf898278d8fbf31e311d704548ff96b45b65a740299d015

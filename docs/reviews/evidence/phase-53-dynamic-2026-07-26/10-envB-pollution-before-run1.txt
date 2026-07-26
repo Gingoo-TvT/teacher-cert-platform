@@ -1,0 +1,15 @@
+`/work/wrong-material-659B.bin` -> `m/phase53-demo-b/process-material/demo/53aece50aefaf8236338f0ddada8469e54d1422d26da0a975a2f81c873ba9268.pdf`
+┌───────┬─────────────┬──────────┬─────────────┐
+│ Total │ Transferred │ Duration │ Speed       │
+│ 659 B │ 659 B       │ 00m00s   │ 50.04 KiB/s │
+└───────┴─────────────┴──────────┴─────────────┘
+=== 污染对象 stat（同长度 659B 错误内容，正确 Content-Type） ===
+Name      : 53aece50aefaf8236338f0ddada8469e54d1422d26da0a975a2f81c873ba9268.pdf
+Date      : 2026-07-26 03:42:08 UTC 
+Size      : 659 B  
+ETag      : 6ef8c89a40ac4b29fd44c0e42b9451d5 
+Type      : file 
+Metadata  :
+  Content-Type: application/pdf 
+
+[2026-07-26 03:42:08 UTC]   659B STANDARD process-material/demo/53aece50aefaf8236338f0ddada8469e54d1422d26da0a975a2f81c873ba9268.pdf

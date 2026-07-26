@@ -1,0 +1,20 @@
+=== envC DB 快照 diff：故障注入前 vs 失败回滚后（应为空 = 引用完整回滚到旧值） ===
+(diff 为空 —— 旧固定 key/528B/905'890'910 秒/假 MD5 全部原样保留)
+=== envC 故障后对象清单（旧4 + 无引用新4） ===
+[2026-07-26 03:46:06 UTC]   659B STANDARD exemption-material/demo-exemption.pdf
+[2026-07-26 03:46:36 UTC]   659B STANDARD exemption-material/demo/53aece50aefaf8236338f0ddada8469e54d1422d26da0a975a2f81c873ba9268.pdf
+[2026-07-26 03:46:06 UTC]    99B STANDARD process-material/demo-material-image.png
+[2026-07-26 03:46:06 UTC]   659B STANDARD process-material/demo-material.pdf
+[2026-07-26 03:46:36 UTC]   659B STANDARD process-material/demo/53aece50aefaf8236338f0ddada8469e54d1422d26da0a975a2f81c873ba9268.pdf
+[2026-07-26 03:46:36 UTC]    99B STANDARD process-material/demo/c589a04293ea064c50a46e8fec832e6920b28ea3cf3718aed18b929f9fb631ee.png
+[2026-07-26 03:46:06 UTC]   528B STANDARD teaching-video/demo-teaching-video.mp4
+[2026-07-26 03:46:36 UTC] 1.5MiB STANDARD teaching-video/demo/0a15c2e382438f3fbbd1e9b5302514ad35da07b33b44f7eb61fbb5c8b31d611d.mp4
+=== 旧固定视频 key stat（ETag 应仍为 f1b2a9fd…、Date=03:46:06Z） ===
+Name      : demo-teaching-video.mp4
+Date      : 2026-07-26 03:46:06 UTC 
+Size      : 528 B  
+ETag      : f1b2a9fd54f25a5bb80ebf4c0211778c 
+Type      : file 
+Metadata  :
+  Content-Type: video/mp4 
+

@@ -1,0 +1,26 @@
+=== run1 失败后 bucket B 全量清单 ===
+[2026-07-26 03:42:08 UTC]   659B STANDARD process-material/demo/53aece50aefaf8236338f0ddada8469e54d1422d26da0a975a2f81c873ba9268.pdf
+[2026-07-26 03:42:44 UTC] 1.5MiB STANDARD teaching-video/demo/0a15c2e382438f3fbbd1e9b5302514ad35da07b33b44f7eb61fbb5c8b31d611d.mp4
+=== 污染对象 stat（应与注入时一致：ETag 6ef8c89a…、Date 03:42:08Z） ===
+Name      : 53aece50aefaf8236338f0ddada8469e54d1422d26da0a975a2f81c873ba9268.pdf
+Date      : 2026-07-26 03:42:08 UTC 
+Size      : 659 B  
+ETag      : 6ef8c89a40ac4b29fd44c0e42b9451d5 
+Type      : file 
+Metadata  :
+  Content-Type: application/pdf 
+
+9a8debeb629b18938569d27b897e5190e461b5bb851cbee558e639452cbd789b */tmp/phase53-runtime/dl/envB-material-after-fail.bin
++------------------------+---+
+| t                      | c |
++------------------------+---+
+| sys_user(demo_student) | 0 |
+| file_object demo       | 0 |
+| student demo           | 0 |
+| video_review demo      | 0 |
+| process_material       | 0 |
+| exemption_material     | 0 |
+| video_upload_session   | 0 |
+| notification           | 0 |
+| certificate            | 0 |
++------------------------+---+

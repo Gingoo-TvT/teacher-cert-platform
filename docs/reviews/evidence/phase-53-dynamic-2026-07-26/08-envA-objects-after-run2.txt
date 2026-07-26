@@ -1,0 +1,32 @@
+Name      : 0a15c2e382438f3fbbd1e9b5302514ad35da07b33b44f7eb61fbb5c8b31d611d.mp4
+Date      : 2026-07-26 03:35:03 UTC 
+Size      : 1.5 MiB 
+ETag      : 82d4f117be031f4c43b986b61a1808ec 
+Name      : 53aece50aefaf8236338f0ddada8469e54d1422d26da0a975a2f81c873ba9268.pdf
+Date      : 2026-07-26 03:35:03 UTC 
+Size      : 659 B  
+ETag      : 04ef7b13998c0fecd52bbf07af84bd05 
+Name      : c589a04293ea064c50a46e8fec832e6920b28ea3cf3718aed18b929f9fb631ee.png
+Date      : 2026-07-26 03:35:03 UTC 
+Size      : 99 B   
+ETag      : 2fba59bf7077925f03e1d9431b792bed 
+Name      : 53aece50aefaf8236338f0ddada8469e54d1422d26da0a975a2f81c873ba9268.pdf
+Date      : 2026-07-26 03:35:03 UTC 
+Size      : 659 B  
+ETag      : 04ef7b13998c0fecd52bbf07af84bd05 
+Name      : demo-teaching-video.mp4
+Date      : 2026-07-26 03:31:34 UTC 
+Size      : 528 B  
+ETag      : f1b2a9fd54f25a5bb80ebf4c0211778c 
+Name      : demo-material.pdf
+Date      : 2026-07-26 03:31:34 UTC 
+Size      : 659 B  
+ETag      : 04ef7b13998c0fecd52bbf07af84bd05 
+Name      : demo-material-image.png
+Date      : 2026-07-26 03:31:35 UTC 
+Size      : 99 B   
+ETag      : 2fba59bf7077925f03e1d9431b792bed 
+Name      : demo-exemption.pdf
+Date      : 2026-07-26 03:31:35 UTC 
+Size      : 659 B  
+ETag      : 04ef7b13998c0fecd52bbf07af84bd05 

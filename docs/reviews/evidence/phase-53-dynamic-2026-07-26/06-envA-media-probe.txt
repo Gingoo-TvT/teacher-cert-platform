@@ -1,0 +1,27 @@
+=== 从 bucket phase53-demo-a 读回对象的本地 SHA-256（独立复核） ===
+0a15c2e382438f3fbbd1e9b5302514ad35da07b33b44f7eb61fbb5c8b31d611d */tmp/phase53-runtime/dl/new-video.mp4
+53aece50aefaf8236338f0ddada8469e54d1422d26da0a975a2f81c873ba9268 */tmp/phase53-runtime/dl/new-material.pdf
+c589a04293ea064c50a46e8fec832e6920b28ea3cf3718aed18b929f9fb631ee */tmp/phase53-runtime/dl/new-image.png
+f8ae9833e5ad4dbbbc1e9f56758a13baa9268f1515ed9da654cfcb1620bb0ad9 */tmp/phase53-runtime/dl/old-video.mp4
+
+=== ffprobe 新版本视频对象（期望 H264 / 900s / 900帧 / 可解码首帧） ===
+[STREAM]
+codec_name=h264
+codec_type=video
+width=320
+height=180
+avg_frame_rate=1/1
+nb_frames=900
+[/STREAM]
+[FORMAT]
+duration=900.000000
+size=1605702
+[/FORMAT]
+
+=== ffprobe 抽取首帧（验证首帧可解码非黑） ===
+-rw-r--r-- 1 wenbibuhaoqwq 197609 13704 Jul 26 11:37 /tmp/phase53-runtime/dl/first-frame.png
+
+=== ffprobe 旧 528B 对象（对照组：空轨占位） ===
+[mov,mp4,m4a,3gp,3g2,mj2 @ 00000243346c0a80] invalid STSD entries 0
+[mov,mp4,m4a,3gp,3g2,mj2 @ 00000243346c0a80] error reading header
+C:/Users/WENBIB~1/AppData/Local/Temp/phase53-runtime/dl/old-video.mp4: Invalid data found when processing input

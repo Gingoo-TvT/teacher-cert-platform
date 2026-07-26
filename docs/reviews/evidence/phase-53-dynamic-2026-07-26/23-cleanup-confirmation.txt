@@ -1,0 +1,47 @@
+=== 清理前确认：本次会话创建的一次性隔离资源 ===
+--- MySQL schemas（仅 phase53_demo_a/b/c 将被 DROP；teacher_cert 不动） ---
+information_schema
+mysql
+performance_schema
+phase53_demo_a
+phase53_demo_b
+phase53_demo_c
+sys
+teacher_cert
+--- MinIO buckets（仅 phase53-demo-a/b/c 将被移除；teacher-cert 不动） ---
+[2026-07-26 03:31:34 UTC]     0B phase53-demo-a/
+[2026-07-26 03:42:05 UTC]     0B phase53-demo-b/
+[2026-07-26 03:45:31 UTC]     0B phase53-demo-c/
+[2026-06-13 10:37:05 UTC]     0B teacher-cert/
+--- Redis db13/14/15 键样本（仅本次运行的缓存/验证码/会话，db0 不动） ---
+db13 DBSIZE=0
+db14 DBSIZE=0
+db15 DBSIZE=7
+dict:items:video_score_dimension
+auth:session-generation:800000000000003005
+auth:revoke-after:800000000000003003
+auth:revoke-after:800000000000003005
+
+=== 清理执行（2026-07-26 12:03:34 +0800） ===
+MySQL: 3 个隔离 schema 已 DROP
+Removed `m/phase53-demo-a` successfully.
+Removed `m/phase53-demo-b` successfully.
+Removed `m/phase53-demo-c` successfully.
+OK
+Redis db15 已清空（db13/14 本就为 0）
+临时目录 /tmp/phase53-runtime 已删除
+Playwright 会话工件已删除
+
+=== 清理后复核 ===
+--- schemas ---
+information_schema
+mysql
+performance_schema
+sys
+teacher_cert
+--- buckets ---
+[2026-06-13 10:37:05 UTC]     0B teacher-cert/
+--- redis 13/14/15 ---
+db13=0
+db14=0
+db15=0

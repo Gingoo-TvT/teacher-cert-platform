@@ -1,0 +1,54 @@
+Bucket created successfully `m/phase53-demo-a`.
+`/work/old-sample-video-528B.mp4` -> `m/phase53-demo-a/teaching-video/demo-teaching-video.mp4`
+┌───────┬─────────────┬──────────┬─────────────┐
+│ Total │ Transferred │ Duration │ Speed       │
+│ 528 B │ 528 B       │ 00m00s   │ 35.95 KiB/s │
+└───────┴─────────────┴──────────┴─────────────┘
+`/work/old-sample-material.pdf` -> `m/phase53-demo-a/process-material/demo-material.pdf`
+┌───────┬─────────────┬──────────┬─────────────┐
+│ Total │ Transferred │ Duration │ Speed       │
+│ 659 B │ 659 B       │ 00m00s   │ 50.11 KiB/s │
+└───────┴─────────────┴──────────┴─────────────┘
+`/work/old-sample-image.png` -> `m/phase53-demo-a/process-material/demo-material-image.png`
+┌───────┬─────────────┬──────────┬────────────┐
+│ Total │ Transferred │ Duration │ Speed      │
+│ 99 B  │ 99 B        │ 00m00s   │ 6.73 KiB/s │
+└───────┴─────────────┴──────────┴────────────┘
+`/work/old-sample-material.pdf` -> `m/phase53-demo-a/exemption-material/demo-exemption.pdf`
+┌───────┬─────────────┬──────────┬─────────────┐
+│ Total │ Transferred │ Duration │ Speed       │
+│ 659 B │ 659 B       │ 00m00s   │ 48.47 KiB/s │
+└───────┴─────────────┴──────────┴─────────────┘
+=== stat old fixed keys ===
+Name      : demo-teaching-video.mp4
+Date      : 2026-07-26 03:31:34 UTC 
+Size      : 528 B  
+ETag      : f1b2a9fd54f25a5bb80ebf4c0211778c 
+Type      : file 
+Metadata  :
+  Content-Type: video/mp4 
+
+Name      : demo-material.pdf
+Date      : 2026-07-26 03:31:34 UTC 
+Size      : 659 B  
+ETag      : 04ef7b13998c0fecd52bbf07af84bd05 
+Type      : file 
+Metadata  :
+  Content-Type: application/pdf 
+
+Name      : demo-material-image.png
+Date      : 2026-07-26 03:31:35 UTC 
+Size      : 99 B   
+ETag      : 2fba59bf7077925f03e1d9431b792bed 
+Type      : file 
+Metadata  :
+  Content-Type: image/png 
+
+Name      : demo-exemption.pdf
+Date      : 2026-07-26 03:31:35 UTC 
+Size      : 659 B  
+ETag      : 04ef7b13998c0fecd52bbf07af84bd05 
+Type      : file 
+Metadata  :
+  Content-Type: application/pdf 
+

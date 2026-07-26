@@ -1,0 +1,26 @@
+# Phase 53 动态门禁证据 - 环境元数据
+date: 2026-07-26 11:28:56 +0800
+HEAD: 724e07d3cb58876fd475291c5e9714321e8c9c87
+branch: codex/phase53-demo-reconcile
+candidate: b9abc6c2614e98cd52e271bb5882383e03b25c09
+
+## git status --porcelain (工作树与 HEAD 差异，应只有未跟踪审计资料)
+?? .agents/
+?? .claude/audits/
+?? audit-report-teacher-cert-platform-2026-07-05.html
+?? docs/audit-remediation-plan.md
+?? docs/prompts/
+?? docs/reviews/evidence/phase-53-dynamic-2026-07-26/
+
+## git diff --stat b9abc6c..HEAD (应仅文档)
+ DEVLOG.md                                          |  10 ++
+ HANDOFF.md                                         |   8 +-
+ PROGRESS.md                                        |   9 +-
+ docs/CURRENT-EXECUTION-PLAN.md                     |  11 ++-
+ docs/launch-readiness-plan.md                      |   4 +
+ docs/phase-14-非功能部署验收.md                    |   2 +
+ .../phase-53-remediation-submission-2026-07-26.md  | 108 +++++++++++++++++++++
+ 7 files changed, 140 insertions(+), 12 deletions(-)
+
+## sample-video.mp4 blob (候选冻结 31205d6cc42d9c850713e806b744446326cc807a)
+31205d6cc42d9c850713e806b744446326cc807a
