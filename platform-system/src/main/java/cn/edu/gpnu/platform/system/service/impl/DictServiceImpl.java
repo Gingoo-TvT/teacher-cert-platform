@@ -1,6 +1,7 @@
 package cn.edu.gpnu.platform.system.service.impl;
 
 import cn.edu.gpnu.platform.common.exception.BizException;
+import cn.edu.gpnu.platform.system.cache.DictRedisPublishGuard;
 import cn.edu.gpnu.platform.system.cache.EpochGuardedCache;
 import cn.edu.gpnu.platform.system.cache.ReferenceCacheInvalidator;
 import cn.edu.gpnu.platform.system.config.CacheConfig;
@@ -33,6 +34,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -46,6 +48,7 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Pattern;
 
 @Slf4j
@@ -106,7 +109,8 @@ public class DictServiceImpl implements DictService {
     /**
      * 原子清理过期 writer、检查活跃 writer、取回负载与版本，并在版本缺失时就地建立一个。
      * writer、版本与负载在同一脚本内读取，因此三者恒为同一时刻的一致快照。若活跃 owner 存在，脚本会修复被误删的
-     * pending 版本并删除负载；若没有 owner 却残留旧版 pending 值，则原子推进为新正常版本后再回源。
+     * pending 版本并删除负载；若没有 owner 却仍残留 pending，继续失败关闭且<b>不刷新</b>其 recovery TTL，
+     * 只有 pending 自然过期后，下一次读取看到“版本缺失”才建立正常版本并从已提交数据库重建。
      * 缺失一律返回空串（负载为 JSON、版本为令牌，均不会是空串）。
      */
     private static final RedisScript<List> READ_ITEMS_WITH_VERSION = new DefaultRedisScript<>(
@@ -120,7 +124,14 @@ public class DictServiceImpl implements DictService {
                     + "  return { '', ARGV[3] }\n"
                     + "end\n"
                     + "local version = redis.call('GET', KEYS[2])\n"
-                    + "if version == false or string.sub(version, 1, string.len(ARGV[5])) == ARGV[5] then\n"
+                    + "if version ~= false and string.sub(version, 1, string.len(ARGV[5])) == ARGV[5] then\n"
+                    + "  if redis.call('PTTL', KEYS[2]) < 0 then\n"
+                    + "    redis.call('PEXPIRE', KEYS[2], ARGV[4])\n"
+                    + "  end\n"
+                    + "  redis.call('DEL', KEYS[1])\n"
+                    + "  return { '', version }\n"
+                    + "end\n"
+                    + "if version == false then\n"
                     + "  redis.call('SET', KEYS[2], ARGV[1], 'EX', ARGV[2])\n"
                     + "  redis.call('DEL', KEYS[1])\n"
                     + "  version = ARGV[1]\n"
@@ -211,6 +222,7 @@ public class DictServiceImpl implements DictService {
     private final ObjectMapper objectMapper;
     private final CacheManager cacheManager;
     private final ReferenceCacheInvalidator referenceCacheInvalidator;
+    private final DictRedisPublishGuard dictRedisPublishGuard;
     private final DictCacheProperties dictCacheProperties;
     private final ScheduledExecutorService writerLeaseRenewer =
             Executors.newSingleThreadScheduledExecutor(new WriterLeaseThreadFactory());
@@ -253,11 +265,11 @@ public class DictServiceImpl implements DictService {
         }
         entity.setTypeCode(newTypeCode);
         fillType(entity, request);
-        dictTypeMapper.updateById(entity);
         if (!oldTypeCode.equals(newTypeCode)) {
             evictItemsCache(oldTypeCode);
         }
         evictItemsCache(newTypeCode);
+        dictTypeMapper.updateById(entity);
     }
 
     @Override
@@ -267,8 +279,8 @@ public class DictServiceImpl implements DictService {
         if (countItems(normalizeTypeCode(entity.getTypeCode())) > 0) {
             throw new BizException("字典类型下存在字典项，不能删除");
         }
-        dictTypeMapper.deleteById(id);
         evictItemsCache(entity.getTypeCode());
+        dictTypeMapper.deleteById(id);
     }
 
     @Override
@@ -304,8 +316,8 @@ public class DictServiceImpl implements DictService {
         entity.setItemCode(itemCode);
         entity.setYearVersion(yearVersion);
         fillItem(entity, request);
-        dictItemMapper.insert(entity);
         evictItemsCache(typeCode);
+        dictItemMapper.insert(entity);
         return entity.getId();
     }
 
@@ -325,19 +337,19 @@ public class DictServiceImpl implements DictService {
         entity.setItemCode(itemCode);
         entity.setYearVersion(yearVersion);
         fillItem(entity, request);
-        dictItemMapper.updateById(entity);
         if (!oldTypeCode.equals(typeCode)) {
             evictItemsCache(oldTypeCode);
         }
         evictItemsCache(typeCode);
+        dictItemMapper.updateById(entity);
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void deleteItem(Long id) {
         SysDictItem entity = requireItem(id);
-        dictItemMapper.deleteById(id);
         evictItemsCache(entity.getTypeCode());
+        dictItemMapper.deleteById(id);
     }
 
     @Override
@@ -355,7 +367,8 @@ public class DictServiceImpl implements DictService {
         // ③事务完成后（提交与回滚都做）逐条执行失效步骤，步骤间互相隔离——Redis 故障不得连带本地缓存也不失效；
         // ④无条件解除写窗口。
         // evictItemsCache 是所有字典增改删的唯一 choke point（createItem/updateItem×2/deleteItem/
-        // updateType×2/deleteType 都调它），故按 typeCode 处理即覆盖全部写路径。
+        // updateType×2/deleteType 都调它），故按 typeCode 处理即覆盖全部写路径；各写方法在校验完成后、首条 mapper DML
+        // 之前登记窗口，确保 transaction synchronization 注册失败时数据库尚未产生未提交变更。
         // 手工调用（非 @CacheEvict）：本方法被同类的写方法内部调用（self-invocation），注解式 AOP 不会生效。
         referenceCacheInvalidator.invalidateAfterCompletion("dict:" + normalized,
                 () -> beginWriteWindow(normalized, owner),
@@ -373,10 +386,31 @@ public class DictServiceImpl implements DictService {
      * begin 本身不抛出，确保 {@link ReferenceCacheInvalidator} 一定能登记负责清理本地窗口的完成回调。
      */
     private void beginWriteWindow(String typeCode, WriteWindowOwner owner) {
-        for (String cacheName : List.of(CacheConfig.DICT_LABELS, CacheConfig.ORG_DICT_ITEMS)) {
-            guardedCache(cacheName).ifPresent(cache -> cache.beginPendingInvalidation(typeCode));
+        owner.openLocalPublishGuard();
+        List<EpochGuardedCache> openedCaches = new ArrayList<>(2);
+        try {
+            for (String cacheName : List.of(CacheConfig.DICT_LABELS, CacheConfig.ORG_DICT_ITEMS)) {
+                guardedCache(cacheName).ifPresent(cache -> {
+                    cache.beginPendingInvalidation(typeCode);
+                    openedCaches.add(cache);
+                });
+            }
+            owner.beginRedisWindow();
+        } catch (RuntimeException e) {
+            try {
+                for (EpochGuardedCache cache : openedCaches) {
+                    try {
+                        cache.endPendingInvalidation(typeCode);
+                    } catch (RuntimeException cleanupFailure) {
+                        log.error("字典写窗口登记失败后的 Caffeine 清理失败: cache={}, typeCode={}",
+                                cache.getName(), typeCode, cleanupFailure);
+                    }
+                }
+            } finally {
+                owner.closeLocalPublishGuard();
+            }
+            throw e;
         }
-        owner.begin();
     }
 
     /**
@@ -385,10 +419,21 @@ public class DictServiceImpl implements DictService {
      */
     private void endWriteWindow(String typeCode, WriteWindowOwner owner) {
         try {
-            owner.complete();
+            owner.completeRedisWindow();
         } finally {
-            for (String cacheName : List.of(CacheConfig.DICT_LABELS, CacheConfig.ORG_DICT_ITEMS)) {
-                guardedCache(cacheName).ifPresent(cache -> cache.endPendingInvalidation(typeCode));
+            try {
+                for (String cacheName : List.of(CacheConfig.DICT_LABELS, CacheConfig.ORG_DICT_ITEMS)) {
+                    guardedCache(cacheName).ifPresent(cache -> {
+                        try {
+                            cache.endPendingInvalidation(typeCode);
+                        } catch (RuntimeException e) {
+                            log.error("解除字典 Caffeine 写窗口失败: cache={}, typeCode={}",
+                                    cacheName, typeCode, e);
+                        }
+                    });
+                }
+            } finally {
+                owner.closeLocalPublishGuard();
             }
         }
     }
@@ -506,13 +551,20 @@ public class DictServiceImpl implements DictService {
                     PAYLOAD_TYPE_CODE_FIELD, typeCode,
                     PAYLOAD_VERSION_FIELD, expectedVersion,
                     PAYLOAD_ITEMS_FIELD, items));
-            Long stored = redisTemplate.execute(PUT_IF_VERSION_UNCHANGED,
-                    List.of(cacheKey(typeCode), versionKey(typeCode), writersKey(typeCode)),
-                    payload,
-                    expectedVersion,
-                    String.valueOf(CACHE_TTL.toSeconds()),
-                    PENDING_VERSION_PREFIX,
-                    String.valueOf(CACHE_VERSION_TTL.toSeconds()));
+            AtomicReference<Long> storedRef = new AtomicReference<>();
+            boolean attempted = dictRedisPublishGuard.publishIfIdle(typeCode,
+                    () -> storedRef.set(redisTemplate.execute(PUT_IF_VERSION_UNCHANGED,
+                            List.of(cacheKey(typeCode), versionKey(typeCode), writersKey(typeCode)),
+                            payload,
+                            expectedVersion,
+                            String.valueOf(CACHE_TTL.toSeconds()),
+                            PENDING_VERSION_PREFIX,
+                            String.valueOf(CACHE_VERSION_TTL.toSeconds()))));
+            if (!attempted) {
+                log.debug("字典项 Redis 回填被本地写窗口守卫拒绝，typeCode={}", typeCode);
+                return;
+            }
+            Long stored = storedRef.get();
             if (stored == null || stored == 0L) {
                 // 装载期间进入过写窗口或版本已推进：本次结果可能来自提交前快照，丢弃即可（下次读重新装载）。
                 log.debug("字典项缓存回填被版本守卫拒绝，typeCode={}", typeCode);
@@ -565,13 +617,18 @@ public class DictServiceImpl implements DictService {
         private final String token = UUID.randomUUID().toString();
         private final AtomicBoolean closed = new AtomicBoolean();
         private final AtomicBoolean lost = new AtomicBoolean();
+        private volatile DictRedisPublishGuard.WriteHandle localPublishGuard;
         private volatile ScheduledFuture<?> renewal;
 
         private WriteWindowOwner(String typeCode) {
             this.typeCode = typeCode;
         }
 
-        private void begin() {
+        private void openLocalPublishGuard() {
+            localPublishGuard = dictRedisPublishGuard.begin(typeCode);
+        }
+
+        private void beginRedisWindow() {
             try {
                 Long ownerCount = redisTemplate.execute(BEGIN_WRITE_WINDOW,
                         ownerKeys(),
@@ -634,7 +691,7 @@ public class DictServiceImpl implements DictService {
                     String.valueOf(writerRecoveryTtlMillis()));
         }
 
-        private void complete() {
+        private void completeRedisWindow() {
             if (!closed.compareAndSet(false, true)) {
                 return;
             }
@@ -657,6 +714,13 @@ public class DictServiceImpl implements DictService {
             } catch (RuntimeException e) {
                 log.error("完成字典缓存写窗口失败（Redis 侧），owner 将按租约回收: typeCode={}, owner={}",
                         typeCode, token, e);
+            }
+        }
+
+        private void closeLocalPublishGuard() {
+            DictRedisPublishGuard.WriteHandle guard = localPublishGuard;
+            if (guard != null) {
+                guard.close();
             }
         }
 

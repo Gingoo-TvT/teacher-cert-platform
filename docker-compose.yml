@@ -82,6 +82,10 @@ services:
       SPRING_DATA_REDIS_PORT: 6379
       # Phase 41.3：对应 application-prod.yml 的 spring.data.redis.password: ${REDIS_PASSWORD}
       REDIS_PASSWORD: ${REDIS_PASSWORD}
+      # Phase 44：字典缓存写窗口的逐 owner 租约。所有后端实例必须使用同一组值；
+      # 默认 2m/20s，续租周期必须为正且不超过租约的三分之一，非法组合会在启动期失败关闭。
+      DICT_CACHE_WRITER_LEASE: ${DICT_CACHE_WRITER_LEASE:-2m}
+      DICT_CACHE_WRITER_RENEW_INTERVAL: ${DICT_CACHE_WRITER_RENEW_INTERVAL:-20s}
       MINIO_ENDPOINT: http://minio:9000
       # 浏览器直传/播放使用的外部地址；不得填 http://minio:9000 这类容器内 DNS。
       MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_ENDPOINT}

@@ -53,6 +53,8 @@ cp .env.example .env
 # REDIS_PASSWORD（Redis 生产鉴权），不可留空/沿用示例值
 
 # 2) 构建并启动生产服务（后台）
+# 首次部署可使用下列命令；从 Phase 44 之前的版本升级时不得据此做滚动替换，
+# 必须先执行下方“Phase 44 字典缓存协议发布”的停机切换。
 docker compose up -d --build
 
 # 3) 查看健康
@@ -62,6 +64,12 @@ docker compose ps
 ```
 
 后端启动时由 Flyway 自动迁移并写入种子数据（字典、角色权限、参数等）。
+
+### Phase 44 字典缓存协议发布
+
+生产 Compose 已透传 `DICT_CACHE_WRITER_LEASE` / `DICT_CACHE_WRITER_RENEW_INTERVAL`，默认 `2m` / `20s`；续租周期必须为正且不超过租约三分之一，所有后端实例必须保持一致。
+
+从旧版本升级时必须停机切换：停止字典管理写请求并排空在途事务 → 停止全部旧后端节点 → 等待旧 pending 的 60 秒 TTL 到期并核对无 `P:*` 残留（必要时仅在全停机状态按具体 typeCode 定向清理字典 payload/version，禁止清空 Redis）→ 一次性启动全部同版本新 binary → 逐实例核对镜像版本、启动日志和 `/api/health` → 只读核对大小写别名与 schema v2 重建 → 恢复字典写流量。禁止新旧 binary 混部；新协议上线后不得回滚旧 binary 承接字典读写，只能保持写入口冻结并前向修复。完整操作边界见 [Phase 14 部署验收](docs/phase-14-非功能部署验收.md)。
 
 ### 视频定稿可靠性发布（V32）
 

@@ -23,6 +23,7 @@ M14 扩展点预留、后端/前端 Dockerfile、生产 docker-compose、兼容�
   - `ADMIN_INITIAL_PASSWORD_HASH`（**必须**，BCrypt cost≥10，且不得对应公开 dev 口令；Compose `.env` 中以单引号包住完整 `$2...` 哈希）。
   - `STAFF_INITIAL_PASSWORD`（**必须**，12-64 位且含大小写字母、数字、特殊字符；不得使用公开 dev/示例口令）。
   - `DB_PASSWORD` / `REDIS_PASSWORD`（**必须**强口令）。
+  - `DICT_CACHE_WRITER_LEASE` / `DICT_CACHE_WRITER_RENEW_INTERVAL`（Phase 44）：字典缓存跨节点写窗口的逐 owner 崩溃回收租约与续租周期，默认 `2m` / `20s`。两者必须为正，且 `RENEW_INTERVAL <= LEASE / 3`；所有后端实例必须使用同一组值，非法组合在启动期失败关闭。
   - `CORS_ALLOWED_ORIGINS`（P1-7）：允许跨域的前端来源白名单，逗号分隔、含协议+端口、无末尾斜杠（如 `https://cert.gpnu.edu.cn`）。同源部署（前端 nginx 同域反代 `/api`）下 CORS 不参与、可留空；跨域独立前端域名时**必须**设为真实域名，否则被拦截。`allowCredentials=true` 下不可用通配 `*`。
   - `MINIO_CONNECTION_TIMEOUT_SECONDS` / `MINIO_READ_TIMEOUT_SECONDS` / `MINIO_CALL_TIMEOUT_SECONDS`：MinioClient 的建连、读写和完整调用上限；AWS S3Client 同时配置建连、套接字和完整 API 调用上限。三项必须为正数，`0` 会在启动期被拒绝，避免以“无限等待”绕过边界。
   - `VIDEO_PROBE_MAX_CONCURRENT` / `VIDEO_PROBE_MAX_RESERVED_BYTES` / `VIDEO_PROBE_MIN_FREE_BYTES`：媒体探测并发、累计预留与磁盘保底水位；独立 `video-probe-temp` 卷容量须至少为 `MAX_RESERVED_BYTES + MIN_FREE_BYTES`，并另留运维余量。
@@ -49,6 +50,15 @@ M14 扩展点预留、后端/前端 Dockerfile、生产 docker-compose、兼容�
   5. 仅启动同一第五轮协议的全部实例，逐实例核对 probe 独占卷/目录，并确认启动对象回填/对账已执行。
   6. 确认 `SERVER_CHUNK` 新对象键带 `/g-{generation}.mp4`、没有旧稳定 key 写入者；健康检查和迁移核验通过后恢复写流量。
   - V31/旧节点会覆盖或清空永久世代，V32 之前节点还会继续写稳定 object key；因此禁止新旧二进制混部。V32 落库后禁止回滚旧协议二进制，失败只能前向修复。
+- **Phase 44 字典缓存协议停机切换（禁止滚动混部）**：
+  1. 在所有目标实例上固定同一 `DICT_CACHE_WRITER_LEASE` / `DICT_CACHE_WRITER_RENEW_INTERVAL`（默认 `2m` / `20s`，且续租周期不超过租约三分之一），先完成配置审查，不得让部分实例回退应用内默认值、部分实例使用覆盖值。
+  2. 在网关或运维入口停止字典管理写请求（字典类型/字典项的新增、修改、删除），排空已进入的字典写事务；读流量可保持到旧节点停机。
+  3. 停止**全部**旧后端节点并确认进程、任务与连接均已退出；从此刻起不得再有旧节点创建 `P:<uuid>` pending、旧 `{v,items}` 包络或大小写别名键。
+  4. 在没有任何后端写入者的前提下，等待上一协议 pending 的 60 秒 TTL 到期，并核对 `dict:items-version:*` 不再存在 `P:*` 值。若因历史人工配置导致残留，只能在维护窗口内按已确认的具体 typeCode 定向清理对应 `dict:items:<typeCode>` payload 与 `dict:items-version:<typeCode>`；禁止 `FLUSHDB`/`FLUSHALL`、禁止删除无关 Redis 数据，也不得在新节点启动后人工删除 `dict:items-writers:*`。
+  5. 使用同一 Phase 44 新 binary 一次性启动全部后端实例；在全部实例健康前不得恢复字典写流量，也不得把任何旧 binary 放回负载均衡。
+  6. 逐实例核对镜像 digest/候选版本一致、启动日志没有字典租约配置校验错误，且 `/api/health` 通过；再用只读字典查询确认大小写别名返回相同数据、Redis 旧包络被 schema v2 失败关闭并重建为 canonical 小写 identity。
+  7. 全部检查通过后才恢复字典管理写流量，并观察租约丢失、Redis 回源/回填失败和健康状态告警。
+  8. Phase 44 新协议上线后，禁止回滚旧 binary 承接任何字典读写；故障时保持字典写入口冻结并以前向修复或同协议新构建替换。旧 binary 会重新产生大小写敏感键和旧包络，不能作为回滚路径。
 - **当前 WS-3 发布闸门（2026-07-24）**：第六轮独立复核 `reviews/ws-03-sixth-remediation-rereview-2026-07-24.md` 为 **PASS**，第五轮新增的 scheduler trigger 隔离与 V32 candidate 全量备份覆盖 2 Medium 全部关闭；双 scheduler、blocked-backup 调度隔离、37 表备份与 candidate scratch restore/真实对账续跑证据成立。唯一新增 Low 是迁移数量应写“32 个迁移、最终 V32”，不阻断 WS-3/U-002。Phase 39、Phase 42、Phase 41、Phase 47 与 Phase 53 后续独立报告亦已 PASS；全项目当前仍受 Phase 0、44 阻断。
 - **当前 Phase 41 恢复闸门（2026-07-25）**：动态证据报告 `reviews/phase-41-second-remediation-dynamic-evidence-rereview-2026-07-25.md` 冻结代码点 `b5ed7f5`、材料/HEAD `ef6b550`，核验 Surefire **149/149**、`Phase41BackupIT` **1/1**、真实 MySQL 8.4 CLI 恢复，以及 sourced/executable 初始化账号与精确授权两项门禁均 PASS；上一轮 1 High / 2 Medium / 1 Low 全部关闭，Phase 41 正式 **PASS** 并放行 Phase 47 进入既有整改。正式 PASS 时新增的 Gate A 冷认证缓存前置 1 Low 已在后续由 JDBC 示例、runner fail-fast、恢复手册和纯 stub CI 契约闭环；原报告保留当时计数。该门禁只证明应用逻辑快照，不替代物理全备、PITR、生产切换或 RPO/RTO 验收。
 - **当前 Phase 47 生命周期闸门（2026-07-26）**：第二轮独立报告 `reviews/phase-47-second-remediation-rereview-2026-07-26.md` 确认 SDK 8.5.12 no-config null 合同、首次规则创建、异常/畸形响应失败关闭、外部规则保留与六类安全日志分类成立，第一轮 1 Medium / 1 Low 全部关闭，正式 **PASS** 并放行 Phase 53。报告当时新增的 1 个日志测试 raw 参数数组 Low 已在 PASS 后由 `191a3ad` 以单一生产枚举、raw 敏感哨兵、负向自证和 unknown code + HTTP 503 反例闭环；原报告保留复核时的 1 Low 计数。
@@ -87,4 +97,5 @@ M14 扩展点预留、后端/前端 Dockerfile、生产 docker-compose、兼容�
 - 兼容性（WPS/Excel 文本一致）是 AT-01 的最终关卡，需用真实 Office 与 WPS 双端核对。
 - `video-probe-temp` 是持久卷，JVM/容器崩溃会绕过 finally。当前 owner/TTL、公平游标和父身份 watchdog 可回收已知工件并终止失去父进程的 worker，但容量预留仍是单实例内状态；共享卷会绕过总预留不变量，必须坚持 per-replica 独占卷和独立配额。
 - V31/V32 是不可与旧定稿协议混部的单向迁移；未执行上述停机切换、V32 后回滚旧二进制，均会破坏永久世代/候选台账或重新写入旧稳定 key。
+- Phase 44 字典缓存 payload/owner/canonical identity 同样是不可混部协议；跳过停写、旧节点排空与 legacy pending 处置，或让旧 binary 回滚写入，会重新引入大小写别名旧值与提前解除写保护。
 - `CLEANED` 墓碑为应对任意迟到对象写而持续存在，会使候选表单调增长；必须监控增长和索引健康，任何压缩、分区或归档方案都需保持仍可能迟到世代的复查能力。

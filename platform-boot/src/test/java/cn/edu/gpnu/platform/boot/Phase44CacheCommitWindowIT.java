@@ -412,21 +412,79 @@ class Phase44CacheCommitWindowIT {
 
     @Test
     @Timeout(120)
-    void ownerLossBeforeCommitAbortsTheTransactionAndRollsBackDb() throws Exception {
+    void ownerLossCannotPublishUncommittedValueBeforeCommitRollback() throws Exception {
         Long itemId = createFixture("V1");
         CountDownLatch windowOpen = new CountDownLatch(1);
+        CountDownLatch ownerDeleted = new CountDownLatch(1);
+        CountDownLatch pendingReadDone = new CountDownLatch(1);
+        CountDownLatch allCoordinationStateDeleted = new CountDownLatch(1);
+        CountDownLatch stateLossReadDone = new CountDownLatch(1);
         CountDownLatch finish = new CountDownLatch(1);
+        AtomicReference<List<DictItemVO>> writerReadWithPending = new AtomicReference<>();
+        AtomicReference<List<DictItemVO>> writerReadAfterStateLoss = new AtomicReference<>();
         ExecutorService writer = Executors.newSingleThreadExecutor();
         try {
             Future<?> transaction = writer.submit(() -> transactionTemplate.executeWithoutResult(status -> {
                 dictService.updateItem(itemId, dictItem("V2", 1));
                 windowOpen.countDown();
+                awaitOrThrow(ownerDeleted, "owner 未被删除");
+                writerReadWithPending.set(dictService.listItems(TYPE_CODE, true));
+                pendingReadDone.countDown();
+                awaitOrThrow(allCoordinationStateDeleted, "Redis 协调状态未被删除");
+                writerReadAfterStateLoss.set(dictService.listItems(TYPE_CODE, true));
+                stateLossReadDone.countDown();
                 awaitOrThrow(finish, "丢租约事务未获放行");
             }));
             assertThat(windowOpen.await(20, TimeUnit.SECONDS)).as("写事务必须已进入 pending").isTrue();
             assertThat(redisTemplate.delete(ITEMS_WRITERS_KEY))
                     .as("故障注入必须真实删除当前事务的 owner，而不是空转")
                     .isTrue();
+            ownerDeleted.countDown();
+
+            assertThat(pendingReadDone.await(20, TimeUnit.SECONDS))
+                    .as("同一写事务必须已在 owner 丢失后完成 read-your-writes")
+                    .isTrue();
+            assertThat(writerReadWithPending.get()).extracting(DictItemVO::getItemValue)
+                    .as("写事务自身仍可读到 V2，但绝不能发布到共享缓存")
+                    .containsExactly("V2");
+            assertThat(redisTemplate.opsForValue().get(ITEMS_VERSION_KEY))
+                    .as("writers 为空但 recovery TTL 尚存时必须继续 pending")
+                    .startsWith(PENDING_VERSION_PREFIX);
+            assertThat(redisTemplate.opsForValue().get(ITEMS_CACHE_KEY))
+                    .as("pending 期间同事务未提交 V2 不得进入 Redis")
+                    .isNull();
+            assertThat(readInAnotherThread(() -> dictService.listItems(TYPE_CODE, true)))
+                    .extracting(DictItemVO::getItemValue)
+                    .as("并发请求只能看到数据库已提交的 V1")
+                    .containsExactly("V1");
+            assertThat(redisTemplate.opsForValue().get(ITEMS_CACHE_KEY))
+                    .as("并发读到的 V1 在不确定窗口内同样不得回填")
+                    .isNull();
+
+            Long deletedStateKeys = redisTemplate.delete(List.of(ITEMS_WRITERS_KEY, ITEMS_VERSION_KEY));
+            assertThat(deletedStateKeys)
+                    .as("第二段故障注入必须真实删除剩余 version，覆盖 Redis 协调状态整体丢失")
+                    .isEqualTo(1L);
+            allCoordinationStateDeleted.countDown();
+            assertThat(stateLossReadDone.await(20, TimeUnit.SECONDS))
+                    .as("同一写事务必须已在 Redis 协调状态整体丢失后再次 read-through")
+                    .isTrue();
+            assertThat(writerReadAfterStateLoss.get()).extracting(DictItemVO::getItemValue)
+                    .containsExactly("V2");
+            assertThat(redisTemplate.opsForValue().get(ITEMS_VERSION_KEY))
+                    .as("READ 可重建普通版本，但本地写窗口仍必须阻止未提交 payload")
+                    .isNotBlank()
+                    .doesNotStartWith(PENDING_VERSION_PREFIX);
+            assertThat(redisTemplate.opsForValue().get(ITEMS_CACHE_KEY))
+                    .as("本地发布守卫必须覆盖 writers/version 同时丢失")
+                    .isNull();
+            assertThat(readInAnotherThread(() -> dictService.listItems(TYPE_CODE, true)))
+                    .extracting(DictItemVO::getItemValue)
+                    .as("协调状态整体丢失后，并发事务仍只能看到 V1")
+                    .containsExactly("V1");
+            assertThat(redisTemplate.opsForValue().get(ITEMS_CACHE_KEY))
+                    .as("本节点存在活跃 writer 时，任何线程都不得发布共享 payload")
+                    .isNull();
 
             finish.countDown();
             assertThatThrownBy(() -> transaction.get(20, TimeUnit.SECONDS))
@@ -441,7 +499,12 @@ class Phase44CacheCommitWindowIT {
             assertThat(dictService.listItems(TYPE_CODE, true))
                     .extracting(DictItemVO::getItemValue)
                     .containsExactly("V1");
+            assertThat(redisTemplate.opsForValue().get(ITEMS_CACHE_KEY))
+                    .as("afterCompletion 必须释放本地发布守卫，使最终真值可以重新回填")
+                    .contains("\"itemValue\":\"V1\"");
         } finally {
+            ownerDeleted.countDown();
+            allCoordinationStateDeleted.countDown();
             finish.countDown();
             writer.shutdownNow();
         }
@@ -597,7 +660,7 @@ class Phase44CacheCommitWindowIT {
     }
 
     @Test
-    void expiredCrashOwnerAndPendingVersionRecoverFromCommittedDbTruth() {
+    void crashPendingRemainsFailClosedUntilRecoveryTtlExpires() throws Exception {
         Long itemId = createFixture("V1");
         assertThat(dictService.listItems(TYPE_CODE, true))
                 .extracting(DictItemVO::getItemValue)
@@ -609,14 +672,44 @@ class Phase44CacheCommitWindowIT {
         jdbcTemplate.update("UPDATE sys_dict_item SET item_value = ? WHERE id = ?", "V2", itemId);
         redisTemplate.opsForZSet().add(ITEMS_WRITERS_KEY, "crashed-owner", 0D);
         redisTemplate.opsForValue().set(ITEMS_VERSION_KEY, PENDING_VERSION_PREFIX + "ACTIVE",
-                Duration.ofMinutes(5));
+                Duration.ofSeconds(4));
         redisTemplate.opsForValue().set(ITEMS_CACHE_KEY, stalePayload, Duration.ofMinutes(5));
 
+        Long initialPendingTtl = redisTemplate.getExpire(ITEMS_VERSION_KEY, TimeUnit.MILLISECONDS);
+        assertThat(initialPendingTtl).as("故障夹具必须真实携带正 recovery TTL").isPositive();
+        TimeUnit.MILLISECONDS.sleep(300);
         assertThat(dictService.listItems(TYPE_CODE, true))
-                .as("READ Lua 必须清理过期 owner/pending/旧 payload，再从已提交数据库真值重建")
+                .as("pending recovery 期间可回源已提交数据库，但不得提前恢复共享缓存")
                 .extracting(DictItemVO::getItemValue)
                 .containsExactly("V2");
+        Long firstReadPendingTtl = redisTemplate.getExpire(ITEMS_VERSION_KEY, TimeUnit.MILLISECONDS);
+        assertThat(firstReadPendingTtl)
+                .as("READ 不得把 positive pending TTL 重置到新的截止点")
+                .isPositive()
+                .isLessThan(initialPendingTtl);
+        TimeUnit.MILLISECONDS.sleep(300);
+        assertThat(dictService.listItems(TYPE_CODE, true))
+                .as("重复 READ 仍只能回源，不得靠读流量续命 pending")
+                .extracting(DictItemVO::getItemValue)
+                .containsExactly("V2");
+        Long secondReadPendingTtl = redisTemplate.getExpire(ITEMS_VERSION_KEY, TimeUnit.MILLISECONDS);
+        assertThat(secondReadPendingTtl)
+                .as("重复 READ 后 pending TTL 必须继续单调下降")
+                .isPositive()
+                .isLessThan(firstReadPendingTtl);
         assertThat(redisTemplate.hasKey(ITEMS_WRITERS_KEY)).isFalse();
+        assertThat(redisTemplate.opsForValue().get(ITEMS_VERSION_KEY))
+                .as("owner 已过期也必须保持 pending，直到其 recovery TTL 自然结束")
+                .startsWith(PENDING_VERSION_PREFIX);
+        assertThat(redisTemplate.opsForValue().get(ITEMS_CACHE_KEY))
+                .as("不确定状态下旧 payload 必须删除，新 payload 不得回填")
+                .isNull();
+
+        awaitRedisKeyAbsent(ITEMS_VERSION_KEY, 10, TimeUnit.SECONDS);
+        assertThat(dictService.listItems(TYPE_CODE, true))
+                .as("pending TTL 到期后，下一次读才可从已提交数据库真值重建")
+                .extracting(DictItemVO::getItemValue)
+                .containsExactly("V2");
         assertThat(redisTemplate.opsForValue().get(ITEMS_VERSION_KEY)).doesNotStartWith(PENDING_VERSION_PREFIX);
         assertThat(redisTemplate.opsForValue().get(ITEMS_CACHE_KEY)).contains("\"itemValue\":\"V2\"");
     }
@@ -701,6 +794,19 @@ class Phase44CacheCommitWindowIT {
             Thread.currentThread().interrupt();
             throw new IllegalStateException(e);
         }
+    }
+
+    private void awaitRedisKeyAbsent(String key, long timeout, TimeUnit unit) throws InterruptedException {
+        long deadline = System.nanoTime() + unit.toNanos(timeout);
+        while (System.nanoTime() < deadline) {
+            if (Boolean.FALSE.equals(redisTemplate.hasKey(key))) {
+                return;
+            }
+            TimeUnit.MILLISECONDS.sleep(25);
+        }
+        assertThat(redisTemplate.hasKey(key))
+                .as("Redis key 应在 recovery TTL 内自然到期: %s", key)
+                .isFalse();
     }
 
     private String onlyWriterOwner(String writersKey) {
