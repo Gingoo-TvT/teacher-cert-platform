@@ -15,6 +15,14 @@
 
 ---
 
+## [2026-07-27] GOV-041 Phase 0 / U-004 第八轮 M1/L1 最小整改候选 — `7810715`
+- 做了什么：仅整改第七轮正式报告中的 `P00-R3-M1` 与 `P00-R3-L1`。PASS 发布改为从已验证 snapshot bytes 重建私有 bundle，完整 verifier 后隐藏 canonical manifest，final 路径逐字节复核完成后以最后一次原子 marker rename 发布 PASS；异常路径至多留下无 canonical manifest 的 withheld bundle。POSIX evidence root 从 `/` 起逐段 `openat(O_DIRECTORY|O_NOFOLLOW)`，stat/fstat dev+ino 对齐并持有全部祖先 fd 到捕获结束。
+- 关键决策与理由：不依赖“校验后再删除”或可失败的回滚来撤销 PASS；canonical `manifest.json` 是唯一且最终的成功转换。POSIX 只补 root 祖先链，root 内既有 openat 递归保持不变；未引入 `openat2`、平台框架、schema、依赖或新凭据。
+- 问题与解决：首版仍把最终私有路径交给通用 rename，专项复审构造出 snapshot 后 mutation；收口后又发现 post-publish 校验与回滚双故障可留下完整 PASS。最终改为 withheld marker 状态机，并补 checksum 后 mutation、manifest 后 delete、目录 rename 内 mutation、published capture OSError 四类反例。一次 Maven 命令因执行器误设 1 秒超时被终止且无遗留 Java 进程；随后从 `clean test` 完整重跑。
+- 与规格的偏差/疑问：无产品业务、API、Flyway、权限、前端、真实依赖协议或 exact 7/33 变化。Windows 无法实际执行两个 POSIX-only 用例，故明确保留 Linux 77/77 门禁，不虚报本机覆盖。
+- 测试：Python **77 methods：Windows 75 PASS / 2 POSIX-only skipped**；离线 Surefire **32 suites / 274 tests**，0 failure/error/skip；后端 package **9/9 modules BUILD SUCCESS**、Checkstyle 0；两路 finding 专项与全 diff 独立只读复审最终 **0 finding**；`git diff --check` PASS。
+- 安全边界/下一步：Codex 未执行 Docker、MySQL、Redis、MinIO、网络、服务、浏览器或真实环境故障注入。最终 clean SHA 固化后，由用户/获授权环境执行 Linux 77/77、全新隔离栈 exact gate、离线 verify、Compose config 与专属资源清理；正式独立 PASS 前继续 CHANGES_REQUESTED。
+
 ## [2026-07-27] GOV-040 Phase 0 / U-004 第七轮正式独立增量复核 — CHANGES_REQUESTED（1 Medium / 1 Low）
 - 做了什么：冻结上一正式材料 `30a76c8a52d053f39c1b974287434c1390e150ee` 至当前最终 HEAD `9b97741a3da921e3bce648e0c98fdb2892ec72e2`。只读核验 `C:\Users\wenbibuhaoqwq\phase00-ci-evidence-r7`：仓库 verifier exit 0，candidate/expected/start/after-preflight/end 同 SHA，source tree 与 `HEAD^{tree}` 一致，preflight/formal exit 0，exact **7/7 suites、33/33 testcases、0 failure/error/skip**，runtime freshness 为 JSON integer `0/0/1/0`。正式报告与离线摘要为 `docs/reviews/phase-00-seventh-remediation-rereview-2026-07-27.md`、`docs/reviews/evidence/phase00-seventh-remediation-rereview-2026-07-27/`。
 - 关键决策与理由：第三轮 MinIO header / 无秘密证明 Low 与第六轮 JSON integer 失败均关闭；但原 `P00-R3-M1` 尚未完全关闭。`verify_prepared_pass` 释放快照句柄后才写 checksum/PASS manifest 并 rename，纯离线协调反例在两步之间改变 artifact，稳定得到 `verified=true`、`diskStatus=PASS`，而随后 verifier 报 checksum mismatch。原 `P00-R3-L1` 也只部分关闭：Windows 完整祖先 handle 链和 POSIX root 内部 openat 成立，但 POSIX 直接打开多段 root，`O_NOFOLLOW` 不保护非末段祖先。两项都落在第三轮原失败条件内，本轮新增 finding 为 0。
