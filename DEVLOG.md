@@ -15,6 +15,15 @@
 
 ---
 
+## [2026-07-27] GOV-029 Phase 0 / U-004 第二轮退回整改候选 — `3bfe83d` 待用户动态门禁与独立复核
+- 做了什么：针对首轮正式报告的 3 Medium / 4 Low，冻结产品/测试/门禁候选 `3bfe83d9eaa4486bb39cc89fc3f05a975319e3af`（25 路径，`+2765/-131`）。按 R10 退役通用文件服务的摘要秒传合同，删除 `FileService.getByMd5`、通用 `upload` 的 `md5` 入参与持久化路径；相同字节的普通附件始终形成两个对象、两行元数据。新增 exact CI gate，固定 6 个 suite / 25 个 testcase，并绑定完整候选 SHA、tracked/untracked 构建输入清洁度、完整日志/XML、target marker、源码/工件哈希、manifest 与校验和。同步全部 Phase 0 权威文档；新增 prod docs 404、真实 Mapper/DataScope 插件链与 24 项参数矩阵证据。
+- 关键决策与理由：通用 `md5` 入参长期由生产调用者固定传 `null`，既无真实可用合同，又不应演变成客户端摘要驱动的全局对象探测/复用能力；因此选择完整退役而不是补一个不安全的伪秒传。Phase 7 的受信视频 fast-hit 已有 uploader/student/业务状态边界，是独立合同，不受影响。CI 以 exact 方法集合和 fresh 报告作为成功条件，避免目标 suite 删除、改名、跳过或旧 XML 造成假绿。
+- 问题与解决：首轮用例只上传一次的假闭环改为两层证据：纯单测真实触发两次 MinIO PUT/两次 INSERT，真实依赖 IT 以相同字节调用两次上传并断言不同 fileId/objectKey 与两行 READY。`DataScopeSqlHandlerTest` 的原子 SQL 断言外新增 `@DataScope → Aspect → Context → Mapper proxy → DataPermission/Pagination → count/data SQL` 五分支组合链。prod 静态资源由 JWT 前置 filter 统一返回 404，避免仅关闭 OpenAPI JSON 而残留 UI/webjar。
+- 与规格的偏差/疑问：这是按 AGENTS.md R10 对不存在的“通用 MD5 秒传”合同做正式退役，已同步 `plan.md`、`tasks.md`、`docs/README.md`、`docs/phase-00-脚手架.md` 与根 README；无 Flyway、权限点、返回结构或 Phase 7 视频合同变更。阶段清单中的六项真实依赖/浏览器门禁保持 `[~]`，不再以历史结果或候选自测冒充 `[x]`。
+- 测试：纯离线 `scripts/test_phase00_ci_gate.py` **21/21**；`mvn -B -ntp -o clean test` 当前源码 Surefire **266/266**（31 reports，0 failure/error/skip）；`mvn -B -ntp -o -DskipTests package` **9/9 modules**、Checkstyle 0；前端 lint/type-check/build PASS（仅既有大 chunk warning）；diff check PASS。两路内部只读对抗检查未发现新问题；它们不是正式独立复核。
+- 安全边界：Codex 未启动或连接 Docker、MySQL、Redis、MinIO、网络、HTTP 服务或浏览器，未执行扫描、fuzz、故障注入、凭据/权限或其它可能属于 cyber 的动作。`Phase00ScaffoldIT`、`Phase00ParameterMatrixIT` 与 exact 6/25 动态门禁本轮未由 Codex 执行。
+- 下一步：用户在获授权的全新一次性隔离栈按 `docs/reviews/phase-00-second-remediation-submission-2026-07-27.md` 执行 SHA 绑定的 exact gate，交回完整 evidence directory；随后独立复核第二轮增量。正式 PASS 前全项目继续 CHANGES_REQUESTED，不进入最终全量审计，不 merge/push/deploy。
+
 ## [2026-07-27] GOV-028 Phase 0 / U-004 首轮整改独立增量复核 — CHANGES_REQUESTED（3 Medium / 4 Low）
 - 做了什么：冻结 Phase 44 PASS 基线 `dd04f21387f76adc7fc5d1443903ada0bec4d4c1` 与其直接子提交、Phase 0 候选 `715b5f1c67a9943c5914eda08e485a1463c0524d`；按 incremental、testing-authenticity、release、configuration、documentation、supply-chain、security 七维逐文件复核 24 个变化路径，产出 `docs/reviews/phase-00-remediation-rereview-2026-07-27.md`、离线证据摘要与审计元数据。
 - 关键决策与理由：正式结论为 **CHANGES_REQUESTED（0 Critical / 0 High / 3 Medium / 4 Low）**。Medium：①T-FILE-1 只上传一次后查询，未执行权威用例要求的同 MD5 二次上传，生产通用上传还固定传 `md5=null`；②CI 只跑宽泛 `mvn verify`，未锁定 Phase00 6 个、DataScope 9 个 testcase，目标 suite 消失时仍可绿；③U-004 的全局 DoD/tasks/README/review gate 仍保留 lint 未落地、pnpm/mock/Prettier、Phase 0 无需复核等冲突口径。Low：prod 静态 doc UI 仍公开、候选证据缺原始 XML/完整日志/manifest/candidate marker、10/10 的 exact Compose/全部参数/前端登录锚点过度、T-DS-1 规格与 handler-only 测试漂移。
