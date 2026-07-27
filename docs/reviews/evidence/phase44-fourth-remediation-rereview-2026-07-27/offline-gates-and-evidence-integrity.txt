@@ -1,0 +1,104 @@
+Phase 44 fourth remediation independent evidence summary
+Date: 2026-07-27
+Reviewer: OpenAI Codex
+
+SAFETY BOUNDARY
+- No Docker command was executed by Codex.
+- No MySQL, Redis, MinIO, service, browser, or network connection was made by Codex.
+- No scan, fuzzing, credential operation, destructive fault injection, or pressure test was run.
+- User-operated runtime evidence was parsed read-only from local reports/logs and is identified below.
+
+GIT FREEZE
+- Baseline: 69f7462112e8df7aaffdd8d5f45914d3b030f5c6
+- Code/test/deployment candidate: 228a3553607a8fb6ca2db048125d4137e65191ae
+- Material/review HEAD before this report: 9c3da0b7e6dff5faec1cc888ce99c90d5bff81b0
+- 69f7462 is an ancestor of 228a355: PASS
+- 228a355 is an ancestor of 9c3da0b: PASS
+- 228a355..9c3da0b changes only governance/submission material; production/test/gate paths match 228a355: PASS
+- git diff --check 69f7462..228a355: PASS
+- Candidate delta: 11 paths, +1136/-27
+
+USER-OPERATED REAL MYSQL/REDIS GATE
+- Local full log: .tmp/phase44/r4-it-script.log
+- Log size: 196049 bytes
+- Log SHA-256: f21db49297c1114654dfd79e281dda8d13a0f75456c626eb119fe7c5ea20acfa
+- Log timestamp: 2026-07-27T09:53:15+08:00
+- Script-declared targets: jdbc:mysql://127.0.0.1:3306/teacher_cert and Redis 127.0.0.1:6379/0
+- Flyway log: empty schema, 33 applied migrations including repeatable testseed, final version v32
+- Target suite: cn.edu.gpnu.platform.boot.Phase44CacheCommitWindowIT
+- XML: tests=16, failures=0, errors=0, skipped=0, time=40.259s
+- Failsafe summary: completed=16, failures=0, errors=0, skipped=0, flakes=0
+- XML property it.test: Phase44CacheCommitWindowIT
+- XML property failsafe.failIfNoSpecifiedTests: false
+- Required R4 testcase ownerLossCannotPublishUncommittedValueBeforeCommitRollback: present, 0.144s
+- Required R4 testcase crashPendingRemainsFailClosedUntilRecoveryTtlExpires: present, 4.125s
+- Source @Test method set equals XML testcase name set: 16 = 16, PASS
+- Script structured XML verification: PASS
+- Script exit: 0
+
+REPORT HASHES
+- TEST-cn.edu.gpnu.platform.boot.Phase44CacheCommitWindowIT.xml
+  size=161121
+  timestamp=2026-07-27T09:53:14+08:00
+  sha256=3505ead4877e0d280e56d837d3d7c0c5d2e6038a8279d979c9d9334769394981
+- cn.edu.gpnu.platform.boot.Phase44CacheCommitWindowIT.txt
+  size=359
+  timestamp=2026-07-27T09:53:14+08:00
+  sha256=6f62c057dc7925b430c441dfe5ae2ed4e05e736c4151c17303ef08ca67876858
+- failsafe-summary.xml
+  size=493
+  timestamp=2026-07-27T09:53:15+08:00
+  sha256=9837639a9b473949dc02bccb0be1c3aa1b6b46854c0636a9757bae844cb93301
+
+SAME-RUN SUREFIRE
+- platform-system: 7 XML suites, 53 tests, 0 failure/error/skip
+- platform-boot: 18 XML suites, 177 tests, 0 failure/error/skip
+- Correction: the user's supplementary text says platform-system 46/46; the complete log and XML aggregate are 53/53.
+- The runtime log contains an expected application-level ERROR when the owner-loss negative removes the owner.
+  Therefore only test errors=0 is claimed; "the entire log contains no ERROR" is not claimed.
+
+USER-OPERATED BROWNFIELD READ-ONLY PREFLIGHT
+- Local summary log: .tmp/phase44/r4-preflight.log
+- Log size: 313 bytes
+- Log SHA-256: 17cb072b94b1159029ae5b43c45854f668d5433853e81b72ead323c217359de9
+- Log timestamp: 2026-07-27T09:57:56+08:00
+- sys_dict_item.type_code: utf8mb4 / utf8mb4_0900_ai_ci
+- sys_dict_type.type_code: utf8mb4 / utf8mb4_0900_ai_ci
+- PASS: columns=2/2, invalid=0, noncanonical=0, collision=0
+- The script statically proves a READ ONLY consistent transaction and fixed SELECT/ROLLBACK statements.
+- The exact tcp-mysql instance, 38-table/19-type/71-item inventory, wrapper behavior, SELECT-only grants,
+  login-path/account deletion, temporary-file cleanup, and final container state are user-provided operational facts.
+- The current PASS output does not independently record DATABASE(), CURRENT_USER(), or server UUID.
+
+USER-OPERATED COMPOSE EXPANSION
+- Override output: .tmp/phase44/r4-compose-config.txt
+  size=7155
+  sha256=1d4d96648762f2589888a2c29daf20e1a9d9988922039f320bc5eb8ea7d2e035
+  DICT_CACHE_WRITER_LEASE=9m
+  DICT_CACHE_WRITER_RENEW_INTERVAL=3m
+- Default output: .tmp/phase44/r4-compose-config-defaults.txt
+  size=7156
+  sha256=92a25da96319544b53ccae05224058ae001d93765ed67b03ff187c2bc3fa148c
+  DICT_CACHE_WRITER_LEASE=2m
+  DICT_CACHE_WRITER_RENEW_INTERVAL=20s
+- Both commands reportedly exited 0. Codex did not invoke Docker.
+
+INDEPENDENT OFFLINE GATES
+- mvn -B -ntp -o -pl platform-system -am test
+  PASS; 53 tests, 0 failures, 0 errors, 0 skipped; reactor 3/3 SUCCESS
+- mvn -B -ntp -o -DskipTests package
+  PASS; reactor 9/9 SUCCESS
+- npm --prefix frontend run type-check
+  PASS
+- npm --prefix frontend run build
+  PASS; existing large-chunk advisory only
+- Git Bash syntax recheck was attempted but the sandboxed Git Bash process could not create its signal pipe.
+  This is not a candidate failure: both scripts had already parsed and completed in the user-operated runs, and
+  the candidate submission records an earlier bash -n PASS.
+
+VERDICT BOUNDARY
+- Phase 44: PASS, 0 Critical / 0 High / 0 Medium / 1 Low
+- The third-round Medium and its original four Low findings are closed on their stated failure conditions.
+- New Low: brownfield preflight is not wired into the authoritative Phase 14/README release sequence and lacks
+  self-identifying target markers when a CLI wrapper is used.
+- This evidence does not authorize merge, push, deployment, traffic cutover, stable release, or final-audit GO.

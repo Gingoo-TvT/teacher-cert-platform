@@ -15,6 +15,15 @@
 
 ---
 
+## [2026-07-27] GOV-027 Phase 44 第四轮独立增量复核 — PASS（1 Low 非阻断）
+- 做了什么：冻结第三轮报告/治理基线 `69f7462112e8df7aaffdd8d5f45914d3b030f5c6`、第四轮代码/测试/部署候选 `228a3553607a8fb6ca2db048125d4137e65191ae` 与材料 HEAD `9c3da0b7e6dff5faec1cc888ce99c90d5bff81b0`；确认 `228a355..9c3da0b` 只含治理/提交材料，产品、测试与门禁路径未漂移。独立复核残留 `P:` recovery、固定 stripe publish guard、DML-before-registration、owner-loss/crash 决定性交错、Compose/env、禁混部合同与棕地只读 preflight，产出 `docs/reviews/phase-44-fourth-remediation-rereview-2026-07-27.md`、离线证据摘要及审计元数据。
+- 关键决策与理由：正式结论为 **PASS（0 Critical / 0 High / 0 Medium / 1 Low）**。READ 不再因 writers 丢失而提前正常化 positive `P:`；本地 guard 将 active writer 与完整 Redis PUT 线性化，并贯穿 afterCompletion 清理；五条 DML 均在写前登记窗口。第三轮 1 Medium 与原 4 Low 的具体失败条件全部关闭。新增 Low：棕地 preflight 仍未接入权威 README/Phase 14 发布步骤，包装器方式的日志也未打印 `DATABASE()`、`CURRENT_USER()` 与服务器实例 marker；现有结果可接受，但稳定发布前应补齐可复现接线与目标来源证明。
+- 动态证据：用户专用全新 MySQL/Redis 栈精确执行 `Phase44CacheCommitWindowIT` **16/16**，0 failure/error/skip；目标 XML SHA-256 `3505ead4877e0d280e56d837d3d7c0c5d2e6038a8279d979c9d9334769394981`，含 `ownerLossCannotPublishUncommittedValueBeforeCommitRollback` 与 `crashPendingRemainsFailClosedUntilRecoveryTtlExpires`。棕地只读 preflight 为 `columns=2/2, invalid=0, noncanonical=0, collision=0`；Compose 非默认值 `9m/3m` 与默认值 `2m/20s` 双向展开。完整运行日志/XML显示顺带 Surefire `platform-system` 实为 **53/53**，更正用户摘要中的 46/46；运行日志中的应用级 owner-loss `ERROR` 是预期负例信号，不等同于测试 error。
+- 独立测试：`mvn -B -ntp -o -pl platform-system -am test` **53/53 PASS**；`mvn -B -ntp -o -DskipTests package` **9/9 modules PASS**；`npm --prefix frontend run type-check` 与 `npm --prefix frontend run build` PASS（仅既有大 chunk warning）；`git diff --check 69f7462..228a355`、正式报告 lint、元数据 JSON 解析与证据哈希/计数交叉核验 PASS。Git Bash 语法复核在当前 sandbox 因 `couldn't create signal pipe, Win32 error 5` 未启动，不作为候选失败；专用脚本已由用户在外部环境成功执行且 exit 0。
+- 与规格的偏差/疑问：无 Flyway、API、权限点或业务规则改写。若 `beforeCommit` 已成功、随后 Redis 全失、其它节点仍持旧 Caffeine、数据库提交且提交节点在 `afterCompletion` 前崩溃，仍需 durable revision/outbox 才能完全覆盖；这是既有 long-term/final-audit 边界，不作为本轮新增 finding。
+- 安全边界：Codex 未启动/连接 Docker、MySQL、Redis、MinIO、网络、浏览器或常驻服务，未执行扫描、fuzz、故障注入、凭据/账号、棕地查询或其它可能属于 cyber 的动作；动态环境、只读账号与资源清理由用户执行并陈述。本轮未 stage/commit/merge/push/deploy/切流。
+- 下一步：Phase 44 只放行 Phase 0 / U-004。逐项复核 `docs/phase-00-脚手架.md` 的 10 个验收项并补齐 lint、Swagger、预签名过期等可重复证据；Phase 0 PASS 后再做用户要求的最终全量审计。Phase 44 PASS 不等于项目发布 GO。
+
 ## [2026-07-27] GOV-026 Phase 44 第四轮退回整改候选 — `228a355` 待用户动态门禁与独立复核
 - 做了什么：针对第三轮正式报告的 1 Medium / 4 Low，先以 `69f7462` 独立归档第三轮报告与治理状态，再形成代码/测试/部署合同候选 `228a355`（`69f7462..228a355`，11 路径，`+1136/-27`）。READ Lua 在 writers 为空但 `P:` 尚存时继续失败关闭且不刷新 positive recovery TTL；新增固定分片的 `DictRedisPublishGuard`，把 canonical typeCode 的本地 active writer 计数与整段 Redis PUT 在线性化锁内判定，并保持到 afterCompletion 全部清理结束。所有字典写窗口登记前移到 mapper DML 之前，注册失败时数据库尚无未提交变更。
 - 关键决策与理由：Redis writers/version 是跨节点第一道保护；本地 guard 专门覆盖“本 JVM 的 Redis 协调状态整体丢失”边界。writer 先进入则 PUT action 不执行，PUT 先进入则 BEGIN 随后删除 payload；`markLost` 不释放 guard。残留 `P:` 只能由原 recovery TTL 自然到期，不能从“当前看不到 owner”推断事务已结束。固定 stripe 避免 per-key 锁回收的 ABA，且只让哈希碰撞类型在短时 Redis PUT 上串行。

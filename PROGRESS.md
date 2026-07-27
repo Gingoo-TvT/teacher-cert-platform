@@ -5,11 +5,11 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**🟦 Phase 44 第四轮整改候选待动态门禁与独立复核**（分支 `codex/phase44-remediation`，第三轮报告/治理基线 `69f7462`，代码候选 `228a355`）。第三轮正式报告 `docs/reviews/phase-44-third-remediation-rereview-2026-07-26.md` 仍是 **CHANGES_REQUESTED（0 Critical / 0 High / 1 Medium / 4 Low）**；第四轮已让残留 `P:` 保持失败关闭到 recovery TTL，并以事务本地 publish guard 覆盖 Redis writers/version 整体丢失，补齐决定性交错、精确门禁、Compose/env、禁混部 runbook 与棕地 identity preflight。整改者离线门禁通过，但新 16/16 与棕地只读证据尚未由用户执行，故 Phase 44/Phase 0 仍不放行。统一入口为 `docs/CURRENT-EXECUTION-PLAN.md`。
-- 当前结论：WS-1/WS-2/WS-3/WS-10/WS-13 PASS；U-001 CI 零状态契约 PASS。Phase 42、Phase 39、Phase 41、Phase 47 与 Phase 53 均已独立 PASS；全项目当前仍由 **Phase 0、44** 两个退回阶段保持 **CHANGES_REQUESTED**。
+- 当前阶段：**❌ Phase 0 复核退回整改**。Phase 44 第四轮代码候选 `228a355` 已由 `docs/reviews/phase-44-fourth-remediation-rereview-2026-07-27.md` 正式独立复核 **PASS（0 Critical / 0 High / 0 Medium / 1 Low）**：第三轮 owner-loss Medium 与原 4 Low 的失败条件均关闭，真实 MySQL/Redis 精确 16/16、棕地只读 identity preflight 及 Compose 双向展开成立。统一入口为 `docs/CURRENT-EXECUTION-PLAN.md`。
+- 当前结论：WS-1/WS-2/WS-3/WS-10/WS-13、U-001 与 U-003 阶段整改链均已独立 PASS；全项目当前只剩 **Phase 0 / U-004** 保持 **CHANGES_REQUESTED**。Phase 44 新增的 1 个非阻断 Low（preflight 尚未进入权威发布步骤且包装器目标 marker 不足）留稳定发布前闭环。
 - P0 放行项：Phase 41 上一轮 1 High / 2 Medium / 1 Low 全部关闭；正式 PASS 时新增的 1 个非阻断 Low 已在后续闭环——Gate A 示例补齐冷认证参数，runner 在 Maven 前强制受验证 TLS / `allowPublicKeyRetrieval=true` / 受控 RSA 公钥文件三选一，并由纯 stub 静态契约覆盖失败关闭。正式报告仍保留当时的 1 Low 快照。约 24 MiB 以上原始整行 fail-closed、写入侧未同界继续留最终全量审计。
-- 最近更新：2026-07-27（第四轮代码候选 `228a355` 已提交；安全离线 `platform-system` **53/53**、Boot 49 个测试源 test-compile、9/9 modules package、前端 type-check/build、脚本语法与 diff check PASS。磁盘上的第三轮旧 16/16 XML 含旧 testcase 名，已明确排除为本轮证据；第四轮脚本会删除旧报告并强制新方法名）。
-- 下一步：由用户/独立复核者按 `docs/reviews/phase-44-fourth-remediation-submission-2026-07-27.md` 在授权隔离环境运行第四轮 `Phase44CacheCommitWindowIT` 精确 16/16、棕地只读 identity preflight 与 Compose 非默认值展开；冻结 `69f7462..228a355` 做最小独立增量复核。Phase 44 正式 PASS 前不进入 Phase 0，全部退回项关闭后再执行最终全量审计。
+- 最近更新：2026-07-27（Phase 44 独立 PASS；用户动态 XML SHA-256 `3505ead4877e0d280e56d837d3d7c0c5d2e6038a8279d979c9d9334769394981`，目标 16/16；独立离线 `platform-system` **53/53**、9/9 modules package、前端 type-check/build、报告 lint 与 diff check PASS。用户补充中的 system 46/46 已按完整日志/XML 更正为 53/53）。
+- 下一步：按 U-004 逐项复核 `docs/phase-00-脚手架.md` 的 10 个验收项，补齐验收基线、lint/Swagger/预签名过期等可重复证据。Phase 0 PASS 后再执行用户要求的最终全量审计；不得把 Phase 44 PASS 当成 merge、部署或稳定发布 GO。
 ## 审计整改工作流
 | WS | 内容 | 状态 |
 |---|---|---|
@@ -35,7 +35,7 @@
 | Phase 39 | 第二轮整改 `73406ed` | `phase-39-second-remediation-rereview-2026-07-24.md` PASS；第一轮 1 High / 1 Low 全部关闭 | ✅ 独立复核 PASS；三个基线债务候选留最终全量审计 |
 | Phase 41 | 第二轮整改 `b5ed7f5`；材料/HEAD `ef6b550` | `phase-41-second-remediation-dynamic-evidence-rereview-2026-07-25.md` PASS；真实 MySQL 8.4 恢复与账号/授权两项门禁闭合 | ✅ 独立复核 PASS；上一轮 1 High / 2 Medium / 1 Low 全部关闭；正式 PASS 时的 1 Low 已后续闭环 |
 | Phase 47 | 原实现已合并；第二轮整改 `3bddf6c`、PASS 后 Low 闭环 `191a3ad` 未合并 | `phase-47-second-remediation-rereview-2026-07-26.md` PASS | ✅ 独立复核 PASS；第一轮 1 Medium / 1 Low 全部关闭；正式 PASS 时新增的 1 Low 已后续闭环 |
-| Phase 44 | 已合并；第四轮整改 `228a355` 未合并 | 第三轮报告 CHANGES_REQUESTED（1 Medium / 4 Low）；第四轮材料 `phase-44-fourth-remediation-submission-2026-07-27.md` | 🟦 第四轮候选待用户动态门禁与独立复核；Phase 0 仍不放行 |
+| Phase 44 | 已合并；第四轮整改 `228a355` 未合并 | `phase-44-fourth-remediation-rereview-2026-07-27.md` PASS（1 Low 非阻断） | ✅ 独立复核 PASS；第三轮 1 Medium / 4 Low 的原失败条件关闭，放行 Phase 0 |
 | Phase 53 | 原实现已合并；代码整改 `b9abc6c`、证据整改 `34e4d51` 未合并 | `phase-53-evidence-remediation-rereview-2026-07-26.md` PASS（3 Low，均非阻断） | ✅ 独立增量复核 PASS；上一轮 1 Medium 与完整秘密值证据 Low 关闭，packaged MP4 自动探测及两项证据卫生 Low 留稳定发布前处理 |
 
 逐 Phase 结论、报告路径与后续顺序以 `docs/CURRENT-EXECUTION-PLAN.md` 为准。
