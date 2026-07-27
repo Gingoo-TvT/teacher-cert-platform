@@ -15,6 +15,15 @@
 
 ---
 
+## [2026-07-27] GOV-031 Phase 0 / U-004 第三轮退回整改候选 — `cc5786c` 待用户动态 7/33 与独立复核
+- 做了什么：针对第二轮正式报告的 2 Medium / 3 Low，形成产品/测试/门禁候选 `cc5786cc1c1ed1a243152bf306eca6998bbc0eee`（`5d3aa88..cc5786c`，14 路径，`+7669/-323`）。gate 改为从 expected candidate 的 Git tree/blob 物化不可变源码：preflight 后逐文件复核，删除构建树并从同一候选重物化 formal，formal 后再次复核；同时绑定 start/after-preflight/end HEAD。新增独立目标预检与 Spring initializer，把 marker 精确绑定到实际 datasource/Redis/MinIO 配置，并用 MySQL UUID、Redis run_id、MinIO 一次性身份对象/deployment ID 与 0/0/1/0 fresh 状态建立 preflight/runtime 双证据。补齐 Windows/reparse/strict manifest 边界，将应用上下文保持 `[~]`，参数矩阵扩为当前 32/32。
+- 关键决策与理由：①工作树不是候选权威，Maven 只能消费 Git object 快照；preflight 可能写源码或 clean HEAD 可能在窗口内切换，因此 formal 必须从同一候选重新物化，而不是继续复用预检树。②marker 只能证明自报文本，不能证明连接对象；预检必须在 Spring/Flyway 前读取真实服务身份与空状态，正式 context 又必须以 Spring 实际解析值复核，任一不一致失败关闭。③离线 verifier 不能从当前工作树加载可弱化 spec；内部只读检查发现这一剩余 Medium 后，改为直接读取 expected candidate 的 spec Git blob，并要求 live/archive 逐字节相同，随后新增真实临时 Git repo 与 fail-before-manifest 两条反例。
+- 问题与解决：Windows 下证据路径增加 drive/UNC/ADS/保留名/尾点空格/大小写碰撞及 reparse 检查；manifest/spec 改为有大小上限、拒绝重复键的严格 JSON 和 exact nested schema，artifact 集合必须闭合。一次非 clean package 与并发只读复核 Maven 同写共享 `target/`，出现 jar/class 时间戳污染；停止并发后顺序 `clean package` 9/9 成功，前次失败不计产品信号但在提交材料中如实保留。治理文档只读复核另指出两处历史 Compose/“依赖已起”措辞可能被误读为当前证据，现已显式标为历史基线与本轮待用户复验。
+- 与规格的偏差/疑问：无 Flyway、业务规则、权限点、对外 API 或前端产品流程变更。exact 合同由 6/25 扩为 7/33，只新增 target guard 的 8 个纯单测；参数测试仍是一项 IT，但内部精确核对 32 个当前默认项。`docs/phase-00-脚手架.md` 的 fresh-schema 应用上下文、HTTP/审计/MinIO 与依赖项继续 `[~]`，不以 package 或离线测试冒充动态完成。
+- 测试：纯离线 `python -B scripts\test_phase00_ci_gate.py -v` **60/60**；`mvn -B -ntp -o clean test` **32 suites / 274 tests**，0 failure/error/skip；`Phase00TargetGuardInitializerTest` **8/8**；`mvn -B -ntp -o -DskipTests clean package` **9/9 modules BUILD SUCCESS**、Checkstyle 0；前端 lint/type-check/build PASS；diff check PASS。candidate-spec 最终加固经独立只读增量检查为 0 High / 0 Medium / 0 Low，但不是正式阶段复核。
+- 安全边界：未执行 Docker、数据库、Redis、MinIO、网络、HTTP 服务、浏览器、扫描、fuzz、故障注入、凭据/权限、攻击性或其它可能属于 cyber 的动作；未 merge、push、deploy 或切流。所有动态操作已在 `docs/reviews/phase-00-third-remediation-submission-2026-07-27.md` 明确标为只由用户/获授权复核环境执行。
+- 下一步：用户在全新一次性隔离栈针对包含提交材料的最终 clean SHA 执行 exact 7/33，补 `docker compose -f docker-compose.dev.yml config --quiet` 与必要浏览器证据，交回完整 PASS/FAIL evidence 和销毁结果；随后做独立增量复核。正式 PASS 前 Phase 0/U-004 与全项目继续 CHANGES_REQUESTED，不进入最终全量审计。
+
 ## [2026-07-27] GOV-030 Phase 0 / U-004 第二轮独立增量复核 — CHANGES_REQUESTED（2 Medium / 3 Low）
 - 做了什么：冻结首轮复核归档 `8e3217d`、第二轮产品/测试/门禁点 `3bfe83d` 与材料 HEAD `c426480`，逐文件复核 30 路径；按 incremental、testing-authenticity、release、configuration、documentation、supply-chain、security 七维产出 `docs/reviews/phase-00-second-remediation-rereview-2026-07-27.md`、离线证据与机器可读 metadata。首轮 T-FILE 假闭环、必需 suite 可消失、权威文档冲突三项 Medium 的原失败条件全部关闭；prod docs 与 DataScope Low 也关闭。
 - 关键决策与理由：正式结论为 **CHANGES_REQUESTED（0 Critical / 0 High / 2 Medium / 3 Low）**。Medium：①gate 只在 Maven 前读取 HEAD，结束只验证 clean，clean checkout 漂移时会把另一提交的产物归给开始 SHA；②target marker 只做文本格式检查，未绑定实际 datasource/Redis/MinIO 配置或服务身份。Low：verifier 的 source/spec 与 Windows path containment 不完整；应用上下文尚未动态执行却与 package 合并标 `[x]`；参数矩阵只覆盖当前 fresh-schema 32 项中的 24 项。

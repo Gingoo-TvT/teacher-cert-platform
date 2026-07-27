@@ -42,7 +42,9 @@
 >    物化正式构建树；正式 Maven 结束后再次逐文件复核，任何 preflight 对源码的改写都不能污染正式结果。
 >    manifest 与离线 verifier 同时绑定 candidate/tree/blob manifest/file count、
 >    start/after-preflight/end HEAD、三段快照证明、marker 与连接配置、gate spec/来源 hash、Windows
->    containment/reparse 边界及双身份原字节；manifest 使用有大小上限、拒绝重复键的严格 JSON，顶层、
+>    containment/reparse 边界及双身份原字节；verifier 直接从 expected candidate 的 Git blob 读取
+>    gate spec，并要求当前工作树与归档 spec 逐字节相同，未提交的弱化 spec 不能改变证据合同。manifest
+>    使用有大小上限、拒绝重复键的严格 JSON，顶层、
 >    suite/support/artifact 及其闭合路径集合均须 exact。任一不一致均失败且不得宣称 PASS。
 
 ## 1. 目标与范围
