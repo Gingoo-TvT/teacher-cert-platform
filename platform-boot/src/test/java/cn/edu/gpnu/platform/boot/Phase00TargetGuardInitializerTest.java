@@ -1,5 +1,7 @@
 package cn.edu.gpnu.platform.boot;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.env.SystemEnvironmentPropertySource;
 import org.springframework.mock.env.MockEnvironment;
@@ -164,7 +166,7 @@ class Phase00TargetGuardInitializerTest {
     }
 
     @Test
-    void evidenceSchemaFiveContainsExactFreshnessAndObjectChallengeKeys() {
+    void evidenceSchemaFiveContainsExactFreshnessAndObjectChallengeKeys() throws Exception {
         String redisRunId = "0123456789abcdef0123456789abcdef01234567";
         Map<String, String> crlfInfo = Phase00TargetPreflight.parseRedisInfo(
                 "# Server\r\nredis_version:7.4.9\r\nrun_id:" + redisRunId + "\r\n");
@@ -247,6 +249,21 @@ class Phase00TargetGuardInitializerTest {
         assertThat(freshness.get("redisDatabaseSizeBefore")).isEqualTo(0L);
         assertThat(freshness.get("minioObjectCountBefore")).isEqualTo(1L);
         assertThat(freshness.get("minioUnexpectedObjectCountBefore")).isEqualTo(0L);
+
+        JsonNode serialized = new ObjectMapper().readTree(
+                Phase00ScaffoldIT.serializeTargetIdentity(document));
+        JsonNode serializedFreshness = serialized.path("freshness");
+        assertThat(serializedFreshness.path("mysqlTableCountBefore").isIntegralNumber()).isTrue();
+        assertThat(serializedFreshness.path("mysqlTableCountBefore").longValue()).isZero();
+        assertThat(serializedFreshness.path("redisDatabaseSizeBefore").isIntegralNumber()).isTrue();
+        assertThat(serializedFreshness.path("redisDatabaseSizeBefore").longValue()).isZero();
+        assertThat(serializedFreshness.path("minioObjectCountBefore").isIntegralNumber()).isTrue();
+        assertThat(serializedFreshness.path("minioObjectCountBefore").longValue()).isEqualTo(1L);
+        assertThat(serializedFreshness.path("minioUnexpectedObjectCountBefore").isIntegralNumber())
+                .isTrue();
+        assertThat(serializedFreshness.path("minioUnexpectedObjectCountBefore").longValue())
+                .isZero();
+
         assertThat(document.get("minio")).isInstanceOf(Map.class);
         Map<?, ?> minio = (Map<?, ?>) document.get("minio");
         assertThat(minio.keySet().stream().map(String::valueOf).toList())

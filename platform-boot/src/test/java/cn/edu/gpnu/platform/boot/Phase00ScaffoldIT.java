@@ -610,7 +610,7 @@ class Phase00ScaffoldIT {
         Map<String, Object> root = Phase00TargetPreflight.identityDocument(
                 Phase00ScaffoldIT.class.getName(), runtimeAttestation);
 
-        byte[] json = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsBytes(root);
+        byte[] json = serializeTargetIdentity(root);
         try {
             Files.write(temporary, json, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
             try {
@@ -621,6 +621,12 @@ class Phase00ScaffoldIT {
         } finally {
             Files.deleteIfExists(temporary);
         }
+    }
+
+    static byte[] serializeTargetIdentity(Map<String, Object> document) throws Exception {
+        return new ObjectMapper()
+                .writerWithDefaultPrettyPrinter()
+                .writeValueAsBytes(document);
     }
 
     private String requiredEnvironment(String name) {
