@@ -1,0 +1,87 @@
+{
+  "schemaVersion": 1,
+  "gateId": "phase00-required-suites",
+  "suites": [
+    {
+      "id": "phase00-scaffold-it",
+      "runner": "failsafe",
+      "report": "platform-boot/target/failsafe-reports/TEST-cn.edu.gpnu.platform.boot.Phase00ScaffoldIT.xml",
+      "suite": "cn.edu.gpnu.platform.boot.Phase00ScaffoldIT",
+      "testcases": [
+        "bizExceptionReturnsHttp200WithBusinessCode",
+        "docHtmlAndOpenApiAreServedWithoutAuthentication",
+        "sameContentUploadsRemainIndependentWithoutGlobalDeduplication",
+        "uncaughtExceptionReturnsUnifiedResultWithoutStackTraceLeak",
+        "uploadWritesAuditRowAndPresignedUrlExpiresAfterTtl",
+        "validationFailureReturnsFieldLevelError"
+      ]
+    },
+    {
+      "id": "phase00-parameter-matrix-it",
+      "runner": "failsafe",
+      "report": "platform-boot/target/failsafe-reports/TEST-cn.edu.gpnu.platform.boot.Phase00ParameterMatrixIT.xml",
+      "suite": "cn.edu.gpnu.platform.boot.Phase00ParameterMatrixIT",
+      "testcases": [
+        "allDocumentedDefaultsHaveExpectedValueAndType"
+      ]
+    },
+    {
+      "id": "data-scope-handler-unit",
+      "runner": "surefire",
+      "report": "platform-boot/target/surefire-reports/TEST-cn.edu.gpnu.platform.boot.config.DataScopeSqlHandlerTest.xml",
+      "suite": "cn.edu.gpnu.platform.boot.config.DataScopeSqlHandlerTest",
+      "testcases": [
+        "aliasMismatchSkipsInjectionAndAliasMatchUsesAlias",
+        "assignedScopePinsToReviewerColumn",
+        "collegeScopeAppendsCollegeInCondition",
+        "emptyCollegeSetFailsClosedInsteadOfLeakingAllRows",
+        "missingContextAppendsNoCondition",
+        "noneScopeDeniesEverything",
+        "schoolWideScopeAppendsNoCondition",
+        "selfScopePinsToOwnStudentRow",
+        "unrelatedTableIsLeftUntouched"
+      ]
+    },
+    {
+      "id": "data-scope-mapper-chain",
+      "runner": "surefire",
+      "report": "platform-boot/target/surefire-reports/TEST-cn.edu.gpnu.platform.boot.config.DataScopeMapperChainTest.xml",
+      "suite": "cn.edu.gpnu.platform.boot.config.DataScopeMapperChainTest",
+      "testcases": [
+        "collegeScopeFlowsThroughAliasAndBothPaginationStatements",
+        "emptyCollegeScopeFailsClosedInsteadOfBecomingSchoolWide",
+        "noneScopeFailsClosedInCountAndDataSql",
+        "schoolScopeLeavesCountAndDataSqlUnrestricted",
+        "selfScopeUsesStudentIdentityInCountAndDataSql"
+      ]
+    },
+    {
+      "id": "file-upload-contract-unit",
+      "runner": "surefire",
+      "report": "platform-file/target/surefire-reports/TEST-cn.edu.gpnu.platform.file.service.impl.FileServiceUploadContractTest.xml",
+      "suite": "cn.edu.gpnu.platform.file.service.impl.FileServiceUploadContractTest",
+      "testcases": [
+        "publicFileServiceDoesNotExposeDigestLookup",
+        "sameContentUploadsUseDistinctObjectKeysAndRows"
+      ]
+    },
+    {
+      "id": "api-documentation-profile-unit",
+      "runner": "surefire",
+      "report": "platform-boot/target/surefire-reports/TEST-cn.edu.gpnu.platform.boot.config.ApiDocumentationSecurityProfileTest.xml",
+      "suite": "cn.edu.gpnu.platform.boot.config.ApiDocumentationSecurityProfileTest",
+      "testcases": [
+        "developmentProfileKeepsDocumentationSurfacePublic",
+        "productionProfileReturnsNotFoundForEveryDocumentationSurface"
+      ]
+    }
+  ],
+  "supportingArtifacts": [
+    {
+      "id": "failsafe-summary",
+      "kind": "maven-summary-xml",
+      "path": "platform-boot/target/failsafe-reports/failsafe-summary.xml",
+      "required": true
+    }
+  ]
+}

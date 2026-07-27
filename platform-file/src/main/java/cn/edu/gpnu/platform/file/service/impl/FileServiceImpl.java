@@ -57,7 +57,7 @@ public class FileServiceImpl implements FileService {
     private final FileObjectMapper fileObjectMapper;
 
     @Override
-    public FileObject upload(InputStream in, String originalName, String contentType, long size, String bizType, String md5) {
+    public FileObject upload(InputStream in, String originalName, String contentType, long size, String bizType) {
         String ext = (originalName != null && originalName.contains(".")) ? originalName.substring(originalName.lastIndexOf('.')) : "";
         String prefix = (bizType == null || bizType.isEmpty()) ? "misc" : bizType;
         String objectKey = prefix + "/" + UUID.randomUUID().toString().replace("-", "") + ext;
@@ -81,7 +81,6 @@ public class FileServiceImpl implements FileService {
         fo.setObjectKey(objectKey);
         fo.setSize(size);
         fo.setContentType(contentType);
-        fo.setMd5(md5);
         fo.setBizType(bizType);
         fo.setStatus("READY");
         fo.setUploaderId(UserContext.getUserIdOrSystem());
@@ -330,25 +329,6 @@ public class FileServiceImpl implements FileService {
             throw new BizException("文件删除失败: " + e.getMessage());
         }
         fileObjectMapper.deleteById(fileId);
-    }
-
-    @Override
-    public FileObject getByMd5(String md5) {
-        return getByMd5(md5, null);
-    }
-
-    @Override
-    public FileObject getByMd5(String md5, String bizType) {
-        if (md5 == null || md5.isEmpty()) {
-            return null;
-        }
-        var query = Wrappers.<FileObject>lambdaQuery()
-                .eq(FileObject::getMd5, md5)
-                .eq(FileObject::getStatus, "READY");
-        if (StringUtils.hasText(bizType)) {
-            query.eq(FileObject::getBizType, bizType);
-        }
-        return fileObjectMapper.selectOne(query.last("limit 1"));
     }
 
     private FileObject requireOwnedFile(Long fileId) {

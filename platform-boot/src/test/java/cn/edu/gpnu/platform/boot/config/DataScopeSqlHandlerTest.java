@@ -14,10 +14,10 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Phase 0 退回整改（U-004）：`docs/phase-00-脚手架.md` §8-8 / T-DS-1 的可重复证据——
  * {@code @DataScope} 解析出的线程上下文经 {@link DataScopeSqlHandler} 生成的 SQL 条件必须正确。
  *
- * <p>T-DS-1 的原始口径：COLLEGE 范围用户查询 → SQL 含 {@code college_id = ?}；ALL 范围 → 无范围条件。
- * 现行实现按集合注入（{@code college_id IN (...)}），全校/系统范围返回 null（不追加条件），此处按
- * 现行合同断言，并补齐 SELF / ASSIGNED / NONE（fail-closed 拒绝）与别名不匹配等关键分支。
- * 这是纯 SQL 改写断言，不需要容器或数据库，任何一次 {@code mvn test} 都会重放。
+ * <p>权威 T-DS-1 已按 R10 对齐现行合同：学院集合使用 {@code college_id IN (...)}，SCHOOL
+ * 不追加范围条件，空集合与 NONE 失败关闭；此处另补 SELF / ASSIGNED 与别名分支。
+ * 这是纯 SQL handler 断言；注解、上下文、Mapper 与分页插件的组合链见
+ * {@link DataScopeMapperChainTest}，二者均不需要外部容器。
  */
 class DataScopeSqlHandlerTest {
 

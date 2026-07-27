@@ -14,6 +14,15 @@
 >    后端 maven-checkstyle-plugin 绑定 validate 阶段（规则 `build/checkstyle/checkstyle.xml`，`mvn verify` 自动执行）；
 >    前端 ESLint 9（`frontend/eslint.config.js`，`npm run lint`）；两者均已进入 `.github/workflows/ci.yml`。
 >    格式化统一（Spotless 及 vue3 recommended 升级）移交 WS-6 可持续质量门禁，不在 Phase 0 范围内冒充闭环。
+> 4. **通用 MD5 秒传退役**：规划期 T-FILE-1 把内部摘要字段误写成“同 MD5 二次上传自动去重”。
+>    当前通用上传不接收或信任客户端摘要，也没有跨请求唯一约束/并发仲裁；直接按全局 MD5 复用还会暴露
+>    其它主体对象是否存在。因此 Phase 0 正式退役通用自动秒传合同及公开摘要命中 API；同内容普通上传
+>    保留独立 fileId、objectKey 与元数据行。视频秒传继续严格按 Phase 7 的服务端验真指纹、同 uploader/student、当前策略与对象
+>    HEAD 合同执行；本修订不削弱该安全能力。
+> 5. **证据范围拆分**：Phase 0 的依赖栈验收以 CI 等价 MySQL/Redis/MinIO 的真实连接 +
+>    `docker-compose.dev.yml` 静态解析为本阶段门禁；exact dev Compose 启动属于部署形态复验。
+>    前端本阶段只锁定构建、类型、lint 与 Axios/路由静态契约；当前浏览器真实登录 E2E 由 WS-6/最终全量
+>    审计承接。下列 `[x]` 不再引用这两项未重跑材料，也不把它们写成当前候选已证明。
 
 ## 1. 目标与范围
 - Maven 多模块后端骨架 + Spring Boot 启动。
@@ -22,7 +31,7 @@
 - 横切设施：统一响应、全局异常、Flyway、MyBatis-Plus 配置、`@AuditLog`/`@DataScope` 切面、文件服务。
 
 ## 2. 交付物
-- 可运行 jar（`platform-boot`），`/doc.html` 可访问。
+- 可运行 jar（`platform-boot`），非生产 profile 的 `/doc.html` 可访问；生产 profile 关闭文档面。
 - 前端 `npm run dev` 可启动并走通封装层（原稿 pnpm 为笔误，见文首修订记录 1）。
 - `docker-compose.dev.yml` 起三依赖。
 - Flyway `V1__base.sql`（`audit_log`/`file_object`/`sys_param`）。
@@ -51,10 +60,15 @@ platform-parent/  (pom，dependencyManagement 锁版本)
 - `BaseEntity`：id(雪花/自增)、created_by/at、updated_by/at、deleted；MyBatis-Plus 自动填充 + 逻辑删除。
 - Jackson：`Long`→`String`、日期统一 `yyyy-MM-dd HH:mm:ss`、**业务文本日期字段保持原文本不参与日期序列化**。
 - `@AuditLog(bizType, operation)`：AOP 在方法成功后写 `audit_log`，前后状态由返回值/入参解析（提供 `AuditContext` 供业务填充 old/new 状态）。
-- `@DataScope`：注入 SQL 范围（`mybatis` 拦截器或动态条件），支持 `SELF/COLLEGE/MAJOR/ALL/SYSTEM`；Phase 2 接入真实用户范围。
+- `@DataScope`：注入 SQL 范围（MyBatis 拦截器或动态条件），现行范围类型为
+  `NONE/SELF/COLLEGE/SCHOOL/SYSTEM/LOGIN_ALL/ASSIGNED`；其中 SCHOOL/SYSTEM/LOGIN_ALL 为全校可见，
+  NONE 与缺少所需身份/学院集合时失败关闭，Phase 2 接入真实用户范围解析。
 
 ## 6. 文件服务（platform-file）
-- `FileService`：`upload(stream, meta)`→fileId、`presignedGet(fileId, ttl)`、`delete(fileId)`、`existsByMd5(md5)`（秒传）。
+- `FileService`：`upload(stream, meta)`→fileId、`presignedGet(fileId, ttl)`、`delete(fileId)`；
+  不公开通用摘要命中 API。
+- 通用上传每次创建独立对象/元数据；不得把客户端 MD5 当作跨用户、跨业务复用凭据。需要秒传的业务必须像
+  Phase 7 一样显式定义服务端强摘要、主体/业务授权、并发仲裁、对象存在性和生命周期合同。
 - 普通上传与分片上传分离（分片在 Phase 7）。MinIO bucket 按 `biz_type` 隔离或统一 bucket + 前缀。
 
 ## 7. 前端骨架
@@ -64,35 +78,47 @@ platform-parent/  (pom，dependencyManagement 锁版本)
 
 ## 8. 验收清单
 
-> 2026-07-27 复检口径：每项标注当前的可重复证据锚点。带 † 的两项按文首修订记录调整了原口径。
+> 2026-07-27 第二轮候选口径：严格遵守 `AGENTS.md §8/§12`，`[x]` 仅表示本候选所需门禁已经执行
+> 且通过；`[~]` 表示实现已落地、但仍等待获授权的 fresh-schema 真实依赖门禁。带 † 的两项按文首
+> 修订记录调整了原口径。Phase 0 在全部 `[~]` 转为 `[x]` 且独立复核 PASS 前保持复核退回。
 
-- [x] `mvn -pl platform-boot -am package` 产出可运行 jar，启动无报错。——每次 `mvn verify` 的 9 模块 package 与
-      全部 Spring Boot IT（RANDOM_PORT 启动真实上下文）覆盖；fat JAR 内容另有 WS-3 门禁核验。
-- [x] `/doc.html` 打开，示例接口可调通，返回统一 `Result`。——`Phase00ScaffoldIT.docHtmlAndOpenApiAreServedWithoutAuthentication`
-      （/doc.html 200 + OpenAPI 文档含真实业务路径）；「接口可调通且返回统一 Result」由同类其余用例与全部业务 IT 覆盖。
-- [x] 抛 `BizException` → HTTP 200 + `{code≠0,msg}`；`@Valid` 失败 → 字段级错误。——
+- [x] `mvn -pl platform-boot -am package` 产出可运行 jar，应用上下文可启动。——每次 `mvn verify` 的
+      9 模块 package 与 Spring Boot IT（RANDOM_PORT 启动真实上下文）覆盖；fat JAR 内容另有 WS-3
+      历史门禁。按 `AGENTS.md §6.1`，Codex 不在 headless exec 直接启动常驻 packaged jar。
+- [~] 非生产 `/doc.html` 打开，示例接口可调通，返回统一 `Result`；生产文档面关闭。——
+      `Phase00ScaffoldIT.docHtmlAndOpenApiAreServedWithoutAuthentication` 验证 dev `/doc.html` 200 +
+      OpenAPI 文档含真实业务路径；`ApiDocumentationSecurityProfileTest` 验证 prod 文档 API/UI/静态资源
+      404 且 dev 保持公开。profile 单测已通过，真实 dev 文档 IT 等待第二轮动态门禁。
+- [~] 抛 `BizException` → HTTP 200 + `{code≠0,msg}`；`@Valid` 失败 → 字段级错误。——
       `Phase00ScaffoldIT.bizExceptionReturnsHttp200WithBusinessCode` / `validationFailureReturnsFieldLevelError`。
       未捕获异常合同按 P1-10 修订为 HTTP 500 + 统一 Result（监控可见），由
-      `uncaughtExceptionReturnsUnifiedResultWithoutStackTraceLeak` 断言统一体且不泄漏堆栈。
-- [x] `docker compose -f docker-compose.dev.yml up` 后 mysql/redis/minio 健康，后端连通。——compose 文件即真实
-      IT 依赖栈（CI 用等价 services 起同三件），任意一次 verify 全绿即为连通证据；dev/prod compose 另有 `config` 解析门禁。
-- [x] Flyway 自动建 `sys_param`/`file_object`/`audit_log`，`sys_param` 含 `docs/README.md` §6 全部默认参数。——
-      每次空库 verify 的 Flyway V1 起步迁移 + `Phase13SystemAuditIT`/`Phase44CachingIT` 对 `sys_param` 种子的读写断言。
-- [x] 上传任意文件返回 fileId；预签名 URL 限时可访问，过期返回 403/失效。——
-      `Phase00ScaffoldIT.uploadWritesAuditRowAndPresignedUrlExpiresAfterTtl`（3 秒 TTL 正向下载逐字节一致 + 过期后同一 URL 403）。
-- [x] 标注 `@AuditLog` 的样例方法成功后写入 `audit_log`（操作人/时间/IP 不为空）。——同上用例对 `file/upload`
-      审计行的三字段非空断言；更丰富的审计链路由 `Phase13SystemAuditIT` 覆盖。
+      `uncaughtExceptionReturnsUnifiedResultWithoutStackTraceLeak` 断言统一体且不泄漏堆栈；等待第二轮动态门禁。
+- [~] CI 等价 MySQL/Redis/MinIO services 上后端可连通；`docker-compose.dev.yml` 可静态解析。——
+      等待第二轮 CI/fresh-stack 动态门禁；不声称当前候选已 exact 启动 dev Compose。
+- [~] Flyway 自动建 `sys_param`/`file_object`/`audit_log`，并生成 `docs/README.md` §6 参数基线。——
+      `Phase00ParameterMatrixIT.allDocumentedDefaultsHaveExpectedValueAndType` 在 fresh schema 逐项核对全部
+      key/value/type；源码/迁移静态矩阵已核对，真实 fresh schema 执行仍待第二轮动态门禁。
+- [~] 上传任意文件返回 fileId；预签名 URL 限时可访问，过期返回 403/失效。——
+      `Phase00ScaffoldIT.uploadWritesAuditRowAndPresignedUrlExpiresAfterTtl`（3 秒 TTL 正向下载逐字节一致 +
+      过期后同一 URL 403）等待第二轮动态门禁。
+- [~] 标注 `@AuditLog` 的样例方法成功后写入 `audit_log`（操作人/时间/IP 不为空）。——同上用例对
+      `file/upload` 审计行的三字段非空断言等待第二轮动态门禁；更丰富链路由 `Phase13SystemAuditIT` 覆盖。
 - [x] `@DataScope` 单测：不同范围生成的 SQL 条件正确。——`DataScopeSqlHandlerTest` 9 例（COLLEGE IN/SELF/ASSIGNED/
-      全校无条件/空集合与 NONE fail-closed/未注册表跳过/别名匹配）。
-- [x] † 前端 `npm run dev` 启动；真实登录经封装层返回并触发路由跳转（原「pnpm + mock 登录」口径见文首修订记录 1/2）。——
-      `npm run build`/`type-check` 每次 CI 执行；登录→跳转链路由 `Phase2SecurityIT` 与浏览器验收（Phase 35 系列）覆盖。
+      全校无条件/空集合与 NONE fail-closed/未注册表跳过/别名匹配）；`DataScopeMapperChainTest` 5 例
+      进一步覆盖 `@DataScope` → context → 生产 MyBatis-Plus data-permission/pagination 插件 →
+      Mapper 的 count/data SQL 与结果。
+- [x] † 前端生产构建、类型检查与 Axios/路由实现静态契约通过（原「pnpm + mock 登录」口径见文首修订记录 1/2）。——
+      `npm run lint`/`type-check`/`build` 每次 CI 执行；该项不再引用历史 Phase 35 材料冒充当前浏览器 E2E。
 - [x] † lint：后端 checkstyle（validate 阶段强制）、前端 ESLint 全绿（原「Spotless/Checkstyle/ESLint」口径见文首修订记录 3）。——
       `mvn verify` 内嵌执行；`npm run lint` 进 CI；落地当日即捕获并清除 5 处真实未使用 import 与 3 处前端缺陷。
 
 ## 9. 测试用例
 - T-AUDIT-1：调用带 `@AuditLog` 的方法 → 断言 `audit_log` 新增一行且字段完整。
-- T-DS-1（反例）：COLLEGE 范围用户查询 → SQL 含 `college_id = ?`；ALL 范围 → 无范围条件。
-- T-FILE-1：同 MD5 二次上传 → 命中秒传不重复存储。
+- T-DS-1（反例）：现行 `COLLEGE` 集合范围 → 最终 SQL 含 `college_id IN (...)`；
+  `SCHOOL` → 不追加范围条件；空 `COLLEGE` / `NONE` → fail-closed。除 handler 分支单测外，必须至少有一条
+  `@DataScope` → context → MyBatis data-permission interceptor → 真实 mapper/分页 SQL 或结果的组合链。
+- T-FILE-1（R10 修订）：通用自动 MD5 秒传合同及摘要命中 API 已退役；顺序执行两次同内容普通上传，
+  断言 fileId、objectKey 与元数据行彼此独立，且公开 `FileService` 不存在摘要查询方法。
 - T-FILE-2（边界）：预签名 URL 过期后访问 → 拒绝。
 - T-RESP-1：未捕获异常 → 全局处理器返回统一错误码，不泄漏堆栈。
 

@@ -96,4 +96,6 @@ AT-01~AT-14 首验与 Phase14 复验矩阵见 [docs/AT验收复验矩阵.md](doc
 兼容性记录：导出 Excel 通过 POI 机检断言 A-Z 26 列、H 列为“身份证件号码”、全列文本格式 `@`，证件号/前导零学号/证书编号/有效期按字符串读回；Phase14 文档归档 Excel 与 WPS 双端手动核对要求，浏览器回归目标为 Chrome、Edge、Firefox 最新稳定版。
 
 ## 进度
-Phase 0~13 已复核通过；Phase 14 为最后收口阶段，详见 `PROGRESS.md`。
+Phase 1~53 的既有阶段与后续整改均已有对应独立 PASS 记录；Phase 0 / U-004 当前仍处于第二轮整改候选阶段，
+正式 PASS 前不放行最终全量审计，更不代表 merge、部署或发布 GO。当前唯一状态入口见
+[docs/CURRENT-EXECUTION-PLAN.md](docs/CURRENT-EXECUTION-PLAN.md) 与 [PROGRESS.md](PROGRESS.md)。

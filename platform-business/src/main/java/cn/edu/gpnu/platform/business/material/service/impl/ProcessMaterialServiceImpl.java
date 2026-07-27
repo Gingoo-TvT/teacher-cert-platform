@@ -106,7 +106,7 @@ public class ProcessMaterialServiceImpl implements ProcessMaterialService {
         validateCategory(category);
         validateFile(originalFilename, contentType, size);
         FileObject file = fileService.upload(input, requiredTrim(originalFilename, "文件名不能为空"),
-                normalizeContentType(originalFilename, contentType), size, MATERIAL_BIZ_TYPE, null);
+                normalizeContentType(originalFilename, contentType), size, MATERIAL_BIZ_TYPE);
         ProcessMaterial entity = new ProcessMaterial();
         entity.setStudentId(student.getId());
         entity.setCollegeId(student.getCollegeId());
@@ -239,7 +239,7 @@ public class ProcessMaterialServiceImpl implements ProcessMaterialService {
         ensureEditable(entity);
         validateFile(originalFilename, contentType, size);
         FileObject file = fileService.upload(input, requiredTrim(originalFilename, "文件名不能为空"),
-                normalizeContentType(originalFilename, contentType), size, MATERIAL_BIZ_TYPE, null);
+                normalizeContentType(originalFilename, contentType), size, MATERIAL_BIZ_TYPE);
         fillFile(entity, file);
         entity.setUploaderId(UserContext.getUserIdOrSystem());
         entity.setUploadTime(LocalDateTime.now());

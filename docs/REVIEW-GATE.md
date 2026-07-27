@@ -72,4 +72,6 @@
 ## 7. 闭环
 退回 → codex 仅修 Blocker/Major → 重新提交并在 DEVLOG 记修复 → Claude **只复核增量 + 必要回归** → 直至 PASS。Minor 进 backlog。
 
-> **Phase 0** 由 Claude 直接实现并运行验证，视为已复核（self-verified），见 commit `6948682..08c638f`，无需补复核报告。
+> **Phase 0 历史说明**：`6948682..08c638f` 的“self-verified、无需补报告”仅是项目初始化时的历史口径，
+> 已被 U-004 的正式独立复核取代。Phase 0 现在与其它阶段适用相同闸门：整改者证据不等于独立 PASS；
+> 只有最新独立报告 PASS 后才可放行最终全量审计。

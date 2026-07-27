@@ -176,7 +176,7 @@ public class ExemptionServiceImpl implements ExemptionService {
         ensureEditable(entity);
         validateFile(originalFilename, contentType, size);
         FileObject file = fileService.upload(input, requiredTrim(originalFilename, "文件名不能为空"),
-                normalizeContentType(originalFilename, contentType), size, EXEMPTION_BIZ_TYPE, null);
+                normalizeContentType(originalFilename, contentType), size, EXEMPTION_BIZ_TYPE);
         ExemptionMaterial material = new ExemptionMaterial();
         material.setExemptionRequestId(entity.getId());
         material.setStudentId(entity.getStudentId());
@@ -194,7 +194,7 @@ public class ExemptionServiceImpl implements ExemptionService {
         ensureEditable(request);
         validateFile(originalFilename, contentType, size);
         FileObject file = fileService.upload(input, requiredTrim(originalFilename, "文件名不能为空"),
-                normalizeContentType(originalFilename, contentType), size, EXEMPTION_BIZ_TYPE, null);
+                normalizeContentType(originalFilename, contentType), size, EXEMPTION_BIZ_TYPE);
         fillFile(material, file);
         materialMapper.updateById(material);
     }

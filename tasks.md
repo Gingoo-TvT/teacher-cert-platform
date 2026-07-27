@@ -8,7 +8,9 @@
 > 验收：可验证的完成标准（含 AT 引用）
 > ```
 > 层：`Infra`=工程/部署 · `BE`=后端 · `FE`=前端 · `DB`=数据库迁移。
-> 全局完成定义（DoD）：编译通过 + 单元/集成测试 + Swagger 更新 + 不破坏既有用例 + 关键路径有 `audit_log`。
+> 全局完成定义（DoD）：编译与现行 lint 门禁通过 + 单元/集成测试 + Swagger 更新 + 不破坏既有用例 +
+> 关键路径有 `audit_log`。现行最小 lint 为后端 Checkstyle（Maven `validate`）与前端 ESLint；
+> Spotless/Prettier、渐进严格规则、Vitest/Playwright/a11y 由统一计划 WS-6 管理。
 > 执行顺序：按 Phase 升序；同 Phase 内按编号；标 `∥` 者可并行。优先级：Phase 0–10、13 = P0；11、12 = P1；14(M14 预留) = P2。
 
 ---
@@ -16,7 +18,7 @@
 ## Phase 0 · 工程脚手架与基础设施
 
 **T-001 · [Infra] 创建 Maven 父工程与 8 子模块骨架**  ← 依赖：—
-产出：`platform-parent`（dependencyManagement 锁定 Spring Boot 3.2.x / MyBatis-Plus 3.5.x / FastExcel / MinIO / JWT / Hutool 版本）+ §2.4 八子模块 POM 与目录。
+产出：父 POM（dependencyManagement 锁定 Spring Boot 3.4.x / MyBatis-Plus 3.5.x / FastExcel / MinIO / JWT 等版本）+ §2.4 八子模块 POM 与目录。
 验收：`mvn -pl platform-boot -am package` 生成可运行 jar。
 
 **T-002 · [BE] platform-common 基础设施**  ← 依赖：T-001
@@ -25,7 +27,7 @@
 
 **T-003 · [BE] platform-boot 启动与全局配置**  ← 依赖：T-002
 产出：启动类、`application-{dev,prod}.yml`、MyBatis-Plus 配置（分页插件/逻辑删除/字段自动填充/乐观锁）、Jackson 配置（`Long`→`String`、日期文本不转序列）、Knife4j、CORS。
-验收：`/doc.html` 可访问；Long 主键序列化为字符串。
+验收：非生产 profile 的 `/doc.html` 可访问，生产 profile 的文档 API/UI/静态资源关闭；Long 主键序列化为字符串。
 
 **T-004 · [DB] Flyway 接入 + 基础表 V1**  ← 依赖：T-003
 产出：Flyway 配置；`V1__base.sql` 建 `audit_log`、`file_object`、`sys_param`（含 §11/§15 默认参数种子）。
@@ -33,10 +35,13 @@
 
 **T-005 · [Infra] 本地依赖 docker-compose**  ← 依赖：—  ∥
 产出：`docker-compose.dev.yml`（mysql8/redis7/minio）+ `.env` + 初始化脚本（建库 utf8mb4、建 MinIO bucket）。
-验收：`docker compose up` 后三服务健康，后端可连通。
+验收：CI 等价 MySQL/Redis/MinIO services 上后端可连通，dev Compose 配置可解析；exact
+`docker compose up` 健康复验属于部署环境验收，不以历史运行记录冒充当前候选证据。
 
 **T-006 · [BE] platform-file MinIO 文件服务**  ← 依赖：T-004,T-005
-产出：MinIO 配置、`FileService`(上传/下载流/预签名URL/删除/秒传校验MD5)、`file_object` CRUD、`@FileBiz` 标记业务归属。
+产出：MinIO 配置、`FileService`（上传/下载流/预签名 URL/删除，不公开通用摘要命中 API）、
+`file_object` CRUD、`@FileBiz` 标记业务归属。通用上传不承诺基于客户端 MD5 的全局自动秒传；
+受主体/业务/服务端验真约束的视频秒传由 T-057 单独定义。
 验收：上传返回 fileId；预签名 URL 限时可访问，过期失效。
 
 **T-007 · [BE] 审计切面 + 数据权限切面骨架**  ← 依赖：T-002,T-004
@@ -45,15 +50,18 @@
 
 **T-008 · [FE] 前端工程脚手架**  ← 依赖：—  ∥
 产出：Vite+Vue3+TS+Naive UI+Pinia+Vue Router；Axios 封装（token 注入/统一错误/loading/401 刷新）；基础布局（侧栏/顶栏/面包屑/标签页）、主题、`.env`。
-验收：`pnpm dev` 启动；mock 接口走通封装层。
+验收：lint/type-check/production build 与 Axios/路由静态契约通过；真实浏览器登录、`/me`、目标路由及错误态
+在认证阶段与 WS-6/最终全量审计验证，不以历史浏览器材料冒充当前 Phase 0 证据。
 
 **T-009 · [FE] 路由权限框架与按钮指令**  ← 依赖：T-008
 产出：路由守卫（登录态/菜单权限）、动态菜单、`v-perm` 指令（按钮级权限）、403/404 页。
 验收：无权限路由被拦截；无权限按钮不渲染。
 
 **T-010 · [Infra] CI 与代码规范**  ← 依赖：T-001,T-008  ∥
-产出：后端 Spotless/Checkstyle，前端 ESLint+Prettier，统一 commit 规范；`make`/脚本一键启动。
-验收：lint 通过；格式化无差异。
+产出：后端 Checkstyle 最小客观缺陷规则绑定 Maven `validate`，前端 ESLint 9 接入 CI，统一 commit 规范；
+格式化统一（Spotless/Prettier）、更严格 lint、Vitest/Playwright/a11y 进入 WS-6，不在 Phase 0 冒充已完成。
+验收：`mvn verify` 自动执行 Checkstyle，`npm run lint` 通过（脚本自身固定 `--max-warnings 0`），
+CI 任一违规即失败。
 
 ---
 

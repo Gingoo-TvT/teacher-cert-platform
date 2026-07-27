@@ -81,11 +81,43 @@ jobs:
             --env MC_HOST_ci=http://minioadmin:minioadmin123@127.0.0.1:9000 \
             minio/mc:RELEASE.2025-04-08T15-39-49Z \
             mb --ignore-existing ci/teacher-cert
-      - name: mvn verify
+      - name: Phase 0 门禁脚本纯离线反例
         env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: python3 -B scripts/test_phase00_ci_gate.py
+      - name: Maven clean verify 与 Phase 0 精确证据门禁
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
           JWT_SECRET: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+          SPRING_DATASOURCE_URL: jdbc:mysql://127.0.0.1:3306/teacher_cert?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
+          SPRING_DATASOURCE_USERNAME: root
+          SPRING_DATASOURCE_PASSWORD: root123
+          SPRING_DATA_REDIS_HOST: 127.0.0.1
+          SPRING_DATA_REDIS_PORT: 6379
+          SPRING_DATA_REDIS_DATABASE: 0
+          MINIO_ENDPOINT: http://127.0.0.1:9000
+          MINIO_PUBLIC_ENDPOINT: http://127.0.0.1:9000
+          MINIO_ACCESS_KEY: minioadmin
+          MINIO_SECRET_KEY: minioadmin123
+          MINIO_BUCKET: teacher-cert
+          PHASE00_TARGET_SCHEMA: teacher_cert
+          PHASE00_MYSQL_SERVICE_MARKER: mysql:8.4@127.0.0.1:3306
+          PHASE00_REDIS_SERVICE_MARKER: redis:7@127.0.0.1:6379/0
+          PHASE00_MINIO_SERVICE_MARKER: minio:RELEASE.2025-04-22T22-12-26Z@127.0.0.1:9000/teacher-cert
+          PHASE00_RUN_CONTEXT: github-actions:${{ github.repository }}:${{ github.run_id }}:${{ github.run_attempt }}
         # checkstyle 绑定在 validate 阶段（根 pom），verify 即自动执行后端 lint 门禁并在违规时红灯。
-        run: mvn -B -ntp verify
+        run: >-
+          python3 -B scripts/phase00_ci_gate.py run
+          --evidence-dir "$RUNNER_TEMP/phase00-ci-evidence"
+          --expected-candidate-sha "$GITHUB_SHA"
+      - name: 上传 Phase 0 可验证证据
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase00-ci-evidence-${{ github.sha }}-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/phase00-ci-evidence
+          if-no-files-found: error
+          retention-days: 30
       - name: 清理 MinIO
         if: always()
         run: docker rm --force teacher-cert-ci-minio || true

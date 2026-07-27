@@ -187,7 +187,7 @@
 - [ ] 文本化字段全链路 String + Excel `@`（若涉及）
 - [ ] 单元测试 + **反例** 通过；主接口集成测试通过
 - [ ] 该 phase 验收清单逐条 `- [x]`；相关 AT 自测记录归档
-- [ ] Swagger 更新，`/doc.html` 可调
+- [ ] Swagger 更新，非生产 profile 的 `/doc.html` 可调；生产 profile 必须关闭文档 API、UI 与静态资源
 - [ ] Codex/exec 未直接启动常驻服务；若外部启动过后端/前端，已通过 `scripts/dev-stop.*` 或外部 watchdog 停止，且未遗留 8080/5173 监听进程
 - [ ] `PROGRESS.md` 置 ✅、`DEVLOG.md` 追加、PR 按模板
 - [ ] lint/CI 全绿，未破坏既有回归

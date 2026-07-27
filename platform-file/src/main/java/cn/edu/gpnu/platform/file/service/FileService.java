@@ -9,11 +9,13 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 文件服务：服务端小文件上传、浏览器可达的预签名访问、删除、按摘要查询（秒传）。
+ * 文件服务：服务端小文件上传、浏览器可达的预签名访问与删除。
+ *
+ * <p>通用文件服务不公开摘要命中能力，避免调用方把摘要当成跨业务或跨主体复用对象的凭据。
  */
 public interface FileService {
 
-    FileObject upload(InputStream in, String originalName, String contentType, long size, String bizType, String md5);
+    FileObject upload(InputStream in, String originalName, String contentType, long size, String bizType);
 
     DirectFileUploadPlan initDirectUpload(String originalName, String contentType, long size,
                                           String bizType, String contentHash, long partSize,
@@ -27,8 +29,4 @@ public interface FileService {
     String presignedGet(Long fileId, int expirySeconds);
 
     void delete(Long fileId);
-
-    FileObject getByMd5(String md5);
-
-    FileObject getByMd5(String md5, String bizType);
 }

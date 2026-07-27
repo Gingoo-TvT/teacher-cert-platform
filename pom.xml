@@ -36,9 +36,9 @@
         <maven.compiler.encoding>UTF-8</maven.compiler.encoding>
         <mybatis-plus.version>3.5.16</mybatis-plus.version>
         <knife4j.version>4.5.0</knife4j.version>
-        <!-- knife4j 4.5.0 传递 springdoc 2.3.0（面向 Spring Framework 6.1/SB 3.2），与 SB 3.4 的 Spring Framework 6.2 不兼容
-             （doc.html/api-docs 触发 NoSuchMethodError: ControllerAdviceBean / SpringDocConfigProperties.getGroupConfigs）。
-             覆盖为 2.8.x（≥2.8.9 与 knife4j 4.5.0 + SB 3.4 兼容）。 -->
+        <!-- knife4j 4.5.0 传递 springdoc 2.3.0（面向 Spring Framework 6.1/SB 3.2），与 SB 3.4 的
+             Spring Framework 6.2 不兼容。这里以 2.8.x 统一标准 springdoc 依赖解析；Knife4j 4.5.0
+             增强 customizer 与该版本的二进制接口仍不兼容，因此应用配置明确关闭增强层，仅保留静态 UI。 -->
         <springdoc.version>2.8.17</springdoc.version>
         <hutool.version>5.8.32</hutool.version>
         <jjwt.version>0.12.6</jjwt.version>
@@ -66,7 +66,7 @@
             <!-- MyBatis-Plus 3.5.9+ 将 JSqlParser 外置为独立模块（starter 不再传递）。保留 4.9 线以兼容 DataScopeSqlHandler 现有 API。 -->
             <dependency><groupId>com.baomidou</groupId><artifactId>mybatis-plus-jsqlparser-4.9</artifactId><version>${mybatis-plus.version}</version></dependency>
             <dependency><groupId>com.github.xiaoymin</groupId><artifactId>knife4j-openapi3-jakarta-spring-boot-starter</artifactId><version>${knife4j.version}</version></dependency>
-            <!-- 覆盖 knife4j 4.5.0 传递的 springdoc 2.3.0，使其与 SB 3.4 兼容（详见上方 springdoc.version 注释）。 -->
+            <!-- 覆盖旧 springdoc 传递版本以适配 SB 3.4；不宣称 Knife4j 增强层兼容（详见上方注释）。 -->
             <dependency><groupId>org.springdoc</groupId><artifactId>springdoc-openapi-bom</artifactId><version>${springdoc.version}</version><type>pom</type><scope>import</scope></dependency>
             <dependency><groupId>cn.hutool</groupId><artifactId>hutool-all</artifactId><version>${hutool.version}</version></dependency>
             <dependency><groupId>cn.idev.excel</groupId><artifactId>fastexcel</artifactId><version>${fastexcel.version}</version></dependency>

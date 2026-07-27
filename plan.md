@@ -543,7 +543,9 @@ else:                       validUntil = f"{issueYear+3}/12/31"    # 下半年�
 2. 接入 MySQL/Redis/MinIO/Flyway/MyBatis-Plus/EasyExcel；`docker-compose` 起本地依赖。
 3. 初始化 Vue3+Vite+TS+Naive UI 前端骨架：路由、Pinia、Axios 封装、布局、主题。
 4. 建立 `audit_log`、`file_object`、统一枚举与常量。
-- 验收：前后端可启动，Swagger 可访问，登录占位接口连通。
+- 验收（U-004/R10 现行口径）：后端可打包且 Spring 上下文可启动；非生产 Swagger 可访问、生产文档面关闭；
+  前端 lint/type-check/production build 与 Axios/路由静态契约通过。规划期“登录占位接口”已由 Phase 2
+  真实认证取代，当前浏览器登录 E2E 与 exact Compose 部署形态由对应认证/部署阶段和最终全量审计验证。
 
 ### Phase 1 — 字典与标准数据（M01）
 1. `sys_dict_type/item`、`sys_region`、`teaching_subject`、`sys_college/major` 表与 CRUD。

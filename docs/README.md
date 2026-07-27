@@ -18,9 +18,12 @@
 
 ## 2. 全局完成定义（Definition of Done，所有任务通用）
 一个任务/阶段"完成"必须同时满足：
-1. 编译与现有门禁通过；Spotless/Checkstyle、ESLint 尚未落地，作为 `CURRENT-EXECUTION-PLAN.md` 的 WS-6 欠账管理，不得虚报已执行。
+1. 编译与现有门禁通过；后端 Checkstyle 已绑定 Maven `validate`，前端 ESLint 9 已接入 CI。
+   Spotless/Prettier、渐进严格规则、Vitest/Playwright/a11y 仍由 `CURRENT-EXECUTION-PLAN.md` 的 WS-6 管理，
+   未落地项不得虚报已执行。
 2. 单元测试覆盖核心规则；集成测试覆盖主接口；**关键校验规则与状态流转必须有反例用例**。
-3. Swagger/Knife4j 文档同步更新，接口可在 `/doc.html` 调通。
+3. Swagger/Knife4j 文档同步更新，接口可在非生产 profile 的 `/doc.html` 调通；生产 profile
+   必须关闭文档 API、UI 与静态资源。
 4. 数据库变更走 Flyway 版本脚本（不手改库），脚本可重复执行（幂等种子用 `INSERT ... ON DUPLICATE` 或先判存在）。
 5. 关键写操作（审核/状态流转/作废/导出）落 `audit_log`。
 6. 本阶段"验收清单"逐条勾选通过；涉及的 `AT-xx` 自测记录归档。
@@ -28,7 +31,8 @@
 
 ## 3. 测试与验收规范
 - **后端当前实现**：JUnit5 + Mockito；`*IT` 使用外部提供的真实 MySQL/Redis/MinIO（本机或 CI service），测试本身尚未使用 Testcontainers 创建隔离依赖。每次复核必须使用独立 schema/容器并记录连接端点；迁移到测试自管理容器列入统一计划。
-- **前端当前实现**：`vue-tsc --noEmit` + Vite production build；Vitest、Playwright、ESLint 尚未接入，由 WS-6 建立，未落地前不得把它们写成已执行门禁。
+- **前端当前实现**：ESLint 9 + `vue-tsc --noEmit` + Vite production build 已进入 CI；
+  Vitest、Playwright、a11y 与统一格式化尚未接入，由 WS-6 建立，未落地前不得写成已执行门禁。
 - **验收用例**：每条以 `given/when/then` 描述，必含**正例 + 反例 + 边界**。验收勾选项以 `- [ ]` 列出，验收时逐条置 `- [x]` 并附证据（截图/日志/测试名）。
 - **AT 验收**：14 条验收标准（plan §10）在对应 Phase 内完成首验，Phase 14 做整体复验。
 
@@ -70,32 +74,32 @@
 | 14 | 非功能/部署/验收 | M14+收口 | P2 | T-109~114 | 全部 AT 复验 | `phase-14-非功能部署验收.md` |
 
 ## 6. 系统参数清单（`sys_param`，贯穿各阶段，Phase 13 统一管理）
-| param_key | 默认 | 说明 | 引用阶段 |
-|---|---|---|---|
-| `cert.seq.scope` | `SCHOOL_YEAR_SEGMENT` | 证书序列作用域 | Phase 9 |
-| `cert.province.code` | `44` | 省级行政区划代码 | Phase 9 |
-| `cert.school.code` | `10588` | 高校代码 | Phase 9 |
-| `video.passLine` | `60` | 视频合格线 | Phase 7 |
-| `video.diffThreshold` | `12` | 两评委分差阈值 | Phase 7 |
-| `video.reviewerCount` | `2` | 评审教师数 | Phase 7 |
-| `video.durationTolerance` | `60`(秒) | 时长容差 | Phase 7 |
-| `video.allowedCodecs` | `H264` | 允许的视频编码，变更后既有秒传验证结果失效 | Phase 7 |
-| `video.timelineToleranceSeconds` | `2`(秒) | 容器头、样本跨度与样本累计时长的交叉核对容差 | Phase 7 |
-| `video.arbitrate.mode` | `thirdExpert` | 复评模式 | Phase 7 |
-| `video.finalizationCleanupSafetySeconds` | `60`(秒) | 失权对象静默期在对象存储总调用超时之外追加的安全时间 | Phase 7 / V32 |
-| `video.finalizationCleanupRetrySeconds` | `60`(秒) | 失败对象持久清理的重试间隔 | Phase 7 / V32 |
-| `video.finalizationCleanupClaimSeconds` | `1860`(秒) | 跨节点对象清理任务租约时长；运行时强制不低于 `2 × MINIO_CALL_TIMEOUT_SECONDS + safetySeconds`，极端组合饱和到整数上限 | Phase 7 / V32 |
-| `video.finalizationCleanupBatchSize` | `100` | 单轮对象对账的最大候选数 | Phase 7 / V32 |
-| `video.finalizationCleanupTombstoneCheckSeconds` | `3600`(秒) | `CLEANED` 墓碑再次确认对象仍不存在的间隔 | Phase 7 / V32 |
-| `video.required` | `true` | 视频是否必过才能发证 | Phase 9 |
-| `file.maxSize.video` | `2147483648`(2GB) | 视频单文件上限 | Phase 7 |
-| `file.maxSize.material` | `52428800`(50MB) | 材料单附件上限 | Phase 5 |
-| `review.return.target` | `FIRST_REVIEW` | 复审退回目标态 | Phase 3/5/6 |
-| `validate.name.mode` | `loose` | 姓名校验模式（确认单#15 放宽，V6 落地；原默认 strict） | Phase 3 |
-| `validate.idcard.checksum` | `false` | 身份证校验码开关 | Phase 3 |
-| `student.autoCreateAccount` | `false` | 是否导入即创建学生账号（WS-2 安全默认关闭） | Phase 3 |
-| `student.defaultPwd` | `random` | 随机占位哈希时账号停用待重置；禁止 PII 派生 | Phase 3 |
-| `current_assessment_year` | 当前年 | 当前考核年度 | 全局 |
+| param_key | 默认 | param_type | 说明 | 引用阶段 |
+|---|---|---|---|---|
+| `cert.seq.scope` | `SCHOOL_YEAR_SEGMENT` | `enum` | 证书序列作用域 | Phase 9 |
+| `cert.province.code` | `44` | `string` | 省级行政区划代码 | Phase 9 |
+| `cert.school.code` | `10588` | `string` | 高校代码 | Phase 9 |
+| `video.passLine` | `60` | `int` | 视频合格线 | Phase 7 |
+| `video.diffThreshold` | `12` | `int` | 两评委分差阈值 | Phase 7 |
+| `video.reviewerCount` | `2` | `int` | 评审教师数 | Phase 7 |
+| `video.durationTolerance` | `60`(秒) | `int` | 时长容差 | Phase 7 |
+| `video.allowedCodecs` | `H264` | `string` | 允许的视频编码，变更后既有秒传验证结果失效 | Phase 7 |
+| `video.timelineToleranceSeconds` | `2`(秒) | `int` | 容器头、样本跨度与样本累计时长的交叉核对容差 | Phase 7 |
+| `video.arbitrate.mode` | `thirdExpert` | `string` | 复评模式 | Phase 7 |
+| `video.finalizationCleanupSafetySeconds` | `60`(秒) | `int` | 失权对象静默期在对象存储总调用超时之外追加的安全时间 | Phase 7 / V32 |
+| `video.finalizationCleanupRetrySeconds` | `60`(秒) | `int` | 失败对象持久清理的重试间隔 | Phase 7 / V32 |
+| `video.finalizationCleanupClaimSeconds` | `1860`(秒) | `int` | 跨节点对象清理任务租约时长；运行时强制不低于 `2 × MINIO_CALL_TIMEOUT_SECONDS + safetySeconds`，极端组合饱和到整数上限 | Phase 7 / V32 |
+| `video.finalizationCleanupBatchSize` | `100` | `int` | 单轮对象对账的最大候选数 | Phase 7 / V32 |
+| `video.finalizationCleanupTombstoneCheckSeconds` | `3600`(秒) | `int` | `CLEANED` 墓碑再次确认对象仍不存在的间隔 | Phase 7 / V32 |
+| `video.required` | `true` | `boolean` | 视频是否必过才能发证 | Phase 9 |
+| `file.maxSize.video` | `2147483648`(2GB) | `long` | 视频单文件上限 | Phase 7 |
+| `file.maxSize.material` | `52428800`(50MB) | `int` | 材料单附件上限 | Phase 5 |
+| `review.return.target` | `FIRST_REVIEW` | `enum` | 复审退回目标态 | Phase 3/5/6 |
+| `validate.name.mode` | `loose` | `enum` | 姓名校验模式（确认单#15 放宽，V6 落地；原默认 strict） | Phase 3 |
+| `validate.idcard.checksum` | `false` | `bool` | 身份证校验码开关 | Phase 3 |
+| `student.autoCreateAccount` | `false` | `bool` | 是否导入即创建学生账号（WS-2 安全默认关闭） | Phase 3 |
+| `student.defaultPwd` | `random` | `string` | 随机占位哈希时账号停用待重置；禁止 PII 派生 | Phase 3 |
+| `current_assessment_year` | `2026`（当前基线） | `int` | 当前考核年度；上线后按学校年度配置 | 全局 |
 
 > 以上默认值若学校另有口径，改 `sys_param` 即可，无需改代码。开放项见 `待确认事项确认单.md`（**20 项已于 2026-06-14 确认**；原业务取值变更 `validate.name.mode`→`loose`，见 `V6__confirmed_params.sql`；#17/#18 后由 WS-2 安全整改取代为 `false/random`，见 `V27__ws02_credential_hardening_defaults.sql`）。
 

@@ -36,7 +36,7 @@ public class FileController {
     public Result<Map<String, Object>> upload(@RequestParam("file") MultipartFile file,
                                               @RequestParam(value = "bizType", required = false) String bizType) throws IOException {
         FileObject fo = fileService.upload(file.getInputStream(), file.getOriginalFilename(),
-                file.getContentType(), file.getSize(), bizType, null);
+                file.getContentType(), file.getSize(), bizType);
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("id", fo.getId());
         data.put("objectKey", fo.getObjectKey());

@@ -2,7 +2,8 @@
 # 其余配置继承 application.yml；主配置不再提供默认 profile，启动必须显式设置
 # SPRING_PROFILES_ACTIVE=prod（docker-compose.yml 已设）。
 
-# 关闭 Swagger / Knife4j —— 生产不暴露 API 文档与"试调"界面
+# 关闭动态 Swagger / Knife4j；SecurityConfig 同时在 prod 对静态 UI、webjars 与文档 API 返回 404，
+# 两层共同保证生产不暴露 API 文档或“试调”界面。
 springdoc:
   api-docs:
     enabled: false

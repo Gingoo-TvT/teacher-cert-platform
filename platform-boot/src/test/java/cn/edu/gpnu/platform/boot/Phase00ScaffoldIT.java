@@ -36,10 +36,8 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.time.Duration;
 import java.time.LocalDateTime;
-import java.util.HexFormat;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -57,10 +55,12 @@ import static org.assertj.core.api.Assertions.assertThat;
  *       未捕获异常 → HTTP 500 + 统一 Result 且不泄漏堆栈（P1-10 修订后的现行合同，替代原「HTTP 200」口径）；</li>
  *   <li>§8-6 / T-FILE-2 上传返回 fileId；预签名 URL 限时可访问；<b>过期后同一 URL 被 MinIO 拒绝</b>；</li>
  *   <li>§8-7 / T-AUDIT-1 `@AuditLog` 样例端点成功后写 `audit_log`，操作人/时间/IP 全部非空；</li>
- *   <li>T-FILE-1 同 MD5 查询命中既有对象（秒传语义的存储侧合同）。</li>
+ *   <li>通用上传退役全局摘要秒传：同内容再次上传仍生成独立 fileId/objectKey/元数据行。</li>
  * </ul>
- * §8-8 / T-DS-1（@DataScope 生成的 SQL 条件）是纯 SQL 改写断言，无需容器，见
- * {@code cn.edu.gpnu.platform.boot.config.DataScopeSqlHandlerTest}。
+ * §8-8 / T-DS-1 的 handler 分支由
+ * {@code cn.edu.gpnu.platform.boot.config.DataScopeSqlHandlerTest} 覆盖；注解、上下文、Mapper 与
+ * 分页 count/data SQL 的组合链由
+ * {@code cn.edu.gpnu.platform.boot.config.DataScopeMapperChainTest} 覆盖，二者均无需外部容器。
  */
 @SpringBootTest(classes = PlatformApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @TestPropertySource(properties = {
@@ -256,26 +256,24 @@ class Phase00ScaffoldIT {
         assertThat(expired.body()).contains("expired");
     }
 
-    // ---------------------------------------------------------------- T-FILE-1 同 MD5 命中
+    // ---------------------------------------------------------------- T-FILE-1（R10）：通用摘要秒传已退役
 
     @Test
-    void sameMd5LookupHitsExistingObjectWithoutSecondCopy() throws Exception {
+    void sameContentUploadsRemainIndependentWithoutGlobalDeduplication() throws Exception {
         byte[] content = ("phase00-md5-" + System.nanoTime()).getBytes(StandardCharsets.UTF_8);
-        String md5 = HexFormat.of().formatHex(MessageDigest.getInstance("MD5").digest(content));
-
         FileObject first = fileService.upload(new java.io.ByteArrayInputStream(content),
-                "phase00-md5.txt", "text/plain", content.length, BIZ_TYPE, md5);
-        assertThat(first.getId()).isNotNull();
+                "phase00-md5.txt", "text/plain", content.length, BIZ_TYPE);
+        FileObject second = fileService.upload(new java.io.ByteArrayInputStream(content),
+                "phase00-md5.txt", "text/plain", content.length, BIZ_TYPE);
 
-        FileObject hit = fileService.getByMd5(md5, BIZ_TYPE);
-        assertThat(hit).as("同 MD5 必须命中既有对象（秒传的存储侧合同）").isNotNull();
-        assertThat(hit.getId()).isEqualTo(first.getId());
-        assertThat(hit.getObjectKey()).isEqualTo(first.getObjectKey());
+        assertThat(first.getId()).isNotNull();
+        assertThat(second.getId()).isNotNull().isNotEqualTo(first.getId());
+        assertThat(second.getObjectKey()).isNotEqualTo(first.getObjectKey());
         assertThat(fileObjectMapper.selectCount(new LambdaQueryWrapper<FileObject>()
-                .eq(FileObject::getMd5, md5)
-                .eq(FileObject::getBizType, BIZ_TYPE)))
-                .as("秒传语义下调用方复用该行，不应产生第二份记录")
-                .isEqualTo(1L);
+                .eq(FileObject::getBizType, BIZ_TYPE)
+                .eq(FileObject::getStatus, "READY")))
+                .as("普通上传不提供全局摘要去重；两次请求必须保留两条独立元数据")
+                .isEqualTo(2L);
     }
 
     // ---------------------------------------------------------------- helpers
