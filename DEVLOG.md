@@ -15,6 +15,20 @@
 
 ---
 
+## [2026-07-27] GOV-037 Phase 0 / U-004 第六轮最小整改候选 — `b123238`
+- 做了什么：删除 MinIO S3 `x-minio-deployment-id` 与 `instanceFingerprintSha256` 全链路依赖；target evidence 升为 schema v5 / `provisioned-object-challenge-v2`。保留 endpoint、bucket、唯一 identity object、对象 SHA、candidate/runContext、nonce、issuedAt 和 0/0/1/0 的逐项校验及每次 context refresh 重读。
+- 关键决策与理由：仓库锁定的 MinIO 数据面不提供 deployment header；接 Admin API 会新增管理凭据，同源字段再哈希也不会增加独立信任。最小且诚实的合同只证明“当前配置目标持有本次一次性挑战对象”，不冒充 MinIO 实例 UUID。
+- 问题与解决：首次聚焦 Maven 因 PowerShell 未引用 `-Dsurefire.failIfNoSpecifiedTests=false`，在 reactor root 以 unknown lifecycle phase 退出、未执行任何模块；修正参数引号后 8/8。该中断还留下一个本轮 Python 夹具临时目录，核对绝对路径/创建时间后仅删除该目录。
+- 与规格的偏差/疑问：无生产代码、业务规则、API、Flyway、权限点或前端变化；仅修正 Phase 0 证据合同。formal 仍为 7 suites / 33 testcases，第 8 个护栏方法按 schema v5 改名并由 spec 精确锁定。
+- 测试：Python **71/71**；护栏 **8/8**；顺序离线 Surefire **32 suites / 274 tests**，0 failure/error/skip；后端 **9/9 modules package**、Checkstyle 0；Java 与 Python/spec 两路独立静态复核均为 0 finding。
+- 安全边界/下一步：Codex 未执行 Docker、MySQL、Redis、MinIO、网络、服务或浏览器。固化包含第六轮材料的新 SHA 后，只由用户在全新隔离栈执行 preflight + exact 7/33 + Compose；正式独立 PASS 前继续 CHANGES_REQUESTED。
+
+## [2026-07-27] GOV-036 Phase 0 / U-004 第五轮动态门禁 — FAIL（MinIO preflight，0/33）
+- 做了什么：只读核对 `C:\Users\wenbibuhaoqwq\phase00-ci-evidence-r5` 并归档 `docs/reviews/phase-00-fifth-remediation-dynamic-failure-2026-07-27.md`。候选 `65094098642f0891d9d4685851e6ba0b4d79245f` 的 manifest 为 FAIL，preflight exit 1、formal `run.executed=false`、0/7 suites、0/33 testcases；checksum 全部一致。
+- 关键决策与理由：第四轮 Redis INFO 与 Windows Maven 缺陷均已关闭，预检首次到达 MinIO `GetObject`；但候选要求 S3 响应含唯一 canonical deployment UUID，而权威同版 MinIO 不提供该数据面 header，故为确定性候选缺陷、同一 SHA 不重跑。
+- 测试/环境边界：执行者回传全新 r5 栈满足 0/0/1/0，离线 verify 同样 FAIL、Compose config PASS、浏览器未执行、专属资源已销毁；Codex 仅只读本地脱敏 evidence，未连接或操作任何真实依赖。
+- 下一步：只做删除 header/fingerprint 的 schema-v5 对象挑战整改，不引入 Admin API、新凭据、size/version 或其它范围外加固。
+
 ## [2026-07-27] GOV-035 Phase 0 / U-004 第五轮退回整改候选 — `6a5577d` 待新最终 SHA 动态 7/33 与正式独立复核
 - 做了什么：针对第四轮最终材料 `191c395` 的真实 preflight FAIL，形成实现点 `6a5577d`。`Phase00TargetPreflight.parseRedisInfo` 不再把 Redis `INFO server` 多行协议载荷送入单行 `requiredText`：整段只要求非空且禁 NUL，支持 CRLF/LF，拆行后的行/key/value 继续经 `cleanText`；空行/注释以外必须有非空 key 分隔符，重复 key 失败关闭。CRLF/LF、NUL、裸 CR、空载荷、畸形行、重复 key 反例并入 `Phase00TargetGuardInitializerTest` 既有第 8 个方法，formal 7/33 的 suite/method 集合不变。Python gate 新增 Windows Maven 默认解析：非空 `MVN` 优先，否则 Windows 查找 `mvn.cmd`、POSIX 保持 `mvn`；工具不可用仍在版本预检 fail-closed。第五轮材料明确要求 Windows 正式命令传绝对 `mvn.cmd`。
 - 关键决策与理由：Redis INFO 的 CRLF/LF 是协议结构，不是单值字段中的注入控制字符；安全边界应在“整段允许协议分隔符、拆行后拒绝行内控制字符”，而不是整体放宽 `cleanText`。畸形/重复行虽不会在缺少必需字段时绕过后续 `requiredText`，但静默忽略或后值覆盖会弱化身份材料确定性，故同轮关闭静态终审发现的 1 Low。Windows 修复不启用 shell，也不拼接命令字符串；preflight/formal 继续共享同一首 token 并进入 manifest。

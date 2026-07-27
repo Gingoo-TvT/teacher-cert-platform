@@ -37,10 +37,11 @@
 >    context refresh/Flyway 前复核空状态，并在每个 context refresh 前用 Spring
 >    `ConfigurableEnvironment` 的实际解析值再绑定目标；预签名下载使用的
 >    `MINIO_PUBLIC_ENDPOINT` 也必须与 SDK `MINIO_ENDPOINT` 的 scheme/host/port 同靶。MySQL UUID、
->    Redis run_id/db 和 MinIO 一次性对象/hash 的 schema-v4 运行期身份必须与预检逐字段一致。
->    MinIO 只接受唯一的 lowercase canonical deployment UUID，并以
->    `SHA-256("phase00:minio-instance:v1\0" + nonce + "\0" + uuid)` 派生本次运行专属指纹；
->    原始 `Server` / deployment header 不进入 JSON、manifest、record 或错误文本。预检与正式 Maven
+>    Redis run_id/db 和 MinIO 一次性对象挑战的 schema-v5 运行期身份必须与预检逐字段一致。
+>    MinIO 绑定 canonical endpoint/bucket、唯一 schema-v2 身份对象、对象 SHA、candidate/runContext、
+>    nonce、issuedAt 及 0/0/1/0 状态；不依赖 S3 响应中不存在的 deployment header，不接 Admin API，
+>    也不生成同源字段的冗余实例指纹。该合同只证明当前配置目标持有本次一次性挑战对象，不宣称唯一
+>    MinIO 管理实例 UUID。预检与正式 Maven
 >    都只从 `git ls-tree` 固定的 path/mode/blob 清单及 `git cat-file`
 >    原始对象物化出的源码快照运行；每个 blob 重算 Git 对象 hash，Linux 同时复核 Git executable bit，
 >    既不读取可切换的操作工作树，也不受 `.git/info/attributes` 或 global/system attributes 的 export
@@ -113,7 +114,7 @@ platform-parent/  (pom，dependencyManagement 锁版本)
 
 ## 8. 验收清单
 
-> 2026-07-27 第五轮整改候选口径：严格遵守 `AGENTS.md §8/§12`，`[x]` 仅表示本候选所需门禁已经执行
+> 2026-07-27 第六轮整改候选口径：严格遵守 `AGENTS.md §8/§12`，`[x]` 仅表示本候选所需门禁已经执行
 > 且通过；`[~]` 表示实现已落地、但仍等待获授权的 fresh-schema 真实依赖门禁。带 † 的两项按文首
 > 修订记录调整了原口径。Phase 0 在全部 `[~]` 转为 `[x]` 且独立复核 PASS 前保持复核退回。
 
@@ -122,28 +123,29 @@ platform-parent/  (pom，dependencyManagement 锁版本)
       启动混入离线 `[x]`。按 `AGENTS.md §6.1`，Codex 不在 headless exec 直接启动常驻 packaged jar。
 - [~] 在 fresh-schema 真实 MySQL/Redis/MinIO 上启动 Spring Boot 应用上下文。——
       `Phase00ScaffoldIT` / `Phase00ParameterMatrixIT` 使用 RANDOM_PORT 启动真实上下文并触发 Flyway；
-      第四轮在 preflight 因 Redis INFO 多行解析缺陷 FAIL、正式 0/33；第五轮等待用户新隔离栈 exact gate。
+      第四轮因 Redis INFO 多行解析缺陷、第五轮因 S3 deployment header 假设分别在 preflight FAIL，
+      两轮正式均为 0/33；第六轮等待用户新隔离栈 exact gate。
 - [~] 非生产 `/doc.html` 打开，示例接口可调通，返回统一 `Result`；生产文档面关闭。——
       `Phase00ScaffoldIT.docHtmlAndOpenApiAreServedWithoutAuthentication` 验证 dev `/doc.html` 200 +
       OpenAPI 文档含真实业务路径；`ApiDocumentationSecurityProfileTest` 验证 prod 文档 API/UI/静态资源
-      404 且 dev 保持公开。profile 单测已通过，真实 dev 文档 IT 等待第五轮最终动态门禁。
+      404 且 dev 保持公开。profile 单测已通过，真实 dev 文档 IT 等待第六轮最终动态门禁。
 - [~] 抛 `BizException` → HTTP 200 + `{code≠0,msg}`；`@Valid` 失败 → 字段级错误。——
       `Phase00ScaffoldIT.bizExceptionReturnsHttp200WithBusinessCode` / `validationFailureReturnsFieldLevelError`。
       未捕获异常合同按 P1-10 修订为 HTTP 500 + 统一 Result（监控可见），由
       `uncaughtExceptionReturnsUnifiedResultWithoutStackTraceLeak` 断言统一体且不泄漏堆栈；
-      等待第五轮最终动态门禁。
+      等待第六轮最终动态门禁。
 - [~] CI 等价 MySQL/Redis/MinIO services 上后端可连通；`docker-compose.dev.yml` 可静态解析。——
-      第四轮 supporting evidence 不替代 0/33；等待第五轮最终 CI/fresh-stack 动态门禁，
+      第四、第五轮 supporting evidence 均不替代各自的 0/33；等待第六轮最终 CI/fresh-stack 动态门禁，
       不声称当前候选已 exact 启动 dev Compose。
 - [~] Flyway 自动建 `sys_param`/`file_object`/`audit_log`，并生成 `docs/README.md` §6 参数基线。——
       `Phase00ParameterMatrixIT.allDocumentedDefaultsHaveExpectedValueAndType` 在 fresh schema 对全部 **32**
       个 active 参数逐项核对 exact key/value/type，并以全表 key 集合比较拒绝未知项或缺失项；
-      源码/迁移静态矩阵已核对，真实 fresh schema 执行仍待第五轮最终动态门禁。
+      源码/迁移静态矩阵已核对，真实 fresh schema 执行仍待第六轮最终动态门禁。
 - [~] 上传任意文件返回 fileId；预签名 URL 限时可访问，过期返回 403/失效。——
       `Phase00ScaffoldIT.uploadWritesAuditRowAndPresignedUrlExpiresAfterTtl`（3 秒 TTL 正向下载逐字节一致 +
-      过期后同一 URL 403）等待第五轮最终动态门禁。
+      过期后同一 URL 403）等待第六轮最终动态门禁。
 - [~] 标注 `@AuditLog` 的样例方法成功后写入 `audit_log`（操作人/时间/IP 不为空）。——同上用例对
-      `file/upload` 审计行的三字段非空断言等待第五轮最终动态门禁；更丰富链路由
+      `file/upload` 审计行的三字段非空断言等待第六轮最终动态门禁；更丰富链路由
       `Phase13SystemAuditIT` 覆盖。
 - [x] `@DataScope` 单测：不同范围生成的 SQL 条件正确。——`DataScopeSqlHandlerTest` 9 例（COLLEGE IN/SELF/ASSIGNED/
       全校无条件/空集合与 NONE fail-closed/未注册表跳过/别名匹配）；`DataScopeMapperChainTest` 5 例
