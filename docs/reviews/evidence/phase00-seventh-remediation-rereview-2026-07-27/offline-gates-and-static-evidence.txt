@@ -1,0 +1,71 @@
+Phase 0 / U-004 seventh remediation independent incremental review
+Date: 2026-07-27
+Baseline: 30a76c8a52d053f39c1b974287434c1390e150ee
+Current HEAD: 9b97741a3da921e3bce648e0c98fdb2892ec72e2
+Current tree: 5c05081ffe72ac8df1c9c2b7adc1f0f17e8e9a10
+
+VERDICT
+CHANGES_REQUESTED
+Active findings: 0 Critical / 0 High / 1 Medium / 1 Low
+New findings: 0
+
+INDEPENDENT OFFLINE CHECKS
+1. python -B scripts\test_phase00_ci_gate.py -v
+   PASS: 71/71
+2. mvn -B -ntp -o clean test
+   PASS: 32 Surefire XML suites / 274 tests / 0 failures / 0 errors / 0 skipped
+   Phase00TargetGuardInitializerTest: 8/8
+3. mvn -B -ntp -o -DskipTests package
+   PASS: 9/9 reactor modules; Checkstyle 0
+4. git diff --check 30a76c8a52d053f39c1b974287434c1390e150ee..9b97741a3da921e3bce648e0c98fdb2892ec72e2
+   PASS
+
+CURRENT-HEAD DYNAMIC EVIDENCE (READ-ONLY)
+Evidence directory: C:\Users\wenbibuhaoqwq\phase00-ci-evidence-r7
+Repository verifier:
+  python -B scripts\phase00_ci_gate.py verify --evidence-dir
+  C:\Users\wenbibuhaoqwq\phase00-ci-evidence-r7
+  --expected-candidate-sha 9b97741a3da921e3bce648e0c98fdb2892ec72e2
+Result: exit 0, evidence verified
+
+Manifest SHA-256:
+  37a370f0e2e378edb8eae31bb363104da7a7e950a7a0f37e67802a04c3c6794d
+SHA256SUMS SHA-256:
+  c2e0782757c8ee71f1a88fd3f2ed4ffa1dbdddfbb00fe36a7a30696117694ab6
+
+Manifest facts:
+- status PASS
+- candidate/expected/start/after-preflight/end all equal current HEAD
+- snapshot tree equals current HEAD tree
+- preflight exit 0
+- formal exit 0
+- 7/7 exact suites
+- 33/33 exact testcases
+- 0 failures / 0 errors / 0 skipped
+- containsSecrets false
+- errors empty
+- preflight/runtime freshness JSON integers: 0/0/1/0
+
+SAFE OFFLINE M1 PROBE
+Injection point: after in-memory snapshot verification, before PASS persistence.
+Mutation: artifact.txt content changed from "before" to "after".
+Observed:
+  verified=true
+  error=null
+  diskStatus=PASS
+  later verifier result=SHA256SUMS mismatch for artifact.txt
+Conclusion: P00-R3-M1 original failure condition remains open.
+
+STATIC L1 RESULT
+- Windows ancestor handle chain: closed.
+- POSIX children: anchored openat/O_NOFOLLOW, closed.
+- POSIX evidence root ancestors: not opened segment-by-segment; previous Low remains partially open.
+
+UNMET SUPPORTING GATES
+- No current-SHA Docker Compose config output was found in r7 evidence.
+- No r7 isolated container/network/volume cleanup record was found.
+- Browser was not required by the seventh submission and is not a blocker.
+
+SAFETY
+No Docker, database, Redis, MinIO, network, service, browser, scan, fuzz,
+fault injection, credential/permission, merge, push, or deploy operation was run.

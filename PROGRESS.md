@@ -5,11 +5,11 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**❌ Phase 0 / U-004 继续 CHANGES_REQUESTED**。最后一份带严重度计数的正式报告仍是第三轮 `CHANGES_REQUESTED（0 Critical / 0 High / 1 Medium / 2 Low）`。第四、第五轮分别在 Redis INFO 与 MinIO header 的 preflight 失败、正式 0/33；第六轮最终材料 `16256002c62c26eae48b8d1c39d2b7a669343980` 首次完成 preflight 与正式 exact **7/7 suites、33/33 testcases、0 failure/error/skip**，但 runtime evidence 被业务 `Long→String` 配置写成 `"0"`，在 finalization 严格 integer 校验处 manifest FAIL。归档见 `docs/reviews/phase-00-sixth-remediation-dynamic-failure-2026-07-27.md`。第七轮实现 `b8cd171` 已做最小修正，等待新最终 clean SHA 的用户动态门禁与正式独立增量复核。统一入口为 `docs/CURRENT-EXECUTION-PLAN.md`。
-- 当前结论：WS-1/WS-2/WS-3/WS-10/WS-13 PASS；U-001/U-002/U-003 全部独立 PASS（Phase 42、39、41、47、53、44）。全项目仅剩 **Phase 0 / U-004** 一项复核退回；exact gate 仍为 **7 suites / 33 testcases**。第六轮 7/33 全绿是有效进展，但 gate 总结仍为 FAIL；同一 SHA 不重跑，第七轮必须固化新最终 SHA 后完整重建 evidence。
+- 当前阶段：**❌ Phase 0 / U-004 继续 CHANGES_REQUESTED（0 Critical / 0 High / 1 Medium / 1 Low）**。第七轮正式独立报告为 `docs/reviews/phase-00-seventh-remediation-rereview-2026-07-27.md`。最终 HEAD `9b97741a3da921e3bce648e0c98fdb2892ec72e2` 的真实 evidence 已由仓库 verifier 只读复验：preflight/formal exit 0，精确 **7/7 suites、33/33 testcases、0 failure/error/skip**，runtime freshness 为 JSON integer `0/0/1/0`。第三轮 MinIO header Low 已关闭；原 M1 的验证后/发布前 artifact 竞态仍可产生 checksum 不一致的 PASS，原 L1 仍缺 POSIX evidence-root 祖先链锚定。统一入口为 `docs/CURRENT-EXECUTION-PLAN.md`。
+- 当前结论：WS-1/WS-2/WS-3/WS-10/WS-13 PASS；U-001/U-002/U-003 全部独立 PASS（Phase 42、39、41、47、53、44）。全项目仅剩 **Phase 0 / U-004** 一项复核退回；当前 SHA 的 exact gate 已真实 PASS，但 1 Medium / 1 Low 代码 finding 及 Compose/专属资源清理材料仍未闭环，不能据此置阶段 PASS。
 - P0 放行项：Phase 41 上一轮 1 High / 2 Medium / 1 Low 全部关闭；正式 PASS 时新增的 1 个非阻断 Low 已在后续闭环——Gate A 示例补齐冷认证参数，runner 在 Maven 前强制受验证 TLS / `allowPublicKeyRetrieval=true` / 受控 RSA 公钥文件三选一，并由纯 stub 静态契约覆盖失败关闭。正式报告仍保留当时的 1 Low 快照。约 24 MiB 以上原始整行 fail-closed、写入侧未同界继续留最终全量审计。
-- 最近更新：2026-07-27（第七轮实现 `b8cd171`：runtime identity 写出使用裸 `ObjectMapper`，不再继承面向前端的 `Long→String`；应用 mapper 的 JSON 读取用途保持不变。既有第 8 个 target-guard testcase 直接复用实际写出 helper，解析序列化字节并断言四个 freshness token 均为 JSON integer 0/0/1/0，exact 计数不变。Python gate **71/71**、聚焦 Java **8/8**、顺序离线 Surefire **32 suites / 274 tests**、后端 **9/9 modules package**、Checkstyle 0，独立静态增量终审 0 finding。Codex 未执行 Docker、数据库、Redis、MinIO、网络、服务、浏览器、故障注入或任何可能属于 cyber 的动作）。
-- 下一步：由用户在获授权的全新一次性隔离栈对**包含第七轮提交材料的最终 clean `HEAD`**执行完整 gate，并对同一 SHA 执行 Compose `config --quiet`；Windows 命令显式传绝对 `mvn.cmd`。不得复用 r6 identity、evidence 或隔离资源；第七轮浏览器 supporting evidence 仅在正式复核要求时重跑。交回完整 PASS/FAIL evidence 和销毁结果后做正式独立增量复核。Phase 0 正式 PASS 后才执行最终全量审计，不得 merge、部署或宣称稳定发布 GO。
+- 最近更新：2026-07-27（第七轮当前 HEAD 动态 gate 已由用户环境执行并由 Codex 离线 verifier 复验 PASS；独立离线 Python **71/71**、Java Surefire **274/274**、目标守卫 **8/8**、后端 package **9/9**、Checkstyle 0。正式增量复核用纯离线临时文件复现 `verified=true + diskStatus=PASS + checksum mismatch`，确认原 M1 尚未关闭；静态确认 POSIX root 祖先链仍未锚定。Codex 未执行 Docker、数据库、Redis、MinIO、网络、服务、浏览器或其它可能属于 cyber 的动作）。
+- 下一步：只修 `P00-R3-M1` 与 `P00-R3-L1`，补发布窗口 mutation/delete 及 Linux 祖先替换反例。随后由用户/获授权环境对新最终 clean SHA 重跑一次完整 gate，并补 Compose `config --quiet` 与本轮专属容器/网络/卷销毁结果；不要求浏览器。正式独立 PASS 后才进入最终全量审计，不得 merge、部署或宣称稳定发布 GO。
 ## 审计整改工作流
 | WS | 内容 | 状态 |
 |---|---|---|
@@ -23,7 +23,7 @@
 
 | 范围 | 实现状态 | 正式复核状态 | 本轮结论 |
 |---|---|---|---|
-| Phase 0 | 10/10；第七轮实现 `b8cd171` 未合并 | 第三轮仍是最后一份 severity-rated 正式报告；第六轮 `1625600` 为 exact 7/33 全绿后 evidence finalization FAIL | ❌ 第七轮已隔离 runtime evidence 的 Long 序列化；待新最终 SHA 完整 gate 与正式独立复核 |
+| Phase 0 | 10/10；第七轮实现 `b8cd171` 未合并 | `phase-00-seventh-remediation-rereview-2026-07-27.md`：CHANGES_REQUESTED（1 Medium / 1 Low）；当前 HEAD exact 7/33 PASS | ❌ M1 发布竞态与 L1 POSIX root 祖先链未闭环 |
 | Phase 1–14 | 已完成 | 逐阶段 PASS 报告齐全 | ✅ 保持已复核 |
 | Phase 15–18 | WP-A/B/C/D 已完成 | WP 报告齐全 | ✅ 保持已复核 |
 | Phase 19–28 | 已完成 | 逐阶段 PASS 报告齐全 | ✅ 保持已复核（已纠正 26/28 滞后状态） |
@@ -43,7 +43,7 @@
 ## 阶段汇总
 | Phase | 名称 | 优先级 | 任务数 | 完成 | 状态 |
 |---|---|---|---|---|---|
-| 0 | 工程脚手架与基础设施 | P0 | 10 | 10 | ❌ 复核退回（第六轮 7/33 全绿但 evidence finalization FAIL；第七轮候选待动态门禁/独立复核） |
+| 0 | 工程脚手架与基础设施 | P0 | 10 | 10 | ❌ 复核退回（第七轮 exact 7/33 PASS；正式独立复核仍有 1 Medium / 1 Low） |
 | 1 | 基础数据与字典 | P0 | 12 | 12 | ✅ 已复核(Claude 06-14) |
 | 2 | 账号角色权限 | P0 | 7 | 7 | ✅ 已复核(Claude 06-16) |
 | 3 | 基本信息 | P0 | 9 | 9 | ✅ 已复核(Claude 06-16) |
@@ -62,13 +62,13 @@
 
 ---
 
-## Phase 0 · 工程脚手架与基础设施 — 10/10 实现完成，❌ 复核退回（第七轮候选待动态门禁/独立复核）
+## Phase 0 · 工程脚手架与基础设施 — 10/10 实现完成，❌ 复核退回（第七轮正式复核 1 Medium / 1 Low）
 - [x] T-001 创建 Maven 父工程与 8 子模块骨架
 - [x] T-002 platform-common 基础设施（Result/异常/枚举/注解/上下文）
 - [x] T-003 platform-boot 启动与全局配置（MyBatis-Plus/Jackson Long→String/数据源）
 - [x] T-004 Flyway 接入 + 基础表 V1（已验证 migrate + 17 参数种子）
-- [x] T-005 本地依赖 docker-compose 编排已交付（历史任务完成；第四至第六轮隔离栈由用户执行并销毁，
-      第七轮新最终 SHA 的动态复验仍只由用户执行）
+- [x] T-005 本地依赖 docker-compose 编排已交付（历史任务完成；第七轮当前 HEAD 的真实依赖 gate
+      已执行并独立离线复验，当前 SHA Compose config 与本轮专属资源销毁材料仍待补）
 - [x] T-006 platform-file MinIO 文件服务（上传/预签名/下载验证通过）
 - [x] T-007 审计切面 + 数据权限切面骨架（AuditLogAspect + DataScopeAspect）
 - [x] T-008 前端工程脚手架（Vue3+Vite+TS+Naive UI，构建通过）

@@ -115,40 +115,39 @@ platform-parent/  (pom，dependencyManagement 锁版本)
 
 ## 8. 验收清单
 
-> 2026-07-27 第七轮整改候选口径：严格遵守 `AGENTS.md §8/§12`，`[x]` 仅表示本候选所需门禁已经执行
-> 且通过；`[~]` 表示实现已落地、但仍等待获授权的 fresh-schema 真实依赖门禁。带 † 的两项按文首
-> 修订记录调整了原口径。Phase 0 在全部 `[~]` 转为 `[x]` 且独立复核 PASS 前保持复核退回。
+> 2026-07-27 第七轮正式复核口径：严格遵守 `AGENTS.md §8/§12`，`[x]` 仅表示当前 HEAD 对应门禁
+> 已执行并由独立复核核验；`[~]` 表示仍缺当前 HEAD 的直接证据。带 † 的两项按文首修订记录调整
+> 原口径。当前真实依赖 7/33 已 PASS，但证据门禁仍有 1 Medium / 1 Low；Phase 0 保持复核退回。
 
 - [x] `mvn -pl platform-boot -am package` 产出 Spring Boot executable jar。——本候选的 9 模块
       package 已通过，fat JAR 内容另有 WS-3 历史门禁；该项只证明打包产物，不把真实依赖应用上下文
       启动混入离线 `[x]`。按 `AGENTS.md §6.1`，Codex 不在 headless exec 直接启动常驻 packaged jar。
-- [~] 在 fresh-schema 真实 MySQL/Redis/MinIO 上启动 Spring Boot 应用上下文。——
+- [x] 在 fresh-schema 真实 MySQL/Redis/MinIO 上启动 Spring Boot 应用上下文。——
       `Phase00ScaffoldIT` / `Phase00ParameterMatrixIT` 使用 RANDOM_PORT 启动真实上下文并触发 Flyway；
       第四轮因 Redis INFO 多行解析缺陷、第五轮因 S3 deployment header 假设分别在 preflight FAIL，
-      两轮正式均为 0/33；第六轮 preflight 与 exact 7/33 已全绿，但 evidence finalization 因
-      freshness 被写成字符串而 FAIL；第七轮等待用户新隔离栈完整 gate。
-- [~] 非生产 `/doc.html` 打开，示例接口可调通，返回统一 `Result`；生产文档面关闭。——
+      两轮正式均为 0/33；第六轮 exact 7/33 后因 evidence integer 校验 FAIL；第七轮最终 HEAD
+      已由独立 verifier 核对为 preflight/formal exit 0、exact 7/33 PASS。
+- [x] 非生产 `/doc.html` 打开，示例接口可调通，返回统一 `Result`；生产文档面关闭。——
       `Phase00ScaffoldIT.docHtmlAndOpenApiAreServedWithoutAuthentication` 验证 dev `/doc.html` 200 +
       OpenAPI 文档含真实业务路径；`ApiDocumentationSecurityProfileTest` 验证 prod 文档 API/UI/静态资源
-      404 且 dev 保持公开。第六轮相关 testcase 已通过，第七轮最终动态门禁尚待执行。
-- [~] 抛 `BizException` → HTTP 200 + `{code≠0,msg}`；`@Valid` 失败 → 字段级错误。——
+      404 且 dev 保持公开。第七轮当前 HEAD 的相关 exact testcase 已执行并通过。
+- [x] 抛 `BizException` → HTTP 200 + `{code≠0,msg}`；`@Valid` 失败 → 字段级错误。——
       `Phase00ScaffoldIT.bizExceptionReturnsHttp200WithBusinessCode` / `validationFailureReturnsFieldLevelError`。
       未捕获异常合同按 P1-10 修订为 HTTP 500 + 统一 Result（监控可见），由
       `uncaughtExceptionReturnsUnifiedResultWithoutStackTraceLeak` 断言统一体且不泄漏堆栈；
-      第六轮相关 testcase 已通过，第七轮最终动态门禁尚待执行。
+      第七轮当前 HEAD 的相关 exact testcase 已执行并通过。
 - [~] CI 等价 MySQL/Redis/MinIO services 上后端可连通；`docker-compose.dev.yml` 可静态解析。——
-      第六轮 preflight/7/33 与 Compose 分别通过，但总 gate 因 evidence finalization FAIL；
-      等待第七轮最终 CI/fresh-stack 完整门禁，
-      不声称当前候选已 exact 启动 dev Compose。
-- [~] Flyway 自动建 `sys_param`/`file_object`/`audit_log`，并生成 `docs/README.md` §6 参数基线。——
+      第七轮当前 HEAD 的 preflight 与 exact 7/33 已 PASS；当前 SHA 的 Compose `config --quiet`
+      尚未归档，故本项保持 `[~]`，不声称已 exact 启动 dev Compose。
+- [x] Flyway 自动建 `sys_param`/`file_object`/`audit_log`，并生成 `docs/README.md` §6 参数基线。——
       `Phase00ParameterMatrixIT.allDocumentedDefaultsHaveExpectedValueAndType` 在 fresh schema 对全部 **32**
       个 active 参数逐项核对 exact key/value/type，并以全表 key 集合比较拒绝未知项或缺失项；
-      第六轮 testcase 已通过，第七轮最终动态门禁尚待执行。
-- [~] 上传任意文件返回 fileId；预签名 URL 限时可访问，过期返回 403/失效。——
+      第七轮当前 HEAD 的参数矩阵 testcase 已执行并通过。
+- [x] 上传任意文件返回 fileId；预签名 URL 限时可访问，过期返回 403/失效。——
       `Phase00ScaffoldIT.uploadWritesAuditRowAndPresignedUrlExpiresAfterTtl`（3 秒 TTL 正向下载逐字节一致 +
-      过期后同一 URL 403）第六轮已通过，第七轮最终动态门禁尚待执行。
-- [~] 标注 `@AuditLog` 的样例方法成功后写入 `audit_log`（操作人/时间/IP 不为空）。——同上用例对
-      `file/upload` 审计行的三字段非空断言第六轮已通过；第七轮最终动态门禁尚待执行，更丰富链路由
+      过期后同一 URL 403）已在第七轮当前 HEAD exact gate 执行并通过。
+- [x] 标注 `@AuditLog` 的样例方法成功后写入 `audit_log`（操作人/时间/IP 不为空）。——同上用例对
+      `file/upload` 审计行的三字段非空断言已在第七轮当前 HEAD 执行并通过；更丰富链路由
       `Phase13SystemAuditIT` 覆盖。
 - [x] `@DataScope` 单测：不同范围生成的 SQL 条件正确。——`DataScopeSqlHandlerTest` 9 例（COLLEGE IN/SELF/ASSIGNED/
       全校无条件/空集合与 NONE fail-closed/未注册表跳过/别名匹配）；`DataScopeMapperChainTest` 5 例

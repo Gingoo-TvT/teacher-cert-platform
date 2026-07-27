@@ -15,6 +15,13 @@
 
 ---
 
+## [2026-07-27] GOV-040 Phase 0 / U-004 第七轮正式独立增量复核 — CHANGES_REQUESTED（1 Medium / 1 Low）
+- 做了什么：冻结上一正式材料 `30a76c8a52d053f39c1b974287434c1390e150ee` 至当前最终 HEAD `9b97741a3da921e3bce648e0c98fdb2892ec72e2`。只读核验 `C:\Users\wenbibuhaoqwq\phase00-ci-evidence-r7`：仓库 verifier exit 0，candidate/expected/start/after-preflight/end 同 SHA，source tree 与 `HEAD^{tree}` 一致，preflight/formal exit 0，exact **7/7 suites、33/33 testcases、0 failure/error/skip**，runtime freshness 为 JSON integer `0/0/1/0`。正式报告与离线摘要为 `docs/reviews/phase-00-seventh-remediation-rereview-2026-07-27.md`、`docs/reviews/evidence/phase00-seventh-remediation-rereview-2026-07-27/`。
+- 关键决策与理由：第三轮 MinIO header / 无秘密证明 Low 与第六轮 JSON integer 失败均关闭；但原 `P00-R3-M1` 尚未完全关闭。`verify_prepared_pass` 释放快照句柄后才写 checksum/PASS manifest 并 rename，纯离线协调反例在两步之间改变 artifact，稳定得到 `verified=true`、`diskStatus=PASS`，而随后 verifier 报 checksum mismatch。原 `P00-R3-L1` 也只部分关闭：Windows 完整祖先 handle 链和 POSIX root 内部 openat 成立，但 POSIX 直接打开多段 root，`O_NOFOLLOW` 不保护非末段祖先。两项都落在第三轮原失败条件内，本轮新增 finding 为 0。
+- 与规格的偏差/疑问：当前 33/33 是有效真实进展，已据此把 Phase 0 中实际执行的应用上下文、文档、异常、参数、文件和审计验收项从 `[~]` 恢复为 `[x]`；Compose 静态解析仍保持 `[~]`。代码 finding 与当前 SHA 的 Compose/专属资源清理材料未闭环，故 Phase 0/U-004 继续 CHANGES_REQUESTED；浏览器不要求。
+- 测试：独立 Python gate **71/71**；Java Surefire **32 suites / 274 tests**、目标守卫 **8/8**；后端 offline package **9/9 modules**、Checkstyle 0；`git diff --check` PASS；报告 lint PASS；r7 evidence verifier PASS。M1 纯离线反例稳定复现 checksum 不一致 PASS。
+- 安全边界/下一步：Codex 未执行 Docker、MySQL、Redis、MinIO、网络、服务、浏览器、扫描、fuzz、故障注入、凭据/权限或其它可能属于 cyber 的动作。下一轮只修 M1/L1 并补两个发布窗口 mutation/delete 与 Linux 祖先替换反例；随后由用户/获授权环境对新最终 SHA 重跑完整 gate、Compose config 并报告专属资源销毁，正式独立 PASS 后才进入最终全量审计。
+
 ## [2026-07-27] GOV-039 Phase 0 / U-004 第七轮最小整改候选 — `b8cd171`
 - 做了什么：`Phase00ScaffoldIT` 的 runtime target identity 写出不再使用 Spring 应用 `ObjectMapper`，改由一个仅负责证据字节的 package-private helper 每次创建裸 `ObjectMapper`。既有第 8 个 target-guard testcase 直接复用同一 helper，解析实际序列化字节并断言四个 freshness token 均为 JSON integer 0/0/1/0。
 - 关键决策与理由：业务 `Long→String` 是前端精度合同，不应泄入机器证据 schema；Python 坚持 JSON integer 是正确的 fail-closed 合同。应用 mapper 继续用于 HTTP/MinIO JSON 读取，不改生产配置、证据结构、gate 或 exact suite。
