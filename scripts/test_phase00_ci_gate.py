@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import copy
+from contextlib import contextmanager
 import json
 import os
 import shutil
@@ -12,6 +14,7 @@ import unittest
 import uuid
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import phase00_ci_gate as gate
@@ -29,23 +32,147 @@ class Phase00CiGateTest(unittest.TestCase):
         self.repo.mkdir()
         self.addCleanup(self.cleanup_fixture_directory)
         self.spec = gate.load_spec(gate.DEFAULT_SPEC)
+        self.identity_issued_at = gate.utc_now().split(".")[0] + "Z"
         self.write_all_reports()
 
     def cleanup_fixture_directory(self) -> None:
         if self.repo.exists():
-            shutil.rmtree(self.repo, ignore_errors=False)
+            gate.remove_directory_tree(self.repo)
         self.assertFalse(
             self.repo.exists(),
             f"offline fixture directory was not removed: {self.repo}",
         )
 
-    def report_path(self, suite: dict[str, object]) -> Path:
-        return self.repo / Path(str(suite["report"]))
+    @contextmanager
+    def mocked_candidate_snapshot(
+        self,
+        repo_root: Path,
+        candidate: str,
+        temporary_parent: Path | None = None,
+    ):
+        self.assertEqual(repo_root, self.repo.resolve(strict=True))
+        self.assertEqual(temporary_parent, self.repo)
+        entries = self.mocked_git_tree_entries()
+        yield gate.SourceSnapshot(
+            root=self.repo,
+            candidate_sha=candidate,
+            tree_sha="b" * 40,
+            manifest_sha256=gate.git_tree_manifest_sha256(entries),
+            file_count=len(entries),
+        )
+
+    def mocked_git_tree_entries(self) -> list[gate.GitTreeEntry]:
+        return [
+            gate.GitTreeEntry(
+                "100644",
+                "d" * 40,
+                gate.PurePosixPath("pom.xml"),
+            )
+        ]
+
+    def report_path(
+        self,
+        suite: dict[str, object],
+        root: Path | None = None,
+    ) -> Path:
+        return (self.repo if root is None else root) / Path(str(suite["report"]))
 
     def suite_by_id(self, suite_id: str) -> dict[str, object]:
         return next(
             suite for suite in self.spec["suites"] if suite["id"] == suite_id
         )
+
+    def target_environment(self) -> dict[str, str]:
+        return {
+            "PHASE00_EXPECTED_CANDIDATE_SHA": "d" * 40,
+            "PHASE00_TARGET_SCHEMA": "teacher_cert",
+            "PHASE00_MYSQL_SERVICE_MARKER": "mysql://127.0.0.1:3306/teacher_cert",
+            "PHASE00_REDIS_SERVICE_MARKER": "redis://127.0.0.1:6379/0",
+            "PHASE00_MINIO_SERVICE_MARKER": "http://127.0.0.1:9000/teacher-cert",
+            "PHASE00_RUN_CONTEXT": "offline:selftest:1",
+            "SPRING_DATASOURCE_URL": (
+                "jdbc:mysql://127.0.0.1:3306/teacher_cert"
+                "?useUnicode=true&characterEncoding=utf8"
+                "&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true"
+                "&useSSL=false"
+            ),
+            "SPRING_DATASOURCE_USERNAME": "root",
+            "SPRING_DATASOURCE_PASSWORD": "root123",
+            "SPRING_DATA_REDIS_HOST": "127.0.0.1",
+            "SPRING_DATA_REDIS_PORT": "6379",
+            "SPRING_DATA_REDIS_DATABASE": "0",
+            "MINIO_ENDPOINT": "http://127.0.0.1:9000",
+            "MINIO_PUBLIC_ENDPOINT": "http://127.0.0.1:9000",
+            "MINIO_ACCESS_KEY": "minioadmin",
+            "MINIO_SECRET_KEY": "minioadmin123",
+            "MINIO_BUCKET": "teacher-cert",
+            "PHASE00_EXPECTED_MYSQL_SERVER_UUID": (
+                "123e4567-e89b-12d3-a456-426614174000"
+            ),
+            "PHASE00_EXPECTED_REDIS_RUN_ID": "b" * 40,
+            "PHASE00_MINIO_IDENTITY_OBJECT": (
+                ".phase00-target/identity-offline-1.json"
+            ),
+            "PHASE00_EXPECTED_MINIO_IDENTITY_SHA256": "c" * 64,
+            "PHASE00_EXPECTED_MINIO_IDENTITY_NONCE": "e" * 64,
+            "PHASE00_EXPECTED_MINIO_IDENTITY_ISSUED_AT": (
+                self.identity_issued_at
+            ),
+        }
+
+    def target_contract(
+        self,
+        candidate: str = "a" * 40,
+    ) -> tuple[dict[str, object], dict[str, object], dict[str, object]]:
+        environment = self.target_environment()
+        declared, configured = gate.read_target_configuration(environment)
+        expected = gate.read_expected_identities(environment, candidate)
+        return declared, configured, expected
+
+    def runtime_identity(self, candidate: str = "a" * 40) -> dict[str, object]:
+        environment = self.target_environment()
+        return {
+            "schemaVersion": self.spec["targetEvidence"]["schemaVersion"],
+            "producerSuite": self.spec["targetEvidence"]["producerSuite"],
+            "candidateSha": candidate,
+            "runContext": environment["PHASE00_RUN_CONTEXT"],
+            "mysql": {
+                "database": "teacher_cert",
+                "version": "8.0.46",
+                "serverUuid": environment[
+                    "PHASE00_EXPECTED_MYSQL_SERVER_UUID"
+                ],
+            },
+            "redis": {
+                "version": "7.4.9",
+                "runId": environment["PHASE00_EXPECTED_REDIS_RUN_ID"],
+                "database": 0,
+            },
+            "minio": {
+                "endpoint": "http://127.0.0.1:9000",
+                "bucket": "teacher-cert",
+                "identityObject": environment[
+                    "PHASE00_MINIO_IDENTITY_OBJECT"
+                ],
+                "identitySha256": environment[
+                    "PHASE00_EXPECTED_MINIO_IDENTITY_SHA256"
+                ],
+                "identityNonce": environment[
+                    "PHASE00_EXPECTED_MINIO_IDENTITY_NONCE"
+                ],
+                "identityIssuedAt": environment[
+                    "PHASE00_EXPECTED_MINIO_IDENTITY_ISSUED_AT"
+                ],
+                "server": "MinIO",
+                "deploymentId": "fixture-deployment",
+            },
+            "freshness": {
+                "mysqlTableCountBefore": 0,
+                "redisDatabaseSizeBefore": 0,
+                "minioObjectCountBefore": 1,
+                "minioUnexpectedObjectCountBefore": 0,
+            },
+        }
 
     def write_suite(
         self,
@@ -58,6 +185,7 @@ class Phase00CiGateTest(unittest.TestCase):
         skipped: int = 0,
         add_status_node: str | None = None,
         include_secret_properties: bool = False,
+        root_directory: Path | None = None,
     ) -> None:
         expected_names = list(suite["testcases"])
         observed_names = names if names is not None else expected_names
@@ -88,15 +216,15 @@ class Phase00CiGateTest(unittest.TestCase):
             )
             if add_status_node and index == 0:
                 ET.SubElement(testcase, add_status_node)
-        path = self.report_path(suite)
+        path = self.report_path(suite, root_directory)
         path.parent.mkdir(parents=True, exist_ok=True)
         ET.ElementTree(root).write(path, encoding="utf-8", xml_declaration=True)
 
-    def write_all_reports(self) -> None:
+    def write_all_reports(self, root_directory: Path | None = None) -> None:
         for suite in self.spec["suites"]:
-            self.write_suite(suite)
+            self.write_suite(suite, root_directory=root_directory)
 
-    def test_spec_locks_all_required_suites_and_twenty_five_cases(self) -> None:
+    def test_spec_locks_all_required_suites_and_thirty_three_cases(self) -> None:
         counts = {
             suite["suite"]: len(suite["testcases"])
             for suite in self.spec["suites"]
@@ -110,14 +238,710 @@ class Phase00CiGateTest(unittest.TestCase):
                 "cn.edu.gpnu.platform.boot.config.DataScopeMapperChainTest": 5,
                 "cn.edu.gpnu.platform.file.service.impl.FileServiceUploadContractTest": 2,
                 "cn.edu.gpnu.platform.boot.config.ApiDocumentationSecurityProfileTest": 2,
+                "cn.edu.gpnu.platform.boot.Phase00TargetGuardInitializerTest": 8,
             },
         )
-        self.assertEqual(sum(counts.values()), 25)
+        self.assertEqual(sum(counts.values()), 33)
+        self.assertEqual(
+            self.spec["targetEvidence"],
+            {
+                "path": "platform-boot/target/phase00-target-identity.json",
+                "producerSuite": "cn.edu.gpnu.platform.boot.Phase00ScaffoldIT",
+                "preflightPath": (
+                    "platform-boot/target/phase00-target-preflight.json"
+                ),
+                "preflightProducer": (
+                    "cn.edu.gpnu.platform.boot.Phase00TargetPreflight"
+                ),
+                "schemaVersion": 3,
+                "mysqlVersionPattern": r"^8\..+$",
+                "redisVersionPattern": r"^7\..+$",
+                "minioIdentityMode": "provisioned-object-sha256",
+                "required": True,
+            },
+        )
+
+    def test_target_configuration_binds_markers_to_actual_services(self) -> None:
+        declared, configured = gate.read_target_configuration(
+            self.target_environment()
+        )
+        self.assertEqual(
+            gate.comparable_service(declared["mysql"]),
+            configured["mysql"],
+        )
+        self.assertEqual(
+            gate.comparable_service(declared["redis"]),
+            configured["redis"],
+        )
+        self.assertEqual(
+            gate.comparable_service(declared["minio"]),
+            configured["minio"],
+        )
+        self.assertEqual(configured["minioPublic"], configured["minio"])
+        self.assertEqual(declared["schema"], "teacher_cert")
+
+    def test_target_configuration_rejects_every_marker_config_mismatch(self) -> None:
+        mutations = (
+            ("PHASE00_MYSQL_SERVICE_MARKER", "mysql://127.0.0.2:3306/teacher_cert"),
+            ("PHASE00_TARGET_SCHEMA", "other_schema"),
+            ("PHASE00_REDIS_SERVICE_MARKER", "redis://127.0.0.1:6379/1"),
+            (
+                "PHASE00_MINIO_SERVICE_MARKER",
+                "http://127.0.0.1:9000/other-bucket",
+            ),
+            ("MINIO_PUBLIC_ENDPOINT", "http://127.0.0.2:9000"),
+        )
+        for name, value in mutations:
+            with self.subTest(name=name):
+                environment = self.target_environment()
+                environment[name] = value
+                with self.assertRaisesRegex(gate.GateError, "does not match"):
+                    gate.read_target_configuration(environment)
+
+    def test_mysql_configuration_rejects_ambiguous_or_sensitive_urls(self) -> None:
+        invalid = (
+            "jdbc:mysql://user:password@127.0.0.1:3306/teacher_cert",
+            "jdbc:mysql://127.0.0.1:3306,127.0.0.2:3306/teacher_cert",
+            "jdbc:mysql:loadbalance://127.0.0.1:3306/teacher_cert",
+            "jdbc:mysql:replication://127.0.0.1:3306/teacher_cert",
+            "jdbc:mysql://127.0.0.1:3306/teacher_cert?password=not-safe",
+            "jdbc:mysql://127.0.0.1:3306/teacher_cert?useSSL=false&USEssl=true",
+            "jdbc:mysql://127.0.0.1:3306/teacher_cert?socketFactory=evil.Factory",
+            "jdbc:mysql://127.0.0.1:3306/teacher_cert?unknownTargetOption=true",
+        )
+        for value in invalid:
+            with self.subTest(value=value):
+                with self.assertRaises(gate.GateError):
+                    gate.parse_mysql_configuration(value)
+
+    def test_target_uris_reject_encoded_or_malformed_separators(self) -> None:
+        invalid_mysql_markers = (
+            "mysql://127.0.0.1:3306/teacher%2Fcert",
+            "mysql://127.0.0.1:3306/teacher%5ccert",
+            "mysql://127.0.0.1:3306/teacher%00cert",
+            "mysql://127.0.0.1:3306/%74eacher_cert",
+            "mysql://127.0.0.1:3306/teacher%ZZcert",
+        )
+        for value in invalid_mysql_markers:
+            with self.subTest(value=value):
+                with self.assertRaises(gate.GateError):
+                    gate.parse_mysql_marker(value)
+        with self.assertRaises(gate.GateError):
+            gate.parse_mysql_configuration(
+                "jdbc:mysql://127.0.0.1:3306/teacher%2Fcert"
+            )
+        with self.assertRaises(gate.GateError):
+            gate.parse_minio_marker(
+                "http://127.0.0.1:9000/teacher%5Ccert"
+            )
+
+    def test_target_uri_normalization_supports_ipv6_and_default_ports(self) -> None:
+        environment = self.target_environment()
+        environment.update(
+            {
+                "PHASE00_MYSQL_SERVICE_MARKER": (
+                    "mysql://[2001:db8::1]/teacher_cert"
+                ),
+                "SPRING_DATASOURCE_URL": (
+                    "jdbc:mysql://[2001:0db8:0:0:0:0:0:1]/teacher_cert"
+                ),
+                "PHASE00_REDIS_SERVICE_MARKER": "redis://[::1]/0",
+                "SPRING_DATA_REDIS_HOST": "::1",
+                "PHASE00_MINIO_SERVICE_MARKER": (
+                    "https://[2001:db8::2]/teacher-cert"
+                ),
+                "MINIO_ENDPOINT": "https://[2001:0db8:0:0:0:0:0:2]",
+                "MINIO_PUBLIC_ENDPOINT": "https://[2001:db8::2]",
+            }
+        )
+        declared, configured = gate.read_target_configuration(environment)
+        self.assertEqual(declared["mysql"]["marker"], "mysql://[2001:db8::1]:3306/teacher_cert")
+        self.assertEqual(configured["redis"]["host"], "::1")
+        self.assertEqual(declared["minio"]["marker"], "https://[2001:db8::2]:443/teacher-cert")
+        runtime = self.runtime_identity()
+        runtime["minio"]["endpoint"] = "https://[2001:0db8:0:0:0:0:0:2]:443"
+        gate.validate_runtime_identity(
+            runtime,
+            self.spec["targetEvidence"],
+            declared,
+            configured,
+            gate.read_expected_identities(environment, "a" * 40),
+        )
+
+    def test_expected_service_identities_are_strict_and_candidate_is_forced(self) -> None:
+        environment = self.target_environment()
+        expected = "a" * 40
+        identities = gate.read_expected_identities(environment, expected)
+        self.assertEqual(identities["candidateSha"], expected)
+        child = gate.build_maven_environment(environment, expected)
+        self.assertEqual(child["PHASE00_EXPECTED_CANDIDATE_SHA"], expected)
+        self.assertEqual(
+            environment["PHASE00_EXPECTED_CANDIDATE_SHA"],
+            "d" * 40,
+            "the immutable start environment must not be modified",
+        )
+
+        invalid = (
+            ("PHASE00_EXPECTED_MYSQL_SERVER_UUID", "not-a-uuid"),
+            ("PHASE00_EXPECTED_REDIS_RUN_ID", "a" * 39),
+            ("PHASE00_MINIO_IDENTITY_OBJECT", "../identity.json"),
+            ("PHASE00_EXPECTED_MINIO_IDENTITY_SHA256", "a" * 63),
+            ("PHASE00_EXPECTED_MINIO_IDENTITY_NONCE", "a" * 63),
+            (
+                "PHASE00_EXPECTED_MINIO_IDENTITY_ISSUED_AT",
+                "2026-07-27T00:00:00+00:00",
+            ),
+        )
+        for name, value in invalid:
+            with self.subTest(name=name):
+                broken = self.target_environment()
+                broken[name] = value
+                with self.assertRaises(gate.GateError):
+                    gate.read_expected_identities(broken, expected)
+
+    def test_preflight_command_is_isolated_before_formal_verify(self) -> None:
+        self.assertEqual(
+            gate.preflight_maven_command("mvn"),
+            [
+                "mvn",
+                "-B",
+                "-ntp",
+                "-pl",
+                "platform-boot",
+                "-am",
+                "-Dtest=__phase00_no_unit_tests__",
+                "-Dsurefire.failIfNoSpecifiedTests=false",
+                "-Dit.test=Phase00TargetPreflight",
+                "-Dfailsafe.failIfNoSpecifiedTests=false",
+                "clean",
+                "verify",
+            ],
+        )
+        self.assertEqual(
+            gate.formal_maven_command("mvn"),
+            [
+                "mvn",
+                "-B",
+                "-ntp",
+                (
+                    "-Dtest=DataScopeSqlHandlerTest,DataScopeMapperChainTest,"
+                    "FileServiceUploadContractTest,ApiDocumentationSecurityProfileTest,"
+                    "Phase00TargetGuardInitializerTest"
+                ),
+                "-Dsurefire.failIfNoSpecifiedTests=false",
+                "-Dit.test=Phase00ScaffoldIT,Phase00ParameterMatrixIT",
+                "-Dfailsafe.failIfNoSpecifiedTests=false",
+                "clean",
+                "verify",
+            ],
+        )
+
+    def test_failed_preflight_never_starts_formal_verify(self) -> None:
+        spec_path = self.repo / "scripts" / "phase00_ci_gate_spec.json"
+        spec_path.parent.mkdir(parents=True)
+        spec_path.write_bytes(gate.DEFAULT_SPEC.read_bytes())
+        evidence = self.repo / "evidence"
+        candidate = "a" * 40
+        started_ns = time.time_ns()
+        preflight_run = {
+            "command": gate.preflight_maven_command("mvn"),
+            "workingDirectory": ".",
+            "startedAtUtc": gate.utc_now(),
+            "endedAtUtc": gate.utc_now(),
+            "startedEpochNs": started_ns,
+            "endedEpochNs": started_ns + 1,
+            "exitCode": 1,
+            "cleanLifecycleRequired": True,
+        }
+        arguments = SimpleNamespace(
+            repo_root=self.repo,
+            spec=spec_path,
+            evidence_dir=evidence,
+            expected_candidate_sha=candidate,
+            maven="mvn",
+        )
+        environment = self.target_environment()
+        with (
+            patch.dict(os.environ, environment, clear=True),
+            patch.object(
+                gate,
+                "immutable_candidate_snapshot",
+                new=self.mocked_candidate_snapshot,
+            ),
+            patch.object(gate, "git_head", return_value=candidate),
+            patch.object(gate, "git_tree_sha", return_value="b" * 40),
+            patch.object(
+                gate,
+                "git_tree_entries",
+                return_value=self.mocked_git_tree_entries(),
+            ),
+            patch.object(gate, "require_clean_tracked_worktree"),
+            patch.object(
+                gate,
+                "require_no_build_relevant_untracked",
+                return_value=0,
+            ),
+            patch.object(
+                gate,
+                "build_tool_versions",
+                return_value={
+                    "git": "git fixture",
+                    "java": "java fixture",
+                    "maven": "maven fixture",
+                    "python": "python fixture",
+                },
+            ),
+            patch.object(
+                gate,
+                "capture_maven_run",
+                return_value=(preflight_run, b"preflight failed\n", "f" * 64),
+            ),
+            patch.object(gate, "verify_materialised_git_tree"),
+            patch.object(gate, "stream_maven") as formal_verify,
+        ):
+            self.assertEqual(gate.run_gate(arguments), 1)
+        formal_verify.assert_not_called()
+        manifest = json.loads(
+            (evidence / "manifest.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(manifest["status"], "FAIL")
+        self.assertFalse(manifest["run"]["executed"])
+        self.assertEqual(manifest["preflight"]["exitCode"], 1)
+
+    def test_verifier_rejects_live_spec_that_differs_from_candidate_blob(
+        self,
+    ) -> None:
+        spec_path = self.repo / "scripts" / "phase00_ci_gate_spec.json"
+        spec_path.parent.mkdir(parents=True)
+        candidate_spec = gate.DEFAULT_SPEC.read_bytes()
+        weakened = json.loads(candidate_spec.decode("utf-8"))
+        weakened["gateId"] = str(weakened["gateId"]) + "-weakened"
+        spec_path.write_text(json.dumps(weakened), encoding="utf-8")
+
+        with (
+            patch.object(gate, "SCRIPT_DIR", self.repo / "scripts"),
+            patch.object(
+                gate,
+                "read_candidate_git_blob",
+                return_value=candidate_spec,
+            ),
+        ):
+            with self.assertRaisesRegex(
+                gate.GateError,
+                "differs from the expected candidate Git blob",
+            ):
+                gate.verify_evidence(
+                    self.repo / "unused-evidence",
+                    spec_path,
+                    "a" * 40,
+                )
+
+    def test_mocked_success_run_self_verifies_complete_dual_evidence(self) -> None:
+        spec_path = self.repo / "scripts" / "phase00_ci_gate_spec.json"
+        spec_path.parent.mkdir(parents=True)
+        spec_path.write_bytes(gate.DEFAULT_SPEC.read_bytes())
+        evidence = self.repo / "evidence-pass"
+        candidate = "a" * 40
+        arguments = SimpleNamespace(
+            repo_root=self.repo,
+            spec=spec_path,
+            evidence_dir=evidence,
+            expected_candidate_sha=candidate,
+            maven="mvn",
+        )
+        environment = self.target_environment()
+        runtime = self.runtime_identity(candidate)
+        preflight = copy.deepcopy(runtime)
+        preflight["producerSuite"] = self.spec["targetEvidence"][
+            "preflightProducer"
+        ]
+        snapshot_root = self.repo / "immutable-source"
+        snapshot_spec = (
+            snapshot_root / "scripts" / "phase00_ci_gate_spec.json"
+        )
+        snapshot_spec.parent.mkdir(parents=True)
+        snapshot_spec.write_bytes(gate.DEFAULT_SPEC.read_bytes())
+        observed_build_roots: list[Path] = []
+
+        @contextmanager
+        def fake_snapshot(
+            repo_root: Path,
+            requested_candidate: str,
+            temporary_parent: Path | None = None,
+        ):
+            self.assertEqual(repo_root, self.repo.resolve(strict=True))
+            self.assertEqual(requested_candidate, candidate)
+            self.assertEqual(temporary_parent, self.repo)
+            yield gate.SourceSnapshot(
+                root=snapshot_root,
+                candidate_sha=candidate,
+                tree_sha="b" * 40,
+                manifest_sha256=gate.git_tree_manifest_sha256(
+                    self.mocked_git_tree_entries()
+                ),
+                file_count=len(self.mocked_git_tree_entries()),
+            )
+
+        def fake_preflight(
+            command: list[str],
+            cwd: Path,
+            redactor: gate.SecretRedactor,
+            child_environment: dict[str, str],
+        ) -> tuple[dict[str, object], bytes, str]:
+            del redactor
+            observed_build_roots.append(cwd)
+            self.assertEqual(
+                child_environment["PHASE00_EXPECTED_CANDIDATE_SHA"],
+                candidate,
+            )
+            self.assertEqual(child_environment["SPRING_PROFILES_ACTIVE"], "dev")
+            source = cwd / Path(self.spec["targetEvidence"]["preflightPath"])
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_text(json.dumps(preflight), encoding="utf-8")
+            started_ns = time.time_ns()
+            now = gate.utc_now()
+            return (
+                {
+                    "command": command,
+                    "workingDirectory": ".",
+                    "startedAtUtc": now,
+                    "endedAtUtc": now,
+                    "startedEpochNs": started_ns,
+                    "endedEpochNs": started_ns + 1,
+                    "exitCode": 0,
+                    "cleanLifecycleRequired": True,
+                },
+                b"mocked preflight success\n",
+                "e" * 64,
+            )
+
+        def fake_formal_verify(
+            command: list[str],
+            cwd: Path,
+            redactor: gate.SecretRedactor,
+            safe_log_path: Path,
+            child_environment: dict[str, str],
+        ) -> tuple[int, str]:
+            del command, redactor
+            observed_build_roots.append(cwd)
+            self.assertEqual(
+                child_environment["PHASE00_EXPECTED_CANDIDATE_SHA"],
+                candidate,
+            )
+            safe_log_path.write_text("mocked formal success\n", encoding="utf-8")
+            self.write_all_reports(cwd)
+            summary = cwd / Path(
+                self.spec["supportingArtifacts"][0]["path"]
+            )
+            summary.parent.mkdir(parents=True, exist_ok=True)
+            root = ET.Element("failsafe-summary")
+            for key, value in (
+                ("completed", 7),
+                ("errors", 0),
+                ("failures", 0),
+                ("skipped", 0),
+                ("flakes", 0),
+            ):
+                ET.SubElement(root, key).text = str(value)
+            ET.ElementTree(root).write(
+                summary,
+                encoding="utf-8",
+                xml_declaration=True,
+            )
+            runtime_source = cwd / Path(self.spec["targetEvidence"]["path"])
+            runtime_source.write_text(json.dumps(runtime), encoding="utf-8")
+            return 0, "f" * 64
+
+        def fake_rematerialize(
+            repo_root: Path,
+            snapshot: gate.SourceSnapshot,
+            expected_candidate: str,
+            expected_entries: list[gate.GitTreeEntry],
+        ) -> None:
+            del repo_root, expected_entries
+            self.assertEqual(snapshot.root, snapshot_root)
+            self.assertEqual(expected_candidate, candidate)
+            generated_module = snapshot_root / "platform-boot"
+            if generated_module.exists():
+                gate.remove_directory_tree(generated_module)
+
+        with (
+            patch.dict(os.environ, environment, clear=True),
+            patch.object(gate, "SCRIPT_DIR", self.repo / "scripts"),
+            patch.object(
+                gate,
+                "immutable_candidate_snapshot",
+                new=fake_snapshot,
+            ),
+            patch.object(gate, "git_head", return_value=candidate),
+            patch.object(gate, "git_tree_sha", return_value="b" * 40),
+            patch.object(
+                gate,
+                "git_tree_entries",
+                return_value=self.mocked_git_tree_entries(),
+            ),
+            patch.object(
+                gate,
+                "read_candidate_git_blob",
+                return_value=gate.DEFAULT_SPEC.read_bytes(),
+            ),
+            patch.object(gate, "require_clean_tracked_worktree"),
+            patch.object(
+                gate,
+                "require_no_build_relevant_untracked",
+                return_value=0,
+            ),
+            patch.object(
+                gate,
+                "build_tool_versions",
+                return_value={
+                    "git": "git fixture",
+                    "java": "java fixture",
+                    "maven": "maven fixture",
+                    "python": "python fixture",
+                },
+            ),
+            patch.object(
+                gate,
+                "capture_maven_run",
+                side_effect=fake_preflight,
+            ),
+            patch.object(gate, "verify_materialised_git_tree"),
+            patch.object(
+                gate,
+                "rematerialise_candidate_snapshot",
+                side_effect=fake_rematerialize,
+            ),
+            patch.object(
+                gate,
+                "stream_maven",
+                side_effect=fake_formal_verify,
+            ),
+        ):
+            self.assertEqual(gate.run_gate(arguments), 0)
+        manifest = json.loads(
+            (evidence / "manifest.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(manifest["status"], "PASS")
+        self.assertEqual(
+            manifest["targets"]["preflight"]["producerSuite"],
+            self.spec["targetEvidence"]["preflightProducer"],
+        )
+        self.assertEqual(
+            gate.identity_binding_view(manifest["targets"]["preflight"]),
+            gate.identity_binding_view(manifest["targets"]["runtime"]),
+        )
+        self.assertEqual(
+            observed_build_roots,
+            [snapshot_root, snapshot_root],
+        )
+        self.assertEqual(
+            manifest["source"]["snapshotTreeSha"],
+            "b" * 40,
+        )
+        self.assertTrue(manifest["source"]["snapshotVerifiedAfterPreflight"])
+        self.assertTrue(manifest["source"]["snapshotRematerializedBeforeFormal"])
+        self.assertTrue(manifest["source"]["snapshotVerifiedAfterFormal"])
+
+        def assert_rejected(mutated: dict[str, object], message: str) -> None:
+            gate.persist_manifest(evidence, mutated)
+            with (
+                patch.object(gate, "SCRIPT_DIR", self.repo / "scripts"),
+                patch.object(gate, "git_tree_sha", return_value="b" * 40),
+                patch.object(
+                    gate,
+                    "git_tree_entries",
+                    return_value=self.mocked_git_tree_entries(),
+                ),
+                patch.object(
+                    gate,
+                    "read_candidate_git_blob",
+                    return_value=gate.DEFAULT_SPEC.read_bytes(),
+                ),
+            ):
+                with self.assertRaisesRegex(gate.GateError, message):
+                    gate.verify_evidence(evidence, spec_path, candidate)
+
+        nested_mutations = (
+            ("source", lambda value: value["source"].update(unexpected=True)),
+            (
+                "preflight",
+                lambda value: value["preflight"].update(unexpected=True),
+            ),
+            ("run", lambda value: value["run"].update(unexpected=True)),
+            (
+                "gate-spec",
+                lambda value: value["gateSpec"].update(unexpected=True),
+            ),
+            (
+                "security",
+                lambda value: value["security"].update(unexpected=True),
+            ),
+            (
+                "suite",
+                lambda value: value["suites"][0].update(unexpected=True),
+            ),
+            (
+                "support",
+                lambda value: value["supportingArtifacts"][0].update(
+                    unexpected=True
+                ),
+            ),
+            (
+                "artifact",
+                lambda value: value["artifacts"][0].update(unexpected=True),
+            ),
+            (
+                "artifact-cross-shape",
+                lambda value: next(
+                    record
+                    for record in value["artifacts"]
+                    if record["path"] == "spec/phase00_ci_gate_spec.json"
+                ).update(redactions=[]),
+            ),
+        )
+        for label, mutate in nested_mutations:
+            with self.subTest(nested_manifest_shape=label):
+                mutated = copy.deepcopy(manifest)
+                mutate(mutated)
+                assert_rejected(mutated, "unexpected")
+
+        extra_artifact = evidence / "extra.txt"
+        extra_artifact.write_text("not declared by the gate", encoding="utf-8")
+        with_extra_artifact = copy.deepcopy(manifest)
+        with_extra_artifact["artifacts"].append(
+            gate.artifact_record(
+                evidence,
+                extra_artifact,
+                kind="undeclared-fixture",
+            )
+        )
+        assert_rejected(with_extra_artifact, "artifact path set is not exact")
+
+    def test_alternate_spring_and_maven_override_channels_fail_closed(self) -> None:
+        invalid_names = (
+            "SPRING_APPLICATION_JSON",
+            "SPRING_CONFIG_IMPORT",
+            "JAVA_TOOL_OPTIONS",
+            "JDK_JAVA_OPTIONS",
+            "_JAVA_OPTIONS",
+            "MAVEN_OPTS",
+            "MAVEN_ARGS",
+            "SPRING_DATA_REDIS_URL",
+            "SPRING_DATA_REDIS_SENTINEL_MASTER",
+            "SPRING_DATA_REDIS_CLUSTER_NODES",
+            "SPRING_DATASOURCE_JNDI_NAME",
+            "SPRING_DATASOURCE_HIKARI_JDBC_URL",
+            "SPRING_DATASOURCE_HIKARI_DATA_SOURCE_PROPERTIES_URL",
+            "SPRING_FLYWAY_URL",
+            "SPRING_FLYWAY_USER",
+            "SPRING_FLYWAY_PASSWORD",
+            "SPRING_FLYWAY_DEFAULT_SCHEMA",
+            "SPRING_FLYWAY_SCHEMAS",
+            "SPRING_FLYWAY_INIT_SQLS",
+            "SPRING_FLYWAY_DRIVER_CLASS_NAME",
+            "SPRING_FLYWAY_JDBC_PROPERTIES_SESSION_VARIABLES",
+            "SPRING_FLYWAY_LOCATIONS",
+            "SPRING_FLYWAY_PLACEHOLDERS_TARGET_SCHEMA",
+            "SPRING_SQL_INIT_MODE",
+            "SPRING_SQL_INIT_SCHEMA_LOCATIONS",
+            "SPRING_SQL_INIT_DATA_LOCATIONS",
+            "spring.flyway.url",
+            "spring-flyway-default-schema",
+            "spring_flyway_init_sqls",
+            "spring.flyway.jdbcProperties.sessionVariables",
+            "spring.flyway.locations",
+            "spring.flyway.placeholders.targetSchema",
+            "spring.sql.init.mode",
+            "spring-sql-init-schema-locations",
+            "spring.profiles.include",
+            "spring-profiles-default",
+        )
+        for name in invalid_names:
+            with self.subTest(name=name):
+                environment = self.target_environment()
+                environment[name] = "non-empty-override"
+                with self.assertRaisesRegex(
+                    gate.GateError,
+                    "override channels",
+                ):
+                    gate.validate_override_channels(environment)
+        blank_environment = self.target_environment()
+        blank_environment["SPRING_FLYWAY_URL"] = ""
+        with self.assertRaisesRegex(gate.GateError, "override channels"):
+            gate.validate_override_channels(blank_environment)
+        environment = self.target_environment()
+        environment["SPRING_PROFILES_ACTIVE"] = "prod"
+        with self.assertRaisesRegex(gate.GateError, "exactly dev"):
+            gate.validate_override_channels(environment)
+
+        policy = gate.validate_override_channels(self.target_environment())
+        self.assertEqual(policy["springProfilesActive"], "dev")
+        child = gate.build_maven_environment(
+            self.target_environment(),
+            "a" * 40,
+        )
+        self.assertEqual(child["SPRING_PROFILES_ACTIVE"], "dev")
+
+    def test_relaxed_binding_aliases_cannot_redirect_the_formal_context(self) -> None:
+        aliases = (
+            ("spring.datasource.url", "jdbc:mysql://wrong:3306/shared"),
+            ("spring-datasource-url", "jdbc:mysql://wrong:3306/shared"),
+            ("spring_datasource_url", "jdbc:mysql://wrong:3306/shared"),
+            ("spring.datasourceUrl", "jdbc:mysql://wrong:3306/shared"),
+            ("spring.data.redis.host", "wrong"),
+            ("spring-data-redis-port", "6380"),
+            ("minio.endpoint", "http://wrong:9000"),
+            ("minio-access-key", "wrong"),
+            ("spring.profiles.active", "prod"),
+        )
+        for name, value in aliases:
+            with self.subTest(name=name):
+                environment = self.target_environment()
+                environment[name] = value
+                with self.assertRaisesRegex(gate.GateError, "relaxed-binding"):
+                    gate.validate_override_channels(environment)
+                with self.assertRaisesRegex(gate.GateError, "relaxed-binding"):
+                    gate.build_maven_environment(environment, "a" * 40)
+
+        self.assertEqual(
+            gate.normalize_environment_property_name("SPRING_DATASOURCE_URL"),
+            gate.normalize_environment_property_name("spring.datasource-url"),
+        )
+        self.assertEqual(
+            gate.environment_property_equivalence_key("SPRING_DATASOURCE_URL"),
+            gate.environment_property_equivalence_key("spring.datasourceUrl"),
+        )
+
+    def test_target_evidence_spec_is_strict(self) -> None:
+        mutations = []
+        extra = copy.deepcopy(self.spec)
+        extra["targetEvidence"]["unexpected"] = True
+        mutations.append(extra)
+        missing = copy.deepcopy(self.spec)
+        del missing["targetEvidence"]["producerSuite"]
+        mutations.append(missing)
+        wrong_suite = copy.deepcopy(self.spec)
+        wrong_suite["targetEvidence"]["producerSuite"] = "unknown.Suite"
+        mutations.append(wrong_suite)
+        optional = copy.deepcopy(self.spec)
+        optional["targetEvidence"]["required"] = False
+        mutations.append(optional)
+        unsafe = copy.deepcopy(self.spec)
+        unsafe["targetEvidence"]["path"] = "../identity.json"
+        mutations.append(unsafe)
+
+        for index, broken in enumerate(mutations):
+            with self.subTest(index=index):
+                path = self.repo / f"broken-target-spec-{index}.json"
+                path.write_text(json.dumps(broken), encoding="utf-8")
+                with self.assertRaises(gate.GateError):
+                    gate.load_spec(path)
 
     def test_exact_fresh_reports_pass(self) -> None:
         results = gate.validate_suite_reports(self.repo, self.spec, fresh_after_ns=0)
-        self.assertEqual(len(results), 6)
-        self.assertEqual(sum(result["observedTests"] for result in results), 25)
+        self.assertEqual(len(results), 7)
+        self.assertEqual(sum(result["observedTests"] for result in results), 33)
 
     def test_missing_xml_fails(self) -> None:
         self.report_path(self.spec["suites"][0]).unlink()
@@ -165,6 +989,297 @@ class Phase00CiGateTest(unittest.TestCase):
                 fresh_after_ns=time.time_ns(),
             )
 
+    def test_runtime_identity_exact_schema_and_bindings_pass(self) -> None:
+        declared, configured, expected = self.target_contract()
+        observed = self.runtime_identity()
+        self.assertEqual(
+            gate.validate_runtime_identity(
+                observed,
+                self.spec["targetEvidence"],
+                declared,
+                configured,
+                expected,
+            ),
+            observed,
+        )
+
+    def test_runtime_identity_rejects_extra_missing_and_duplicate_fields(self) -> None:
+        declared, configured, expected = self.target_contract()
+        extra = self.runtime_identity()
+        extra["unexpected"] = True
+        missing = self.runtime_identity()
+        del missing["redis"]["runId"]
+        for observed in (extra, missing):
+            with self.subTest(fields=observed.keys()):
+                with self.assertRaisesRegex(gate.GateError, "fields are not exact"):
+                    gate.validate_runtime_identity(
+                        observed,
+                        self.spec["targetEvidence"],
+                        declared,
+                        configured,
+                        expected,
+                    )
+        duplicate = (
+            b'{"schemaVersion":1,"schemaVersion":1,'
+            b'"producerSuite":"fixture"}'
+        )
+        with self.assertRaisesRegex(gate.GateError, "duplicate JSON field"):
+            gate.strict_json_bytes(duplicate, "duplicate fixture")
+
+    def test_runtime_identity_rejects_candidate_and_run_context_drift(self) -> None:
+        declared, configured, expected = self.target_contract()
+        mutations = (
+            ("candidateSha", "d" * 40),
+            ("runContext", "offline:selftest:other"),
+        )
+        for name, value in mutations:
+            with self.subTest(name=name):
+                observed = self.runtime_identity()
+                observed[name] = value
+                with self.assertRaisesRegex(gate.GateError, "mismatch"):
+                    gate.validate_runtime_identity(
+                        observed,
+                        self.spec["targetEvidence"],
+                        declared,
+                        configured,
+                        expected,
+                    )
+
+    def test_runtime_identity_rejects_every_service_identity_mismatch(self) -> None:
+        declared, configured, expected = self.target_contract()
+        mutations = (
+            ("mysql", "database", "other_schema"),
+            (
+                "mysql",
+                "serverUuid",
+                "223e4567-e89b-12d3-a456-426614174000",
+            ),
+            ("mysql", "version", "5.7.44"),
+            ("redis", "runId", "e" * 40),
+            ("redis", "database", 1),
+            ("redis", "version", "6.2.0"),
+            ("minio", "endpoint", "http://127.0.0.2:9000"),
+            ("minio", "bucket", "other-bucket"),
+            (
+                "minio",
+                "identityObject",
+                ".phase00-target/identity-other.json",
+            ),
+            ("minio", "identitySha256", "e" * 64),
+            ("minio", "identityNonce", "f" * 64),
+            ("minio", "identityIssuedAt", "2020-01-01T00:00:00Z"),
+            ("minio", "deploymentId", None),
+        )
+        for service, field, value in mutations:
+            with self.subTest(service=service, field=field):
+                observed = self.runtime_identity()
+                observed[service][field] = value
+                with self.assertRaises(gate.GateError):
+                    gate.validate_runtime_identity(
+                        observed,
+                        self.spec["targetEvidence"],
+                        declared,
+                        configured,
+                        expected,
+                    )
+
+    def test_runtime_identity_requires_exact_prewrite_empty_state(self) -> None:
+        declared, configured, expected = self.target_contract()
+        mutations = (
+            ("mysqlTableCountBefore", 1),
+            ("redisDatabaseSizeBefore", 1),
+            ("minioObjectCountBefore", 0),
+            ("minioObjectCountBefore", 2),
+            ("minioUnexpectedObjectCountBefore", 1),
+            ("redisDatabaseSizeBefore", True),
+        )
+        for name, value in mutations:
+            with self.subTest(name=name, value=value):
+                observed = self.runtime_identity()
+                observed["freshness"][name] = value
+                with self.assertRaisesRegex(gate.GateError, "freshness"):
+                    gate.validate_runtime_identity(
+                        observed,
+                        self.spec["targetEvidence"],
+                        declared,
+                        configured,
+                        expected,
+                    )
+
+    def test_preflight_identity_issued_at_is_bound_to_gate_start(self) -> None:
+        identity = self.runtime_identity()
+        started_ns = time.time_ns()
+        gate.validate_preflight_identity_freshness(identity, started_ns)
+
+        stale = copy.deepcopy(identity)
+        stale["minio"]["identityIssuedAt"] = "2020-01-01T00:00:00Z"
+        with self.assertRaisesRegex(gate.GateError, "outside the allowed"):
+            gate.validate_preflight_identity_freshness(stale, started_ns)
+
+        future = copy.deepcopy(identity)
+        future_time = (
+            gate.dt.datetime.now(gate.dt.timezone.utc)
+            + gate.dt.timedelta(minutes=3)
+        ).strftime("%Y-%m-%dT%H:%M:%SZ")
+        future["minio"]["identityIssuedAt"] = future_time
+        with self.assertRaisesRegex(gate.GateError, "outside the allowed"):
+            gate.validate_preflight_identity_freshness(future, started_ns)
+
+    def test_runtime_identity_must_exactly_match_preflight_identity(self) -> None:
+        preflight = self.runtime_identity()
+        preflight["producerSuite"] = self.spec["targetEvidence"][
+            "preflightProducer"
+        ]
+        runtime = self.runtime_identity()
+        gate.require_matching_preflight_and_runtime(preflight, runtime)
+
+        runtime["minio"]["server"] = "different-server-header"
+        with self.assertRaisesRegex(gate.GateError, "exactly match preflight"):
+            gate.require_matching_preflight_and_runtime(preflight, runtime)
+
+    def test_runtime_identity_source_must_be_fresh_regular_and_stable(self) -> None:
+        source = self.repo / Path(self.spec["targetEvidence"]["path"])
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_text(
+            json.dumps(self.runtime_identity(), sort_keys=True),
+            encoding="utf-8",
+        )
+        started_ns = time.time_ns()
+        os.utime(source, (1, 1))
+        with self.assertRaisesRegex(gate.GateError, "stale"):
+            gate.read_regular_json_source(
+                self.repo,
+                self.spec["targetEvidence"]["path"],
+                "runtime identity fixture",
+                fresh_after_ns=started_ns,
+            )
+        source.write_text(
+            json.dumps(self.runtime_identity(), sort_keys=True),
+            encoding="utf-8",
+        )
+        observed, content, digest, metadata = gate.read_regular_json_source(
+            self.repo,
+            self.spec["targetEvidence"]["path"],
+            "runtime identity fixture",
+            fresh_after_ns=started_ns,
+        )
+        self.assertEqual(observed, self.runtime_identity())
+        self.assertEqual(digest, gate.sha256_bytes(content))
+        self.assertEqual(metadata["bytes"], len(content))
+
+    def test_offline_verifier_reparses_archived_runtime_identity(self) -> None:
+        candidate = "a" * 40
+        declared, configured, expected = self.target_contract(candidate)
+        runtime = self.runtime_identity(candidate)
+        preflight = copy.deepcopy(runtime)
+        preflight["producerSuite"] = self.spec["targetEvidence"][
+            "preflightProducer"
+        ]
+        evidence = self.repo / "runtime-evidence"
+        records = {}
+
+        def archive(
+            identity: dict[str, object],
+            artifact_path: str,
+            kind: str,
+            source_path: str,
+        ) -> tuple[str, int]:
+            artifact = evidence / Path(artifact_path)
+            artifact.parent.mkdir(parents=True, exist_ok=True)
+            content = (
+                json.dumps(identity, sort_keys=True, separators=(",", ":"))
+                + "\n"
+            ).encode("utf-8")
+            artifact.write_bytes(content)
+            digest = gate.sha256_bytes(content)
+            records[artifact_path] = gate.artifact_record(
+                evidence,
+                artifact,
+                kind=kind,
+                source_path=source_path,
+                source_sha256=digest,
+                source_retained=True,
+            )
+            return digest, len(content)
+
+        preflight_digest, preflight_bytes = archive(
+            preflight,
+            gate.PREFLIGHT_IDENTITY_ARTIFACT,
+            gate.PREFLIGHT_IDENTITY_KIND,
+            self.spec["targetEvidence"]["preflightPath"],
+        )
+        runtime_digest, runtime_bytes = archive(
+            runtime,
+            gate.TARGET_IDENTITY_ARTIFACT,
+            gate.TARGET_IDENTITY_KIND,
+            self.spec["targetEvidence"]["path"],
+        )
+        started_ns = time.time_ns()
+        targets = {
+            "declared": declared,
+            "configured": configured,
+            "expected": expected,
+            "preflight": preflight,
+            "runtime": runtime,
+            "evidence": {
+                "preflight": {
+                    "sourcePath": self.spec["targetEvidence"]["preflightPath"],
+                    "artifactPath": gate.PREFLIGHT_IDENTITY_ARTIFACT,
+                    "sourceSha256": preflight_digest,
+                    "sourceMtimeNs": started_ns,
+                    "sourceBytes": preflight_bytes,
+                },
+                "runtime": {
+                    "sourcePath": self.spec["targetEvidence"]["path"],
+                    "artifactPath": gate.TARGET_IDENTITY_ARTIFACT,
+                    "sourceSha256": runtime_digest,
+                    "sourceMtimeNs": started_ns,
+                    "sourceBytes": runtime_bytes,
+                },
+            },
+            "constraints": gate.validate_override_channels(
+                self.target_environment()
+            ),
+        }
+        self.assertEqual(
+            gate.verify_runtime_target_artifact(
+                evidence_dir=evidence,
+                targets_value=targets,
+                target_spec=self.spec["targetEvidence"],
+                expected_candidate=candidate,
+                records=records,
+                preflight_started_ns=started_ns,
+                runtime_started_ns=started_ns,
+            ),
+            runtime,
+        )
+
+        bad_hash = copy.deepcopy(targets)
+        bad_hash["evidence"]["runtime"]["sourceSha256"] = "0" * 64
+        with self.assertRaises(gate.GateError):
+            gate.verify_runtime_target_artifact(
+                evidence_dir=evidence,
+                targets_value=bad_hash,
+                target_spec=self.spec["targetEvidence"],
+                expected_candidate=candidate,
+                records=records,
+                preflight_started_ns=started_ns,
+                runtime_started_ns=started_ns,
+            )
+
+        bad_runtime = copy.deepcopy(targets)
+        bad_runtime["runtime"]["mysql"]["database"] = "other_schema"
+        with self.assertRaisesRegex(gate.GateError, "differs from the archived"):
+            gate.verify_runtime_target_artifact(
+                evidence_dir=evidence,
+                targets_value=bad_runtime,
+                target_spec=self.spec["targetEvidence"],
+                expected_candidate=candidate,
+                records=records,
+                preflight_started_ns=started_ns,
+                runtime_started_ns=started_ns,
+            )
+
     def test_old_report_cleanup_is_exact_and_preserves_unrelated_xml(self) -> None:
         first_report = self.report_path(self.spec["suites"][0])
         first_text = gate.report_text_path(first_report)
@@ -177,6 +1292,13 @@ class Phase00CiGateTest(unittest.TestCase):
         summary.write_text("<failsafe-summary/>", encoding="utf-8")
         unrelated = first_report.parent / "TEST-unrelated.xml"
         unrelated.write_text("<testsuite/>", encoding="utf-8")
+        target_identity = self.repo / Path(self.spec["targetEvidence"]["path"])
+        target_identity.parent.mkdir(parents=True, exist_ok=True)
+        target_identity.write_text("stale identity", encoding="utf-8")
+        preflight_identity = self.repo / Path(
+            self.spec["targetEvidence"]["preflightPath"]
+        )
+        preflight_identity.write_text("stale preflight", encoding="utf-8")
 
         removed = gate.remove_declared_reports(self.repo, self.spec)
 
@@ -184,6 +1306,10 @@ class Phase00CiGateTest(unittest.TestCase):
         self.assertFalse(first_report.exists())
         self.assertFalse(first_text.exists())
         self.assertFalse(summary.exists())
+        self.assertFalse(target_identity.exists())
+        self.assertFalse(preflight_identity.exists())
+        self.assertIn(self.spec["targetEvidence"]["path"], removed)
+        self.assertIn(self.spec["targetEvidence"]["preflightPath"], removed)
         self.assertTrue(unrelated.exists())
 
     def test_failsafe_summary_counts_are_enforced(self) -> None:
@@ -231,6 +1357,471 @@ class Phase00CiGateTest(unittest.TestCase):
     def test_wrong_candidate_sha_fails(self) -> None:
         with self.assertRaisesRegex(gate.GateError, "candidate SHA mismatch"):
             gate.validate_candidate("a" * 40, "b" * 40)
+
+    def test_clean_candidate_head_stays_stable_across_maven_window(self) -> None:
+        candidate = "a" * 40
+        with patch.object(gate, "git_head", return_value=candidate):
+            self.assertEqual(
+                gate.bind_end_candidate(self.repo, candidate, candidate),
+                candidate,
+            )
+        gate.verify_candidate_attestation(
+            {
+                "candidateSha": candidate,
+                "expectedCandidateSha": candidate,
+                "source": {
+                    "startHead": candidate,
+                    "afterPreflightHead": candidate,
+                    "endHead": candidate,
+                },
+            },
+            candidate,
+        )
+
+    def test_source_git_commands_remove_all_git_environment_redirects(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "PATH": "fixture-path",
+                "GIT_DIR": "outside",
+                "GIT_WORK_TREE": "outside",
+                "GIT_CONFIG_COUNT": "1",
+                "GIT_TRACE": "1",
+            },
+            clear=True,
+        ):
+            isolated = gate.isolated_git_environment()
+        self.assertEqual(isolated["PATH"], "fixture-path")
+        self.assertEqual(isolated["GIT_NO_REPLACE_OBJECTS"], "1")
+        self.assertFalse(
+            any(
+                name.startswith("GIT_")
+                and name != "GIT_NO_REPLACE_OBJECTS"
+                for name in isolated
+            )
+        )
+
+    def test_clean_candidate_head_drift_across_maven_window_fails(self) -> None:
+        start = "a" * 40
+        end = "b" * 40
+        with patch.object(gate, "git_head", return_value=end):
+            with self.assertRaisesRegex(gate.GateError, "HEAD drifted"):
+                gate.bind_end_candidate(self.repo, start, start)
+        with self.assertRaisesRegex(gate.GateError, "HEAD drifted"):
+            gate.verify_candidate_attestation(
+                {
+                    "candidateSha": start,
+                    "expectedCandidateSha": start,
+                    "source": {
+                        "startHead": start,
+                        "afterPreflightHead": start,
+                        "endHead": end,
+                    },
+                },
+                start,
+            )
+
+    def test_immutable_snapshot_uses_exact_commit_and_removes_git_metadata(
+        self,
+    ) -> None:
+        source_repo = self.repo / "snapshot-source"
+        source_repo.mkdir()
+
+        def git(*arguments: str) -> str:
+            completed = subprocess.run(
+                ["git", *arguments],
+                cwd=source_repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+                text=True,
+            )
+            self.assertEqual(
+                completed.returncode,
+                0,
+                completed.stderr or completed.stdout,
+            )
+            return completed.stdout.strip()
+
+        git("init")
+        tracked = source_repo / "tracked.txt"
+        tracked.write_text("candidate A\n", encoding="utf-8")
+        git("add", "tracked.txt")
+        git(
+            "-c",
+            "user.name=Phase00 Fixture",
+            "-c",
+            "user.email=phase00@example.invalid",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "-m",
+            "candidate A",
+        )
+        candidate_a = git("rev-parse", "HEAD")
+        tree_a = git("rev-parse", f"{candidate_a}^{{tree}}")
+
+        tracked.write_text("candidate B\n", encoding="utf-8")
+        git("add", "tracked.txt")
+        git(
+            "-c",
+            "user.name=Phase00 Fixture",
+            "-c",
+            "user.email=phase00@example.invalid",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "-m",
+            "candidate B",
+        )
+        self.assertNotEqual(git("rev-parse", "HEAD"), candidate_a)
+        info_attributes = source_repo / ".git" / "info" / "attributes"
+        info_attributes.write_text(
+            "tracked.txt export-ignore export-subst\n",
+            encoding="utf-8",
+        )
+
+        snapshot_path: Path | None = None
+        with gate.immutable_candidate_snapshot(
+            source_repo,
+            candidate_a,
+        ) as snapshot:
+            snapshot_path = snapshot.root
+            self.assertEqual(snapshot.candidate_sha, candidate_a)
+            self.assertEqual(snapshot.tree_sha, tree_a)
+            entries = gate.git_tree_entries(source_repo, candidate_a)
+            self.assertEqual(
+                snapshot.manifest_sha256,
+                gate.git_tree_manifest_sha256(entries),
+            )
+            self.assertEqual(snapshot.file_count, len(entries))
+            self.assertEqual(
+                (snapshot.root / "tracked.txt").read_text(encoding="utf-8"),
+                "candidate A\n",
+            )
+            self.assertFalse((snapshot.root / ".git").exists())
+        self.assertIsNotNone(snapshot_path)
+        self.assertFalse(snapshot_path.exists())
+
+    def test_candidate_blob_reader_ignores_weakened_live_worktree_spec(
+        self,
+    ) -> None:
+        source_repo = self.repo / "candidate-spec-source"
+        source_repo.mkdir()
+
+        def git(*arguments: str) -> str:
+            completed = subprocess.run(
+                ["git", *arguments],
+                cwd=source_repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+                text=True,
+            )
+            self.assertEqual(
+                completed.returncode,
+                0,
+                completed.stderr or completed.stdout,
+            )
+            return completed.stdout.strip()
+
+        git("init")
+        spec_path = source_repo / "scripts" / "phase00_ci_gate_spec.json"
+        spec_path.parent.mkdir(parents=True)
+        candidate_spec = gate.DEFAULT_SPEC.read_bytes()
+        spec_path.write_bytes(candidate_spec)
+        git("add", "scripts/phase00_ci_gate_spec.json")
+        git(
+            "-c",
+            "user.name=Phase00 Fixture",
+            "-c",
+            "user.email=phase00@example.invalid",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "-m",
+            "candidate gate spec",
+        )
+        candidate = git("rev-parse", "HEAD")
+
+        weakened = json.loads(candidate_spec.decode("utf-8"))
+        weakened["gateId"] = str(weakened["gateId"]) + "-weakened"
+        spec_path.write_text(json.dumps(weakened), encoding="utf-8")
+
+        observed = gate.read_candidate_git_blob(
+            source_repo,
+            candidate,
+            "scripts/phase00_ci_gate_spec.json",
+            "candidate gate spec",
+        )
+        self.assertEqual(observed, candidate_spec)
+        self.assertNotEqual(observed, spec_path.read_bytes())
+
+    def test_candidate_git_tree_rejects_links_and_unsafe_windows_paths(
+        self,
+    ) -> None:
+        object_sha = b"a" * 40
+        regular = b"100644 blob " + object_sha + b"\tmodule/pom.xml\0"
+        self.assertEqual(
+            gate.parse_git_tree_entries(regular),
+            [
+                gate.GitTreeEntry(
+                    "100644",
+                    "a" * 40,
+                    gate.PurePosixPath("module/pom.xml"),
+                )
+            ],
+        )
+        for name, mode in (
+            ("../escape", "100644"),
+            (r"module\escape", "100644"),
+            ("module/report.xml:stream", "100644"),
+            ("module/CON.txt", "100644"),
+            ("module/CON .txt", "100644"),
+            ("module/CONIN$.txt", "100644"),
+            ("module/COM¹.txt", "100644"),
+            ("module/link", "120000"),
+        ):
+            with self.subTest(name=name):
+                with self.assertRaises(gate.GateError):
+                    gate.parse_git_tree_entries(
+                        mode.encode("ascii")
+                        + b" blob "
+                        + object_sha
+                        + b"\t"
+                        + name.encode("utf-8")
+                        + b"\0"
+                    )
+        with self.assertRaisesRegex(gate.GateError, "case-colliding"):
+            gate.parse_git_tree_entries(
+                b"100644 blob "
+                + object_sha
+                + b"\tModule/pom.xml\0"
+                + b"100644 blob "
+                + object_sha
+                + b"\tmodule/POM.xml\0"
+            )
+        with self.assertRaisesRegex(gate.GateError, "case-colliding"):
+            gate.parse_git_tree_entries(
+                b"100644 blob "
+                + object_sha
+                + b"\tModule/first.txt\0"
+                + b"100644 blob "
+                + object_sha
+                + b"\tmodule/second.txt\0"
+            )
+
+    def test_snapshot_attestation_rebinds_candidate_tree_and_spec(self) -> None:
+        candidate = "a" * 40
+        tree = "b" * 40
+        spec_sha = "c" * 64
+        entries = self.mocked_git_tree_entries()
+        manifest_sha = gate.git_tree_manifest_sha256(entries)
+        source = {
+            "snapshotMode": "git-object-tree",
+            "snapshotCandidateSha": candidate,
+            "snapshotTreeSha": tree,
+            "snapshotManifestSha256": manifest_sha,
+            "snapshotFileCount": len(entries),
+            "snapshotSpecSha256": spec_sha,
+            "snapshotContainsGitMetadata": False,
+        }
+        with (
+            patch.object(gate, "git_tree_sha", return_value=tree),
+            patch.object(gate, "git_tree_entries", return_value=entries),
+        ):
+            self.assertEqual(
+                gate.verify_source_snapshot_attestation(
+                    source,
+                    self.repo,
+                    candidate,
+                    spec_sha,
+                ),
+                {
+                    "mode": "git-object-tree",
+                    "candidateSha": candidate,
+                    "treeSha": tree,
+                    "manifestSha256": manifest_sha,
+                    "fileCount": len(entries),
+                },
+            )
+            for mutated in (
+                {**source, "snapshotTreeSha": "e" * 40},
+                {**source, "snapshotManifestSha256": "e" * 64},
+                {**source, "snapshotFileCount": len(entries) + 1},
+                {**source, "snapshotSpecSha256": "e" * 64},
+                {**source, "snapshotContainsGitMetadata": True},
+            ):
+                with self.subTest(mutated=mutated):
+                    with self.assertRaises(gate.GateError):
+                        gate.verify_source_snapshot_attestation(
+                            mutated,
+                            self.repo,
+                            candidate,
+                            spec_sha,
+                        )
+
+    def test_temp_cleanup_never_chmods_link_or_reparse_entries(self) -> None:
+        temporary = self.repo / "cleanup-reparse-fixture"
+        temporary.mkdir()
+        linked = temporary / "outside-link"
+        linked.write_text("fixture", encoding="utf-8")
+        regular = temporary / "regular"
+        regular.write_text("fixture", encoding="utf-8")
+        original_detector = gate.path_is_link_or_reparse
+
+        def fake_detector(path: Path) -> bool:
+            return path == linked or original_detector(path)
+
+        with (
+            patch.object(
+                gate,
+                "path_is_link_or_reparse",
+                side_effect=fake_detector,
+            ),
+            patch.object(gate.os, "chmod", wraps=gate.os.chmod) as chmod,
+        ):
+            gate.remove_directory_tree(temporary)
+        self.assertFalse(temporary.exists())
+        chmod_paths = [Path(call.args[0]) for call in chmod.call_args_list]
+        self.assertNotIn(linked, chmod_paths)
+
+        replaced_root = self.repo / "cleanup-replaced-root"
+        replaced_root.mkdir()
+        with patch.object(
+            gate,
+            "path_is_link_or_reparse",
+            side_effect=lambda path: path == replaced_root,
+        ):
+            with self.assertRaisesRegex(gate.GateError, "changed into a link"):
+                gate.remove_directory_tree(replaced_root)
+        self.assertTrue(replaced_root.exists())
+
+    def test_evidence_paths_reject_windows_and_ambiguous_segments(self) -> None:
+        invalid_paths = (
+            "",
+            ".",
+            "./manifest.json",
+            "../escape.xml",
+            "logs/../escape.xml",
+            "logs/./report.xml",
+            "logs//report.xml",
+            "logs/",
+            "/absolute/report.xml",
+            "//server/share/report.xml",
+            r"..\escape.xml",
+            r"C:\outside\report.xml",
+            "C:/outside/report.xml",
+            r"\\server\share\report.xml",
+            r"xml\report.xml",
+            r"xml/..\report.xml",
+            "xml/report.xml:stream",
+            "xml/CON.txt",
+            "xml/COM1 .log",
+            "xml/report.xml.",
+            "xml/report.xml ",
+        )
+        for value in invalid_paths:
+            with self.subTest(value=value):
+                with self.assertRaises(gate.GateError):
+                    gate.safe_relative_path(value, "fixture evidence path")
+        self.assertEqual(
+            gate.safe_relative_path("xml/report.xml", "fixture evidence path"),
+            gate.PurePosixPath("xml/report.xml"),
+        )
+
+    def test_reparse_artifact_is_rejected_before_hash_read(self) -> None:
+        evidence = self.repo / "reparse-evidence"
+        evidence.mkdir()
+        artifact = evidence / "report.xml"
+        artifact.write_text("<testsuite/>", encoding="utf-8")
+        records = [
+            {
+                "path": "report.xml",
+                "kind": "fixture",
+                "sha256": gate.sha256_file(artifact),
+                "bytes": artifact.stat().st_size,
+            }
+        ]
+
+        def mark_artifact_as_reparse(path: Path) -> bool:
+            return path.absolute() == artifact.absolute()
+
+        with (
+            patch.object(
+                gate,
+                "path_is_link_or_reparse",
+                side_effect=mark_artifact_as_reparse,
+            ),
+            patch.object(gate, "sha256_file") as hash_read,
+        ):
+            with self.assertRaisesRegex(gate.GateError, "symlink/reparse"):
+                gate.verify_artifact_records(evidence, records)
+            hash_read.assert_not_called()
+
+    def test_suite_and_support_source_provenance_is_exact(self) -> None:
+        source_sha256 = "a" * 64
+        suite_record = {
+            "kind": "sanitised-surefire-failsafe-xml",
+            "sourcePath": "module/target/surefire-reports/TEST-Suite.xml",
+            "sourceSha256": source_sha256,
+            "sourceRetained": False,
+        }
+        self.assertEqual(
+            gate.require_source_provenance(
+                suite_record,
+                expected_source_path=suite_record["sourcePath"],
+                expected_kind=suite_record["kind"],
+                expected_source_sha256=source_sha256,
+                source_retained=False,
+                label="suite fixture",
+            ),
+            source_sha256,
+        )
+
+        invalid_records = (
+            {**suite_record, "sourcePath": "other/report.xml"},
+            {key: value for key, value in suite_record.items() if key != "sourcePath"},
+            {
+                key: value
+                for key, value in suite_record.items()
+                if key != "sourceSha256"
+            },
+            {**suite_record, "sourceRetained": True},
+        )
+        for record in invalid_records:
+            with self.subTest(record=record):
+                with self.assertRaisesRegex(
+                    gate.GateError,
+                    "source provenance is incomplete or mismatched",
+                ):
+                    gate.require_source_provenance(
+                        record,
+                        expected_source_path=suite_record["sourcePath"],
+                        expected_kind=suite_record["kind"],
+                        expected_source_sha256=source_sha256,
+                        source_retained=False,
+                        label="suite fixture",
+                    )
+
+    def test_archived_gate_spec_hash_drift_fails_provenance(self) -> None:
+        with self.assertRaisesRegex(
+            gate.GateError,
+            "source SHA-256 does not match its authority",
+        ):
+            gate.require_source_provenance(
+                {
+                    "kind": "gate-spec",
+                    "sourcePath": "scripts/phase00_ci_gate_spec.json",
+                    "sourceSha256": "a" * 64,
+                    "sourceRetained": True,
+                },
+                expected_source_path="scripts/phase00_ci_gate_spec.json",
+                expected_kind="gate-spec",
+                expected_source_sha256="b" * 64,
+                source_retained=True,
+                label="archived gate spec fixture",
+            )
 
     def test_dirty_tracked_worktree_fails(self) -> None:
         completed = subprocess.CompletedProcess(
@@ -358,7 +1949,7 @@ class Phase00CiGateTest(unittest.TestCase):
                 ],
             },
             "run": {
-                "command": ["mvn", "-B", "-ntp", "clean", "verify"],
+                "command": gate.formal_maven_command("mvn"),
                 "startedAtUtc": now,
                 "endedAtUtc": now,
                 "startedEpochNs": 1,
@@ -450,6 +2041,222 @@ class Phase00CiGateTest(unittest.TestCase):
         path.write_text(json.dumps(broken), encoding="utf-8")
         with self.assertRaisesRegex(gate.GateError, "duplicate names"):
             gate.load_spec(path)
+
+    def test_manifest_reader_rejects_ambiguous_or_oversized_json(self) -> None:
+        def envelope() -> dict[str, object]:
+            return {
+                "schemaVersion": 1,
+                "gateId": "fixture",
+                "status": "PASS",
+                "candidateSha": "a" * 40,
+                "expectedCandidateSha": "a" * 40,
+                "gateSpec": {},
+                "source": {},
+                "preflight": {},
+                "run": {},
+                "tools": {},
+                "targets": {},
+                "suites": [],
+                "supportingArtifacts": [],
+                "artifacts": [],
+                "errors": [],
+                "security": {},
+            }
+
+        duplicate_dir = self.repo / "manifest-duplicate"
+        duplicate_dir.mkdir()
+        (duplicate_dir / "manifest.json").write_bytes(
+            b'{"schemaVersion":1,"schemaVersion":1}'
+        )
+        with self.assertRaisesRegex(gate.GateError, "duplicate JSON field"):
+            gate.read_manifest(duplicate_dir)
+
+        oversized_dir = self.repo / "manifest-oversized"
+        oversized_dir.mkdir()
+        (oversized_dir / "manifest.json").write_bytes(
+            b" " * (gate.MAX_MANIFEST_BYTES + 1)
+        )
+        with self.assertRaisesRegex(gate.GateError, "exceeds"):
+            gate.read_manifest(oversized_dir)
+
+        extra_dir = self.repo / "manifest-extra"
+        extra_dir.mkdir()
+        extra = envelope()
+        extra["unexpected"] = True
+        (extra_dir / "manifest.json").write_text(
+            json.dumps(extra),
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(gate.GateError, "unexpected"):
+            gate.read_manifest(extra_dir)
+
+        boolean_dir = self.repo / "manifest-boolean-schema"
+        boolean_dir.mkdir()
+        boolean_schema = envelope()
+        boolean_schema["schemaVersion"] = True
+        (boolean_dir / "manifest.json").write_text(
+            json.dumps(boolean_schema),
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(gate.GateError, "schemaVersion"):
+            gate.read_manifest(boolean_dir)
+
+    def test_manifest_indexes_reject_duplicate_suite_and_support_ids(self) -> None:
+        for label in ("manifest suites", "manifest supportingArtifacts"):
+            with self.subTest(label=label):
+                with self.assertRaisesRegex(gate.GateError, "duplicate id"):
+                    gate.index_unique_manifest_objects(
+                        [{"id": "duplicate"}, {"id": "duplicate"}],
+                        label,
+                    )
+
+    def test_artifact_records_reject_ambiguous_shapes(self) -> None:
+        evidence = self.repo / "artifact-records"
+        evidence.mkdir()
+        artifact = evidence / "artifact.txt"
+        artifact.write_text("fixture", encoding="utf-8")
+        base = {
+            "path": "artifact.txt",
+            "kind": "fixture",
+            "sha256": gate.sha256_file(artifact),
+            "bytes": artifact.stat().st_size,
+        }
+        self.assertEqual(
+            set(gate.verify_artifact_records(evidence, [base])),
+            {"artifact.txt"},
+        )
+        for mutated, message in (
+            ({**base, "unexpected": True}, "unexpected fields"),
+            ({**base, "bytes": True}, "bytes must be non-negative"),
+            ({**base, "sourcePath": "source.txt"}, "incomplete source"),
+        ):
+            with self.subTest(message=message):
+                with self.assertRaisesRegex(gate.GateError, message):
+                    gate.verify_artifact_records(evidence, [mutated])
+        with self.assertRaisesRegex(gate.GateError, "duplicate artifact"):
+            gate.verify_artifact_records(evidence, [base, dict(base)])
+
+    def test_spec_rejects_ambiguous_schema_and_duplicate_support_id(self) -> None:
+        cases: list[tuple[str, dict[str, object], str]] = []
+
+        boolean_schema = copy.deepcopy(self.spec)
+        boolean_schema["schemaVersion"] = True
+        cases.append(("boolean", boolean_schema, "schemaVersion"))
+
+        nested_extra = copy.deepcopy(self.spec)
+        nested_extra["suites"][0]["unexpected"] = True
+        cases.append(("nested-extra", nested_extra, "unexpected"))
+
+        duplicate_support = copy.deepcopy(self.spec)
+        second_support = copy.deepcopy(duplicate_support["supportingArtifacts"][0])
+        second_support["path"] = "platform-boot/target/other-summary.xml"
+        duplicate_support["supportingArtifacts"].append(second_support)
+        cases.append(("duplicate-support", duplicate_support, "duplicate supporting"))
+
+        for name, broken, message in cases:
+            with self.subTest(name=name):
+                path = self.repo / f"broken-spec-{name}.json"
+                path.write_text(json.dumps(broken), encoding="utf-8")
+                with self.assertRaisesRegex(gate.GateError, message):
+                    gate.load_spec(path)
+
+    def test_snapshot_mutation_is_rejected_and_rematerialization_restores_git(
+        self,
+    ) -> None:
+        source_repo = self.repo / "rematerialization-source"
+        source_repo.mkdir()
+
+        def git(*arguments: str) -> str:
+            completed = subprocess.run(
+                ["git", *arguments],
+                cwd=source_repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+                text=True,
+            )
+            self.assertEqual(
+                completed.returncode,
+                0,
+                completed.stderr or completed.stdout,
+            )
+            return completed.stdout.strip()
+
+        git("init")
+        (source_repo / "pom.xml").write_text(
+            "<project>candidate</project>\n",
+            encoding="utf-8",
+        )
+        (source_repo / "verify.sh").write_text(
+            "#!/bin/sh\nexit 0\n",
+            encoding="utf-8",
+        )
+        git("add", "pom.xml", "verify.sh")
+        git("update-index", "--chmod=+x", "verify.sh")
+        git(
+            "-c",
+            "user.name=Phase00 Fixture",
+            "-c",
+            "user.email=phase00@example.invalid",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "-m",
+            "snapshot fixture",
+        )
+        candidate = git("rev-parse", "HEAD")
+        entries = gate.git_tree_entries(source_repo, candidate)
+
+        with gate.immutable_candidate_snapshot(
+            source_repo,
+            candidate,
+            self.repo,
+        ) as snapshot:
+            gate.verify_materialised_git_tree(
+                snapshot.root,
+                entries,
+                "initial snapshot",
+            )
+            snapshot_pom = snapshot.root / "pom.xml"
+            os.chmod(snapshot_pom, 0o644)
+            snapshot_pom.write_text(
+                "<project>mutated</project>\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(gate.GateError, "Git blob mismatch"):
+                gate.verify_materialised_git_tree(
+                    snapshot.root,
+                    entries,
+                    "mutated snapshot",
+                )
+
+            gate.rematerialise_candidate_snapshot(
+                source_repo,
+                snapshot,
+                candidate,
+                entries,
+            )
+            self.assertEqual(
+                (snapshot.root / "pom.xml").read_text(encoding="utf-8"),
+                "<project>candidate</project>\n",
+            )
+            gate.verify_materialised_git_tree(
+                snapshot.root,
+                entries,
+                "restored snapshot",
+            )
+
+            if os.name != "nt":
+                os.chmod(snapshot.root / "pom.xml", 0o555)
+                with self.assertRaisesRegex(
+                    gate.GateError,
+                    "executable-mode mismatch",
+                ):
+                    gate.verify_materialised_git_tree(
+                        snapshot.root,
+                        entries,
+                        "mode-drift snapshot",
+                    )
 
 
 if __name__ == "__main__":

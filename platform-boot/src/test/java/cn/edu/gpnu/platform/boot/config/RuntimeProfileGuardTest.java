@@ -1,6 +1,7 @@
 package cn.edu.gpnu.platform.boot.config;
 
 import cn.edu.gpnu.platform.PlatformApplication;
+import cn.edu.gpnu.platform.boot.Phase00TargetGuardInitializer;
 import cn.edu.gpnu.platform.security.service.TokenRevocationService;
 import cn.edu.gpnu.platform.system.entity.SysUser;
 import cn.edu.gpnu.platform.system.mapper.SysUserMapper;
@@ -11,13 +12,16 @@ import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.WebApplicationType;
+import org.springframework.context.ApplicationContextInitializer;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.io.support.SpringFactoriesLoader;
 import org.springframework.mock.env.MockEnvironment;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -42,6 +46,12 @@ class RuntimeProfileGuardTest {
 
     @Test
     void registeredGuardRejectsRealApplicationWithoutProfile() {
+        assertThat(SpringFactoriesLoader
+                .forDefaultResourceLocation(RuntimeProfileGuardTest.class.getClassLoader())
+                .load(ApplicationContextInitializer.class))
+                .as("Phase 0 写前目标护栏必须经 Spring factories 自动注册")
+                .anyMatch(Phase00TargetGuardInitializer.class::isInstance);
+
         SpringApplication application = new SpringApplication(PlatformApplication.class);
         application.setWebApplicationType(WebApplicationType.NONE);
         application.setLogStartupInfo(false);

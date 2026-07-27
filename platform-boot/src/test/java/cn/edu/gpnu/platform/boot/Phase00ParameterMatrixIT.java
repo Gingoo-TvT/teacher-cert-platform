@@ -31,10 +31,20 @@ class Phase00ParameterMatrixIT {
             entry("cert.seq.scope", value("SCHOOL_YEAR_SEGMENT", "enum")),
             entry("cert.province.code", value("44", "string")),
             entry("cert.school.code", value("10588", "string")),
+            entry("login.lockThreshold", value("5", "int")),
+            entry("login.lockMinutes", value("15", "int")),
+            entry("captcha.ttlSeconds", value("120", "int")),
+            entry("file.material.allowedTypes", value("application/pdf,image/jpeg,image/png", "string")),
+            entry("file.exemption.allowedTypes", value("application/pdf,image/jpeg,image/png", "string")),
+            entry("file.maxSize.material", value("52428800", "int")),
+            entry("file.maxSize.exemption", value("52428800", "int")),
+            entry("file.maxSize.video", value("2147483648", "long")),
             entry("video.passLine", value("60", "int")),
             entry("video.diffThreshold", value("12", "int")),
             entry("video.reviewerCount", value("2", "int")),
+            entry("video.durationTarget", value("900", "int")),
             entry("video.durationTolerance", value("60", "int")),
+            entry("video.presign.expirySeconds", value("300", "int")),
             entry("video.allowedCodecs", value("H264", "string")),
             entry("video.timelineToleranceSeconds", value("2", "int")),
             entry("video.arbitrate.mode", value("thirdExpert", "string")),
@@ -44,8 +54,6 @@ class Phase00ParameterMatrixIT {
             entry("video.finalizationCleanupBatchSize", value("100", "int")),
             entry("video.finalizationCleanupTombstoneCheckSeconds", value("3600", "int")),
             entry("video.required", value("true", "boolean")),
-            entry("file.maxSize.video", value("2147483648", "long")),
-            entry("file.maxSize.material", value("52428800", "int")),
             entry("review.return.target", value("FIRST_REVIEW", "enum")),
             entry("validate.name.mode", value("loose", "enum")),
             entry("validate.idcard.checksum", value("false", "bool")),
@@ -59,8 +67,19 @@ class Phase00ParameterMatrixIT {
 
     @Test
     void allDocumentedDefaultsHaveExpectedValueAndType() {
+        assertThat(DOCUMENTED_DEFAULTS)
+                .as("V1–V32 fresh-schema active sys_param 合同必须精确包含 32 项")
+                .hasSize(32);
+
+        // SysParam.deleted 使用 @TableLogic；空 wrapper 查询的是整张 active 参数集合，而不是预先按
+        // DOCUMENTED_DEFAULTS 过滤后的子集，因此未知 key 和缺失 key 都会使下列 exact 断言失败。
         List<SysParam> rows = sysParamMapper.selectList(Wrappers.<SysParam>lambdaQuery()
-                .in(SysParam::getParamKey, DOCUMENTED_DEFAULTS.keySet()));
+                .orderByAsc(SysParam::getParamKey));
+        assertThat(rows)
+                .as("fresh-schema 不得出现文档外 active 参数，也不得缺失任一文档参数")
+                .extracting(SysParam::getParamKey)
+                .containsExactlyInAnyOrderElementsOf(DOCUMENTED_DEFAULTS.keySet());
+
         Map<String, ParamDefault> actual = new LinkedHashMap<>();
         for (SysParam row : rows) {
             actual.put(row.getParamKey(), value(row.getParamValue(), row.getParamType()));

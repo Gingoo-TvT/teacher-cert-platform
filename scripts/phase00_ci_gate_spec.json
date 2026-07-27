@@ -74,6 +74,22 @@
         "developmentProfileKeepsDocumentationSurfacePublic",
         "productionProfileReturnsNotFoundForEveryDocumentationSurface"
       ]
+    },
+    {
+      "id": "phase00-target-guard-unit",
+      "runner": "surefire",
+      "report": "platform-boot/target/surefire-reports/TEST-cn.edu.gpnu.platform.boot.Phase00TargetGuardInitializerTest.xml",
+      "suite": "cn.edu.gpnu.platform.boot.Phase00TargetGuardInitializerTest",
+      "testcases": [
+        "alternateDatasourceAndRedisRoutesFailClosedAcrossRelaxedAliases",
+        "dottedLowercaseAliasCannotOverrideCanonicalDatasource",
+        "evidenceSchemaThreeContainsExactFreshnessKeys",
+        "freshnessRequiresExactlyZeroZeroOneZero",
+        "lowercaseUnderscoreAliasCannotOverrideCanonicalRedisTarget",
+        "matchingResolvedConfigurationIsAcceptedWithoutExternalConnections",
+        "ordinaryRunWithoutCandidateDoesNotActivateTargetGuard",
+        "resolvedMinioEndpointAndBucketMustBothMatchCanonicalEnvironment"
+      ]
     }
   ],
   "supportingArtifacts": [
@@ -83,5 +99,16 @@
       "path": "platform-boot/target/failsafe-reports/failsafe-summary.xml",
       "required": true
     }
-  ]
+  ],
+  "targetEvidence": {
+    "path": "platform-boot/target/phase00-target-identity.json",
+    "producerSuite": "cn.edu.gpnu.platform.boot.Phase00ScaffoldIT",
+    "preflightPath": "platform-boot/target/phase00-target-preflight.json",
+    "preflightProducer": "cn.edu.gpnu.platform.boot.Phase00TargetPreflight",
+    "schemaVersion": 3,
+    "mysqlVersionPattern": "^8\\..+$",
+    "redisVersionPattern": "^7\\..+$",
+    "minioIdentityMode": "provisioned-object-sha256",
+    "required": true
+  }
 }

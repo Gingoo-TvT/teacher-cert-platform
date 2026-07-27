@@ -1,6 +1,7 @@
 package cn.edu.gpnu.platform.boot;
 
 import cn.edu.gpnu.platform.PlatformApplication;
+import cn.edu.gpnu.platform.file.config.MinioProperties;
 import cn.edu.gpnu.platform.file.entity.FileObject;
 import cn.edu.gpnu.platform.file.mapper.FileObjectMapper;
 import cn.edu.gpnu.platform.file.service.FileService;
@@ -11,14 +12,21 @@ import cn.edu.gpnu.platform.system.mapper.SysUserMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.minio.GetObjectArgs;
+import io.minio.GetObjectResponse;
+import io.minio.MinioClient;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.api.Timeout;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.data.redis.connection.RedisConnection;
+import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -36,9 +44,20 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
+import java.security.MessageDigest;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.util.HexFormat;
 import java.util.Map;
+import java.util.Properties;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -67,11 +86,19 @@ import static org.assertj.core.api.Assertions.assertThat;
         "platform.security.jwt.secret=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
         "platform.security.jwt.access-ttl-seconds=60"
 })
+@TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class Phase00ScaffoldIT {
 
     private static final String INITIAL_PASSWORD = "ChangeMe123!";
     private static final String CHANGED_PASSWORD = "Changed123!";
     private static final String BIZ_TYPE = "phase00scaffold";
+    private static final int PROVISIONING_OBJECT_SCHEMA_VERSION = 2;
+    private static final Path RUNTIME_IDENTITY_PATH =
+            Path.of("target", "phase00-target-identity.json").toAbsolutePath().normalize();
+    private static final Pattern MYSQL_UUID = Pattern.compile(
+            "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$");
+    private static final Pattern REDIS_RUN_ID = Pattern.compile("^[0-9a-fA-F]{40}$");
+    private static final Pattern REDIS_CLIENT_DB = Pattern.compile("(?:^|\\s)db=(\\d+)(?:\\s|$)");
 
     @LocalServerPort
     private int port;
@@ -100,9 +127,116 @@ class Phase00ScaffoldIT {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    @Autowired
+    private RedisConnectionFactory redisConnectionFactory;
+
+    @Autowired
+    private MinioClient minioClient;
+
+    @Autowired
+    private MinioProperties minioProperties;
+
+    @Autowired
+    private Phase00TargetPreflight.TargetAttestation preContextTargetAttestation;
+
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
             .build();
+
+    /**
+     * Phase 0 的真实依赖身份必须由同一个 Spring Context、同一个 Failsafe suite 采集，不能由 gate
+     * 根据自报 marker 伪造。该 before-all 不增加 testcase 数，7 suites / 33 cases 合同保持不变。
+     */
+    @BeforeAll
+    void attestRuntimeTargets() throws Exception {
+        String candidateSha = requiredEnvironment("PHASE00_EXPECTED_CANDIDATE_SHA");
+        assertThat(candidateSha).matches("^[0-9a-fA-F]{40}$");
+        String runContext = requiredEnvironment("PHASE00_RUN_CONTEXT");
+        assertThat(runContext).doesNotContain("\r", "\n", "\u0000").hasSizeBetween(1, 256);
+        assertThat(preContextTargetAttestation.candidateSha())
+                .as("同一正式 JVM 必须在 Spring context refresh 前完成候选绑定")
+                .isEqualTo(candidateSha.toLowerCase(java.util.Locale.ROOT));
+        assertThat(preContextTargetAttestation.runContext()).isEqualTo(runContext);
+        assertThat(preContextTargetAttestation.mysqlTableCountBefore()).isZero();
+        assertThat(preContextTargetAttestation.redisDatabaseSizeBefore()).isZero();
+        assertThat(preContextTargetAttestation.minioObjectCountBefore()).isEqualTo(1L);
+        assertThat(preContextTargetAttestation.minioUnexpectedObjectCountBefore()).isZero();
+
+        MysqlRuntimeIdentity mysql = readMysqlIdentity();
+        String expectedSchema = requiredEnvironment("PHASE00_TARGET_SCHEMA");
+        String expectedMysqlUuid = requiredEnvironment("PHASE00_EXPECTED_MYSQL_SERVER_UUID");
+        assertThat(mysql.database()).isEqualTo(expectedSchema);
+        assertThat(mysql.version()).matches("^8\\..+");
+        assertThat(mysql.serverUuid()).matches(MYSQL_UUID);
+        assertThat(mysql.serverUuid()).isEqualToIgnoringCase(expectedMysqlUuid);
+        assertThat(preContextTargetAttestation.mysqlDatabase()).isEqualTo(mysql.database());
+        assertThat(preContextTargetAttestation.mysqlVersion()).isEqualTo(mysql.version());
+        assertThat(preContextTargetAttestation.mysqlServerUuid()).isEqualTo(mysql.serverUuid());
+
+        RedisRuntimeIdentity redis = readRedisIdentity();
+        int expectedRedisDatabase = parseNonNegativeInt(
+                requiredEnvironment("SPRING_DATA_REDIS_DATABASE"),
+                "SPRING_DATA_REDIS_DATABASE");
+        String expectedRedisRunId = requiredEnvironment("PHASE00_EXPECTED_REDIS_RUN_ID");
+        assertThat(redis.version()).matches("^7\\..+");
+        assertThat(redis.runId()).matches(REDIS_RUN_ID);
+        assertThat(redis.runId()).isEqualToIgnoringCase(expectedRedisRunId);
+        assertThat(redis.database()).isEqualTo(expectedRedisDatabase);
+        assertThat(preContextTargetAttestation.redisVersion()).isEqualTo(redis.version());
+        assertThat(preContextTargetAttestation.redisRunId()).isEqualTo(redis.runId());
+        assertThat(preContextTargetAttestation.redisDatabase()).isEqualTo(redis.database());
+
+        String configuredMinioEndpoint = canonicalEndpoint(minioProperties.getEndpoint());
+        String expectedMinioEndpoint = canonicalEndpoint(requiredEnvironment("MINIO_ENDPOINT"));
+        String expectedMinioBucket = requiredEnvironment("MINIO_BUCKET");
+        assertThat(configuredMinioEndpoint).isEqualTo(expectedMinioEndpoint);
+        assertThat(minioProperties.getBucket()).isEqualTo(expectedMinioBucket);
+
+        String identityObject = requiredEnvironment("PHASE00_MINIO_IDENTITY_OBJECT");
+        assertThat(identityObject)
+                .startsWith(".phase00-target/")
+                .doesNotContain("..", "\\", "\r", "\n", "\u0000");
+        String expectedIdentitySha = requiredEnvironment("PHASE00_EXPECTED_MINIO_IDENTITY_SHA256")
+                .toLowerCase(java.util.Locale.ROOT);
+        String expectedIdentityNonce = requiredEnvironment("PHASE00_EXPECTED_MINIO_IDENTITY_NONCE")
+                .toLowerCase(java.util.Locale.ROOT);
+        String expectedIdentityIssuedAt =
+                requiredEnvironment("PHASE00_EXPECTED_MINIO_IDENTITY_ISSUED_AT");
+        assertThat(expectedIdentitySha).matches("^[0-9a-f]{64}$");
+        assertThat(expectedIdentityNonce).matches("^[0-9a-f]{64}$");
+        assertThat(Instant.parse(expectedIdentityIssuedAt).toString())
+                .isEqualTo(expectedIdentityIssuedAt);
+        MinioRuntimeIdentity minio = readMinioIdentity(
+                configuredMinioEndpoint,
+                expectedMinioBucket,
+                identityObject,
+                expectedIdentitySha,
+                expectedIdentityNonce,
+                expectedIdentityIssuedAt,
+                candidateSha,
+                runContext);
+        assertThat(preContextTargetAttestation.minioEndpoint()).isEqualTo(minio.endpoint());
+        assertThat(preContextTargetAttestation.minioBucket()).isEqualTo(minio.bucket());
+        assertThat(preContextTargetAttestation.minioIdentityObject())
+                .isEqualTo(minio.identityObject());
+        assertThat(preContextTargetAttestation.minioIdentitySha256())
+                .isEqualTo(minio.identitySha256());
+        assertThat(preContextTargetAttestation.minioIdentityNonce())
+                .isEqualTo(minio.identityNonce());
+        assertThat(preContextTargetAttestation.minioIdentityIssuedAt())
+                .isEqualTo(minio.identityIssuedAt());
+        assertThat(preContextTargetAttestation.minioServer()).isEqualTo(minio.server());
+        assertThat(preContextTargetAttestation.minioDeploymentId())
+                .isEqualTo(minio.deploymentId());
+
+        writeTargetIdentity(
+                candidateSha,
+                runContext,
+                mysql,
+                redis,
+                minio,
+                preContextTargetAttestation);
+    }
 
     @BeforeEach
     void resetFixture() {
@@ -352,5 +486,241 @@ class Phase00ScaffoldIT {
 
     private void cleanFixture() {
         jdbcTemplate.update("DELETE FROM file_object WHERE biz_type = ?", BIZ_TYPE);
+    }
+
+    private MysqlRuntimeIdentity readMysqlIdentity() {
+        return jdbcTemplate.queryForObject("""
+                        SELECT DATABASE() AS database_name,
+                               VERSION() AS server_version,
+                               @@GLOBAL.server_uuid AS server_uuid
+                        """,
+                (rs, rowNum) -> new MysqlRuntimeIdentity(
+                        requiredText(rs.getString("database_name"), "MySQL DATABASE()"),
+                        requiredText(rs.getString("server_version"), "MySQL VERSION()"),
+                        requiredText(rs.getString("server_uuid"), "MySQL server_uuid")
+                                .toLowerCase(java.util.Locale.ROOT)));
+    }
+
+    private RedisRuntimeIdentity readRedisIdentity() {
+        try (RedisConnection connection = redisConnectionFactory.getConnection()) {
+            Properties server = connection.serverCommands().info("server");
+            assertThat(server).as("Redis INFO server").isNotNull();
+            String version = requiredText(server.getProperty("redis_version"), "Redis redis_version");
+            String runId = requiredText(server.getProperty("run_id"), "Redis run_id")
+                    .toLowerCase(java.util.Locale.ROOT);
+            Object rawClientInfo = connection.execute(
+                    "CLIENT",
+                    "INFO".getBytes(StandardCharsets.US_ASCII));
+            String clientInfo;
+            if (rawClientInfo instanceof byte[] bytes) {
+                clientInfo = new String(bytes, StandardCharsets.UTF_8);
+            } else if (rawClientInfo instanceof String text) {
+                clientInfo = text;
+            } else {
+                throw new IllegalStateException("Redis CLIENT INFO 返回了不支持的类型");
+            }
+            Matcher matcher = REDIS_CLIENT_DB.matcher(clientInfo);
+            if (!matcher.find()) {
+                throw new IllegalStateException("Redis CLIENT INFO 缺少实际 db");
+            }
+            return new RedisRuntimeIdentity(version, runId,
+                    parseNonNegativeInt(matcher.group(1), "Redis CLIENT INFO db"));
+        }
+    }
+
+    private MinioRuntimeIdentity readMinioIdentity(
+            String endpoint,
+            String bucket,
+            String identityObject,
+            String expectedSha256,
+            String expectedNonce,
+            String expectedIssuedAt,
+            String candidateSha,
+            String runContext) throws Exception {
+        byte[] content;
+        String serverHeader;
+        String deploymentId;
+        try (GetObjectResponse response = minioClient.getObject(GetObjectArgs.builder()
+                .bucket(bucket)
+                .object(identityObject)
+                .build())) {
+            content = response.readNBytes(4097);
+            if (content.length > 4096) {
+                throw new IllegalStateException("MinIO provisioning identity object 超过 4096 bytes");
+            }
+            serverHeader = safeHeader(response.headers().get("Server"));
+            deploymentId = requiredText(
+                    response.headers().get("x-minio-deployment-id"),
+                    "MinIO x-minio-deployment-id").toLowerCase(java.util.Locale.ROOT);
+        }
+
+        String actualSha256 = HexFormat.of().formatHex(
+                MessageDigest.getInstance("SHA-256").digest(content));
+        assertThat(actualSha256).isEqualTo(expectedSha256);
+
+        JsonNode provisioning = objectMapper.readTree(content);
+        assertThat(provisioning.isObject()).isTrue();
+        Set<String> fieldNames = new java.util.HashSet<>();
+        provisioning.fieldNames().forEachRemaining(fieldNames::add);
+        assertThat(fieldNames).containsExactlyInAnyOrder(
+                "schemaVersion",
+                "candidateSha",
+                "runContext",
+                "identityNonce",
+                "identityIssuedAt");
+        assertThat(provisioning.path("schemaVersion").asInt())
+                .isEqualTo(PROVISIONING_OBJECT_SCHEMA_VERSION);
+        assertThat(provisioning.path("candidateSha").asText()).isEqualToIgnoringCase(candidateSha);
+        assertThat(provisioning.path("runContext").asText()).isEqualTo(runContext);
+        assertThat(provisioning.path("identityNonce").asText()).isEqualTo(expectedNonce);
+        assertThat(provisioning.path("identityIssuedAt").asText()).isEqualTo(expectedIssuedAt);
+
+        return new MinioRuntimeIdentity(
+                endpoint,
+                bucket,
+                identityObject,
+                actualSha256,
+                expectedNonce,
+                expectedIssuedAt,
+                serverHeader,
+                deploymentId);
+    }
+
+    private void writeTargetIdentity(
+            String candidateSha,
+            String runContext,
+            MysqlRuntimeIdentity mysql,
+            RedisRuntimeIdentity redis,
+            MinioRuntimeIdentity minio,
+            Phase00TargetPreflight.TargetAttestation preContextAttestation) throws Exception {
+        Path destination = RUNTIME_IDENTITY_PATH;
+        Files.createDirectories(destination.getParent());
+        Path temporary = destination.resolveSibling(destination.getFileName()
+                + ".tmp-" + Long.toUnsignedString(System.nanoTime()));
+
+        Phase00TargetPreflight.TargetAttestation runtimeAttestation =
+                new Phase00TargetPreflight.TargetAttestation(
+                        candidateSha.toLowerCase(java.util.Locale.ROOT),
+                        runContext,
+                        mysql.database(),
+                        mysql.version(),
+                        mysql.serverUuid(),
+                        redis.version(),
+                        redis.runId(),
+                        redis.database(),
+                        minio.endpoint(),
+                        minio.bucket(),
+                        minio.identityObject(),
+                        minio.identitySha256(),
+                        minio.identityNonce(),
+                        minio.identityIssuedAt(),
+                        minio.server(),
+                        minio.deploymentId(),
+                        preContextAttestation.mysqlTableCountBefore(),
+                        preContextAttestation.redisDatabaseSizeBefore(),
+                        preContextAttestation.minioObjectCountBefore(),
+                        preContextAttestation.minioUnexpectedObjectCountBefore());
+        Map<String, Object> root = Phase00TargetPreflight.identityDocument(
+                Phase00ScaffoldIT.class.getName(), runtimeAttestation);
+
+        byte[] json = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsBytes(root);
+        try {
+            Files.write(temporary, json, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
+            try {
+                Files.move(temporary, destination, StandardCopyOption.ATOMIC_MOVE);
+            } catch (java.nio.file.AtomicMoveNotSupportedException ex) {
+                Files.move(temporary, destination);
+            }
+        } finally {
+            Files.deleteIfExists(temporary);
+        }
+    }
+
+    private String requiredEnvironment(String name) {
+        return requiredText(System.getenv(name), name);
+    }
+
+    private String requiredText(String value, String label) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalStateException(label + " 不能为空");
+        }
+        if (value.indexOf('\u0000') >= 0 || value.indexOf('\r') >= 0 || value.indexOf('\n') >= 0) {
+            throw new IllegalStateException(label + " 含控制字符");
+        }
+        return value.trim();
+    }
+
+    private int parseNonNegativeInt(String value, String label) {
+        if (!value.matches("^[0-9]+$")) {
+            throw new IllegalStateException(label + " 必须是非负整数");
+        }
+        try {
+            int parsed = Integer.parseInt(value);
+            if (parsed < 0) {
+                throw new IllegalStateException(label + " 必须是非负整数");
+            }
+            return parsed;
+        } catch (NumberFormatException ex) {
+            throw new IllegalStateException(label + " 超出整数范围", ex);
+        }
+    }
+
+    private String canonicalEndpoint(String raw) {
+        URI uri = URI.create(requiredText(raw, "MinIO endpoint"));
+        String scheme = uri.getScheme() == null
+                ? ""
+                : uri.getScheme().toLowerCase(java.util.Locale.ROOT);
+        if (!scheme.equals("http") && !scheme.equals("https")) {
+            throw new IllegalStateException("MinIO endpoint 只允许 http/https");
+        }
+        if (uri.getUserInfo() != null || uri.getQuery() != null || uri.getFragment() != null) {
+            throw new IllegalStateException("MinIO endpoint 不允许凭据、query 或 fragment");
+        }
+        if (uri.getHost() == null || uri.getHost().isBlank()) {
+            throw new IllegalStateException("MinIO endpoint 缺少 host");
+        }
+        if (uri.getPath() != null && !uri.getPath().isEmpty() && !uri.getPath().equals("/")) {
+            throw new IllegalStateException("MinIO endpoint 不允许 path");
+        }
+        String host = uri.getHost().toLowerCase(java.util.Locale.ROOT);
+        if (host.contains(":")) {
+            host = "[" + host + "]";
+        }
+        int port = uri.getPort() >= 0 ? uri.getPort() : (scheme.equals("https") ? 443 : 80);
+        if (port < 1 || port > 65535) {
+            throw new IllegalStateException("MinIO endpoint port 非法");
+        }
+        return scheme + "://" + host + ":" + port;
+    }
+
+    private String safeHeader(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        String normalized = value.trim();
+        if (normalized.length() > 256
+                || normalized.indexOf('\r') >= 0
+                || normalized.indexOf('\n') >= 0
+                || normalized.indexOf('\u0000') >= 0) {
+            throw new IllegalStateException("MinIO 服务身份 header 非法");
+        }
+        return normalized;
+    }
+
+    private record MysqlRuntimeIdentity(String database, String version, String serverUuid) {
+    }
+
+    private record RedisRuntimeIdentity(String version, String runId, int database) {
+    }
+
+    private record MinioRuntimeIdentity(
+            String endpoint,
+            String bucket,
+            String identityObject,
+            String identitySha256,
+            String identityNonce,
+            String identityIssuedAt,
+            String server,
+            String deploymentId) {
     }
 }

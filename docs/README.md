@@ -74,15 +74,29 @@
 | 14 | 非功能/部署/验收 | M14+收口 | P2 | T-109~114 | 全部 AT 复验 | `phase-14-非功能部署验收.md` |
 
 ## 6. 系统参数清单（`sys_param`，贯穿各阶段，Phase 13 统一管理）
+> 下表是当前全部 V1–V32 Flyway migration 在 fresh schema 上形成的 **32 个 active 参数**，
+> 不是业务参数抽样。`Phase00ParameterMatrixIT` 对整张 active key 集合及每项 value/type 做 exact 比较，
+> 任一未知项、缺失项或值/类型漂移均失败。
+
 | param_key | 默认 | param_type | 说明 | 引用阶段 |
 |---|---|---|---|---|
 | `cert.seq.scope` | `SCHOOL_YEAR_SEGMENT` | `enum` | 证书序列作用域 | Phase 9 |
 | `cert.province.code` | `44` | `string` | 省级行政区划代码 | Phase 9 |
 | `cert.school.code` | `10588` | `string` | 高校代码 | Phase 9 |
+| `login.lockThreshold` | `5` | `int` | 连续登录失败锁定阈值 | Phase 2 |
+| `login.lockMinutes` | `15` | `int` | 登录失败锁定分钟数 | Phase 2 |
+| `captcha.ttlSeconds` | `120` | `int` | 图形验证码有效秒数 | Phase 2 |
+| `file.material.allowedTypes` | `application/pdf,image/jpeg,image/png` | `string` | 过程性材料允许的 MIME 类型 | Phase 5 |
+| `file.exemption.allowedTypes` | `application/pdf,image/jpeg,image/png` | `string` | 免考佐证允许的 MIME 类型 | Phase 6 |
+| `file.maxSize.material` | `52428800`(50MB) | `int` | 材料单附件上限 | Phase 5 |
+| `file.maxSize.exemption` | `52428800`(50MB) | `int` | 免考佐证单附件上限 | Phase 6 |
+| `file.maxSize.video` | `2147483648`(2GB) | `long` | 视频单文件上限 | Phase 7 |
 | `video.passLine` | `60` | `int` | 视频合格线 | Phase 7 |
 | `video.diffThreshold` | `12` | `int` | 两评委分差阈值 | Phase 7 |
 | `video.reviewerCount` | `2` | `int` | 评审教师数 | Phase 7 |
+| `video.durationTarget` | `900`(秒) | `int` | 视频目标时长（15 分钟） | Phase 7 |
 | `video.durationTolerance` | `60`(秒) | `int` | 时长容差 | Phase 7 |
+| `video.presign.expirySeconds` | `300`(秒) | `int` | 视频播放预签名默认有效期 | Phase 7 |
 | `video.allowedCodecs` | `H264` | `string` | 允许的视频编码，变更后既有秒传验证结果失效 | Phase 7 |
 | `video.timelineToleranceSeconds` | `2`(秒) | `int` | 容器头、样本跨度与样本累计时长的交叉核对容差 | Phase 7 |
 | `video.arbitrate.mode` | `thirdExpert` | `string` | 复评模式 | Phase 7 |
@@ -92,8 +106,6 @@
 | `video.finalizationCleanupBatchSize` | `100` | `int` | 单轮对象对账的最大候选数 | Phase 7 / V32 |
 | `video.finalizationCleanupTombstoneCheckSeconds` | `3600`(秒) | `int` | `CLEANED` 墓碑再次确认对象仍不存在的间隔 | Phase 7 / V32 |
 | `video.required` | `true` | `boolean` | 视频是否必过才能发证 | Phase 9 |
-| `file.maxSize.video` | `2147483648`(2GB) | `long` | 视频单文件上限 | Phase 7 |
-| `file.maxSize.material` | `52428800`(50MB) | `int` | 材料单附件上限 | Phase 5 |
 | `review.return.target` | `FIRST_REVIEW` | `enum` | 复审退回目标态 | Phase 3/5/6 |
 | `validate.name.mode` | `loose` | `enum` | 姓名校验模式（确认单#15 放宽，V6 落地；原默认 strict） | Phase 3 |
 | `validate.idcard.checksum` | `false` | `bool` | 身份证校验码开关 | Phase 3 |

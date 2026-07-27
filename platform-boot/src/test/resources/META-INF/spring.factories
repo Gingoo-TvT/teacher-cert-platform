@@ -1,0 +1,2 @@
+org.springframework.context.ApplicationContextInitializer=\
+cn.edu.gpnu.platform.boot.Phase00TargetGuardInitializer

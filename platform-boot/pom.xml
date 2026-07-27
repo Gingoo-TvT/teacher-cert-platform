@@ -92,6 +92,10 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-failsafe-plugin</artifactId>
                 <configuration>
+                    <!-- Phase 0 写前 fresh attestation 在同一正式 JVM 首次 context refresh 时缓存；
+                         后续 Phase00 IT context 逐次重验目标身份并复用首次空栈计数。 -->
+                    <forkCount>1</forkCount>
+                    <reuseForks>true</reuseForks>
                     <systemPropertyVariables>
                         <video.probe.fat-jar>${project.build.directory}/${project.build.finalName}.jar</video.probe.fat-jar>
                     </systemPropertyVariables>

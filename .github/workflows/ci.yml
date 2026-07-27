@@ -81,6 +81,47 @@ jobs:
             --env MC_HOST_ci=http://minioadmin:minioadmin123@127.0.0.1:9000 \
             minio/mc:RELEASE.2025-04-08T15-39-49Z \
             mb --ignore-existing ci/teacher-cert
+      - name: 固定 Phase 0 隔离服务身份
+        env:
+          MYSQL_SERVICE_ID: ${{ job.services.mysql.id }}
+          REDIS_SERVICE_ID: ${{ job.services.redis.id }}
+          PHASE00_EXPECTED_CANDIDATE_SHA: ${{ github.sha }}
+          PHASE00_RUN_CONTEXT: github-actions:${{ github.repository }}:${{ github.run_id }}:${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          mysql_uuid="$(docker exec "$MYSQL_SERVICE_ID" \
+            mysql -uroot -proot123 --batch --skip-column-names \
+            -e 'SELECT @@GLOBAL.server_uuid')"
+          redis_run_id="$(docker exec "$REDIS_SERVICE_ID" redis-cli --raw INFO server \
+            | tr -d '\r' | sed -n 's/^run_id://p')"
+          [[ "$mysql_uuid" =~ ^[0-9a-fA-F-]{36}$ ]]
+          [[ "$redis_run_id" =~ ^[0-9a-fA-F]{40}$ ]]
+
+          identity_nonce="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+          identity_issued_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          identity_object=".phase00-target/identity-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${identity_nonce:0:16}.json"
+          identity_payload="$(
+            IDENTITY_NONCE="$identity_nonce" IDENTITY_ISSUED_AT="$identity_issued_at" \
+              python3 -c \
+                'import json, os; print(json.dumps({"schemaVersion": 2, "candidateSha": os.environ["PHASE00_EXPECTED_CANDIDATE_SHA"], "runContext": os.environ["PHASE00_RUN_CONTEXT"], "identityNonce": os.environ["IDENTITY_NONCE"], "identityIssuedAt": os.environ["IDENTITY_ISSUED_AT"]}, separators=(",", ":")), end="")'
+          )"
+          identity_sha="$(printf '%s' "$identity_payload" | sha256sum | awk '{print $1}')"
+          printf '%s' "$identity_payload" \
+            | docker run --rm --interactive --network container:teacher-cert-ci-minio \
+                --env MC_HOST_ci=http://minioadmin:minioadmin123@127.0.0.1:9000 \
+                minio/mc:RELEASE.2025-04-08T15-39-49Z \
+                pipe "ci/teacher-cert/$identity_object"
+
+          {
+            printf 'PHASE00_EXPECTED_CANDIDATE_SHA=%s\n' "$PHASE00_EXPECTED_CANDIDATE_SHA"
+            printf 'PHASE00_RUN_CONTEXT=%s\n' "$PHASE00_RUN_CONTEXT"
+            printf 'PHASE00_EXPECTED_MYSQL_SERVER_UUID=%s\n' "${mysql_uuid,,}"
+            printf 'PHASE00_EXPECTED_REDIS_RUN_ID=%s\n' "${redis_run_id,,}"
+            printf 'PHASE00_MINIO_IDENTITY_OBJECT=%s\n' "$identity_object"
+            printf 'PHASE00_EXPECTED_MINIO_IDENTITY_SHA256=%s\n' "$identity_sha"
+            printf 'PHASE00_EXPECTED_MINIO_IDENTITY_NONCE=%s\n' "$identity_nonce"
+            printf 'PHASE00_EXPECTED_MINIO_IDENTITY_ISSUED_AT=%s\n' "$identity_issued_at"
+          } >> "$GITHUB_ENV"
       - name: Phase 0 门禁脚本纯离线反例
         env:
           PYTHONDONTWRITEBYTECODE: '1'
@@ -101,9 +142,9 @@ jobs:
           MINIO_SECRET_KEY: minioadmin123
           MINIO_BUCKET: teacher-cert
           PHASE00_TARGET_SCHEMA: teacher_cert
-          PHASE00_MYSQL_SERVICE_MARKER: mysql:8.4@127.0.0.1:3306
-          PHASE00_REDIS_SERVICE_MARKER: redis:7@127.0.0.1:6379/0
-          PHASE00_MINIO_SERVICE_MARKER: minio:RELEASE.2025-04-22T22-12-26Z@127.0.0.1:9000/teacher-cert
+          PHASE00_MYSQL_SERVICE_MARKER: mysql://127.0.0.1:3306/teacher_cert
+          PHASE00_REDIS_SERVICE_MARKER: redis://127.0.0.1:6379/0
+          PHASE00_MINIO_SERVICE_MARKER: http://127.0.0.1:9000/teacher-cert
           PHASE00_RUN_CONTEXT: github-actions:${{ github.repository }}:${{ github.run_id }}:${{ github.run_attempt }}
         # checkstyle 绑定在 validate 阶段（根 pom），verify 即自动执行后端 lint 门禁并在违规时红灯。
         run: >-
