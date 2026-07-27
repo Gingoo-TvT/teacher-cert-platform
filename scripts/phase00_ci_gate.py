@@ -65,7 +65,6 @@ MAX_EVIDENCE_FILES = 512
 MAX_EVIDENCE_TOTAL_BYTES = 512 * 1024 * 1024
 SECRET_SCAN_POLICY = "known-env-and-credential-patterns-v1"
 MINIO_IDENTITY_MODE = "provisioned-object-challenge-v2"
-PASS_MANIFEST_READY_NAME = ".manifest.pass-ready"
 MYSQL_UUID_RE = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
 )
@@ -4530,26 +4529,6 @@ def require_snapshot_payload_match(
             )
 
 
-def snapshot_with_withheld_pass_manifest(
-    snapshot: EvidenceSnapshot,
-) -> EvidenceSnapshot:
-    """Represent a publish tree whose canonical PASS marker is still hidden."""
-
-    if PASS_MANIFEST_READY_NAME in snapshot.files:
-        raise GateError("verified PASS snapshot contains its reserved marker path")
-    manifest = snapshot.require("manifest.json", "verified PASS manifest")
-    files = dict(snapshot.files)
-    del files["manifest.json"]
-    files[PASS_MANIFEST_READY_NAME] = _snapshot_file_from_bytes(
-        PASS_MANIFEST_READY_NAME,
-        manifest.content,
-        size=manifest.size,
-        mtime_ns=manifest.mtime_ns,
-        file_id=manifest.file_id,
-    )
-    return EvidenceSnapshot(snapshot.root, files)
-
-
 def materialize_preverified_pass(
     publish_dir: Path,
     prepared: PreparedEvidenceManifest,
@@ -4605,7 +4584,14 @@ def publish_preverified_pass(
     expected_candidate: str,
     prepared: PreparedEvidenceManifest,
 ) -> None:
-    """Persist, reverify, and atomically publish one exact private PASS bundle."""
+    """Persist, reverify, and atomically publish one exact private PASS bundle.
+
+    Producer-private is an ownership assumption, not access control: no peer
+    writer may change the random sibling between verification and rename, and
+    the final path must remain absent. Rename publishes that namespace
+    atomically but does not make descendants immutable. Consumers must verify
+    the complete bundle, never only status.
+    """
 
     publish_dir = allocate_ready_evidence_path(
         final_dir.parent,
@@ -4615,7 +4601,6 @@ def publish_preverified_pass(
         publish_dir.mkdir()
     except OSError as exc:
         raise GateError("cannot create the private PASS publish directory") from exc
-    directory_published = False
     try:
         materialize_preverified_pass(publish_dir, prepared)
         persisted_snapshot = capture_evidence_snapshot(publish_dir)
@@ -4634,25 +4619,6 @@ def publish_preverified_pass(
                 "persisted private PASS manifest differs after verification"
             )
 
-        withheld_snapshot = snapshot_with_withheld_pass_manifest(
-            prepared.virtual_snapshot
-        )
-        try:
-            os.rename(
-                publish_dir / "manifest.json",
-                publish_dir / PASS_MANIFEST_READY_NAME,
-            )
-        except OSError as exc:
-            raise GateError(
-                "cannot withhold the private PASS manifest before publication"
-            ) from exc
-        private_withheld_snapshot = capture_evidence_snapshot(publish_dir)
-        require_snapshot_payload_match(
-            private_withheld_snapshot,
-            withheld_snapshot,
-            "private bundle with withheld PASS manifest",
-        )
-
         if os.path.lexists(final_dir):
             raise GateError(
                 "evidence directory already exists; stale artifacts are rejected: "
@@ -4662,35 +4628,11 @@ def publish_preverified_pass(
         # behind after success. Failure to remove it prevents publication.
         remove_directory_tree(staging_dir)
 
-        # Publish without a canonical PASS marker, then validate the exact
-        # bytes at their final path. Any failure leaves an unverifiable bundle.
-        try:
-            os.rename(publish_dir, final_dir)
-        except OSError as exc:
-            raise GateError(
-                "cannot publish the evidence directory with PASS withheld"
-            ) from exc
-        directory_published = True
-        published_withheld_snapshot = capture_evidence_snapshot(final_dir)
-        require_snapshot_payload_match(
-            published_withheld_snapshot,
-            withheld_snapshot,
-            "published bundle with withheld PASS manifest",
-        )
-
-        # This atomic marker rename is the final fallible success transition.
-        # No verification or cleanup step may turn a completed PASS into FAIL.
-        try:
-            os.rename(
-                final_dir / PASS_MANIFEST_READY_NAME,
-                final_dir / "manifest.json",
-            )
-        except OSError as exc:
-            raise GateError(
-                "cannot atomically expose the verified PASS manifest"
-            ) from exc
+        # The complete canonical bundle is verified while private. Its single
+        # directory rename is the final fallible success transition.
+        publish_ready_evidence(publish_dir, final_dir)
     except Exception:
-        if not directory_published and os.path.lexists(publish_dir):
+        if os.path.lexists(publish_dir):
             remove_directory_tree(publish_dir)
         raise
 

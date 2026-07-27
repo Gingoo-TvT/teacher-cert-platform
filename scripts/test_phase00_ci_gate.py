@@ -688,6 +688,7 @@ class Phase00CiGateTest(unittest.TestCase):
                 gate.remove_directory_tree(generated_module)
 
         original_self_verify = gate.self_verify_or_downgrade
+        original_publish_ready = gate.publish_ready_evidence
 
         def verify_only_after_source_cleanup(**kwargs):
             self.assertTrue(source_snapshot_cleanup_complete)
@@ -768,17 +769,15 @@ class Phase00CiGateTest(unittest.TestCase):
             patch.object(
                 gate,
                 "publish_ready_evidence",
-                side_effect=AssertionError(
-                    "verified PASS path escaped to the legacy publisher"
-                ),
-            ) as legacy_publisher,
+                wraps=original_publish_ready,
+            ) as directory_publisher,
             patch(
                 "builtins.print",
                 side_effect=fail_only_final_pass_summary,
             ),
         ):
             self.assertEqual(gate.run_gate(arguments), 0)
-        legacy_publisher.assert_not_called()
+        directory_publisher.assert_called_once()
         self.assertEqual(
             lifecycle_events,
             ["source-enter", "source-cleanup", "self-verify"],
@@ -2784,6 +2783,7 @@ class Phase00CiGateTest(unittest.TestCase):
             "security": {},
         }
         final = self.repo / f"publish-final-{mutation_point}"
+        pass_ready_name = ".manifest.pass-ready"
         original_atomic_write = gate.atomic_write_bytes
         original_capture = gate.capture_evidence_snapshot
         original_rename = gate.os.rename
@@ -2821,15 +2821,31 @@ class Phase00CiGateTest(unittest.TestCase):
             source = Path(source_path)
             destination = Path(destination_path)
             if (
-                mutation_point == "inside-rename"
+                mutation_point == "directory-rename-error"
                 and source.name.startswith(f".{final.name}.publish.")
                 and destination == final
                 and not mutation_applied
             ):
                 mutation_applied = True
-                (source / "artifact.txt").write_bytes(
-                    b"mutated during rename\n"
-                )
+                raise PermissionError("directory publish denied")
+            if (
+                mutation_point
+                in {
+                    "before-marker-mutate",
+                    "before-marker-delete",
+                }
+                and source == final / pass_ready_name
+                and destination == final / "manifest.json"
+                and not mutation_applied
+            ):
+                mutation_applied = True
+                published_artifact = final / "artifact.txt"
+                if mutation_point == "before-marker-mutate":
+                    published_artifact.write_bytes(
+                        b"mutated before marker rename\n"
+                    )
+                else:
+                    published_artifact.unlink()
             original_rename(source_path, destination_path)
 
         def fail_after_directory_publish(
@@ -2837,7 +2853,7 @@ class Phase00CiGateTest(unittest.TestCase):
         ) -> gate.EvidenceSnapshot:
             nonlocal mutation_applied
             if (
-                mutation_point == "published-capture-error"
+                mutation_point == "post-publish-capture"
                 and evidence_dir == final
                 and not mutation_applied
             ):
@@ -2881,19 +2897,39 @@ class Phase00CiGateTest(unittest.TestCase):
                 redactor=gate.SecretRedactor({}),
             )
 
+        if mutation_point in {
+            "before-marker-mutate",
+            "before-marker-delete",
+        }:
+            if mutation_applied:
+                self.assertFalse(verified)
+                self.assertIn("PASS finalization failed", error)
+                self.assertFalse((final / "manifest.json").exists())
+            else:
+                self.assertTrue(verified)
+                self.assertIsNone(error)
+                gate.verify_checksums_file(
+                    gate.capture_evidence_snapshot(final),
+                    expected_paths={"artifact.txt", "manifest.json"},
+                )
+            return
+
+        if mutation_point == "post-publish-capture":
+            self.assertFalse(mutation_applied)
+            self.assertTrue(verified)
+            self.assertIsNone(error)
+            gate.verify_checksums_file(
+                gate.capture_evidence_snapshot(final),
+                expected_paths={"artifact.txt", "manifest.json"},
+            )
+            return
+
         self.assertTrue(mutation_applied)
         self.assertFalse(verified)
         self.assertIn("PASS finalization failed", error)
-        if mutation_point in {
-            "inside-rename",
-            "published-capture-error",
-        }:
+        if mutation_point == "directory-rename-error":
             self.assertFalse(source.exists())
-            self.assertTrue(final.exists())
-            self.assertFalse((final / "manifest.json").exists())
-            self.assertTrue(
-                (final / gate.PASS_MANIFEST_READY_NAME).exists()
-            )
+            self.assertFalse(final.exists())
         else:
             self.assertFalse(final.exists())
             self.assertEqual(
@@ -2916,15 +2952,25 @@ class Phase00CiGateTest(unittest.TestCase):
     def test_artifact_delete_after_manifest_cannot_publish_pass(self) -> None:
         self.assert_publish_mutation_downgrades("after-manifest")
 
-    def test_artifact_mutation_inside_final_rename_cannot_report_pass(
+    def test_private_pass_directory_rename_failure_never_exposes_pass(
         self,
     ) -> None:
-        self.assert_publish_mutation_downgrades("inside-rename")
+        self.assert_publish_mutation_downgrades("directory-rename-error")
 
-    def test_published_capture_error_never_leaves_canonical_pass(
+    def test_pass_publication_does_not_reopen_final_directory(
         self,
     ) -> None:
-        self.assert_publish_mutation_downgrades("published-capture-error")
+        self.assert_publish_mutation_downgrades("post-publish-capture")
+
+    def test_artifact_mutation_before_canonical_marker_cannot_publish_pass(
+        self,
+    ) -> None:
+        self.assert_publish_mutation_downgrades("before-marker-mutate")
+
+    def test_artifact_delete_before_canonical_marker_cannot_publish_pass(
+        self,
+    ) -> None:
+        self.assert_publish_mutation_downgrades("before-marker-delete")
 
     def test_atomic_publish_failure_never_exposes_final_directory(self) -> None:
         staging = self.repo / "publish-ready"
