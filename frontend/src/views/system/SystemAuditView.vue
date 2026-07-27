@@ -262,7 +262,7 @@ function backupStatusTag(status: string) {
   return h(StatusTag, { text, value: status })
 }
 
-function tag(text: string | null | undefined, type: 'default' | 'info' | 'success' | 'warning' | 'error' = 'default') {
+function tag(text: string | null | undefined, _type: 'default' | 'info' | 'success' | 'warning' | 'error' = 'default') {
   return h(StatusTag, { text: text || '-' })
 }
 

@@ -18,10 +18,13 @@ springdoc:
   api-docs:
     path: /v3/api-docs
 
+# Phase 0 退回整改（U-004）发现的真实回归：knife4j 4.5.0 的增强层（Knife4jOpenApiCustomizer）按
+# springdoc 2.3.0 的 `List getGroupConfigs()` 二进制链接，而 SB 3.4 所需的 springdoc ≥2.4 已改为返回 Set，
+# 请求 /v3/api-docs 即 NoSuchMethodError（Phase 40 升级后从未有测试真正请求过文档端点，Phase00ScaffoldIT 首次捕获）。
+# knife4j 无更新版本（4.5.0 为最新），故关闭其增强自动装配：doc.html UI 是 knife4j-openapi3-ui webjar 的静态资源，
+# 不受此开关影响，仍由标准 springdoc 端点供数；损失仅为未使用的增强扩展（@ApiSupport 排序、x-setting 界面定制）。
 knife4j:
-  enable: true
-  setting:
-    language: zh_cn
+  enable: false
 
 logging:
   level:

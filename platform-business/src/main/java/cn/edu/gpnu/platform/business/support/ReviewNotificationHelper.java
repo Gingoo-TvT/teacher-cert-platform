@@ -1,6 +1,5 @@
 package cn.edu.gpnu.platform.business.support;
 
-import cn.edu.gpnu.platform.business.student.entity.Student;
 import cn.edu.gpnu.platform.system.entity.SysUser;
 import cn.edu.gpnu.platform.system.mapper.SysUserMapper;
 import cn.edu.gpnu.platform.system.service.NotificationService;

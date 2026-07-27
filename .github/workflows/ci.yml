@@ -84,6 +84,7 @@ jobs:
       - name: mvn verify
         env:
           JWT_SECRET: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+        # checkstyle 绑定在 validate 阶段（根 pom），verify 即自动执行后端 lint 门禁并在违规时红灯。
         run: mvn -B -ntp verify
       - name: 清理 MinIO
         if: always()
@@ -99,9 +100,10 @@ jobs:
           node-version: '20'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - name: npm ci、type-check 与 build
+      - name: npm ci、lint、type-check 与 build
         working-directory: frontend
         run: |
           npm ci
+          npm run lint
           npm run type-check
           npm run build

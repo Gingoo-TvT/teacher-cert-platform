@@ -76,7 +76,8 @@ function rowKey(row: DataTableRowData): DataTableRowKey {
   return JSON.stringify(row)
 }
 
-function rowProps(row: DataTableRowData) {
+// 与 props.rowProps 显式区分命名：同名会在 <script setup> 作用域里遮蔽 prop 并触发 vue/no-dupe-keys。
+function mergedRowProps(row: DataTableRowData) {
   const customProps = props.rowProps ? props.rowProps(row) : {}
   const style = customProps.style
   return {
@@ -139,7 +140,7 @@ function numericWidth(value: unknown) {
       :loading="loading"
       :remote="remote"
       :row-key="rowKey"
-      :row-props="rowProps"
+      :row-props="mergedRowProps"
       :pagination="resolvedPagination"
       :scroll-x="effectiveScrollX"
       :max-height="maxHeight"

@@ -1,0 +1,51 @@
+<?xml version="1.0"?>
+<!DOCTYPE module PUBLIC
+        "-//Checkstyle//DTD Checkstyle Configuration 1.3//EN"
+        "https://checkstyle.org/dtds/configuration_1_3.dtd">
+<!--
+  Phase 0 退回整改（U-004）：后端最小 lint 门禁。
+
+  规则取舍：只收录「违反即真实缺陷」的客观规则，全部规则当前主干 0 违规、可立即红灯拦截回归；
+  刻意不含格式化类规则（缩进/行宽/花括号风格）——那属于风格统一，主干存量不满足，强推会制造
+  大面积无语义 diff，干扰正在进行的阶段复核审计。后续若引入格式化统一，另立工作包处理存量。
+  作用域：仅 src/main（maven-checkstyle-plugin 默认不含测试源码）。
+-->
+<module name="Checker">
+    <property name="charset" value="UTF-8"/>
+    <property name="severity" value="error"/>
+
+    <!-- 禁 Tab（全仓已是空格缩进） -->
+    <module name="FileTabCharacter">
+        <property name="eachLine" value="true"/>
+    </module>
+
+    <module name="TreeWalker">
+        <!-- import 卫生：禁通配符、禁未使用、禁冗余 -->
+        <module name="AvoidStarImport"/>
+        <module name="UnusedImports"/>
+        <module name="RedundantImport"/>
+        <!-- 禁内部实现包 -->
+        <module name="IllegalImport"/>
+        <!-- 文件名必须与外部类型一致 -->
+        <module name="OuterTypeFilename"/>
+        <!-- AGENTS.md §3.1：日志走 SLF4J，禁止 System.out / System.err / printStackTrace -->
+        <module name="Regexp">
+            <property name="format" value="System\s*\.\s*(out|err)\s*\.\s*print"/>
+            <property name="illegalPattern" value="true"/>
+            <property name="ignoreComments" value="true"/>
+            <property name="message" value="禁止 System.out/err 输出，请使用 SLF4J 日志（AGENTS.md §3.1）"/>
+        </module>
+        <module name="Regexp">
+            <property name="format" value="\.printStackTrace\s*\(\s*\)"/>
+            <property name="illegalPattern" value="true"/>
+            <property name="ignoreComments" value="true"/>
+            <property name="message" value="禁止 printStackTrace，请使用 SLF4J 记录异常（AGENTS.md §3.1）"/>
+        </module>
+        <!-- 等号两侧的悬空空语句（if (x); 之类） -->
+        <module name="EmptyStatement"/>
+        <!-- equals/hashCode 成对 -->
+        <module name="EqualsHashCode"/>
+        <!-- 禁止把参数当局部变量重赋值导致的 == 误用 -->
+        <module name="StringLiteralEquality"/>
+    </module>
+</module>

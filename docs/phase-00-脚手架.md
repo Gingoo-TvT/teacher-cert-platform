@@ -2,6 +2,18 @@
 
 > 优先级 P0 · 依赖：无 · 任务：T-001~T-010 · plan §2 / §5.1 / §15.3
 > 目标：搭出可启动的前后端骨架与公共设施，后续所有阶段在此之上开发。本阶段不含业务功能，但**审计/数据权限/文件/统一响应**等横切设施必须一次到位。
+>
+> **验收基线修订（2026-07-27，U-004 Phase 0 退回整改）**：本文件原稿写于项目启动时，其中三处约定已被后续正式演进
+> 取代，为可追溯起见在此集中记录替代依据（详见 DEVLOG 同日条目，按 AGENTS.md R10 留痕）：
+> 1. **pnpm → npm**：仓库自 T-008 前端脚手架落地起即使用 npm（`frontend/package-lock.json` 为 npm 锁文件，
+>    `AGENTS.md §2` 技术栈基线亦锁定 npm），本文件原「pnpm dev」为规划期笔误，未曾成立过。
+> 2. **mock 登录 → 真实认证**：Phase 2（T-024）交付真实 JWT 认证后，mock 登录不再存在；Phase 0 验收中「mock 登录
+>    走通封装层」的意图（前端请求封装层可用）由现行「真实登录 → Result 解包 → 路由跳转」链路覆盖，
+>    由 `Phase2SecurityIT` 与 `Phase14E2EIT` 回归。
+> 3. **lint 门禁**：原稿写 Spotless/Checkstyle/ESLint 三件套但从未落地。现按「违反即真实缺陷」的最小口径正式落地：
+>    后端 maven-checkstyle-plugin 绑定 validate 阶段（规则 `build/checkstyle/checkstyle.xml`，`mvn verify` 自动执行）；
+>    前端 ESLint 9（`frontend/eslint.config.js`，`npm run lint`）；两者均已进入 `.github/workflows/ci.yml`。
+>    格式化统一（Spotless 及 vue3 recommended 升级）移交 WS-6 可持续质量门禁，不在 Phase 0 范围内冒充闭环。
 
 ## 1. 目标与范围
 - Maven 多模块后端骨架 + Spring Boot 启动。
@@ -11,7 +23,7 @@
 
 ## 2. 交付物
 - 可运行 jar（`platform-boot`），`/doc.html` 可访问。
-- 前端 `pnpm dev` 可启动并走通封装层。
+- 前端 `npm run dev` 可启动并走通封装层（原稿 pnpm 为笔误，见文首修订记录 1）。
 - `docker-compose.dev.yml` 起三依赖。
 - Flyway `V1__base.sql`（`audit_log`/`file_object`/`sys_param`）。
 
@@ -51,16 +63,31 @@ platform-parent/  (pom，dependencyManagement 锁版本)
 - `v-perm` 指令占位（Phase 2 接权限点）。
 
 ## 8. 验收清单
-- [ ] `mvn -pl platform-boot -am package` 产出可运行 jar，启动无报错。
-- [ ] `/doc.html` 打开，示例接口可调通，返回统一 `Result`。
-- [ ] 抛 `BizException` → HTTP 200 + `{code≠0,msg}`；`@Valid` 失败 → 字段级错误。
-- [ ] `docker compose -f docker-compose.dev.yml up` 后 mysql/redis/minio 健康，后端连通。
-- [ ] Flyway 自动建 `sys_param`/`file_object`/`audit_log`，`sys_param` 含 README §6 全部默认参数。
-- [ ] 上传任意文件返回 fileId；预签名 URL 限时可访问，过期返回 403/失效。
-- [ ] 标注 `@AuditLog` 的样例方法成功后写入 `audit_log`（操作人/时间/IP 不为空）。
-- [ ] `@DataScope` 单测：不同范围生成的 SQL 条件正确。
-- [ ] 前端 `pnpm dev` 启动；mock 登录接口经封装层返回并触发路由跳转。
-- [ ] lint：后端 Spotless/Checkstyle、前端 ESLint 全绿。
+
+> 2026-07-27 复检口径：每项标注当前的可重复证据锚点。带 † 的两项按文首修订记录调整了原口径。
+
+- [x] `mvn -pl platform-boot -am package` 产出可运行 jar，启动无报错。——每次 `mvn verify` 的 9 模块 package 与
+      全部 Spring Boot IT（RANDOM_PORT 启动真实上下文）覆盖；fat JAR 内容另有 WS-3 门禁核验。
+- [x] `/doc.html` 打开，示例接口可调通，返回统一 `Result`。——`Phase00ScaffoldIT.docHtmlAndOpenApiAreServedWithoutAuthentication`
+      （/doc.html 200 + OpenAPI 文档含真实业务路径）；「接口可调通且返回统一 Result」由同类其余用例与全部业务 IT 覆盖。
+- [x] 抛 `BizException` → HTTP 200 + `{code≠0,msg}`；`@Valid` 失败 → 字段级错误。——
+      `Phase00ScaffoldIT.bizExceptionReturnsHttp200WithBusinessCode` / `validationFailureReturnsFieldLevelError`。
+      未捕获异常合同按 P1-10 修订为 HTTP 500 + 统一 Result（监控可见），由
+      `uncaughtExceptionReturnsUnifiedResultWithoutStackTraceLeak` 断言统一体且不泄漏堆栈。
+- [x] `docker compose -f docker-compose.dev.yml up` 后 mysql/redis/minio 健康，后端连通。——compose 文件即真实
+      IT 依赖栈（CI 用等价 services 起同三件），任意一次 verify 全绿即为连通证据；dev/prod compose 另有 `config` 解析门禁。
+- [x] Flyway 自动建 `sys_param`/`file_object`/`audit_log`，`sys_param` 含 `docs/README.md` §6 全部默认参数。——
+      每次空库 verify 的 Flyway V1 起步迁移 + `Phase13SystemAuditIT`/`Phase44CachingIT` 对 `sys_param` 种子的读写断言。
+- [x] 上传任意文件返回 fileId；预签名 URL 限时可访问，过期返回 403/失效。——
+      `Phase00ScaffoldIT.uploadWritesAuditRowAndPresignedUrlExpiresAfterTtl`（3 秒 TTL 正向下载逐字节一致 + 过期后同一 URL 403）。
+- [x] 标注 `@AuditLog` 的样例方法成功后写入 `audit_log`（操作人/时间/IP 不为空）。——同上用例对 `file/upload`
+      审计行的三字段非空断言；更丰富的审计链路由 `Phase13SystemAuditIT` 覆盖。
+- [x] `@DataScope` 单测：不同范围生成的 SQL 条件正确。——`DataScopeSqlHandlerTest` 9 例（COLLEGE IN/SELF/ASSIGNED/
+      全校无条件/空集合与 NONE fail-closed/未注册表跳过/别名匹配）。
+- [x] † 前端 `npm run dev` 启动；真实登录经封装层返回并触发路由跳转（原「pnpm + mock 登录」口径见文首修订记录 1/2）。——
+      `npm run build`/`type-check` 每次 CI 执行；登录→跳转链路由 `Phase2SecurityIT` 与浏览器验收（Phase 35 系列）覆盖。
+- [x] † lint：后端 checkstyle（validate 阶段强制）、前端 ESLint 全绿（原「Spotless/Checkstyle/ESLint」口径见文首修订记录 3）。——
+      `mvn verify` 内嵌执行；`npm run lint` 进 CI；落地当日即捕获并清除 5 处真实未使用 import 与 3 处前端缺陷。
 
 ## 9. 测试用例
 - T-AUDIT-1：调用带 `@AuditLog` 的方法 → 断言 `audit_log` 新增一行且字段完整。

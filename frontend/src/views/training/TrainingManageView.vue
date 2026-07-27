@@ -237,10 +237,6 @@ function resetFilters() {
   search()
 }
 
-function dictOptions(items: DictItem[]): SelectOption[] {
-  return items.map((item) => ({ label: item.itemValue, value: item.itemCode }))
-}
-
 function dictLabel(items: DictItem[], code?: string | null) {
   return items.find((item) => item.itemCode === code)?.itemValue || code || '-'
 }

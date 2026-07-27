@@ -6,7 +6,7 @@
 
 ## 1. 当前基线与本轮结论
 
-- 当前分支：`codex/phase44-remediation`。Phase 39、Phase 41、Phase 47、Phase 53 与 Phase 44 均已独立 PASS；Phase 44 第四轮正式报告 `reviews/phase-44-fourth-remediation-rereview-2026-07-27.md` 结论为 **PASS（0 Critical / 0 High / 0 Medium / 1 Low）**。冻结第三轮报告/治理基线 `69f7462`、代码候选 `228a355`（`69f7462..228a355`）与材料 HEAD `9c3da0b`；用户专用栈精确 16/16、棕地只读 preflight、Compose 双向展开及独立离线 53/53 均成立。第三轮 1 Medium / 4 Low 的原失败条件关闭；新增 preflight 权威接线/target marker 1 Low 非阻断。当前只剩 Phase 0 / U-004 不放行；`main` 仍为 `e4f8228`，禁止擅自 merge/push。
+- 当前分支：`codex/phase00-remediation`。Phase 39、Phase 41、Phase 47、Phase 53 与 Phase 44 均已独立 PASS（Phase 44 第四轮报告 `reviews/phase-44-fourth-remediation-rereview-2026-07-27.md`，PASS，1 Low 非阻断）。当前 Phase 0 / U-004 退回整改候选完成待独立复核：验收基线按 R10 修订、后端 checkstyle + 前端 ESLint 门禁落地进 CI、`Phase00ScaffoldIT` 6/6 与 `DataScopeSqlHandlerTest` 9/9 建立可重复证据，并修复 `/v3/api-docs` 自 Phase 40 起潜伏的 NoSuchMethodError 回归（knife4j 4.5.0 增强层与 springdoc 2.8 二进制不兼容，关闭增强、doc.html 静态 UI 不受影响）。`main` 仍为 `e4f8228`，禁止擅自 merge/push。
 - Claude 当前不可用；用户于 2026-07-23 明确授权 Codex 作为本轮独立复核者。Phase 42 增量重核未采信实现自报，重新读码、核验现有真实 MySQL XML 与源码/编译时序，并独立执行安全的一次性构建门禁；按用户安全边界未重跑并发/latch、压力或任何可能属于 cyber 的验证。该应急授权只适用于本轮记录，不自动改写 `REVIEW-GATE` 的长期角色约定。
 - 原复核隔离空库基线：`mvn -B -ntp clean verify` 通过，Surefire **121/121**、Failsafe **144/144**，合计 **265/265**，Flyway V1–V28 与 `R__testseed` 成功。
 - WS-3 第二轮整改独立门禁：全新数据卷执行 Flyway V1–V29 成功，Surefire **121/121**、Failsafe **150/150**，合计 **271/271**；Phase 7 为 **29/29**；前端 type-check/build 通过。独立复核确认时间线、fast-hit、review 行锁和 V29 已闭环，但静态不变量仍发现 3 High / 3 Medium。
@@ -59,7 +59,7 @@
 
 | 阶段 | 实现/合并状态 | 正式复核证据 | 本轮复核结论 |
 |---|---|---|---|
-| Phase 0 | 原始任务 10/10 | `reviews/phase-00-review.md` | ❌ 复核退回：验收基线漂移、lint/运行证据未闭环 |
+| Phase 0 | 原始任务 10/10；退回整改候选（分支 `codex/phase00-remediation`）未合并 | `reviews/phase-00-review.md`；候选材料 `reviews/phase-00-remediation-submission-2026-07-27.md` | 🟦 整改候选待独立复核：验收基线 R10 修订、checkstyle/ESLint 进 CI、可重复证据 IT 建立并修复 api-docs 潜伏回归 |
 | Phase 1 | 已完成 | `reviews/phase-01-review.md` PASS | ✅ 已复核；当前全量回归通过 |
 | Phase 2 | 已完成 | `reviews/phase-02-review.md` PASS | ✅ 已复核；当前全量回归通过 |
 | Phase 3 | 已完成 | `reviews/phase-03-review.md` PASS | ✅ 已复核；当前全量回归通过 |
@@ -134,7 +134,7 @@
 1. **U-001 CI 可复现性（WS-3 Major-3）—✅ 独立重核 PASS**：后端 job 的固定版本 MinIO、健康检查、桶初始化与前端 `npm run type-check` 已静态核对；独立 CI 等价环境全量 266/266、前端 type-check/build 通过。WS-6 仍负责 ESLint、Vitest、Playwright。
 2. **U-002 WS-3 退回整改—✅ 独立重核 PASS**：`88d3136..2886442` 已确认关闭第五轮新增的 2 Medium：① reconciliation trigger 绑定独立 `TaskScheduler`，真实 scheduling + blocked backup 证据证明普通备份不再阻断对账提交；② `video_finalization_object_candidate` 纳入 37 表逻辑全量备份，scratch restore 后历史 generation、claim/retry/tombstone 完整且真实对账可续跑。唯一新增 Low 是提交材料把 32 个迁移写成 33 个，已在正式报告和活动文档勘误，不阻断。该报告只证明 candidate slice；当时仍独立退回的 Phase 41 整体备份问题现已由后续动态证据报告关闭。V32 发布继续遵守停写、停全部旧节点/worker、迁移、全量启动新实例后再放流，禁止 V31/旧稳定 key 协议混部与旧二进制回滚。独立报告为 `reviews/ws-03-sixth-remediation-rereview-2026-07-24.md`；未执行任何 cyber 指令，后续任何可能属于 cyber 的命令必须明确交由用户决定并亲自执行。
 3. **U-003 阶段退回整改—✅ 独立重核 PASS**：Phase 42、Phase 39、Phase 41、Phase 47、Phase 53 与 Phase 44 均已独立复核 PASS。Phase 44 第四轮 `69f7462..228a355` 的精确 16/16、棕地只读 identity preflight、Compose 双向展开与独立离线门禁成立，正式报告为 `reviews/phase-44-fourth-remediation-rereview-2026-07-27.md`；1 Low 非阻断，稳定发布前接入权威发布步骤并补 target marker。
-4. **U-004 Phase 0 复核退回整改—当前下一项**：逐项处理 `docs/phase-00-脚手架.md` 的 10 个验收项；被现架构取代的旧要求要记录替代依据，补 lint/Swagger/预签名过期等可重复证据后重交。
+4. **U-004 Phase 0 复核退回整改—候选待复核**：`docs/phase-00-脚手架.md` 十项验收全部对齐并标注证据锚点，被取代口径（pnpm/mock 登录/lint 三件套）按 R10 记录替代依据；checkstyle（validate 强制）与 ESLint 9 进 CI，落地当日捕获 8 处真实问题；`Phase00ScaffoldIT` 6/6（/doc.html、统一异常三合同、审计三字段、预签名过期反例、MD5 命中）+ `DataScopeSqlHandlerTest` 9/9（含空集合/NONE fail-closed）；顺带修复 `/v3/api-docs` 潜伏回归。候选材料 `reviews/phase-00-remediation-submission-2026-07-27.md`，待独立复核；PASS 后执行最终全量审计。
 
 ### P1：当前产品需求与上线安全
 
