@@ -225,8 +225,6 @@ class Phase00ScaffoldIT {
                 .isEqualTo(minio.identityNonce());
         assertThat(preContextTargetAttestation.minioIdentityIssuedAt())
                 .isEqualTo(minio.identityIssuedAt());
-        assertThat(preContextTargetAttestation.minioInstanceFingerprintSha256())
-                .isEqualTo(minio.instanceFingerprintSha256());
 
         writeTargetIdentity(
                 candidateSha,
@@ -537,7 +535,6 @@ class Phase00ScaffoldIT {
             String candidateSha,
             String runContext) throws Exception {
         byte[] content;
-        String instanceFingerprintSha256;
         try (GetObjectResponse response = minioClient.getObject(GetObjectArgs.builder()
                 .bucket(bucket)
                 .object(identityObject)
@@ -546,10 +543,6 @@ class Phase00ScaffoldIT {
             if (content.length > 4096) {
                 throw new IllegalStateException("MinIO provisioning identity object 超过 4096 bytes");
             }
-            instanceFingerprintSha256 =
-                    Phase00TargetPreflight.deriveMinioInstanceFingerprint(
-                            response.headers().values("x-minio-deployment-id"),
-                            expectedNonce);
         }
 
         String actualSha256 = HexFormat.of().formatHex(
@@ -579,8 +572,7 @@ class Phase00ScaffoldIT {
                 identityObject,
                 actualSha256,
                 expectedNonce,
-                expectedIssuedAt,
-                instanceFingerprintSha256);
+                expectedIssuedAt);
     }
 
     private void writeTargetIdentity(
@@ -611,7 +603,6 @@ class Phase00ScaffoldIT {
                         minio.identitySha256(),
                         minio.identityNonce(),
                         minio.identityIssuedAt(),
-                        minio.instanceFingerprintSha256(),
                         preContextAttestation.mysqlTableCountBefore(),
                         preContextAttestation.redisDatabaseSizeBefore(),
                         preContextAttestation.minioObjectCountBefore(),
@@ -701,7 +692,6 @@ class Phase00ScaffoldIT {
             String identityObject,
             String identitySha256,
             String identityNonce,
-            String identityIssuedAt,
-            String instanceFingerprintSha256) {
+            String identityIssuedAt) {
     }
 }

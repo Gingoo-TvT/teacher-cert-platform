@@ -163,12 +163,6 @@ class Phase00CiGateTest(unittest.TestCase):
                 "identityIssuedAt": environment[
                     "PHASE00_EXPECTED_MINIO_IDENTITY_ISSUED_AT"
                 ],
-                "instanceFingerprintSha256": (
-                    gate.derive_minio_instance_fingerprint(
-                        "123e4567-e89b-12d3-a456-426614174000",
-                        environment["PHASE00_EXPECTED_MINIO_IDENTITY_NONCE"],
-                    )
-                ),
             },
             "freshness": {
                 "mysqlTableCountBefore": 0,
@@ -257,38 +251,13 @@ class Phase00CiGateTest(unittest.TestCase):
                 "preflightProducer": (
                     "cn.edu.gpnu.platform.boot.Phase00TargetPreflight"
                 ),
-                "schemaVersion": 4,
+                "schemaVersion": 5,
                 "mysqlVersionPattern": r"^8\..+$",
                 "redisVersionPattern": r"^7\..+$",
                 "minioIdentityMode": gate.MINIO_IDENTITY_MODE,
                 "required": True,
             },
         )
-        nonce = "b" * 64
-        deployment_id = "123e4567-e89b-12d3-a456-426614174000"
-        fingerprint = gate.derive_minio_instance_fingerprint(
-            deployment_id,
-            nonce,
-        )
-        self.assertEqual(
-            fingerprint,
-            "7fe3df67cf424bb6bf35a90cd42f348da3d7855a20b0f55f9d3b612cdaea2c1e",
-        )
-        self.assertNotEqual(
-            fingerprint,
-            gate.derive_minio_instance_fingerprint(
-                "223e4567-e89b-12d3-a456-426614174000",
-                nonce,
-            ),
-        )
-        self.assertNotEqual(
-            fingerprint,
-            gate.derive_minio_instance_fingerprint(
-                deployment_id,
-                "c" * 64,
-            ),
-        )
-
     def test_target_configuration_binds_markers_to_actual_services(self) -> None:
         declared, configured = gate.read_target_configuration(
             self.target_environment()
@@ -1194,9 +1163,20 @@ class Phase00CiGateTest(unittest.TestCase):
         legacy_headers["minio"]["deploymentId"] = (
             "123e4567-e89b-12d3-a456-426614174000"
         )
+        legacy_headers["minio"]["instanceFingerprintSha256"] = "0" * 64
         with self.assertRaisesRegex(gate.GateError, "fields are not exact"):
             gate.validate_runtime_identity(
                 legacy_headers,
+                self.spec["targetEvidence"],
+                declared,
+                configured,
+                expected,
+            )
+        legacy_schema = self.runtime_identity()
+        legacy_schema["schemaVersion"] = 4
+        with self.assertRaisesRegex(gate.GateError, "schemaVersion mismatch"):
+            gate.validate_runtime_identity(
+                legacy_schema,
                 self.spec["targetEvidence"],
                 declared,
                 configured,
@@ -1245,7 +1225,6 @@ class Phase00CiGateTest(unittest.TestCase):
             ("minio", "identitySha256", "e" * 64),
             ("minio", "identityNonce", "f" * 64),
             ("minio", "identityIssuedAt", "2020-01-01T00:00:00Z"),
-            ("minio", "instanceFingerprintSha256", None),
         )
         for service, field, value in mutations:
             with self.subTest(service=service, field=field):
@@ -1310,7 +1289,7 @@ class Phase00CiGateTest(unittest.TestCase):
         runtime = self.runtime_identity()
         gate.require_matching_preflight_and_runtime(preflight, runtime)
 
-        runtime["minio"]["instanceFingerprintSha256"] = "0" * 64
+        runtime["minio"]["identitySha256"] = "0" * 64
         with self.assertRaisesRegex(gate.GateError, "exactly match preflight"):
             gate.require_matching_preflight_and_runtime(preflight, runtime)
 
@@ -2714,7 +2693,7 @@ class Phase00CiGateTest(unittest.TestCase):
         identity = evidence / "target" / "runtime-identity.json"
         identity.parent.mkdir()
         identity.write_text(
-            '{"instanceFingerprintSha256":"password=reflected-secret"}',
+            '{"identityObject":"password=reflected-secret"}',
             encoding="utf-8",
         )
         manifest = {

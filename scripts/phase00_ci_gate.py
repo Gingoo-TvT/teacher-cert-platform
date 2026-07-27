@@ -64,14 +64,8 @@ MAX_MANIFEST_BYTES = 262_144
 MAX_EVIDENCE_FILES = 512
 MAX_EVIDENCE_TOTAL_BYTES = 512 * 1024 * 1024
 SECRET_SCAN_POLICY = "known-env-and-credential-patterns-v1"
-MINIO_INSTANCE_FINGERPRINT_DOMAIN = b"phase00:minio-instance:v1\x00"
-MINIO_IDENTITY_MODE = (
-    "provisioned-object-sha256+deployment-uuid-nonce-fingerprint-v1"
-)
+MINIO_IDENTITY_MODE = "provisioned-object-challenge-v2"
 MYSQL_UUID_RE = re.compile(
-    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
-)
-MINIO_DEPLOYMENT_UUID_RE = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
 )
 REDIS_RUN_ID_RE = re.compile(r"^[0-9a-f]{40}$")
@@ -315,30 +309,6 @@ def parse_utc(value: str, label: str) -> dt.datetime:
 
 def sha256_bytes(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
-
-
-def derive_minio_instance_fingerprint(
-    deployment_id: str,
-    identity_nonce: str,
-) -> str:
-    """Mirror the frozen Java fingerprint-v1 byte contract for offline tests."""
-
-    if (
-        not isinstance(deployment_id, str)
-        or not MINIO_DEPLOYMENT_UUID_RE.fullmatch(deployment_id)
-    ):
-        raise GateError("MinIO deployment identity must be one canonical UUID")
-    if (
-        not isinstance(identity_nonce, str)
-        or not SHA256_RE.fullmatch(identity_nonce)
-    ):
-        raise GateError("MinIO instance fingerprint nonce must be lowercase hex")
-    return sha256_bytes(
-        MINIO_INSTANCE_FINGERPRINT_DOMAIN
-        + identity_nonce.encode("ascii")
-        + b"\x00"
-        + deployment_id.encode("ascii")
-    )
 
 
 def sha256_file(path: Path) -> str:
@@ -1467,7 +1437,6 @@ def validate_runtime_identity(
             "identitySha256",
             "identityNonce",
             "identityIssuedAt",
-            "instanceFingerprintSha256",
         },
         "runtime target identity minio",
     )
@@ -1516,17 +1485,6 @@ def validate_runtime_identity(
     )
     if identity_issued_at != expected["minio"]["identityIssuedAt"]:
         raise GateError("runtime MinIO identity issuedAt does not match expected identity")
-    instance_fingerprint = require_clean_text(
-        minio["instanceFingerprintSha256"],
-        "runtime target identity minio.instanceFingerprintSha256",
-    )
-    if (
-        instance_fingerprint != instance_fingerprint.lower()
-        or not SHA256_RE.fullmatch(instance_fingerprint)
-    ):
-        raise GateError(
-            "runtime MinIO instance fingerprint must be 64 lowercase hex"
-        )
     validate_target_freshness(identity["freshness"])
     return dict(identity)
 
@@ -2814,9 +2772,9 @@ def load_spec_bytes(content: bytes, label: str) -> dict[str, Any]:
         raise GateError("targetEvidence.preflightProducer is not the fixed producer")
     if (
         isinstance(target_evidence["schemaVersion"], bool)
-        or target_evidence["schemaVersion"] != 4
+        or target_evidence["schemaVersion"] != 5
     ):
-        raise GateError("targetEvidence.schemaVersion must be integer 4")
+        raise GateError("targetEvidence.schemaVersion must be integer 5")
     for key in ("mysqlVersionPattern", "redisVersionPattern"):
         pattern = target_evidence[key]
         if (
@@ -2831,7 +2789,7 @@ def load_spec_bytes(content: bytes, label: str) -> dict[str, Any]:
             raise GateError(f"targetEvidence.{key} is invalid: {exc}") from exc
     if target_evidence["minioIdentityMode"] != MINIO_IDENTITY_MODE:
         raise GateError(
-            "targetEvidence.minioIdentityMode must lock the fingerprint-v1 contract"
+            "targetEvidence.minioIdentityMode must lock the object-challenge-v2 contract"
         )
     if target_evidence["required"] is not True:
         raise GateError("targetEvidence.required must be true")

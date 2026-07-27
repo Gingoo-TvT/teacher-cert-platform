@@ -17,7 +17,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
 import java.net.URI;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -31,7 +30,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
@@ -50,10 +48,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class Phase00TargetPreflight {
 
-    private static final int IDENTITY_SCHEMA_VERSION = 4;
+    private static final int IDENTITY_SCHEMA_VERSION = 5;
     private static final int PROVISIONING_OBJECT_SCHEMA_VERSION = 2;
-    private static final String MINIO_INSTANCE_FINGERPRINT_DOMAIN =
-            "phase00:minio-instance:v1\u0000";
     private static final Duration IO_TIMEOUT = Duration.ofSeconds(10);
     private static final Path PREFLIGHT_IDENTITY_PATH =
             Path.of("target", "phase00-target-preflight.json").toAbsolutePath().normalize();
@@ -61,8 +57,6 @@ class Phase00TargetPreflight {
             "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$");
     private static final Pattern REDIS_RUN_ID = Pattern.compile("^[0-9a-fA-F]{40}$");
     private static final Pattern REDIS_CLIENT_DB = Pattern.compile("(?:^|\\s)db=(\\d+)(?:\\s|$)");
-    private static final Pattern MINIO_DEPLOYMENT_UUID = Pattern.compile(
-            "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$");
     private static final Pattern SHA256 = Pattern.compile("^[0-9a-f]{64}$");
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
@@ -132,7 +126,6 @@ class Phase00TargetPreflight {
                 minio.identitySha256(),
                 minio.identityNonce(),
                 minio.identityIssuedAt(),
-                minio.instanceFingerprintSha256(),
                 firstAttestation == null
                         ? mysql.tableCountBefore()
                         : firstAttestation.mysqlTableCountBefore(),
@@ -398,9 +391,6 @@ class Phase00TargetPreflight {
                 assertThat(actualSha256).isEqualTo(inputs.identitySha256());
                 validateProvisioningObject(content, inputs);
 
-                String instanceFingerprintSha256 = deriveMinioInstanceFingerprint(
-                        response.headers().values("x-minio-deployment-id"),
-                        inputs.identityNonce());
                 return new MinioIdentity(
                         inputs.minioEndpoint(),
                         inputs.minioBucket(),
@@ -408,7 +398,6 @@ class Phase00TargetPreflight {
                         actualSha256,
                         inputs.identityNonce(),
                         inputs.identityIssuedAt(),
-                        instanceFingerprintSha256,
                         objectCount,
                         unexpectedObjectCount);
             }
@@ -496,9 +485,6 @@ class Phase00TargetPreflight {
         minioJson.put("identitySha256", attestation.minioIdentitySha256());
         minioJson.put("identityNonce", attestation.minioIdentityNonce());
         minioJson.put("identityIssuedAt", attestation.minioIdentityIssuedAt());
-        minioJson.put(
-                "instanceFingerprintSha256",
-                attestation.minioInstanceFingerprintSha256());
         root.put("minio", minioJson);
 
         return root;
@@ -536,8 +522,6 @@ class Phase00TargetPreflight {
                 .isEqualTo(firstAttestation.minioIdentityNonce());
         assertThat(currentAttestation.minioIdentityIssuedAt())
                 .isEqualTo(firstAttestation.minioIdentityIssuedAt());
-        assertThat(currentAttestation.minioInstanceFingerprintSha256())
-                .isEqualTo(firstAttestation.minioInstanceFingerprintSha256());
     }
 
     static Map<String, String> parseRedisInfo(String value) {
@@ -603,35 +587,6 @@ class Phase00TargetPreflight {
             throw new IllegalStateException("MinIO endpoint port 非法");
         }
         return scheme + "://" + host + ":" + port;
-    }
-
-    /**
-     * 将 MinIO 实例 header 收窄为单个 canonical UUID，再与本次 nonce
-     * 共同派生不可跨运行关联的证据指纹。任意原始 header 都不得进入 JSON、record 或异常。
-     */
-    static String deriveMinioInstanceFingerprint(
-            List<String> deploymentIdHeaders, String identityNonce) {
-        if (deploymentIdHeaders == null
-                || deploymentIdHeaders.size() != 1
-                || deploymentIdHeaders.get(0) == null
-                || !MINIO_DEPLOYMENT_UUID.matcher(deploymentIdHeaders.get(0)).matches()) {
-            throw new IllegalStateException(
-                    "MinIO deployment identity header 必须是单个 canonical UUID");
-        }
-        if (identityNonce == null || !SHA256.matcher(identityNonce).matches()) {
-            throw new IllegalStateException("MinIO instance fingerprint nonce 非法");
-        }
-        String fingerprintInput = MINIO_INSTANCE_FINGERPRINT_DOMAIN
-                + identityNonce
-                + '\u0000'
-                + deploymentIdHeaders.get(0);
-        try {
-            return HexFormat.of().formatHex(
-                    MessageDigest.getInstance("SHA-256")
-                            .digest(fingerprintInput.getBytes(StandardCharsets.UTF_8)));
-        } catch (java.security.NoSuchAlgorithmException ex) {
-            throw new IllegalStateException("SHA-256 digest unavailable", ex);
-        }
     }
 
     private String requiredEnvironment(String name) {
@@ -735,7 +690,6 @@ class Phase00TargetPreflight {
             String minioIdentitySha256,
             String minioIdentityNonce,
             String minioIdentityIssuedAt,
-            String minioInstanceFingerprintSha256,
             long mysqlTableCountBefore,
             long redisDatabaseSizeBefore,
             long minioObjectCountBefore,
@@ -757,7 +711,6 @@ class Phase00TargetPreflight {
             String identitySha256,
             String identityNonce,
             String identityIssuedAt,
-            String instanceFingerprintSha256,
             long objectCountBefore,
             long unexpectedObjectCountBefore) {
     }
