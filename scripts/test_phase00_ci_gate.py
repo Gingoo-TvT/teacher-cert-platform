@@ -765,12 +765,20 @@ class Phase00CiGateTest(unittest.TestCase):
                 "self_verify_or_downgrade",
                 side_effect=verify_only_after_source_cleanup,
             ),
+            patch.object(
+                gate,
+                "publish_ready_evidence",
+                side_effect=AssertionError(
+                    "verified PASS path escaped to the legacy publisher"
+                ),
+            ) as legacy_publisher,
             patch(
                 "builtins.print",
                 side_effect=fail_only_final_pass_summary,
             ),
         ):
             self.assertEqual(gate.run_gate(arguments), 0)
+        legacy_publisher.assert_not_called()
         self.assertEqual(
             lifecycle_events,
             ["source-enter", "source-cleanup", "self-verify"],
@@ -1887,6 +1895,98 @@ class Phase00CiGateTest(unittest.TestCase):
             gate.PurePosixPath("xml/report.xml"),
         )
 
+    @unittest.skipUnless(
+        os.name == "posix"
+        and os.open in os.supports_dir_fd
+        and os.stat in os.supports_dir_fd,
+        "requires POSIX openat support",
+    )
+    def test_posix_capture_rejects_nonterminal_ancestor_symlink_before_read(
+        self,
+    ) -> None:
+        outer = self.repo / "posix-symlink-ancestor"
+        target = outer / "target"
+        evidence = target / "evidence"
+        evidence.mkdir(parents=True)
+        (evidence / "artifact.txt").write_text("secret", encoding="utf-8")
+        alias = outer / "alias"
+        alias.symlink_to(target, target_is_directory=True)
+
+        with patch.object(
+            gate,
+            "_snapshot_file_from_bytes",
+            wraps=gate._snapshot_file_from_bytes,
+        ) as reader:
+            with self.assertRaisesRegex(
+                gate.GateError,
+                "non-symlink directory",
+            ):
+                gate.capture_evidence_snapshot(alias / "evidence")
+        self.assertEqual(reader.call_count, 0)
+
+    @unittest.skipUnless(
+        os.name == "posix"
+        and os.open in os.supports_dir_fd
+        and os.stat in os.supports_dir_fd,
+        "requires POSIX openat support",
+    )
+    def test_posix_capture_rejects_ancestor_replacement_before_read(
+        self,
+    ) -> None:
+        outer = self.repo / "posix-replaced-ancestor"
+        pivot = outer / "pivot"
+        moved = outer / "pivot-original"
+        evidence = pivot / "evidence"
+        evidence.mkdir(parents=True)
+        (evidence / "artifact.txt").write_text("original", encoding="utf-8")
+        original_open = gate.os.open
+        replaced = False
+
+        def replace_between_stat_and_open(
+            path: object,
+            flags: int,
+            mode: int = 0o777,
+            *,
+            dir_fd: int | None = None,
+        ) -> int:
+            nonlocal replaced
+            if path == "pivot" and dir_fd is not None and not replaced:
+                replaced = True
+                pivot.rename(moved)
+                substitute = pivot / "evidence"
+                substitute.mkdir(parents=True)
+                (substitute / "artifact.txt").write_text(
+                    "replacement",
+                    encoding="utf-8",
+                )
+            return original_open(path, flags, mode, dir_fd=dir_fd)
+
+        try:
+            with (
+                patch.object(
+                    gate.os,
+                    "open",
+                    side_effect=replace_between_stat_and_open,
+                ),
+                patch.object(
+                    gate,
+                    "_snapshot_file_from_bytes",
+                    wraps=gate._snapshot_file_from_bytes,
+                ) as reader,
+            ):
+                with self.assertRaisesRegex(
+                    gate.GateError,
+                    "changed before anchored open",
+                ):
+                    gate.capture_evidence_snapshot(evidence)
+            self.assertTrue(replaced)
+            self.assertEqual(reader.call_count, 0)
+        finally:
+            if pivot.exists():
+                gate.remove_directory_tree(pivot)
+            if moved.exists():
+                moved.rename(pivot)
+
     def test_windows_validated_reader_is_issued_only_after_boundary_validation(
         self,
     ) -> None:
@@ -2480,19 +2580,20 @@ class Phase00CiGateTest(unittest.TestCase):
         }
         verified, error = gate.self_verify_or_downgrade(
             evidence_dir=evidence,
+            final_dir=self.repo / "self-verify-final",
             spec_path=gate.DEFAULT_SPEC,
             expected_candidate=candidate,
             manifest=manifest,
             redactor=gate.SecretRedactor({}),
         )
         self.assertFalse(verified)
-        self.assertIn("self-verification failed", error)
+        self.assertIn("PASS finalization failed", error)
         persisted = json.loads(
             (evidence / "manifest.json").read_text(encoding="utf-8")
         )
         self.assertEqual(persisted["status"], "FAIL")
         self.assertTrue(
-            any("self-verification failed" in item for item in persisted["errors"])
+            any("PASS finalization failed" in item for item in persisted["errors"])
         )
         gate.verify_checksums_file(
             evidence,
@@ -2536,6 +2637,7 @@ class Phase00CiGateTest(unittest.TestCase):
         ):
             verified, error = gate.self_verify_or_downgrade(
                 evidence_dir=evidence,
+                final_dir=self.repo / "self-verify-oserror-final",
                 spec_path=gate.DEFAULT_SPEC,
                 expected_candidate=candidate,
                 manifest=manifest,
@@ -2590,6 +2692,7 @@ class Phase00CiGateTest(unittest.TestCase):
         ):
             verified, _error = gate.self_verify_or_downgrade(
                 evidence_dir=evidence,
+                final_dir=self.repo / "self-verify-double-failure-final",
                 spec_path=gate.DEFAULT_SPEC,
                 expected_candidate=candidate,
                 manifest=manifest,
@@ -2599,13 +2702,19 @@ class Phase00CiGateTest(unittest.TestCase):
         self.assertFalse((evidence / "manifest.json").exists())
         self.assertFalse((evidence / "SHA256SUMS").exists())
 
-    def test_preverified_pass_writes_manifest_last(self) -> None:
+    def test_materialized_preverified_pass_writes_manifest_last(self) -> None:
         evidence = self.repo / "preverified-write-order"
         evidence.mkdir()
+        manifest_content = b'{"status":"PASS"}\n'
+        checksum_content = b"a" * 64 + b"  manifest.json\n"
         prepared = gate.PreparedEvidenceManifest(
-            manifest_content=b'{"status":"PASS"}\n',
-            checksum_content=b"a" * 64 + b"  manifest.json\n",
-            virtual_snapshot=gate.EvidenceSnapshot(evidence, {}),
+            manifest_content=manifest_content,
+            checksum_content=checksum_content,
+            virtual_snapshot=gate.virtual_manifest_snapshot(
+                gate.EvidenceSnapshot(evidence, {}),
+                manifest_content,
+                checksum_content,
+            ),
             verified_manifest={"status": "PASS"},
         )
         original_atomic_write = gate.atomic_write_bytes
@@ -2623,10 +2732,199 @@ class Phase00CiGateTest(unittest.TestCase):
             side_effect=fail_manifest_write,
         ):
             with self.assertRaises(PermissionError):
-                gate.persist_preverified_pass(evidence, prepared)
+                gate.materialize_preverified_pass(evidence, prepared)
         self.assertEqual(writes, ["SHA256SUMS", "manifest.json"])
         self.assertTrue((evidence / "SHA256SUMS").exists())
         self.assertFalse((evidence / "manifest.json").exists())
+
+    def assert_publish_mutation_downgrades(
+        self,
+        mutation_point: str,
+    ) -> None:
+        source = self.repo / f"publish-mutation-{mutation_point}"
+        source.mkdir()
+        artifact_content = b"verified artifact\n"
+        artifact = source / "artifact.txt"
+        artifact.write_bytes(artifact_content)
+        artifact_snapshot = gate._snapshot_file_from_bytes(
+            "artifact.txt",
+            artifact_content,
+            size=len(artifact_content),
+            mtime_ns=1,
+            file_id=(1, 1),
+        )
+        manifest_content = b'{"status":"PASS"}\n'
+        checksum_content = (
+            f"{artifact_snapshot.sha256}  artifact.txt\n"
+            f"{gate.sha256_bytes(manifest_content)}  manifest.json\n"
+        ).encode("utf-8")
+        prepared = gate.PreparedEvidenceManifest(
+            manifest_content=manifest_content,
+            checksum_content=checksum_content,
+            virtual_snapshot=gate.virtual_manifest_snapshot(
+                gate.EvidenceSnapshot(
+                    source,
+                    {"artifact.txt": artifact_snapshot},
+                ),
+                manifest_content,
+                checksum_content,
+            ),
+            verified_manifest={"status": "PASS"},
+        )
+        manifest = {
+            "status": "PASS",
+            "artifacts": [
+                gate.artifact_record(
+                    source,
+                    artifact,
+                    kind="fixture",
+                )
+            ],
+            "errors": [],
+            "security": {},
+        }
+        final = self.repo / f"publish-final-{mutation_point}"
+        original_atomic_write = gate.atomic_write_bytes
+        original_capture = gate.capture_evidence_snapshot
+        original_rename = gate.os.rename
+        mutation_applied = False
+
+        def mutate_private_bundle(path: Path, content: bytes) -> None:
+            nonlocal mutation_applied
+            original_atomic_write(path, content)
+            if (
+                path.parent.name.startswith(f".{final.name}.publish.")
+                and not mutation_applied
+                and (
+                    (
+                        mutation_point == "after-checksum"
+                        and path.name == "SHA256SUMS"
+                    )
+                    or (
+                        mutation_point == "after-manifest"
+                        and path.name == "manifest.json"
+                    )
+                )
+            ):
+                mutation_applied = True
+                published_artifact = path.parent / "artifact.txt"
+                if mutation_point == "after-checksum":
+                    published_artifact.write_bytes(b"mutated artifact\n")
+                else:
+                    published_artifact.unlink()
+
+        def mutate_during_final_rename(
+            source_path: object,
+            destination_path: object,
+        ) -> None:
+            nonlocal mutation_applied
+            source = Path(source_path)
+            destination = Path(destination_path)
+            if (
+                mutation_point == "inside-rename"
+                and source.name.startswith(f".{final.name}.publish.")
+                and destination == final
+                and not mutation_applied
+            ):
+                mutation_applied = True
+                (source / "artifact.txt").write_bytes(
+                    b"mutated during rename\n"
+                )
+            original_rename(source_path, destination_path)
+
+        def fail_after_directory_publish(
+            evidence_dir: Path,
+        ) -> gate.EvidenceSnapshot:
+            nonlocal mutation_applied
+            if (
+                mutation_point == "published-capture-error"
+                and evidence_dir == final
+                and not mutation_applied
+            ):
+                mutation_applied = True
+                raise PermissionError("published bundle cannot be recaptured")
+            return original_capture(evidence_dir)
+
+        with (
+            patch.object(
+                gate,
+                "verify_prepared_pass",
+                return_value=prepared,
+            ),
+            patch.object(
+                gate,
+                "_verify_evidence_snapshot",
+                return_value={"status": "PASS"},
+            ),
+            patch.object(
+                gate,
+                "atomic_write_bytes",
+                side_effect=mutate_private_bundle,
+            ),
+            patch.object(
+                gate.os,
+                "rename",
+                side_effect=mutate_during_final_rename,
+            ),
+            patch.object(
+                gate,
+                "capture_evidence_snapshot",
+                side_effect=fail_after_directory_publish,
+            ),
+        ):
+            verified, error = gate.self_verify_or_downgrade(
+                evidence_dir=source,
+                final_dir=final,
+                spec_path=gate.DEFAULT_SPEC,
+                expected_candidate="a" * 40,
+                manifest=manifest,
+                redactor=gate.SecretRedactor({}),
+            )
+
+        self.assertTrue(mutation_applied)
+        self.assertFalse(verified)
+        self.assertIn("PASS finalization failed", error)
+        if mutation_point in {
+            "inside-rename",
+            "published-capture-error",
+        }:
+            self.assertFalse(source.exists())
+            self.assertTrue(final.exists())
+            self.assertFalse((final / "manifest.json").exists())
+            self.assertTrue(
+                (final / gate.PASS_MANIFEST_READY_NAME).exists()
+            )
+        else:
+            self.assertFalse(final.exists())
+            self.assertEqual(
+                json.loads(
+                    (source / "manifest.json").read_text(encoding="utf-8")
+                )["status"],
+                "FAIL",
+            )
+        self.assertFalse(
+            any(
+                child.is_dir()
+                and child.name.startswith(f".{final.name}.publish.")
+                for child in self.repo.iterdir()
+            )
+        )
+
+    def test_artifact_mutation_after_checksum_cannot_publish_pass(self) -> None:
+        self.assert_publish_mutation_downgrades("after-checksum")
+
+    def test_artifact_delete_after_manifest_cannot_publish_pass(self) -> None:
+        self.assert_publish_mutation_downgrades("after-manifest")
+
+    def test_artifact_mutation_inside_final_rename_cannot_report_pass(
+        self,
+    ) -> None:
+        self.assert_publish_mutation_downgrades("inside-rename")
+
+    def test_published_capture_error_never_leaves_canonical_pass(
+        self,
+    ) -> None:
+        self.assert_publish_mutation_downgrades("published-capture-error")
 
     def test_atomic_publish_failure_never_exposes_final_directory(self) -> None:
         staging = self.repo / "publish-ready"
