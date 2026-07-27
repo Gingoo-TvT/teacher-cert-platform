@@ -540,19 +540,41 @@ class Phase00TargetPreflight {
                 .isEqualTo(firstAttestation.minioInstanceFingerprintSha256());
     }
 
-    private Map<String, String> parseRedisInfo(String value) {
-        String text = requiredText(value, "Redis INFO server");
+    static Map<String, String> parseRedisInfo(String value) {
+        String text = requiredRedisInfoPayload(value);
         Map<String, String> parsed = new LinkedHashMap<>();
         for (String line : text.split("\\r?\\n")) {
-            if (line.isEmpty() || line.startsWith("#")) {
+            String cleanLine = cleanText(line, "Redis INFO server 行");
+            if (cleanLine.isEmpty() || cleanLine.startsWith("#")) {
                 continue;
             }
-            int separator = line.indexOf(':');
-            if (separator > 0) {
-                parsed.put(line.substring(0, separator), line.substring(separator + 1));
+            int separator = cleanLine.indexOf(':');
+            if (separator <= 0) {
+                throw new IllegalStateException("Redis INFO server 行格式非法");
+            }
+            String key = cleanText(
+                    cleanLine.substring(0, separator), "Redis INFO server key");
+            String parsedValue = cleanText(
+                    cleanLine.substring(separator + 1), "Redis INFO server value");
+            if (parsed.putIfAbsent(key, parsedValue) != null) {
+                throw new IllegalStateException("Redis INFO server 包含重复 key");
             }
         }
         return parsed;
+    }
+
+    /**
+     * Redis INFO 是 CRLF/LF 分隔的协议载荷，不能套用仅允许单行值的 requiredText。
+     * 整段只做空值与 NUL 防护，拆行后再由 cleanText 拒绝行内控制字符。
+     */
+    private static String requiredRedisInfoPayload(String value) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalStateException("Redis INFO server 不能为空");
+        }
+        if (value.indexOf('\u0000') >= 0) {
+            throw new IllegalStateException("Redis INFO server 含控制字符");
+        }
+        return value;
     }
 
     private String canonicalEndpoint(String raw) {
@@ -643,7 +665,7 @@ class Phase00TargetPreflight {
         return cleanText(value.trim(), label);
     }
 
-    private String cleanText(String value, String label) {
+    private static String cleanText(String value, String label) {
         if (value.indexOf('\u0000') >= 0 || value.indexOf('\r') >= 0
                 || value.indexOf('\n') >= 0) {
             throw new IllegalStateException(label + " 含控制字符");

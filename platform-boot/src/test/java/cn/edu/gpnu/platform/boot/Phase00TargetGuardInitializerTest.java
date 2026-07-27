@@ -165,6 +165,39 @@ class Phase00TargetGuardInitializerTest {
 
     @Test
     void evidenceSchemaFourContainsExactFreshnessAndFingerprintKeys() {
+        String redisRunId = "0123456789abcdef0123456789abcdef01234567";
+        Map<String, String> crlfInfo = Phase00TargetPreflight.parseRedisInfo(
+                "# Server\r\nredis_version:7.4.9\r\nrun_id:" + redisRunId + "\r\n");
+        assertThat(crlfInfo)
+                .containsEntry("redis_version", "7.4.9")
+                .containsEntry("run_id", redisRunId);
+        Map<String, String> lfInfo = Phase00TargetPreflight.parseRedisInfo(
+                "# Server\nredis_version:7.4.9\nrun_id:" + redisRunId + "\n");
+        assertThat(lfInfo)
+                .containsEntry("redis_version", "7.4.9")
+                .containsEntry("run_id", redisRunId);
+        assertThatThrownBy(() -> Phase00TargetPreflight.parseRedisInfo(
+                "# Server\r\nredis_version:7.4.9\u0000\r\nrun_id:" + redisRunId + "\r\n"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Redis INFO server 含控制字符");
+        assertThatThrownBy(() -> Phase00TargetPreflight.parseRedisInfo(
+                "# Server\nredis_version:7.4.9\rrun_id:" + redisRunId + "\n"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Redis INFO server 行 含控制字符");
+        assertThatThrownBy(() -> Phase00TargetPreflight.parseRedisInfo(
+                "# Server\r\nredis_version:7.4.9\r\nmalformed\r\nrun_id:"
+                        + redisRunId + "\r\n"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Redis INFO server 行格式非法");
+        assertThatThrownBy(() -> Phase00TargetPreflight.parseRedisInfo(
+                "# Server\r\nredis_version:7.4.9\r\nredis_version:7.4.8\r\nrun_id:"
+                        + redisRunId + "\r\n"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Redis INFO server 包含重复 key");
+        assertThatThrownBy(() -> Phase00TargetPreflight.parseRedisInfo("\r\n"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Redis INFO server 不能为空");
+
         String identityNonce =
                 "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
         String rawDeploymentId = "123e4567-e89b-12d3-a456-426614174000";

@@ -4569,6 +4569,26 @@ def build_tool_versions(
     return versions
 
 
+def default_maven_executable(
+    environment: Mapping[str, str] | None = None,
+    platform_name: str | None = None,
+    executable_resolver: Callable[[str], str | None] = shutil.which,
+) -> str:
+    """Return a shell-free Maven executable suitable for the host platform."""
+
+    source = os.environ if environment is None else environment
+    override = source.get("MVN", "").strip()
+    if override:
+        return override
+
+    effective_platform = os.name if platform_name is None else platform_name
+    if effective_platform == "nt":
+        # Python subprocess uses shell=False throughout this gate.  A bare
+        # ``mvn`` therefore cannot rely on cmd.exe's PATHEXT expansion.
+        return executable_resolver("mvn.cmd") or "mvn.cmd"
+    return "mvn"
+
+
 def expected_candidate_from_args(
     value: str | None,
     environment: Mapping[str, str] | None = None,
@@ -6349,7 +6369,14 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--spec", type=Path, default=DEFAULT_SPEC)
     run_parser.add_argument("--evidence-dir", type=Path, required=True)
     run_parser.add_argument("--expected-candidate-sha")
-    run_parser.add_argument("--maven", default=os.environ.get("MVN", "mvn"))
+    run_parser.add_argument(
+        "--maven",
+        default=default_maven_executable(),
+        help=(
+            "Maven executable (default: non-empty MVN, otherwise mvn.cmd "
+            "resolved from PATH on Windows or mvn on POSIX)"
+        ),
+    )
     run_parser.set_defaults(handler=run_gate)
 
     verify_parser = subparsers.add_parser(

@@ -2341,6 +2341,56 @@ class Phase00CiGateTest(unittest.TestCase):
                     gate.SecretRedactor({}),
                 )
 
+    def test_default_maven_executable_is_shell_free_and_platform_safe(self) -> None:
+        resolver_calls: list[str] = []
+
+        def resolve_windows(command: str) -> str | None:
+            resolver_calls.append(command)
+            return r"C:\tools\apache-maven\bin\mvn.cmd"
+
+        self.assertEqual(
+            gate.default_maven_executable(
+                {"MVN": r"  C:\custom maven\mvn.cmd  "},
+                "nt",
+                resolve_windows,
+            ),
+            r"C:\custom maven\mvn.cmd",
+        )
+        self.assertEqual(resolver_calls, [])
+
+        self.assertEqual(
+            gate.default_maven_executable(
+                {"MVN": "   "},
+                "nt",
+                resolve_windows,
+            ),
+            r"C:\tools\apache-maven\bin\mvn.cmd",
+        )
+        self.assertEqual(resolver_calls, ["mvn.cmd"])
+
+        self.assertEqual(
+            gate.default_maven_executable({}, "nt", lambda _command: None),
+            "mvn.cmd",
+        )
+        self.assertEqual(
+            gate.default_maven_executable(
+                {},
+                "posix",
+                lambda _command: self.fail("POSIX must not resolve mvn.cmd"),
+            ),
+            "mvn",
+        )
+
+        with patch.object(
+            gate,
+            "default_maven_executable",
+            return_value=r"C:\resolved\mvn.cmd",
+        ):
+            parsed = gate.build_parser().parse_args(
+                ["run", "--evidence-dir", "evidence"]
+            )
+        self.assertEqual(parsed.maven, r"C:\resolved\mvn.cmd")
+
     def test_wrong_artifact_sha_fails(self) -> None:
         evidence = self.repo / "evidence"
         evidence.mkdir()
