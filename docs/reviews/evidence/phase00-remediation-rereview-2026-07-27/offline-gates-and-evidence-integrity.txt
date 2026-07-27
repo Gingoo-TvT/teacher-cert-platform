@@ -1,0 +1,141 @@
+Phase 0 / U-004 independent incremental rereview
+Date: 2026-07-27
+Reviewer: OpenAI Codex
+
+Frozen Git scope
+----------------
+baseline=dd04f21387f76adc7fc5d1443903ada0bec4d4c1
+candidate=715b5f1c67a9943c5914eda08e485a1463c0524d
+branch=codex/phase00-remediation
+relationship=direct parent/child
+commit_time=2026-07-27T12:08:42+08:00
+commit_subject=fix(phase00): 验收基线对齐、lint 门禁进 CI、可重复运行证据
+changed_paths=24
+insertions=2917
+deletions=188
+
+Pre-existing untracked paths were preserved:
+.agents/
+.claude/audits/
+.claude/tmp-audit-prompt.txt
+audit-report-teacher-cert-platform-2026-07-05.html
+docs/audit-remediation-plan.md
+docs/prompts/
+
+Safety boundary
+---------------
+No Docker, MySQL, Redis, MinIO, HTTP service, browser, or network was started or
+connected. No scan, fuzz, fault injection, credential, permission, destructive,
+or attack-like operation was performed. Only repository reads and naturally
+exiting offline build/test commands were used.
+
+Independent offline gates
+-------------------------
+1. git diff --check dd04f21..715b5f1
+   exit=0
+   result=PASS
+
+2. mvn -B -ntp -o validate
+   result=PASS
+   reactor=9/9 modules
+   checkstyle=executed in every module, 0 violations
+
+3. mvn -B -ntp -o test
+   exit=0
+   result=BUILD SUCCESS
+   surefire_xml_aggregate=257 tests, 0 failures, 0 errors, 0 skipped
+   suites=28
+   note=application ERROR logs were expected negative-path signals; Maven result
+        and XML attributes were all green
+
+4. mvn -B -ntp -o -DskipTests package
+   exit=0
+   result=BUILD SUCCESS
+   reactor=9/9 modules
+   artifact=platform-boot/target/teacher-cert-platform.jar
+
+5. npm --prefix frontend run lint
+   exit=0
+   result=PASS
+   command=eslint src --max-warnings 0
+
+6. npm --prefix frontend run type-check
+   exit=0
+   result=PASS
+   command=vue-tsc --noEmit
+
+7. npm --prefix frontend run build
+   exit=0
+   result=PASS
+   vite=5.4.21
+   transformed_modules=4969
+   advisory=existing chunks over 900 kB
+
+8. npm --prefix frontend ls --depth=0
+   exit=0
+   result=PASS
+   eslint=9.39.5
+   eslint-plugin-vue=10.10.0
+   @vue/eslint-config-typescript=14.9.0
+
+Target XML cross-check
+----------------------
+Phase00ScaffoldIT:
+  xml=platform-boot/target/failsafe-reports/TEST-cn.edu.gpnu.platform.boot.Phase00ScaffoldIT.xml
+  tests=6
+  failures=0
+  errors=0
+  skipped=0
+  sha256=8FE8823A0C0F4C3229EC8151025CE3FA1A946E25E40F44407A16A0E4EF854159
+  source_time=2026-07-27T11:48:06.988+08:00
+  class_time=2026-07-27T11:53:58.441+08:00
+  xml_time=2026-07-27T11:54:38.950+08:00
+  source_blob=513b55e81440c2aac23d0b6dd40963c2f877943c
+  candidate_blob=513b55e81440c2aac23d0b6dd40963c2f877943c
+  blob_match=true
+
+DataScopeSqlHandlerTest:
+  xml=platform-boot/target/surefire-reports/TEST-cn.edu.gpnu.platform.boot.config.DataScopeSqlHandlerTest.xml
+  tests=9
+  failures=0
+  errors=0
+  skipped=0
+  sha256=ED4DD8FEF3B25471762B768C9B09BC131126A798D1FF1E0371AAC40176D7867F
+  source_blob=d6d14ce43e803813067c86559094956418e59966
+  candidate_blob=d6d14ce43e803813067c86559094956418e59966
+  blob_match=true
+  note=XML was refreshed by the independent offline mvn test run
+
+Candidate evidence limitation
+-----------------------------
+The committed evidence file is a manually curated excerpt. It does not contain
+the full command log, raw target XML, a SHA-256 manifest, candidate SHA, start
+and end timestamps, exit code, or an independently verifiable target marker.
+The local target XML and Git blob/time-chain checks support that the recorded
+tests ran, but target is mutable and untracked and does not repair the
+sameMd5 test's missing second upload.
+
+Static production documentation check
+-------------------------------------
+Local locked artifact:
+C:/Users/[REDACTED_USER]/.m2/repository/com/github/xiaoymin/knife4j-openapi3-ui/4.5.0/knife4j-openapi3-ui-4.5.0.jar
+
+jar listing confirms:
+META-INF/resources/doc.html
+META-INF/resources/webjars/
+
+application-prod disables dynamic springdoc/Knife4j handlers, but SecurityConfig
+permitAll rules and static resource packaging leave the UI shell/assets exposed.
+
+Independent verdict
+-------------------
+CHANGES_REQUESTED
+Critical=0
+High=0
+Medium=3
+Low=4
+
+Blocking findings:
+1. T-FILE-1 does not execute a second upload and is false confidence.
+2. CI does not lock the required Phase00/DataScope suites and testcase counts.
+3. The authoritative Phase 0 acceptance/status documents still conflict.

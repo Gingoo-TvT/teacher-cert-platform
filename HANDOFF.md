@@ -7,7 +7,7 @@
 ---
 
 ## 0. 当前接力快照（2026-07-27）
-- 当前分支 `codex/phase00-remediation`；Phase 44 第四轮独立报告 `docs/reviews/phase-44-fourth-remediation-rereview-2026-07-27.md` 为 **PASS（0 Critical / 0 High / 0 Medium / 1 Low 非阻断）**，U-003 全部关闭。当前 Phase 0 / U-004 退回整改候选完成待独立复核：验收基线 R10 修订（pnpm→npm、mock→真实认证、lint 口径）、checkstyle + ESLint 门禁进 CI（落地即捕获 8 处真实问题）、`Phase00ScaffoldIT` 6/6 + `DataScopeSqlHandlerTest` 9/9，并修复 `/v3/api-docs` 自 Phase 40 潜伏的 NoSuchMethodError（knife4j 4.5.0 与 springdoc 2.8 二进制不兼容，关闭增强层，doc.html 不受影响）。候选材料 `docs/reviews/phase-00-remediation-submission-2026-07-27.md`。`main` 仍为 `e4f8228`，无 remote，禁止 push/擅自 merge。
+- 当前分支 `codex/phase00-remediation`；Phase 44 第四轮独立报告 `docs/reviews/phase-44-fourth-remediation-rereview-2026-07-27.md` 为 **PASS（0 Critical / 0 High / 0 Medium / 1 Low 非阻断）**，U-003 全部关闭。Phase 0 / U-004 首轮整改候选 `715b5f1` 已独立增量复核，正式报告 `docs/reviews/phase-00-remediation-rereview-2026-07-27.md` 为 **CHANGES_REQUESTED（0 Critical / 0 High / 3 Medium / 4 Low）**。3 个 Medium：T-FILE-1 只上传一次却宣称二次上传不重复；CI 未锁定 Phase00 6 个 IT / DataScope 9 个用例；全局 DoD/tasks/README/review gate 的旧口径仍冲突。两端 lint、api-docs 修复与其余新增测试主体成立；独立离线 257/257、9 模块 package、前端 lint/type-check/build 全绿。`main` 仍为 `e4f8228`，无 remote，禁止 push/擅自 merge。
 - Phase 44 第四轮动态闭环：专用全新 MySQL/Redis 栈精确 `Phase44CacheCommitWindowIT` **16/16**，XML SHA-256 `3505ead4877e0d280e56d837d3d7c0c5d2e6038a8279d979c9d9334769394981`，两个第四轮反例均实际执行；棕地库只读 identity preflight 为 `columns=2/2, invalid=0, noncanonical=0, collision=0`；Compose 非默认 `9m/3m` 与默认 `2m/20s` 双向展开成立。独立离线 `platform-system` 应为 **53/53**（用户摘要中的 46/46 已按完整日志/XML 更正），后端 9 模块 package、前端 type-check/build、报告 lint 与 diff check 均 PASS。第三轮 1 Medium 与 4 Low 的原失败条件全部关闭；新增 1 个非阻断 Low：preflight 尚未接入权威发布步骤，包装器执行也缺少数据库/账号/实例 target marker。Phase 44 只放行下一项 Phase 0，不代表 merge、部署或稳定发布 GO。
 - Phase 53 候选把四类对象发布到原始 SHA-256 派生的内容版本 key；检查时已存在的污染对象失败关闭且不覆盖，旧固定 key 保留。视频经完整读回、可信 tree 指纹、900 秒/900 帧/H264/策略与探测版本核对后，单个数据库事务统一切换 `file_object`、过程/免考材料、`video_review` 和 `video_upload_session.object_key`。独立聚焦 31/31、证据整改复核全量离线 195/195、9 模块 package、前端 type-check/build、fat JAR 内容与 diff check 均 PASS；12 份关键日志现可由 fresh clone 取得并按已归档哈希复核。
 - WS-3 原有预签名直传能力保持不变；整改包新增服务端逐字节读取最终 MinIO 对象、计算受信 SHA-256 tree 指纹并用 JCodec 校验实际 MP4/H.264/时长/首帧，校验失败关闭。秒传只允许同 uploader、同 student、同一受信对象及已有合格视频记录复用，普通响应不再暴露内部内容指纹。
@@ -150,8 +150,8 @@ git -C "$REPO" add -A && git -C "$REPO" commit -m "feat(T-0xx): ..."
 - 实体继承 `BaseEntity`（id/审计字段/逻辑删除自动）；Mapper 放 `**/mapper`（已 `@MapperScan("cn.edu.gpnu.platform.**.mapper")`）；统一返回 `Result`；写操作 `@AuditLog`；列表/导出/统计查询 `@DataScope`；当前用户取 `UserContext`。
 - **文本化字段全链路 String + Excel `@`**（学校代码/学号/证件号/出生日期/证书编号/有效期限）——AT-01 生命线，勿用数值/日期类型。
 
-## 5. 当前整改入口 → Phase 0 / U-004
-1. 先读 `AGENTS.md` → `docs/REVIEW-GATE.md` → `docs/CURRENT-EXECUTION-PLAN.md` → `docs/reviews/phase-00-review.md` → `docs/phase-00-脚手架.md`。Phase 44 已由 `docs/reviews/phase-44-fourth-remediation-rereview-2026-07-27.md` 独立 PASS，不要重写已关闭的 owner-loss、canonical identity、逐 owner 正常路径或历史报告。下一动作是逐项复核 Phase 0 的 10 个验收项，补齐验收基线、lint、Swagger 与预签名过期等可重复证据；Phase 0 PASS 后再执行最终全量审计。
+## 5. 当前整改入口 → Phase 0 / U-004 第二轮
+1. 先读 `AGENTS.md` → `docs/REVIEW-GATE.md` → `docs/CURRENT-EXECUTION-PLAN.md` → `docs/reviews/phase-00-remediation-rereview-2026-07-27.md` → `docs/phase-00-脚手架.md`。Phase 44 已独立 PASS，不要重写已关闭问题。下一动作只整改 Phase 0 首轮报告的 3 Medium / 4 Low：真实二次上传或 R10 退役、精确 suite gate、权威基线统一，以及 prod docs 负向/evidence manifest/exact 验收锚点/T-DS-1 组合链。第二轮独立 PASS 后才执行最终全量审计。
 2. 已闭环：服务端 `SHA256_TREE_V1` 可信指纹；同 uploader/student + 既有 PASS 的秒传边界；普通 VO 去 `fileMd5`；GitHub Actions 真实 MinIO/桶初始化与前端 type-check。U-001 可视为 PASS。
 3. 第二轮已闭环：JCodec 三时长交叉核验与唯一视频轨；当前策略/探测器版本 + MinIO HEAD 的 fast-hit；定稿与 assign 共用 review 行锁；V29 逐项检测恢复。
 4. 第三轮已实现：`SERVER_CHUNK /merge` 使用可续租 lease、稳定 object key 和数据库当前 token；磁盘按活跃任务累计总预留准入；JCodec 在受限堆独立 JVM 内运行；S3 超时、官方 Compose/.env/专用临时卷一并落地。这些正常路径已确认有效，但不能视为完整 fencing/recovery。
@@ -181,6 +181,7 @@ git -C "$REPO" add -A && git -C "$REPO" commit -m "feat(T-0xx): ..."
 28. Phase 44 第三轮整改候选 `8ff544d` 与独立重核：Redis pending 改为 Redis TIME 驱动的逐 owner ZSET 租约，后台续租且 `beforeCommit` 丢 owner 即中止事务；typeCode 统一 canonical identity，payload 升 schema v2；`@Param`、registration 与锁排队 Low 闭环。用户修正 reactor 命令后真实 MySQL/Redis IT **16/16**，独立离线 `platform-system` 44/44、9 模块 package、前端 type-check/build、diff check PASS。但正式重核仍为 **CHANGES_REQUESTED（1 Medium / 4 Low）**：READ 在 writers 丢失但 pending 尚存时过早恢复普通版本，可让同事务未提交值短暂进入共享 Redis；下一步只做第四轮最小整改。
 29. Phase 44 第四轮整改候选 `228a355`（候选时快照）：残留 `P:` fail-closed 到自然到期，固定 stripe 本地 guard 线性化 active writer/Redis PUT 并覆盖 Redis 状态整体丢失，字典 DML 在同步注册前不落库；owner-loss/P-TTL 反例、精确 16/16 门禁、Compose/env、禁混部 runbook 与棕地只读 preflight 已落地。整改者当时只执行离线 53/53、Boot test-compile、9 模块 package、前端与脚本语法门禁；真实 MySQL/Redis/棕地/Docker 命令全部明确留给用户，当时尚无独立 PASS。
 30. Phase 44 第四轮独立增量复核 **PASS（0 Critical / 0 High / 0 Medium / 1 Low）**：冻结 `69f7462..228a355` 并核对材料 HEAD `9c3da0b`；用户专用栈精确 16/16、棕地只读 preflight 与 Compose 双向展开证据成立，独立离线 53/53、后端 package、前端与报告门禁全绿。第三轮 1 Medium / 4 Low 原失败条件关闭；新增 preflight 权威接线/target marker 1 Low 非阻断。Phase 44 只放行 Phase 0，不构成 merge、部署或稳定发布 GO。
+31. Phase 0 / U-004 首轮整改独立增量复核 **CHANGES_REQUESTED（3 Medium / 4 Low）**：冻结 `dd04f21..715b5f1`；两端 lint、api-docs 修复、统一异常/审计/TTL 与 DataScope 分支测试主体成立，但 T-FILE-1 假闭环、CI 必需 suite 可静默消失、权威基线仍冲突。4 Low 为 prod 静态 doc UI、证据 provenance、10/10 锚点过度与 T-DS-1 漂移。正式报告/离线证据位于 `docs/reviews/phase-00-remediation-rereview-2026-07-27.md` 与 `docs/reviews/evidence/phase00-remediation-rereview-2026-07-27/`。本轮未运行 Docker、数据库、网络、服务或任何 cyber 类操作。
 
 ## 6. 已知坑与规避（别重复踩）
 - Lombok `optional` 不向子模块传递 → 已在父 POM 解决。

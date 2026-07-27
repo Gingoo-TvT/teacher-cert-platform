@@ -5,11 +5,11 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**🟦 Phase 0 / U-004 退回整改候选完成，待独立增量复核**（分支 `codex/phase00-remediation`）。Phase 44 第四轮已独立 PASS（`docs/reviews/phase-44-fourth-remediation-rereview-2026-07-27.md`，0 Critical / 0 High / 0 Medium / 1 Low 非阻断），U-003 全部关闭。Phase 0 三个退回项已整改：验收基线按 R10 修订留痕（pnpm→npm、mock→真实认证、lint 口径）；后端 checkstyle（validate 阶段强制）+ 前端 ESLint 9 落地并进 CI（落地当日捕获 8 处真实问题）；`Phase00ScaffoldIT` 6/6 + `DataScopeSqlHandlerTest` 9/9 建立可重复证据，并顺带发现修复 Phase 40 起潜伏的 `/v3/api-docs` NoSuchMethodError 回归（knife4j 4.5.0 与 springdoc 2.8 二进制不兼容，关闭增强层）。统一入口为 `docs/CURRENT-EXECUTION-PLAN.md`。
-- 当前结论：WS-1/WS-2/WS-3/WS-10/WS-13 PASS；U-001/U-002/U-003 全部独立 PASS（Phase 42、39、41、47、53、44）。全项目仅剩 **Phase 0 / U-004** 一项退回，当前候选待独立复核；PASS 后进入用户要求的最终全量审计。
+- 当前阶段：**❌ Phase 0 / U-004 首轮整改独立增量复核退回**（候选 `715b5f1`，分支 `codex/phase00-remediation`）。正式报告 `docs/reviews/phase-00-remediation-rereview-2026-07-27.md` 为 **CHANGES_REQUESTED（0 Critical / 0 High / 3 Medium / 4 Low）**。3 个 Medium：T-FILE-1 没有执行同 MD5 二次上传；CI 没有锁定 Phase00 6 个 IT / DataScope 9 个用例；全局权威基线仍互相冲突。Checkstyle/ESLint、api-docs 修复及其余新增证据主体成立。统一入口为 `docs/CURRENT-EXECUTION-PLAN.md`。
+- 当前结论：WS-1/WS-2/WS-3/WS-10/WS-13 PASS；U-001/U-002/U-003 全部独立 PASS（Phase 42、39、41、47、53、44）。全项目仅剩 **Phase 0 / U-004** 一项退回，需第二轮最小整改并重新独立复核；未放行最终全量审计。
 - P0 放行项：Phase 41 上一轮 1 High / 2 Medium / 1 Low 全部关闭；正式 PASS 时新增的 1 个非阻断 Low 已在后续闭环——Gate A 示例补齐冷认证参数，runner 在 Maven 前强制受验证 TLS / `allowPublicKeyRetrieval=true` / 受控 RSA 公钥文件三选一，并由纯 stub 静态契约覆盖失败关闭。正式报告仍保留当时的 1 Low 快照。约 24 MiB 以上原始整行 fail-closed、写入侧未同界继续留最终全量审计。
-- 最近更新：2026-07-27（Phase 44 独立 PASS；用户动态 XML SHA-256 `3505ead4877e0d280e56d837d3d7c0c5d2e6038a8279d979c9d9334769394981`，目标 16/16；独立离线 `platform-system` **53/53**、9/9 modules package、前端 type-check/build、报告 lint 与 diff check PASS。用户补充中的 system 46/46 已按完整日志/XML 更正为 53/53）。
-- 下一步：按 U-004 逐项复核 `docs/phase-00-脚手架.md` 的 10 个验收项，补齐验收基线、lint/Swagger/预签名过期等可重复证据。Phase 0 PASS 后再执行用户要求的最终全量审计；不得把 Phase 44 PASS 当成 merge、部署或稳定发布 GO。
+- 最近更新：2026-07-27（Phase 0 首轮独立增量复核 CHANGES_REQUESTED；独立离线 Surefire **257/257**、9/9 modules package、前端 lint/type-check/build、报告 lint、JSON 与 diff check PASS；未执行任何 Docker/数据库/网络/服务/cyber 操作）。
+- 下一步：只整改正式报告的 3 Medium / 4 Low，提交第二轮候选后做独立增量复核。优先闭环真实二次上传合同、精确 suite gate 与全局权威基线；Phase 0 PASS 后才执行最终全量审计，不得 merge、部署或宣称稳定发布 GO。
 ## 审计整改工作流
 | WS | 内容 | 状态 |
 |---|---|---|
@@ -23,7 +23,7 @@
 
 | 范围 | 实现状态 | 正式复核状态 | 本轮结论 |
 |---|---|---|---|
-| Phase 0 | 10/10；退回整改候选 `codex/phase00-remediation` 未合并 | `phase-00-review.md` CHANGES REQUESTED；候选材料 `phase-00-remediation-submission-2026-07-27.md` | 🟦 整改候选待独立复核：验收基线 R10 修订、checkstyle/ESLint 门禁进 CI、Phase00ScaffoldIT 6/6 + DataScopeSqlHandlerTest 9/9，修复 api-docs 潜伏回归 |
+| Phase 0 | 10/10；首轮整改候选 `715b5f1` 未合并 | `phase-00-remediation-rereview-2026-07-27.md` CHANGES_REQUESTED（3 Medium / 4 Low） | ❌ 首轮独立增量复核退回；等待第二轮最小整改候选 |
 | Phase 1–14 | 已完成 | 逐阶段 PASS 报告齐全 | ✅ 保持已复核 |
 | Phase 15–18 | WP-A/B/C/D 已完成 | WP 报告齐全 | ✅ 保持已复核 |
 | Phase 19–28 | 已完成 | 逐阶段 PASS 报告齐全 | ✅ 保持已复核（已纠正 26/28 滞后状态） |
@@ -43,7 +43,7 @@
 ## 阶段汇总
 | Phase | 名称 | 优先级 | 任务数 | 完成 | 状态 |
 |---|---|---|---|---|---|
-| 0 | 工程脚手架与基础设施 | P0 | 10 | 10 | ❌ 复核退回(2026-07-23) |
+| 0 | 工程脚手架与基础设施 | P0 | 10 | 10 | ❌ 复核退回(2026-07-27，首轮整改重核 3 Medium / 4 Low) |
 | 1 | 基础数据与字典 | P0 | 12 | 12 | ✅ 已复核(Claude 06-14) |
 | 2 | 账号角色权限 | P0 | 7 | 7 | ✅ 已复核(Claude 06-16) |
 | 3 | 基本信息 | P0 | 9 | 9 | ✅ 已复核(Claude 06-16) |
