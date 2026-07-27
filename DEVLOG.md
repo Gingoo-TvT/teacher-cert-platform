@@ -15,6 +15,14 @@
 
 ---
 
+## [2026-07-27] GOV-042 Phase 0 / U-004 第八轮正式独立增量复核 — CHANGES_REQUESTED（1 Medium）
+- 做了什么：冻结 `9b97741a3da921e3bce648e0c98fdb2892ec72e2..1c9d41696574ff2b4d50a5908f5998c3ed55b437`，逐函数复核第八轮 M1/L1 实现与 77 项 Python 合同；正式报告和离线摘要为 `docs/reviews/phase-00-eighth-remediation-rereview-2026-07-27.md`、`docs/reviews/evidence/phase00-eighth-remediation-rereview-2026-07-27/`。L1 已在代码/合同层面关闭：POSIX root 从 `/` 起逐段 no-follow stat/openat/fstat，祖先 fd 持有到末次逐边复核，两项 Linux-only 反例命中原失败条件。
+- 关键决策与理由：M1 仍未完全关闭。final capture/match 返回并释放句柄后，canonical marker 才 rename 为 `manifest.json`；纯离线协调反例在 marker rename 入口改写 artifact，稳定得到 `verified=true`、canonical PASS 可见，而 SHA256SUMS 立即不一致。现有 `inside-rename` 测试实际注入私有目录到 final 的 rename，随后 final capture 会捕获，未覆盖该窗口。此项属于原 M1，不新增 finding。
+- 问题与解决：两次试图用 `TemporaryDirectory` 运行独立夹具时，MSYS Python 的 POSIX 0700 映射令 Windows 目录自身不可访问；两个空目录均在核对绝对路径后删除。改用仓库测试已采用的普通随机目录模式后反例成功，且夹具自动清理、工作树无新增残留。
+- 与规格的偏差/疑问：无产品业务、API、Flyway、权限、前端、依赖或 exact 7/33 变化。当前无绑定 `1c9d416` 的 r8 evidence、Linux 77/77、Compose 或专属资源清理材料；M1 未关闭前不要求先运行真实依赖。浏览器仍非本轮门禁。
+- 测试：独立 Python **77 methods：75 PASS / 2 POSIX-only skipped**；M1 marker-window 反例稳定复现假 PASS；Maven offline `clean test` 的 Surefire **32 suites / 274 tests**、0 failure/error/skip；后端 package **9/9 modules BUILD SUCCESS**、Checkstyle 0；范围 diff 与工作树 `git diff --check` PASS。
+- 安全边界/下一步：未执行 Docker、MySQL、Redis、MinIO、网络、服务、浏览器、扫描、fuzz、凭据/权限或其它可能属于 cyber 的动作。下一轮只收口 M1 canonical-marker 线性化并补 mutate/delete 反例；固化新最终 SHA 后再一次性执行 Linux 77/77、真实 exact gate、离线 verify、Compose 与专属资源清理，正式独立 PASS 后才进入最终全量审计。
+
 ## [2026-07-27] GOV-041 Phase 0 / U-004 第八轮 M1/L1 最小整改候选 — `7810715`
 - 做了什么：仅整改第七轮正式报告中的 `P00-R3-M1` 与 `P00-R3-L1`。PASS 发布改为从已验证 snapshot bytes 重建私有 bundle，完整 verifier 后隐藏 canonical manifest，final 路径逐字节复核完成后以最后一次原子 marker rename 发布 PASS；异常路径至多留下无 canonical manifest 的 withheld bundle。POSIX evidence root 从 `/` 起逐段 `openat(O_DIRECTORY|O_NOFOLLOW)`，stat/fstat dev+ino 对齐并持有全部祖先 fd 到捕获结束。
 - 关键决策与理由：不依赖“校验后再删除”或可失败的回滚来撤销 PASS；canonical `manifest.json` 是唯一且最终的成功转换。POSIX 只补 root 祖先链，root 内既有 openat 递归保持不变；未引入 `openat2`、平台框架、schema、依赖或新凭据。

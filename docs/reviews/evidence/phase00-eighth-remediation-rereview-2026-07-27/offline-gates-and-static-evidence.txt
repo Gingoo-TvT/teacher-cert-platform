@@ -1,0 +1,81 @@
+Phase 0 / U-004 eighth remediation independent rereview
+Date: 2026-07-27
+Scope: 9b97741a3da921e3bce648e0c98fdb2892ec72e2..1c9d41696574ff2b4d50a5908f5998c3ed55b437
+Candidate tree: 8e629804c088c515ebe772eb914d3db00476f37a
+
+Safety boundary
+- No Docker, MySQL, Redis, MinIO, network, service, browser, scanner, fuzz,
+  credential, permission, or destructive application-data operation was run.
+- Only naturally exiting offline commands and a self-cleaning local fixture ran.
+
+Git
+- ancestry 9b97741..1c9d416: PASS
+- commits: 3
+- changed files: 10
+- additions/deletions: +1063/-70
+- git diff --check 9b97741..1c9d416: PASS
+- git diff --check: PASS
+- tracked worktree: clean
+- pre-existing untracked audit material: preserved
+
+Python offline gate tests
+Command:
+  python -B scripts\test_phase00_ci_gate.py -v
+Result:
+  Ran 77 tests in 2.519s
+  OK (skipped=2)
+  Windows: 75 PASS / 2 POSIX-only skipped
+
+Independent P00-R3-M1 marker-window reproduction
+Injection point:
+  os.rename(final/.manifest.pass-ready, final/manifest.json)
+Action:
+  mutate final/artifact.txt immediately before the real marker rename
+Result:
+  mutationApplied=true
+  verified=true
+  error=null
+  canonicalPassVisible=true
+  withheldMarkerVisible=false
+  offline verifier: SHA256SUMS mismatch for artifact.txt
+Conclusion:
+  P00-R3-M1 remains OPEN (Medium, High confidence).
+
+P00-R3-L1
+- Code opens POSIX root from / one segment at a time with no-follow
+  stat/openat/fstat identity checks.
+- Ancestor fds remain open through recursive capture and final edge recheck.
+- Linux-only symlink and stat/open replacement tests match the original failure.
+- Static/code-contract status: CLOSED.
+- Runtime boundary: Linux 77/77 not available in this Windows review.
+
+Java offline regression
+Command:
+  mvn -B -ntp -o clean test
+Result:
+  BUILD SUCCESS
+  Surefire XML: 32 suites / 274 tests / 0 failures / 0 errors / 0 skipped
+  Phase00TargetGuardInitializerTest: 8/8
+  Checkstyle: 0 violations
+
+Backend package
+Command:
+  mvn -B -ntp -o -DskipTests package
+Result:
+  BUILD SUCCESS
+  Reactor: 9/9 modules SUCCESS
+  Checkstyle: 0 violations
+
+Current-SHA dynamic evidence search
+- C:\Users\wenbibuhaoqwq\phase00-ci-evidence-r8: absent
+- No repository evidence directory for the eighth remediation was found.
+- Linux 77/77: absent
+- exact 7/33 r8 bundle: absent
+- offline verifier for r8: not runnable because the bundle is absent
+- Compose config evidence: absent
+- isolated r8 resource cleanup evidence: absent
+- Browser: not required
+
+Formal result
+CHANGES_REQUESTED
+0 Critical / 0 High / 1 Medium / 0 Low

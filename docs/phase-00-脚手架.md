@@ -115,9 +115,10 @@ platform-parent/  (pom，dependencyManagement 锁版本)
 
 ## 8. 验收清单
 
-> 2026-07-27 第八轮候选口径：第七轮 `9b97741` 的真实 7/33 保留为有效历史证据；第八轮
-> `7810715` 修改了证据门禁，必须对新最终 SHA 重新执行。`[~]` 表示缺当前候选的直接动态证据；
-> 正式独立 PASS 前 Phase 0 保持复核退回。
+> 2026-07-27 第八轮正式复核口径：第七轮 `9b97741` 的真实 7/33 保留为有效历史证据；第八轮
+> 最终 HEAD `1c9d416` 已在代码/合同层面关闭 POSIX 祖先链 L1，但 PASS final capture 后至 canonical
+> marker rename 前仍有原 M1 变更窗口，正式结论为 **CHANGES_REQUESTED（1 Medium）**。`[~]`
+> 表示新最终 SHA 仍须直接动态证据；先修 M1，再一次性重跑 Linux/真实 gate。
 
 - [x] `mvn -pl platform-boot -am package` 产出 Spring Boot executable jar。——本候选的 9 模块
       package 已通过，fat JAR 内容另有 WS-3 历史门禁；该项只证明打包产物，不把真实依赖应用上下文
