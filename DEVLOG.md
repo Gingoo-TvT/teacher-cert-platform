@@ -15,6 +15,22 @@
 
 ---
 
+## [2026-07-28] GOV-045 Phase 0 / U-004 第九轮最终动态证据独立复核 — PASS
+- 做了什么：冻结最终 HEAD `ea760bf2bd6041c8fd185bd6ab887380bf920171` / tree `fd2174f5079adf6bc5a34e2f5a12f8df2c998c09`，独立核验执行者回传的 Linux 79/79、Compose/资源收尾，并对 `C:\Users\wenbibuhaoqwq\phase00-ci-evidence-r9` 运行仓库离线 verifier；另行复算 SHA256SUMS、15-file exact closure、7 份 XML/33 testcase、运行时间窗、候选 Git blobs、source snapshot、preflight/runtime target identity 与 secret scan。正式报告与摘要为 `docs/reviews/phase-00-ninth-remediation-dynamic-evidence-rereview-2026-07-28.md`、`docs/reviews/evidence/phase00-ninth-remediation-dynamic-rereview-2026-07-28/`。
+- 关键决策与理由：五项门禁全部满足，且无新 finding，故 Phase 0 / U-004 正式 **PASS**。Linux 首次定向命令的 2 errors 是无效 unittest 模块路径导致的 import error，没有加载用例；修正脚本入口后定向 2/2 和完整 79/79 均通过，不作为产品失败。Linux 原始 console log 未单独落本机，按执行者逐项回传记录为证据来源边界，不要求为此重跑。
+- 问题与解决：成功 gate 前工作树含 GOV-044 的 5 个 tracked 治理文档改动，第一次运行在 `require_clean_tracked_worktree` 正确失败。成功 bundle 的 manifest 证明 start/after-preflight/end 三段 tracked clean，Maven 从无 `.git` 的候选 Git-object snapshot 执行；本轮写入 PASS 状态前记录到 5 文件恢复时间 00:12:16，晚于 formal 结束 00:10:56 和 bundle 发布 00:10:57，且 gate 源码/spec 仍与 HEAD 一致，故这些复核记录未污染候选证据。未猜测未归档的具体暂存/恢复命令。
+- 与规格的偏差/疑问：无产品、API、Flyway、权限、依赖、前端或 exact 7/33 合同变化。Phase PASS 只关闭逐阶段闸门并放行最终全量审计，不代表 merge、push、deploy、切流或稳定发布 GO。
+- 测试/证据：Linux/POSIX Python **79/79、skipped=0**；全新隔离栈 exact **7 suites / 33 testcases、0 failure/error/skip**；同 bundle verifier exit 0；**14/14 checksum**、15-file 精确闭包；preflight/formal exit 0，freshness **0/0/1/0**；`docker compose -f docker-compose.dev.yml config --quiet` exit 0；专属 3 容器/3 卷/网络零残留。
+- 安全边界/下一步：本次 Codex 只执行本地读取、Git 核对、纯离线 verifier 和 checksum/XML/JSON 解析；未执行 Docker、MySQL、Redis、MinIO、网络、服务、浏览器、扫描、fuzz、账号、凭据或权限操作。U-001/U-002/U-003/U-004 与全部逐阶段退回项已关闭，下一步按用户要求进行最终全量审计。
+
+## [2026-07-27] GOV-044 Phase 0 / U-004 第九轮正式独立增量复核 — 代码 PASS，阶段待动态门禁
+- 做了什么：冻结 `1c9d41696574ff2b4d50a5908f5998c3ed55b437..ea760bf2bd6041c8fd185bd6ab887380bf920171`，逐函数复核完整 canonical bundle 的私有物化、exact payload match、完整 verifier、staging 前置清理与单次目录 rename；三路独立复核一致确认第八轮唯一 `P00-R3-M1` 在正式 producer-private 单写者边界内关闭，无新增 finding。正式报告与离线摘要为 `docs/reviews/phase-00-ninth-remediation-rereview-2026-07-27.md`、`docs/reviews/evidence/phase00-ninth-remediation-rereview-2026-07-27/`。
+- 关键决策与理由：将“整改增量 PASS”与“Phase 0 正式 PASS”分开。目录 rename 成功后无 final capture、cleanup、marker 或写入，故不继续堆叠 ACL/锁/不可变存储；但最终 SHA 的 Linux/真实依赖证据未形成，D2/D7/D8 仍不能放行。
+- 问题与解决：Python 首次全量的产品断言均通过，但 teardown 删除一个 Git fixture 时收到瞬时 `WinError 32`。核对绝对工作区路径后该目录立即可删除；同用例定向 1/1、随后完整 79 methods 为 77 PASS / 2 POSIX-only skipped，且无残留。该用例与本轮发布实现无关，首跑事实如实归档，不作为产品 finding。
+- 与规格的偏差/疑问：无产品、API、Flyway、权限、依赖、前端或 exact 7/33 合同变化。同安全主体主动写入、发布后篡改、断电/远程文件系统仍明确在本阶段威胁模型之外；消费者必须完整验证 bundle。
+- 测试：独立 Python **79 methods：77 PASS / 2 POSIX-only skipped**；发布专项 **8/8**；Maven offline `clean test` 的 Surefire **32 suites / 274 tests**、0 failure/error/skip；后端 package **9/9 modules BUILD SUCCESS**、Checkstyle 0；范围 `git diff --check` PASS。
+- 安全边界/下一步：未执行 Docker、MySQL、Redis、MinIO、网络、服务、浏览器、扫描、fuzz 或凭据/权限操作。由 Linux 跑最终 SHA 79/79，再由用户/获授权环境生成全新 exact 7/33 evidence、运行离线 verifier、补 Compose 与专属资源清理；在这些证据闭环前 Phase 0 保持 CHANGES_REQUESTED / EVIDENCE_PENDING，不进入最终全量审计。
+
 ## [2026-07-27] GOV-043 Phase 0 / U-004 第九轮 M1 最小整改候选 — `f3fa054`
 - 做了什么：只收口第八轮正式报告剩余的 `P00-R3-M1`。先补 canonical marker rename 入口 mutate/delete 两条确定性反例，旧实现均得到 `verified=True` 并先红；随后删除 withheld marker、final-path capture 与文件级 marker rename。完整 canonical bundle 在随机私有 sibling 中完成 payload match 和全量 verifier 后，以一次目录 rename 作为最后且唯一的成功转换。
 - 关键决策与理由：按正式报告给出的最小修法明确威胁边界：producer-private 是所有权前提而非 ACL；同 security principal 不在 verify→rename 间写私有 sibling，final 同期保持不存在。rename 不冻结 descendants，消费者必须完整校验 bundle，不能只信 `manifest.status`。未引入跨平台锁、ACL、`renameat2` 或不可变存储，避免 overengineering。

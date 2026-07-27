@@ -1,0 +1,81 @@
+Phase 0 / U-004 ninth remediation independent incremental review
+Date: 2026-07-27
+Safety: local offline reads/tests only; no Docker, database, Redis, MinIO,
+network, service, browser, scan, fuzz, credential, permission, merge, push,
+or deploy action.
+
+GIT IDENTITY
+HEAD=ea760bf2bd6041c8fd185bd6ab887380bf920171
+TREE=fd2174f5079adf6bc5a34e2f5a12f8df2c998c09
+BASE=1c9d41696574ff2b4d50a5908f5998c3ed55b437
+IMPLEMENTATION=f3fa054bcd3f5f2217a8787a3cb1b9c08185c505
+COMMITS=3
+DIFF=10 files changed, 543 insertions(+), 118 deletions(-)
+git diff --check BASE..HEAD: PASS
+Tracked worktree before review writes: clean
+
+STATIC PUBLICATION RESULT
+- Complete manifest.json and SHA256SUMS are materialized in a random private
+  same-parent directory.
+- The persisted private bundle is captured, compared to the verified payload,
+  and passed through the complete evidence verifier.
+- Final-path absence check and collection-staging cleanup occur before publish.
+- Success publication is one call to publish_ready_evidence, whose only state
+  transition is os.rename(private_dir, final_dir).
+- No final-path capture, cleanup, marker rename, verification, or write occurs
+  after successful directory rename.
+- P00-R3-M1: CLOSED within the documented producer-private single-writer model.
+- New findings: 0 Critical / 0 High / 0 Medium / 0 Low / 0 Info.
+
+PYTHON OFFLINE GATE
+Command: python -B scripts\test_phase00_ci_gate.py -v
+
+First full attempt:
+- Product assertions: no failure.
+- Overall exit: 1.
+- Cause: teardown received Windows WinError 32 while removing
+  .phase00-gate-test-.../rematerialization-source.
+- The generated fixture directory became removable immediately and was removed
+  after its absolute workspace path was verified.
+
+Focused rerun:
+Command: python -B scripts\test_phase00_ci_gate.py Phase00CiGateTest.test_snapshot_mutation_is_rejected_and_rematerialization_restores_git -v
+Result: 1/1 PASS.
+
+Second full attempt:
+Result: 79 methods; 77 PASS; 2 POSIX-only skipped; exit 0.
+Residual .phase00-gate-test-* directories: 0.
+
+Independent focused publication review:
+Result: 8/8 PASS.
+Coverage: manifest-last materialization, checksum mutation, manifest deletion,
+directory rename failure, no post-publish capture, old marker mutate/delete
+entry removal, and success publisher called once.
+
+JAVA OFFLINE REGRESSION
+Command: mvn -B -ntp -o clean test
+Result: BUILD SUCCESS.
+Parsed Surefire XML:
+suites=32
+tests=274
+failures=0
+errors=0
+skipped=0
+
+Command: mvn -B -ntp -o -DskipTests package
+Result: BUILD SUCCESS; 9/9 reactor modules; Checkstyle violations=0.
+
+FINAL-SHA EVIDENCE AVAILABILITY
+- No phase00-ci-evidence-r9 directory was found under the known user-level
+  evidence location.
+- No bundle bound to HEAD ea760bf / TREE fd2174f5 was found in the workspace or
+  common local evidence paths.
+- Existing r7 evidence is bound to 9b97741 and is not reusable.
+- Therefore no r9 offline verifier was run.
+- Linux 79/79, exact 7/33, Compose config, and dedicated resource-cleanup
+  evidence remain pending.
+
+FORMAL CONCLUSION
+Remediation increment: PASS.
+P00-R3-M1: CLOSED.
+Phase 0: CHANGES_REQUESTED / EVIDENCE_PENDING until final-SHA dynamic gates pass.

@@ -115,39 +115,42 @@ platform-parent/  (pom，dependencyManagement 锁版本)
 
 ## 8. 验收清单
 
-> 2026-07-27 第九轮候选口径：第八轮最终 HEAD `1c9d416` 的正式结论仍为
-> **CHANGES_REQUESTED（1 Medium）**；第九轮实现 `f3fa054` 已按报告的最小修法把完整 canonical
-> bundle 私有验证后以单次目录 rename 发布。`[~]` 表示新最终 SHA 仍须 Linux/真实动态证据；
-> 正式独立 PASS 前 Phase 0 保持复核退回。
+> 2026-07-28 第九轮最终动态证据复核口径：最终 HEAD `ea760bf` 的 Linux/POSIX **79/79**、
+> 全新隔离栈 exact **7 suites / 33 testcases**、同 bundle 离线 verifier、Compose 静态解析与
+> 专属资源清理五项门禁全部 PASS。证据包 candidate/tree/source/target/checksum/XML 绑定经独立
+> 复算成立，`P00-R3-M1` / `P00-R3-L1` 保持 CLOSED，0 finding。Phase 0 / U-004 正式
+> **✅ 已复核 PASS**；这只放行最终全量审计，不代表项目发布 GO。
 
 - [x] `mvn -pl platform-boot -am package` 产出 Spring Boot executable jar。——本候选的 9 模块
       package 已通过，fat JAR 内容另有 WS-3 历史门禁；该项只证明打包产物，不把真实依赖应用上下文
       启动混入离线 `[x]`。按 `AGENTS.md §6.1`，Codex 不在 headless exec 直接启动常驻 packaged jar。
-- [~] 在 fresh-schema 真实 MySQL/Redis/MinIO 上启动 Spring Boot 应用上下文。——
+- [x] 在 fresh-schema 真实 MySQL/Redis/MinIO 上启动 Spring Boot 应用上下文。——
       `Phase00ScaffoldIT` / `Phase00ParameterMatrixIT` 使用 RANDOM_PORT 启动真实上下文并触发 Flyway；
       第四轮因 Redis INFO 多行解析缺陷、第五轮因 S3 deployment header 假设分别在 preflight FAIL，
       两轮正式均为 0/33；第六轮 exact 7/33 后因 evidence integer 校验 FAIL；第七轮
-      `9b97741` exact 7/33 PASS，第九轮最终 SHA 待重跑。
-- [~] 非生产 `/doc.html` 打开，示例接口可调通，返回统一 `Result`；生产文档面关闭。——
+      `9b97741` 首次 exact 7/33 PASS；第九轮最终 SHA `ea760bf` 在全新 `tcp-phase00-r9` 栈再次
+      exact 7/33 PASS，preflight/runtime 双证据均为 0/0/1/0。
+- [x] 非生产 `/doc.html` 打开，示例接口可调通，返回统一 `Result`；生产文档面关闭。——
       `Phase00ScaffoldIT.docHtmlAndOpenApiAreServedWithoutAuthentication` 验证 dev `/doc.html` 200 +
       OpenAPI 文档含真实业务路径；`ApiDocumentationSecurityProfileTest` 验证 prod 文档 API/UI/静态资源
-      404 且 dev 保持公开。第七轮相关 testcase 已通过，第九轮最终 SHA 待重跑。
-- [~] 抛 `BizException` → HTTP 200 + `{code≠0,msg}`；`@Valid` 失败 → 字段级错误。——
+      404 且 dev 保持公开；第九轮最终 SHA 的对应 1+2 个 testcase 均在 exact XML 中通过。
+- [x] 抛 `BizException` → HTTP 200 + `{code≠0,msg}`；`@Valid` 失败 → 字段级错误。——
       `Phase00ScaffoldIT.bizExceptionReturnsHttp200WithBusinessCode` / `validationFailureReturnsFieldLevelError`。
       未捕获异常合同按 P1-10 修订为 HTTP 500 + 统一 Result（监控可见），由
       `uncaughtExceptionReturnsUnifiedResultWithoutStackTraceLeak` 断言统一体且不泄漏堆栈；
-      第七轮相关 testcase 已通过，第九轮最终 SHA 待重跑。
-- [~] CI 等价 MySQL/Redis/MinIO services 上后端可连通；`docker-compose.dev.yml` 可静态解析。——
-      第七轮 preflight/exact 已 PASS；第九轮最终 SHA 的 gate 与 Compose 尚未归档。
-- [~] Flyway 自动建 `sys_param`/`file_object`/`audit_log`，并生成 `docs/README.md` §6 参数基线。——
+      第九轮最终 SHA 的三个对应 testcase 均通过。
+- [x] CI 等价 MySQL/Redis/MinIO services 上后端可连通；`docker-compose.dev.yml` 可静态解析。——
+      第九轮 preflight/exact 在 MySQL 8.0.46、Redis 7.4.9 与一次性 MinIO 上 PASS；
+      `docker compose -f docker-compose.dev.yml config --quiet` exit 0，专属栈已 `down -v` 零残留。
+- [x] Flyway 自动建 `sys_param`/`file_object`/`audit_log`，并生成 `docs/README.md` §6 参数基线。——
       `Phase00ParameterMatrixIT.allDocumentedDefaultsHaveExpectedValueAndType` 在 fresh schema 对全部 **32**
       个 active 参数逐项核对 exact key/value/type，并以全表 key 集合比较拒绝未知项或缺失项；
-      第七轮参数矩阵已通过，第九轮最终 SHA 待重跑。
-- [~] 上传任意文件返回 fileId；预签名 URL 限时可访问，过期返回 403/失效。——
+      第九轮最终 SHA 的 fresh-schema 运行 1/1 PASS。
+- [x] 上传任意文件返回 fileId；预签名 URL 限时可访问，过期返回 403/失效。——
       `Phase00ScaffoldIT.uploadWritesAuditRowAndPresignedUrlExpiresAfterTtl`（3 秒 TTL 正向下载逐字节一致 +
-      过期后同一 URL 403）第七轮已通过，第九轮最终 SHA 待重跑。
-- [~] 标注 `@AuditLog` 的样例方法成功后写入 `audit_log`（操作人/时间/IP 不为空）。——同上用例对
-      `file/upload` 审计行的三字段非空断言第七轮已通过，第九轮最终 SHA 待重跑；更丰富链路由
+      过期后同一 URL 403）在第九轮最终 SHA 的 exact gate 中通过。
+- [x] 标注 `@AuditLog` 的样例方法成功后写入 `audit_log`（操作人/时间/IP 不为空）。——同上用例对
+      `file/upload` 审计行的三字段非空断言在第九轮最终 SHA 中通过；更丰富链路由
       `Phase13SystemAuditIT` 覆盖。
 - [x] `@DataScope` 单测：不同范围生成的 SQL 条件正确。——`DataScopeSqlHandlerTest` 9 例（COLLEGE IN/SELF/ASSIGNED/
       全校无条件/空集合与 NONE fail-closed/未注册表跳过/别名匹配）；`DataScopeMapperChainTest` 5 例

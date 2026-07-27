@@ -1,0 +1,119 @@
+Phase 0 / U-004 ninth-remediation dynamic evidence independent verification
+Date: 2026-07-28
+Reviewer: OpenAI Codex (GPT-5)
+
+FINAL DECISION
+  Phase 0 / U-004: PASS
+  Findings: 0 Critical / 0 High / 0 Medium / 0 Low / 0 Info
+  Project release: NOT ASSESSED; final full audit remains required
+
+CANDIDATE BINDING
+  candidate SHA: ea760bf2bd6041c8fd185bd6ab887380bf920171
+  candidate tree: fd2174f5079adf6bc5a34e2f5a12f8df2c998c09
+  candidate files: 906
+  gate/spec working files match HEAD: true
+
+CANONICAL EVIDENCE
+  path: C:\Users\wenbibuhaoqwq\phase00-ci-evidence-r9
+  total files: 15
+  SHA256SUMS entries: 14
+  independent checksum matches: 14/14
+  unlisted files other than SHA256SUMS: 0
+  checksum entries without a file: 0
+
+OFFLINE VERIFIER
+  command:
+    python -B scripts/phase00_ci_gate.py verify
+      --evidence-dir C:\Users\wenbibuhaoqwq\phase00-ci-evidence-r9
+      --expected-candidate-sha ea760bf2bd6041c8fd185bd6ab887380bf920171
+  exit: 0
+  output:
+    [phase00-ci-gate] evidence verified:
+    candidate=ea760bf2bd6041c8fd185bd6ab887380bf920171,
+    dir=C:\Users\wenbibuhaoqwq\phase00-ci-evidence-r9
+
+EXACT XML RECOUNT
+  phase00-scaffold-it: 6 / 0 failure / 0 error / 0 skip
+  phase00-parameter-matrix-it: 1 / 0 failure / 0 error / 0 skip
+  data-scope-handler-unit: 9 / 0 failure / 0 error / 0 skip
+  data-scope-mapper-chain: 5 / 0 failure / 0 error / 0 skip
+  file-upload-contract-unit: 2 / 0 failure / 0 error / 0 skip
+  api-documentation-profile-unit: 2 / 0 failure / 0 error / 0 skip
+  phase00-target-guard-unit: 8 / 0 failure / 0 error / 0 skip
+  total: 7 suites / 33 cases / 0 failure / 0 error / 0 skip
+  each of the 33 expected method names occurs uniquely in candidate Git blobs
+
+RUN WINDOW
+  preflight:
+    2026-07-27T16:09:12.145Z .. 2026-07-27T16:09:45.150Z
+    exit 0, Phase00TargetPreflight 1/1
+  formal:
+    2026-07-27T16:09:56.538Z .. 2026-07-27T16:10:56.339Z
+    exit 0, BUILD SUCCESS
+  all suite source mtime values are inside the formal run window
+
+SOURCE ATTESTATION
+  startHead = afterPreflightHead = endHead = candidate SHA
+  snapshot mode: git-object-tree
+  snapshot has .git: false
+  snapshot tree/file count/spec hash match candidate
+  verified after preflight: true
+  rematerialized before formal: true
+  verified after formal: true
+  tracked clean at start/after-preflight/end: true/true/true
+  build-relevant untracked absent at start/after-preflight/end: true/true/true
+
+TARGET ATTESTATION
+  preflight/runtime candidate, runContext, MySQL UUID, Redis run_id,
+  MinIO identity nonce/object/hash: exact match
+  preflight freshness: 0 MySQL tables / 0 Redis keys /
+    1 MinIO identity object / 0 unexpected objects
+  runtime freshness: same exact 0/0/1/0
+  MySQL: 8.0.46
+  Redis: 7.4.9
+  manifest secretScan: PASS
+  containsSecrets: false
+  rawSourcesRetained: false
+
+LINUX/POSIX EXECUTOR EVIDENCE
+  source: user execution report; raw console log not found locally
+  environment: python:3.14, Linux, Python 3.14.6, GCC 14.2.0,
+    git 2.47.3, --network none
+  source: git archive of exact candidate, LF, no .git
+  result: Ran 79 tests / OK / skipped=0
+  candidate source independently contains exactly 79 test methods and exactly
+    two POSIX openat-guarded methods
+  both POSIX methods were individually reported as "ok"
+  an initial targeted command used an invalid unittest module path and produced
+    two import errors; it did not load the test file and is not a testcase
+    failure. The corrected script entrypoint and full suite passed.
+
+COMPOSE AND CLEANUP EXECUTOR EVIDENCE
+  docker compose -f docker-compose.dev.yml config --quiet: exit 0
+  dedicated project: tcp-phase00-r9
+  dedicated 3 containers + 3 volumes + network removed by down -v
+  phase00 volume/network query: empty
+  listed service ports: no listener
+  shared tcp-mysql/tcp-redis/tcp-minio: remained Exited and untouched
+  temporary compose directory: removed
+  source: user execution report; Codex did not run Docker or inspect daemon state
+
+DIRTY WORKTREE DISPOSITION
+  first attempt correctly failed require_clean_tracked_worktree because five
+  prior-review governance files were modified.
+  successful manifest proves tracked clean at three checkpoints.
+  candidate was built from an immutable Git-object snapshot, not the live tree.
+  before this review wrote the final PASS governance updates, the five restored
+  files had LastWriteTime 2026-07-28 00:12:16, after formal end and final
+  evidence publication at 00:10:57.
+  the pre-update diff was exactly those five prior-review files (+26/-15);
+  gate source/spec still match candidate.
+  the exact temporary save/restore command was not archived and is not inferred.
+  Observable result: governance edits were outside the successful evidence
+  window and restored only after bundle publication.
+
+SAFETY BOUNDARY
+  This independent review performed only local reads, Git inspection, offline
+  verifier execution, checksum/XML/JSON parsing, and documentation updates.
+  It did not run Docker, database, Redis, MinIO, network, services, browser,
+  scanning, fuzzing, credentials, permissions, merge, push, or deploy actions.
