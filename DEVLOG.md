@@ -15,6 +15,19 @@
 
 ---
 
+## [2026-07-27] GOV-039 Phase 0 / U-004 第七轮最小整改候选 — `b8cd171`
+- 做了什么：`Phase00ScaffoldIT` 的 runtime target identity 写出不再使用 Spring 应用 `ObjectMapper`，改由一个仅负责证据字节的 package-private helper 每次创建裸 `ObjectMapper`。既有第 8 个 target-guard testcase 直接复用同一 helper，解析实际序列化字节并断言四个 freshness token 均为 JSON integer 0/0/1/0。
+- 关键决策与理由：业务 `Long→String` 是前端精度合同，不应泄入机器证据 schema；Python 坚持 JSON integer 是正确的 fail-closed 合同。应用 mapper 继续用于 HTTP/MinIO JSON 读取，不改生产配置、证据结构、gate 或 exact suite。
+- 与规格的偏差/疑问：无生产业务、API、Flyway、权限、前端或真实依赖流程变化；实现只涉及 2 个测试源文件，exact 仍为 7 suites / 33 testcases。未增加新 suite/testcase、依赖、配置或抽象层。
+- 测试：Python gate **71/71**；护栏 **8/8**；顺序离线 Surefire **32 suites / 274 tests**，0 failure/error/skip；后端 **9/9 modules package**、Checkstyle 0；实现增量独立静态终审 **0 Critical / 0 High / 0 Medium / 0 Low**。
+- 安全边界/下一步：Codex 未执行 Docker、MySQL、Redis、MinIO、网络、服务或浏览器。固化包含第七轮材料的新最终 SHA 后，只由用户在全新隔离栈执行完整 gate；正式独立 PASS 前继续 CHANGES_REQUESTED。
+
+## [2026-07-27] GOV-038 Phase 0 / U-004 第六轮动态门禁 — FAIL（exact 7/33 全绿，evidence finalization 失败）
+- 做了什么：只读核对 `C:\Users\wenbibuhaoqwq\phase00-ci-evidence-r6` 并归档 `docs/reviews/phase-00-sixth-remediation-dynamic-failure-2026-07-27.md`。候选 `16256002c62c26eae48b8d1c39d2b7a669343980` 的 preflight 与正式 Maven 均 exit 0，7/7 suites、33/33 testcases、0 failure/error/skip；manifest 仍为 FAIL，唯一错误是 `freshness.mysqlTableCountBefore` 期望 JSON integer 0、实际为字符串 `'0'`。
+- 关键决策与理由：四个 freshness `long` 被应用 `JacksonConfig` 的 `Long→String` 定制写成字符串；preflight 使用裸 mapper 所以先通过。这是候选证据写出路径的确定性缺陷，不是环境问题，同一 SHA 不重跑；7/33 作为首次完整全绿进展保留，但不能抵消 gate FAIL。
+- 证据/环境边界：13 个归档 artifact 哈希逐项一致，两份 Maven 日志均 BUILD SUCCESS；runtime identity 未归档，符合校验失败后的 fail-closed 顺序。离线 verify FAIL、Compose PASS、隔离栈与清理事实按执行者归属记录；Codex 未连接或操作真实依赖。
+- 下一步：Java 侧用裸 mapper 隔离 runtime evidence 序列化，并在既有 testcase 中检查实际 JSON token；不放宽 Python schema，不新增机制。
+
 ## [2026-07-27] GOV-037 Phase 0 / U-004 第六轮最小整改候选 — `b123238`
 - 做了什么：删除 MinIO S3 `x-minio-deployment-id` 与 `instanceFingerprintSha256` 全链路依赖；target evidence 升为 schema v5 / `provisioned-object-challenge-v2`。保留 endpoint、bucket、唯一 identity object、对象 SHA、candidate/runContext、nonce、issuedAt 和 0/0/1/0 的逐项校验及每次 context refresh 重读。
 - 关键决策与理由：仓库锁定的 MinIO 数据面不提供 deployment header；接 Admin API 会新增管理凭据，同源字段再哈希也不会增加独立信任。最小且诚实的合同只证明“当前配置目标持有本次一次性挑战对象”，不冒充 MinIO 实例 UUID。

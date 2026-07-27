@@ -6,7 +6,7 @@
 
 ## 1. 当前基线与本轮结论
 
-- 当前分支：`codex/phase00-remediation`。Phase 39、Phase 41、Phase 47、Phase 53 与 Phase 44 均已独立 PASS。Phase 0 / U-004 继续 **CHANGES_REQUESTED**；最后一份带严重度计数的正式报告仍是第三轮 `CHANGES_REQUESTED（0 Critical / 0 High / 1 Medium / 2 Low）`，见 `reviews/phase-00-third-remediation-rereview-2026-07-27.md`。第四轮最终材料 `191c395bdf036f4b4e76a727d66dd24abeba58ea` 因 Redis INFO 多行校验在 preflight FAIL；第五轮最终材料 `65094098642f0891d9d4685851e6ba0b4d79245f` 已越过 Redis/MySQL/MinIO 对象校验，但因仓库同版 MinIO 的 S3 `GetObject` 响应不提供 `x-minio-deployment-id` 再次在 preflight FAIL。两轮均为 manifest FAIL、正式 `run.executed=false`、**0/7 suites、0/33 testcases**，归档见 `reviews/phase-00-fourth-remediation-dynamic-failure-2026-07-27.md`、`reviews/phase-00-fifth-remediation-dynamic-failure-2026-07-27.md`。第六轮实现 `b123238` 只删除不可用 header 与派生指纹链，证据升为 schema v5 / `provisioned-object-challenge-v2`，保留 endpoint、bucket、唯一身份对象、对象 SHA、candidate/runContext、nonce、issuedAt 和 0/0/1/0；不接 Admin API、不新增凭据。纯离线 gate **71/71**、Surefire **32 suites / 274 tests**、后端 **9/9 modules package**、Checkstyle 0、两路独立静态增量复核均为 **0 finding**。新最终 SHA 的真实 exact 7/33 尚未执行，故本候选不是阶段 PASS；必须由用户执行隔离门禁后再正式独立复核。`main` 仍为 `e4f8228`，禁止擅自 merge/push。
+- 当前分支：`codex/phase00-remediation`。Phase 39、Phase 41、Phase 47、Phase 53 与 Phase 44 均已独立 PASS。Phase 0 / U-004 继续 **CHANGES_REQUESTED**；最后一份带严重度计数的正式报告仍是第三轮 `CHANGES_REQUESTED（0 Critical / 0 High / 1 Medium / 2 Low）`。第四、第五轮分别在 Redis INFO 与 MinIO header 的 preflight FAIL、正式 0/33。第六轮最终材料 `16256002c62c26eae48b8d1c39d2b7a669343980` 首次完成 preflight 与正式 exact **7/7 suites、33/33 testcases、0 failure/error/skip**，但 runtime identity 的四个 `long` freshness 被应用 `Long→String` mapper 写成字符串，evidence finalization 严格 integer 校验 FAIL；归档见 `reviews/phase-00-sixth-remediation-dynamic-failure-2026-07-27.md`。第七轮实现 `b8cd171` 仅把 runtime evidence 写出隔离到裸 `ObjectMapper`，既有第 8 个 testcase 复用实际 helper 校验序列化后 JSON integer，exact 7/33 不变。纯离线 Python **71/71**、Surefire **32 suites / 274 tests**、后端 **9/9 modules package**、Checkstyle 0、独立静态增量终审 **0 finding**。新最终 SHA 的完整动态 gate 尚未执行，故本候选不是阶段 PASS；必须由用户执行隔离门禁后再正式独立复核。`main` 仍为 `e4f8228`，禁止擅自 merge/push。
 - Claude 当前不可用；用户于 2026-07-23 明确授权 Codex 作为本轮独立复核者。Phase 42 增量重核未采信实现自报，重新读码、核验现有真实 MySQL XML 与源码/编译时序，并独立执行安全的一次性构建门禁；按用户安全边界未重跑并发/latch、压力或任何可能属于 cyber 的验证。该应急授权只适用于本轮记录，不自动改写 `REVIEW-GATE` 的长期角色约定。
 - 原复核隔离空库基线：`mvn -B -ntp clean verify` 通过，Surefire **121/121**、Failsafe **144/144**，合计 **265/265**，Flyway V1–V28 与 `R__testseed` 成功。
 - WS-3 第二轮整改独立门禁：全新数据卷执行 Flyway V1–V29 成功，Surefire **121/121**、Failsafe **150/150**，合计 **271/271**；Phase 7 为 **29/29**；前端 type-check/build 通过。独立复核确认时间线、fast-hit、review 行锁和 V29 已闭环，但静态不变量仍发现 3 High / 3 Medium。
@@ -19,7 +19,7 @@
 - WS-3 第六轮独立重核：冻结 `88d3136..2886442`，确认第五轮新增的 **2 Medium 全部关闭**。双 scheduler 的 bean 选择和视频 cron 绑定确定；37 项备份清单与 V1–V32 的 37 个业务表精确一致，candidate 全字段恢复后可继续真实对账。整改者 XML 为 Surefire **149/149**、Failsafe **169/169**；独立安全门禁为后端 package、fat JAR class、前端 type-check/build、dev/prod Compose 和 diff check，均通过。仅发现“33 个迁移”应为“32 个迁移、最终 V32”的 **1 Low 非阻断勘误**。结论 **PASS**，见 `reviews/ws-03-sixth-remediation-rereview-2026-07-24.md`。
 - 前端：`npm --prefix frontend run type-check`、`npm --prefix frontend run build` 通过；构建仍有 `echarts`/`naive` 大 chunk 警告。
 - 编排历史/通用基线：`docker-compose.dev.yml` 与生产 `docker-compose.yml + .env.example` 曾通过
-  `config --quiet`；第四、第五轮用户 supporting evidence 都不能替代各自的 0/33。由用户针对第六轮新最终 SHA 单独执行
+  `config --quiet`；第六轮 Compose PASS 不能抵消 evidence finalization FAIL。由用户针对第七轮新最终 SHA 单独执行
   Compose config 并交回复核。
 - 当前 WS 链判定：**WS-1、WS-2、WS-3、WS-10、WS-13 PASS**。WS-3/U-002 的正式依据为 `reviews/ws-03-sixth-remediation-rereview-2026-07-24.md`；1 Low 迁移数量勘误不阻断放行。
 - 缺失阶段账已完成独立复核：阶段总审计原始快照中 **Phase 29、35b、36–38、40、43、45–46、48–52 PASS；Phase 0、39、41、42、44、47、53 CHANGES REQUESTED**。Phase 42、Phase 39、Phase 41、Phase 47、Phase 53 与 Phase 44 已由各自后续报告更新为 PASS；当前退回项只剩 Phase 0。原始阶段总审计见 `reviews/phase-gap-audit-2026-07-23.md`。
@@ -58,7 +58,9 @@
 - Phase 0 / U-004 第五轮整改候选：失败归档 `613ac50` 后形成实现点 `6a5577d`。`parseRedisInfo` 允许协议 CRLF/LF 多行载荷，整段非空且禁 NUL，拆行后的行/key/value 继续单行控制字符校验，并拒绝无分隔符、空 key 与重复 key；CRLF/LF、NUL、裸 CR、畸形行、重复 key、空载荷反例并入既有第 8 个 target-guard 测试，exact 7/33 的 suite/method 集合不变。gate 的 Windows 默认 Maven 解析优先非空 `MVN`，否则解析 `mvn.cmd`；解析失败会在工具版本预检 fail-closed。纯离线 Python **71/71**、聚焦 Java **8/8**、顺序全量 Surefire **32 suites / 274 tests**、9 模块 package 与 Checkstyle 0 均通过；Java/Python 两路独立静态增量终审均为 0 finding。一次并发 Maven 因共享 `target/` 互删产生 13 个 `NoClassDefFoundError`，停止并发后同源码顺序复跑全绿，确认为测试调度污染而非产品信号。
 - Phase 0 / U-004 第五轮动态门禁：最终材料 `6509409` 在用户全新一次性 MySQL 8.0.46 / Redis 7.4.9 / MinIO 隔离栈执行。Redis INFO、Windows `mvn.cmd`、MySQL UUID、Redis run_id、bucket 空状态与身份对象逐字节校验均通过；随后同版 MinIO 的 S3 `GetObject` 响应不含候选强制要求的唯一 canonical `x-minio-deployment-id`，preflight FAIL、formal `run.executed=false`、**0/33**。离线 verify 同样 FAIL，资源由执行者销毁；同一 SHA 不重跑。完整归档见 `reviews/phase-00-fifth-remediation-dynamic-failure-2026-07-27.md`。
 - Phase 0 / U-004 第六轮最小整改候选：第五轮失败归档 `b4bf841` 后形成实现点 `b123238`。删除 MinIO S3 deployment header、UUID 解析和 `instanceFingerprintSha256` 全链路，target evidence 升为 schema v5 / `provisioned-object-challenge-v2`；仍逐字段绑定 canonical endpoint、bucket、一次性身份对象及其 SHA、candidate/runContext、nonce、issuedAt 与 0/0/1/0，并在每个 Spring context refresh 重读比较。该合同只证明当前配置目标持有本次挑战对象，不宣称唯一 MinIO 管理实例 UUID；不接 Admin API、不新增管理凭据、不添加冗余同源哈希。exact 仍为 7/33；纯离线 Python **71/71**、target guard **8/8**、Surefire **274/274**、9 模块 package、Checkstyle 0，两路独立静态增量复核均为 0 finding。
-- 全项目仍因 **Phase 0 / U-004** 保持 **CHANGES_REQUESTED**：WS-3、Phase 42、Phase 39、Phase 41、Phase 47、Phase 53 与 Phase 44 已独立 PASS。下一步由用户对包含第六轮材料的新 clean `HEAD` 执行全新隔离栈 exact 7/33，并对同一 SHA 执行 Compose `config --quiet`；Windows 显式传绝对 `mvn.cmd`。旧栈与第四、第五轮 Compose/browser 都不能替代第六轮证据；第六轮浏览器 supporting evidence 仅在正式复核要求时重跑。Phase 7 两项广覆盖证据债、有效预签名链接的 bearer 合同与“未登录失败”规格冲突、Phase 39 三个基线债务候选、Phase 41 大行/生产灾备边界及 Phase 44 durable post-commit revision 边界留最终全量审计复查。
+- Phase 0 / U-004 第六轮动态门禁：最终材料 `1625600` 在用户全新一次性隔离栈执行。preflight exit 0，正式 Maven exit 0 / BUILD SUCCESS，manifest 与 7 份 XML 精确证明 **7/7 suites、33/33 testcases、0 failure/error/skip**。随后 runtime identity freshness 被应用 `Long→String` 定制写成 `"0"`，Python 严格 JSON integer 校验使 manifest 正确降级为 FAIL；runtime identity 未归档。13 个 artifact 哈希一致，同一 SHA 不重跑；完整归档见 `reviews/phase-00-sixth-remediation-dynamic-failure-2026-07-27.md`。
+- Phase 0 / U-004 第七轮最小整改候选：第六轮失败归档 `7f02635` 后形成实现点 `b8cd171`。`Phase00ScaffoldIT` 保留应用 mapper 读取身份对象，但 runtime evidence 写出改用裸 mapper；既有第 8 个 target-guard testcase 直接调用同一 package-private helper，解析实际字节并逐项断言 freshness 为 JSON integer 0/0/1/0。Python schema、证据结构、生产配置、suite/method 集合均未改。纯离线 Python **71/71**、target guard **8/8**、Surefire **274/274**、9 模块 package、Checkstyle 0；独立静态增量终审 0 finding。
+- 全项目仍因 **Phase 0 / U-004** 保持 **CHANGES_REQUESTED**：WS-3、Phase 42、Phase 39、Phase 41、Phase 47、Phase 53 与 Phase 44 已独立 PASS。下一步由用户对包含第七轮材料的新 clean `HEAD` 执行全新隔离栈完整 gate，并对同一 SHA 执行 Compose `config --quiet`；Windows 显式传绝对 `mvn.cmd`。不得复用 r6 identity/evidence/隔离资源；第七轮浏览器 supporting evidence 仅在正式复核要求时重跑。Phase 7 两项广覆盖证据债、有效预签名链接的 bearer 合同与“未登录失败”规格冲突、Phase 39 三个基线债务候选、Phase 41 大行/生产灾备边界及 Phase 44 durable post-commit revision 边界留最终全量审计复查。
 - 本轮是“逐阶段进度真实性 + 测试真实性 + 发布门禁”的复核，不替代最后的全量安全、业务规则、数据一致性、性能与运行期审计。
 
 ## 2. 逐阶段复核矩阵
@@ -71,7 +73,7 @@
 
 | 阶段 | 实现/合并状态 | 正式复核证据 | 本轮复核结论 |
 |---|---|---|---|
-| Phase 0 | 原始任务 10/10；第六轮实现 `b123238` 未合并 | 第三轮仍是最后一份 severity-rated 正式报告；第四轮 `191c395`、第五轮 `6509409` 动态 preflight 均 FAIL、0/33 | ❌ 第六轮以 schema-v5 一次性对象挑战删除不可用 header/指纹链；待新最终 SHA exact 7/33 与正式独立复核 |
+| Phase 0 | 原始任务 10/10；第七轮实现 `b8cd171` 未合并 | 第三轮仍是最后一份 severity-rated 正式报告；第六轮 `1625600` 为 exact 7/33 全绿后 evidence finalization FAIL | ❌ 第七轮已隔离 runtime evidence 的 Long 序列化；待新最终 SHA 完整 gate 与正式独立复核 |
 | Phase 1 | 已完成 | `reviews/phase-01-review.md` PASS | ✅ 已复核；当前全量回归通过 |
 | Phase 2 | 已完成 | `reviews/phase-02-review.md` PASS | ✅ 已复核；当前全量回归通过 |
 | Phase 3 | 已完成 | `reviews/phase-03-review.md` PASS | ✅ 已复核；当前全量回归通过 |
@@ -146,7 +148,7 @@
 1. **U-001 CI 可复现性（WS-3 Major-3）—✅ 独立重核 PASS**：后端 job 的固定版本 MinIO、健康检查、桶初始化与前端 `npm run type-check` 已静态核对；独立 CI 等价环境全量 266/266、前端 type-check/build 通过。Phase 0 候选现已落地最小 ESLint；WS-6 只负责格式化、更严格规则、Vitest、Playwright 与 a11y。
 2. **U-002 WS-3 退回整改—✅ 独立重核 PASS**：`88d3136..2886442` 已确认关闭第五轮新增的 2 Medium：① reconciliation trigger 绑定独立 `TaskScheduler`，真实 scheduling + blocked backup 证据证明普通备份不再阻断对账提交；② `video_finalization_object_candidate` 纳入 37 表逻辑全量备份，scratch restore 后历史 generation、claim/retry/tombstone 完整且真实对账可续跑。唯一新增 Low 是提交材料把 32 个迁移写成 33 个，已在正式报告和活动文档勘误，不阻断。该报告只证明 candidate slice；当时仍独立退回的 Phase 41 整体备份问题现已由后续动态证据报告关闭。V32 发布继续遵守停写、停全部旧节点/worker、迁移、全量启动新实例后再放流，禁止 V31/旧稳定 key 协议混部与旧二进制回滚。独立报告为 `reviews/ws-03-sixth-remediation-rereview-2026-07-24.md`；未执行任何 cyber 指令，后续任何可能属于 cyber 的命令必须明确交由用户决定并亲自执行。
 3. **U-003 阶段退回整改—✅ 独立重核 PASS**：Phase 42、Phase 39、Phase 41、Phase 47、Phase 53 与 Phase 44 均已独立复核 PASS。Phase 44 第四轮 `69f7462..228a355` 的精确 16/16、棕地只读 identity preflight、Compose 双向展开与独立离线门禁成立，正式报告为 `reviews/phase-44-fourth-remediation-rereview-2026-07-27.md`；1 Low 非阻断，稳定发布前接入权威发布步骤并补 target marker。
-4. **U-004 Phase 0 复核退回整改—第六轮候选待动态门禁/正式独立复核**：第三轮仍是最后一份 severity-rated 正式报告。第四轮最终材料 `191c395` 在 Redis INFO preflight FAIL；第五轮最终材料 `6509409` 越过该分支后在 MinIO S3 deployment header 要求处 FAIL；两轮正式均为 0/33。第六轮 `b123238` 只删除不可用 header/指纹链并改为 schema-v5 一次性对象挑战，不引入 Admin API、管理凭据或额外基础设施；纯离线 71/71、Surefire 274/274、9 模块 package 和两路静态增量复核全绿。下一步由用户在获授权全新隔离栈执行包含第六轮最终材料的新 clean SHA exact 7/33；正式独立 PASS 后才执行最终全量审计。
+4. **U-004 Phase 0 复核退回整改—第七轮候选待动态门禁/正式独立复核**：第三轮仍是最后一份 severity-rated 正式报告。第六轮最终材料 `1625600` 的 preflight 与 exact 7/33 首次全部通过，但 runtime identity freshness 被业务 `Long→String` mapper 写成字符串，evidence finalization FAIL。第七轮 `b8cd171` 只把证据写出改为裸 mapper并在既有 testcase 校验实际 JSON integer；不放宽 Python、不改 schema、不新增 suite/依赖/配置。纯离线 71/71、Surefire 274/274、9 模块 package 与静态增量终审全绿。下一步由用户在获授权全新隔离栈执行包含第七轮最终材料的新 clean SHA 完整 gate；正式独立 PASS 后才执行最终全量审计。
 
 ### P1：当前产品需求与上线安全
 
@@ -183,4 +185,4 @@
 2. 业务规格变化仍必须先改 `plan.md`/对应 phase 文档，并按 R10 写 `DEVLOG.md`；本文件只同步执行项。
 3. 阶段实现完成只能置“待复核”；独立复核报告 PASS 后，才能在本文件与 `PROGRESS.md` 同步置“✅ 已复核”。
 4. 每次复核同时记录：代码提交、测试命令/计数、运行环境、反例、未覆盖项、结论。
-5. 最终全量审计前，U-001–U-004 必须全部闭环；U-001/U-002/U-003 已独立重核 PASS，U-004 仍为 CHANGES_REQUESTED。第四、第五轮真实 gate 均已 preflight FAIL、0/33，第六轮只完成代码/纯离线候选。由用户执行第六轮新最终 SHA exact 7/33 并通过正式独立复核后，Phase 0 才可 PASS 并进入用户要求的最终全量审计；此前不得宣称稳定发布就绪。
+5. 最终全量审计前，U-001–U-004 必须全部闭环；U-001/U-002/U-003 已独立重核 PASS，U-004 仍为 CHANGES_REQUESTED。第六轮真实 gate 已取得 exact 7/33 全绿但 evidence finalization FAIL，第七轮只完成代码/纯离线候选。由用户执行第七轮新最终 SHA 完整 gate 并通过正式独立复核后，Phase 0 才可 PASS 并进入用户要求的最终全量审计；此前不得宣称稳定发布就绪。

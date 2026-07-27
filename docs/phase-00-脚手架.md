@@ -58,7 +58,8 @@
 >    全 artifact 与 manifest 通过 secret scan 后才允许写 `containsSecrets=false`。源码快照清理完成
 >    后才捕获最终 artifact snapshot，并在内存虚拟快照中完成完整 PASS 验证；磁盘随后先写校验和、
 >    最后原子写入已验证 PASS manifest，最终目录 rename 是最后一个证据状态转换。任一不一致均失败
->    且不得宣称 PASS。
+>    且不得宣称 PASS。preflight/runtime target identity 使用独立于业务 Jackson 配置的证据 mapper，
+>    四个 freshness 计数必须写成 JSON integer，禁止继承面向前端的 `Long→String`。
 
 ## 1. 目标与范围
 - Maven 多模块后端骨架 + Spring Boot 启动。
@@ -114,7 +115,7 @@ platform-parent/  (pom，dependencyManagement 锁版本)
 
 ## 8. 验收清单
 
-> 2026-07-27 第六轮整改候选口径：严格遵守 `AGENTS.md §8/§12`，`[x]` 仅表示本候选所需门禁已经执行
+> 2026-07-27 第七轮整改候选口径：严格遵守 `AGENTS.md §8/§12`，`[x]` 仅表示本候选所需门禁已经执行
 > 且通过；`[~]` 表示实现已落地、但仍等待获授权的 fresh-schema 真实依赖门禁。带 † 的两项按文首
 > 修订记录调整了原口径。Phase 0 在全部 `[~]` 转为 `[x]` 且独立复核 PASS 前保持复核退回。
 
@@ -124,28 +125,30 @@ platform-parent/  (pom，dependencyManagement 锁版本)
 - [~] 在 fresh-schema 真实 MySQL/Redis/MinIO 上启动 Spring Boot 应用上下文。——
       `Phase00ScaffoldIT` / `Phase00ParameterMatrixIT` 使用 RANDOM_PORT 启动真实上下文并触发 Flyway；
       第四轮因 Redis INFO 多行解析缺陷、第五轮因 S3 deployment header 假设分别在 preflight FAIL，
-      两轮正式均为 0/33；第六轮等待用户新隔离栈 exact gate。
+      两轮正式均为 0/33；第六轮 preflight 与 exact 7/33 已全绿，但 evidence finalization 因
+      freshness 被写成字符串而 FAIL；第七轮等待用户新隔离栈完整 gate。
 - [~] 非生产 `/doc.html` 打开，示例接口可调通，返回统一 `Result`；生产文档面关闭。——
       `Phase00ScaffoldIT.docHtmlAndOpenApiAreServedWithoutAuthentication` 验证 dev `/doc.html` 200 +
       OpenAPI 文档含真实业务路径；`ApiDocumentationSecurityProfileTest` 验证 prod 文档 API/UI/静态资源
-      404 且 dev 保持公开。profile 单测已通过，真实 dev 文档 IT 等待第六轮最终动态门禁。
+      404 且 dev 保持公开。第六轮相关 testcase 已通过，第七轮最终动态门禁尚待执行。
 - [~] 抛 `BizException` → HTTP 200 + `{code≠0,msg}`；`@Valid` 失败 → 字段级错误。——
       `Phase00ScaffoldIT.bizExceptionReturnsHttp200WithBusinessCode` / `validationFailureReturnsFieldLevelError`。
       未捕获异常合同按 P1-10 修订为 HTTP 500 + 统一 Result（监控可见），由
       `uncaughtExceptionReturnsUnifiedResultWithoutStackTraceLeak` 断言统一体且不泄漏堆栈；
-      等待第六轮最终动态门禁。
+      第六轮相关 testcase 已通过，第七轮最终动态门禁尚待执行。
 - [~] CI 等价 MySQL/Redis/MinIO services 上后端可连通；`docker-compose.dev.yml` 可静态解析。——
-      第四、第五轮 supporting evidence 均不替代各自的 0/33；等待第六轮最终 CI/fresh-stack 动态门禁，
+      第六轮 preflight/7/33 与 Compose 分别通过，但总 gate 因 evidence finalization FAIL；
+      等待第七轮最终 CI/fresh-stack 完整门禁，
       不声称当前候选已 exact 启动 dev Compose。
 - [~] Flyway 自动建 `sys_param`/`file_object`/`audit_log`，并生成 `docs/README.md` §6 参数基线。——
       `Phase00ParameterMatrixIT.allDocumentedDefaultsHaveExpectedValueAndType` 在 fresh schema 对全部 **32**
       个 active 参数逐项核对 exact key/value/type，并以全表 key 集合比较拒绝未知项或缺失项；
-      源码/迁移静态矩阵已核对，真实 fresh schema 执行仍待第六轮最终动态门禁。
+      第六轮 testcase 已通过，第七轮最终动态门禁尚待执行。
 - [~] 上传任意文件返回 fileId；预签名 URL 限时可访问，过期返回 403/失效。——
       `Phase00ScaffoldIT.uploadWritesAuditRowAndPresignedUrlExpiresAfterTtl`（3 秒 TTL 正向下载逐字节一致 +
-      过期后同一 URL 403）等待第六轮最终动态门禁。
+      过期后同一 URL 403）第六轮已通过，第七轮最终动态门禁尚待执行。
 - [~] 标注 `@AuditLog` 的样例方法成功后写入 `audit_log`（操作人/时间/IP 不为空）。——同上用例对
-      `file/upload` 审计行的三字段非空断言等待第六轮最终动态门禁；更丰富链路由
+      `file/upload` 审计行的三字段非空断言第六轮已通过；第七轮最终动态门禁尚待执行，更丰富链路由
       `Phase13SystemAuditIT` 覆盖。
 - [x] `@DataScope` 单测：不同范围生成的 SQL 条件正确。——`DataScopeSqlHandlerTest` 9 例（COLLEGE IN/SELF/ASSIGNED/
       全校无条件/空集合与 NONE fail-closed/未注册表跳过/别名匹配）；`DataScopeMapperChainTest` 5 例
