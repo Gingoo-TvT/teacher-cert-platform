@@ -5,11 +5,11 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**❌ Phase 0 / U-004 仍为复核退回；第二轮候选待动态门禁与独立复核**。首轮正式报告 `docs/reviews/phase-00-remediation-rereview-2026-07-27.md` 保持 **CHANGES_REQUESTED（0 Critical / 0 High / 3 Medium / 4 Low）**；第二轮产品/测试/门禁候选为 `3bfe83d9eaa4486bb39cc89fc3f05a975319e3af`，材料为 `docs/reviews/phase-00-second-remediation-submission-2026-07-27.md`。通用摘要秒传 R10 退役、exact 6/25 CI/provenance、权威基线、prod docs、参数矩阵与 Mapper/DataScope 组合链已形成候选。统一入口为 `docs/CURRENT-EXECUTION-PLAN.md`。
-- 当前结论：WS-1/WS-2/WS-3/WS-10/WS-13 PASS；U-001/U-002/U-003 全部独立 PASS（Phase 42、39、41、47、53、44）。全项目仅剩 **Phase 0 / U-004** 一项退回；第二轮候选尚未获得真实依赖门禁和独立 PASS，未放行最终全量审计。
+- 当前阶段：**❌ Phase 0 / U-004 第二轮独立增量复核仍为 CHANGES_REQUESTED（0 Critical / 0 High / 2 Medium / 3 Low）**。正式报告为 `docs/reviews/phase-00-second-remediation-rereview-2026-07-27.md`，产品/测试/门禁点 `3bfe83d9eaa4486bb39cc89fc3f05a975319e3af`、材料 HEAD `c426480e718333ba864c2753c0a6c5d28b971221`。首轮 3 Medium 原失败条件、prod docs 与 DataScope Low 已关闭；新阻断是结束 HEAD 未复核、target marker 未绑定实际连接目标。统一入口为 `docs/CURRENT-EXECUTION-PLAN.md`。
+- 当前结论：WS-1/WS-2/WS-3/WS-10/WS-13 PASS；U-001/U-002/U-003 全部独立 PASS（Phase 42、39、41、47、53、44）。全项目仅剩 **Phase 0 / U-004** 一项退回；第二轮 2 Medium / 3 Low 尚待整改，真实依赖 exact 6/25 也未执行，未放行最终全量审计。
 - P0 放行项：Phase 41 上一轮 1 High / 2 Medium / 1 Low 全部关闭；正式 PASS 时新增的 1 个非阻断 Low 已在后续闭环——Gate A 示例补齐冷认证参数，runner 在 Maven 前强制受验证 TLS / `allowPublicKeyRetrieval=true` / 受控 RSA 公钥文件三选一，并由纯 stub 静态契约覆盖失败关闭。正式报告仍保留当时的 1 Low 快照。约 24 MiB 以上原始整行 fail-closed、写入侧未同界继续留最终全量审计。
-- 最近更新：2026-07-27（第二轮候选 `3bfe83d`；离线 gate 自测 **21/21**、当前源码 Surefire **266/266**、9/9 modules package、前端 lint/type-check/build 与 diff check PASS；未执行任何 Docker/数据库/Redis/MinIO/网络/服务/浏览器/cyber 操作）。
-- 下一步：由用户在获授权的全新一次性 MySQL/Redis/MinIO 隔离栈执行提交 SHA 绑定的 exact **6 suite / 25 testcase** gate，并交回完整 manifest/log/XML/hash 证据；随后独立增量复核。Phase 0 正式 PASS 后才执行最终全量审计，不得 merge、部署或宣称稳定发布 GO。
+- 最近更新：2026-07-27（第二轮独立复核：离线 gate **21/21**、聚焦 **18/18**、Surefire **266/266**、9/9 modules package、前端 lint/type-check/build 与 diff check PASS；未执行任何 Docker/数据库/Redis/MinIO/网络/服务/浏览器/cyber 操作）。
+- 下一步：先修复 gate 的 end-HEAD 绑定、target marker/真实目标绑定及 3 Low；之后由用户在获授权的全新一次性 MySQL/Redis/MinIO 隔离栈执行最终提交 SHA 的 exact **6 suite / 25 testcase** gate，并交回完整证据及 Compose/browser 必要结果。Phase 0 正式 PASS 后才执行最终全量审计，不得 merge、部署或宣称稳定发布 GO。
 ## 审计整改工作流
 | WS | 内容 | 状态 |
 |---|---|---|
@@ -23,7 +23,7 @@
 
 | 范围 | 实现状态 | 正式复核状态 | 本轮结论 |
 |---|---|---|---|
-| Phase 0 | 10/10；第二轮产品/测试/门禁候选 `3bfe83d` 未合并 | 首轮 `phase-00-remediation-rereview-2026-07-27.md` CHANGES_REQUESTED；第二轮材料 `phase-00-second-remediation-submission-2026-07-27.md` | ❌ 正式状态仍为复核退回；第二轮等待用户 exact 6/25 动态门禁与独立复核 |
+| Phase 0 | 10/10；第二轮产品/测试/门禁候选 `3bfe83d` 未合并 | `phase-00-second-remediation-rereview-2026-07-27.md` CHANGES_REQUESTED（2 Medium / 3 Low） | ❌ 正式状态仍为复核退回；先整改 provenance/清单，再运行最终 SHA exact 6/25 |
 | Phase 1–14 | 已完成 | 逐阶段 PASS 报告齐全 | ✅ 保持已复核 |
 | Phase 15–18 | WP-A/B/C/D 已完成 | WP 报告齐全 | ✅ 保持已复核 |
 | Phase 19–28 | 已完成 | 逐阶段 PASS 报告齐全 | ✅ 保持已复核（已纠正 26/28 滞后状态） |
@@ -43,7 +43,7 @@
 ## 阶段汇总
 | Phase | 名称 | 优先级 | 任务数 | 完成 | 状态 |
 |---|---|---|---|---|---|
-| 0 | 工程脚手架与基础设施 | P0 | 10 | 10 | ❌ 复核退回（第二轮候选 `3bfe83d` 待动态门禁/独立复核） |
+| 0 | 工程脚手架与基础设施 | P0 | 10 | 10 | ❌ 复核退回（第二轮 2 Medium / 3 Low；最终 SHA 动态门禁未执行） |
 | 1 | 基础数据与字典 | P0 | 12 | 12 | ✅ 已复核(Claude 06-14) |
 | 2 | 账号角色权限 | P0 | 7 | 7 | ✅ 已复核(Claude 06-16) |
 | 3 | 基本信息 | P0 | 9 | 9 | ✅ 已复核(Claude 06-16) |
@@ -62,7 +62,7 @@
 
 ---
 
-## Phase 0 · 工程脚手架与基础设施 — 10/10 实现完成，❌ 复核退回（第二轮候选待动态门禁/独立复核）
+## Phase 0 · 工程脚手架与基础设施 — 10/10 实现完成，❌ 复核退回（第二轮 2 Medium / 3 Low）
 - [x] T-001 创建 Maven 父工程与 8 子模块骨架
 - [x] T-002 platform-common 基础设施（Result/异常/枚举/注解/上下文）
 - [x] T-003 platform-boot 启动与全局配置（MyBatis-Plus/Jackson Long→String/数据源）

@@ -1,0 +1,181 @@
+Phase 0 / U-004 第二轮整改候选独立增量复核
+日期：2026-07-27
+复核者：OpenAI Codex（用户授权独立复核）
+
+一、冻结范围
+
+- 分支：codex/phase00-remediation
+- 首轮复核归档基线：
+  8e3217da5f39f55f8146fa6d4e638adf8406914f
+- 第二轮产品/测试/门禁提交：
+  3bfe83d9eaa4486bb39cc89fc3f05a975319e3af
+- 第二轮提交材料/最终复核 HEAD：
+  c426480e718333ba864c2753c0a6c5d28b971221
+- 冻结 diff：
+  8e3217da5f39f55f8146fa6d4e638adf8406914f..
+  c426480e718333ba864c2753c0a6c5d28b971221
+- 规模：30 files changed, 2903 insertions(+), 145 deletions(-)
+- 提交数：2
+- main：e4f8228（未合并）
+- remote：无
+
+复核开始和离线门禁结束后，tracked worktree 均无修改。保留了复核前已经存在的
+未跟踪审计材料；未 stage、commit、merge、push 或 deploy。
+
+二、工具快照
+
+- Git 2.54.0.windows.1
+- JDK 17.0.19 Temurin
+- Maven 3.9.9
+- Node v24.15.0
+- npm 11.12.1
+- Python 3.14.3
+
+三、独立允许范围内的门禁
+
+1. Phase 0 gate 纯离线反例：
+
+   python -B scripts\test_phase00_ci_gate.py
+
+   结果：PASS，21/21。
+
+2. 聚焦回归：
+
+   mvn -B -ntp -o
+     "-Dtest=DataScopeSqlHandlerTest,DataScopeMapperChainTest,
+     ApiDocumentationSecurityProfileTest,FileServiceUploadContractTest"
+     "-Dsurefire.failIfNoSpecifiedTests=false" test
+
+   结果：PASS，18/18，0 failure/error/skip。
+   - FileServiceUploadContractTest：2/2
+   - ApiDocumentationSecurityProfileTest：2/2
+   - DataScopeMapperChainTest：5/5
+   - DataScopeSqlHandlerTest：9/9
+   - reactor Checkstyle：0 violation
+
+   首次未给 PowerShell 的 -D 属性整体加引号，PowerShell/Maven 将
+   -Dsurefire.failIfNoSpecifiedTests=false 误解释为 lifecycle phase，0.3 秒失败且没有
+   执行任何测试。按 PowerShell 正确引用重跑后全绿；前一结果是命令构造错误，不是产品信号。
+
+3. 全量离线 Surefire：
+
+   mvn -B -ntp -o test
+
+   结果：PASS，31 suites / 266 tests，0 failure/error/skip。
+   - platform-system：7 suites / 53 tests
+   - platform-file：3 suites / 20 tests
+   - platform-boot：21 suites / 193 tests
+
+4. 后端离线打包：
+
+   mvn -B -ntp -o -DskipTests package
+
+   结果：PASS，9/9 reactor modules；生成 platform-boot fat JAR；
+   Checkstyle 0 violation。
+
+5. 前端：
+
+   npm --prefix frontend run lint
+   npm --prefix frontend run type-check
+   npm --prefix frontend run build
+
+   结果：三项均 PASS；build 只有既有的大 chunk warning。
+
+6. diff 卫生：
+
+   git diff --check
+     8e3217da5f39f55f8146fa6d4e638adf8406914f..
+     c426480e718333ba864c2753c0a6c5d28b971221
+
+   结果：PASS。
+
+四、首轮 finding 关闭核对
+
+- T-FILE 假闭环：关闭。通用上传的全局摘要复用合同按 R10 正式退役；普通同字节上传
+  在单测中真实执行两次 PUT/INSERT，在真实依赖 IT 中也真实调用两次并要求两个 READY 行。
+  Phase 7 的受信 fast-hit 保持业务边界内的独立合同。
+- 必需 suite 可静默消失：原失败条件关闭。spec 精确固定 6 suites / 25 testcases，
+  gate 删除旧报告、clean verify，并逐 suite/class/method/count/XML freshness 校验。
+- 权威文档冲突：关闭。npm、真实认证、最小 lint、Phase 0 复核退回和 WS-6 剩余范围已对齐。
+- prod 静态 docs：关闭。prod profile 前置 404 filter 与 9 类路径的 dev/prod MockMvc
+  正反例成立。
+- DataScope 层级漂移：关闭。新增 Aspect → Context → Mapper proxy → 生产
+  DataPermission/Pagination → count/data SQL 组合链。
+
+五、本轮确认的新问题
+
+M1 — gate 只在 Maven 前绑定 HEAD
+
+- scripts/phase00_ci_gate.py:761-762 读取并验证一次 HEAD。
+- scripts/phase00_ci_gate.py:790-797 结束时只复查 worktree clean，没有再次读取 HEAD。
+- scripts/phase00_ci_gate.py:909-910 把开始时 HEAD 写入 manifest。
+- 在 clean checkout 间切换、并发自动化或其它 clean HEAD 漂移时，Maven/XML/源码哈希
+  可以来自另一个提交，而 manifest 仍声明开始时的 candidate SHA。
+- 21 个离线反例没有 HEAD drift 用例。
+
+M2 — target marker 没有绑定实际连接目标
+
+- scripts/phase00_ci_gate.py:193-210 只检查 marker 非空、字符和秘密形态。
+- scripts/phase00_ci_gate.py:1141-1146 的 verifier 只重复相同语法检查。
+- 没有把 schema/mysql/redis/minio marker 与 SPRING_DATASOURCE_URL、
+  SPRING_DATA_REDIS_*、MINIO_ENDPOINT/MINIO_BUCKET 交叉比较，也没有从运行环境采集
+  credential-free 服务身份。
+- GitHub workflow 当前硬编码的 marker 与连接变量看起来一致，但手工证据路径（本仓库无
+  remote）完全依赖执行者同时正确填写两组值；错填时 gate 仍可把共享或其它目标标成隔离目标。
+
+L1 — evidence verifier 的来源/路径边界不完整
+
+- artifact 的 sourceSha256 在 verifier 中是可选字段；suite artifact 没有要求
+  sourcePath 必须等于 spec report；spec 本身未进入 manifest 哈希。
+- safe_relative_path 使用 PurePosixPath。在 Windows 上：
+  - "..\escape" 不包含 POSIX ".." part；
+  - "C:\outside\file.xml" 不被 PurePosixPath 视为 absolute；
+  - "\\server\share\file.xml" 同样不被视为 POSIX absolute。
+  与 Windows Path 拼接后可指向 evidence_dir 外。后续 exact directory coverage 会拒绝
+  最终 PASS，但拒绝前已经尝试读取/哈希外部路径。复核只做了路径解析证明，没有读取外部文件。
+
+L2 — Phase 清单把“应用上下文可启动”过早标为 [x]
+
+- docs/phase-00-脚手架.md:81-83 明确 [x] 表示本候选门禁已经执行并通过。
+- 同文档 :85-87 把“jar + 应用上下文可启动”整体标为 [x]。
+- 提交材料 :62-64 明确本轮只跑 Surefire/skipTests package，两个 RANDOM_PORT IT 未运行。
+- 因此 package 已证明，但最终候选应用上下文动态启动尚未证明；应拆分或暂置 [~]。
+
+L3 — “全部参数”矩阵只覆盖当前 schema 的 24/32 项默认参数
+
+- Phase00ParameterMatrixIT 锁定 docs/README.md §6 的 24 项。
+- fresh-schema 迁移另有 8 项未进入文档/矩阵：
+  login.lockThreshold、login.lockMinutes、captcha.ttlSeconds、
+  file.material.allowedTypes、file.exemption.allowedTypes、
+  file.maxSize.exemption、video.durationTarget、video.presign.expirySeconds。
+- 如该矩阵只代表 Phase 0 核心子集，应改名并明确边界；如声称 fresh-schema 全部默认参数，
+  应扩到当前 32 项。
+
+六、未执行的动态门禁
+
+本轮没有执行 Phase00ScaffoldIT、Phase00ParameterMatrixIT、Failsafe、Docker Compose
+解析、浏览器或任何真实 MySQL/Redis/MinIO 操作。因此 c426480/3bfe83d 尚无：
+
+- exact 6 suites / 25 testcases 的最终 SHA 动态证据；
+- fresh-schema 真实依赖启动/迁移/文件/审计/异常证据；
+- docker-compose.dev.yml 的本轮静态解析证据；
+- 非生产 doc.html 浏览器渲染/示例接口证据。
+
+建议先修复 M1/M2 与同轮 Low，再由用户在获授权的一次性隔离栈执行最终 HEAD 的 exact gate，
+并额外交回 docker compose config 结果。门禁失败时保留 FAIL manifest 和完整脱敏日志。
+
+七、安全边界
+
+本轮没有启动或连接 Docker、MySQL、Redis、MinIO、HTTP 服务、浏览器或网络；没有执行
+扫描、fuzz、故障注入、凭据、权限、攻击性或破坏性操作。所有执行命令均为本地、离线、
+自然退出的构建/测试/静态检查。动态步骤只作为用户后续操作要求记录，未由 Codex 执行。
+
+八、报告与归档校验
+
+- fuck-my-shit-mountain report_lint：
+  testing-authenticity, release, configuration, documentation,
+  supply-chain, security 六个受支持维度 PASS。
+- metadata JSON：PowerShell ConvertFrom-Json PASS。
+- finding card 数量：5，与 2 Medium / 3 Low 统计一致。
+- tracked git diff --check：PASS。
+- 新增报告、证据摘要、metadata trailing whitespace 检查：PASS。

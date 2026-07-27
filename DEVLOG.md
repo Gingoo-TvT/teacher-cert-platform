@@ -15,6 +15,15 @@
 
 ---
 
+## [2026-07-27] GOV-030 Phase 0 / U-004 第二轮独立增量复核 — CHANGES_REQUESTED（2 Medium / 3 Low）
+- 做了什么：冻结首轮复核归档 `8e3217d`、第二轮产品/测试/门禁点 `3bfe83d` 与材料 HEAD `c426480`，逐文件复核 30 路径；按 incremental、testing-authenticity、release、configuration、documentation、supply-chain、security 七维产出 `docs/reviews/phase-00-second-remediation-rereview-2026-07-27.md`、离线证据与机器可读 metadata。首轮 T-FILE 假闭环、必需 suite 可消失、权威文档冲突三项 Medium 的原失败条件全部关闭；prod docs 与 DataScope Low 也关闭。
+- 关键决策与理由：正式结论为 **CHANGES_REQUESTED（0 Critical / 0 High / 2 Medium / 3 Low）**。Medium：①gate 只在 Maven 前读取 HEAD，结束只验证 clean，clean checkout 漂移时会把另一提交的产物归给开始 SHA；②target marker 只做文本格式检查，未绑定实际 datasource/Redis/MinIO 配置或服务身份。Low：verifier 的 source/spec 与 Windows path containment 不完整；应用上下文尚未动态执行却与 package 合并标 `[x]`；参数矩阵只覆盖当前 fresh-schema 32 项中的 24 项。
+- 问题与解决：本轮没有把“exact 6/25 的设计存在”误写成“动态门禁已通过”。门禁需先修复 candidate/target provenance，再由用户执行一次最终 SHA 的隔离动态门禁，避免先跑旧 gate 后仍需重做。首轮历史报告保持原样，新报告追加审计时间线；活动总计划、进度和交接同步为第二轮正式退回。
+- 与规格的偏差/疑问：无业务规则、Flyway、权限点、API、前端流程或产品代码变更。通用摘要秒传 R10 退役与 Phase 7 受信 fast-hit 的边界成立；参数矩阵应选择“扩为当前 32 项全集”或明确命名为“24 项核心子集”，不得继续用含混的“全部参数”口径。
+- 测试：独立 `scripts/test_phase00_ci_gate.py` **21/21**；聚焦 Surefire **18/18**；全量离线 Surefire **31 suites / 266 tests**，0 failure/error/skip；9/9 modules package、Checkstyle 0、前端 lint/type-check/build、`git diff --check` 均 PASS。未执行 Phase00 Failsafe、Docker Compose、浏览器或真实 MySQL/Redis/MinIO。
+- 安全边界：未启动或连接 Docker、数据库、Redis、MinIO、HTTP 服务、浏览器或网络；未执行扫描、fuzz、故障注入、凭据、权限、攻击性或破坏性操作；未 stage/commit/merge/push/deploy。
+- 下一步：整改 2 Medium / 3 Low 后，由用户在获授权的全新一次性隔离栈执行最终 HEAD exact 6 suite / 25 testcase，并交回完整 PASS/FAIL evidence、credential-free target identity、运行前空状态/运行后清理结果；另补 Compose config 与必要浏览器证据。独立 PASS 后才进入最终全量审计。
+
 ## [2026-07-27] GOV-029 Phase 0 / U-004 第二轮退回整改候选 — `3bfe83d` 待用户动态门禁与独立复核
 - 做了什么：针对首轮正式报告的 3 Medium / 4 Low，冻结产品/测试/门禁候选 `3bfe83d9eaa4486bb39cc89fc3f05a975319e3af`（25 路径，`+2765/-131`）。按 R10 退役通用文件服务的摘要秒传合同，删除 `FileService.getByMd5`、通用 `upload` 的 `md5` 入参与持久化路径；相同字节的普通附件始终形成两个对象、两行元数据。新增 exact CI gate，固定 6 个 suite / 25 个 testcase，并绑定完整候选 SHA、tracked/untracked 构建输入清洁度、完整日志/XML、target marker、源码/工件哈希、manifest 与校验和。同步全部 Phase 0 权威文档；新增 prod docs 404、真实 Mapper/DataScope 插件链与 24 项参数矩阵证据。
 - 关键决策与理由：通用 `md5` 入参长期由生产调用者固定传 `null`，既无真实可用合同，又不应演变成客户端摘要驱动的全局对象探测/复用能力；因此选择完整退役而不是补一个不安全的伪秒传。Phase 7 的受信视频 fast-hit 已有 uploader/student/业务状态边界，是独立合同，不受影响。CI 以 exact 方法集合和 fresh 报告作为成功条件，避免目标 suite 删除、改名、跳过或旧 XML 造成假绿。

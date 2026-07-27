@@ -6,7 +6,7 @@
 
 ## 1. 当前基线与本轮结论
 
-- 当前分支：`codex/phase00-remediation`。Phase 39、Phase 41、Phase 47、Phase 53 与 Phase 44 均已独立 PASS。Phase 0 / U-004 首轮正式结论继续为 **CHANGES_REQUESTED（0 Critical / 0 High / 3 Medium / 4 Low）**，报告为 `reviews/phase-00-remediation-rereview-2026-07-27.md`；第二轮产品/测试/门禁候选已冻结为 `3bfe83d9eaa4486bb39cc89fc3f05a975319e3af`，材料为 `reviews/phase-00-second-remediation-submission-2026-07-27.md`。通用摘要秒传已按 R10 退役，exact 6 suite / 25 testcase 与 provenance gate、权威基线、prod docs 404、24 项参数矩阵及真实 Mapper/DataScope 组合链已形成候选。离线 gate 21/21、当前源码 Surefire 266/266、9 模块 package、前端 lint/type-check/build 全绿；真实依赖 exact gate 未由 Codex 执行，阶段与项目尚未 PASS。`main` 仍为 `e4f8228`，禁止擅自 merge/push。
+- 当前分支：`codex/phase00-remediation`。Phase 39、Phase 41、Phase 47、Phase 53 与 Phase 44 均已独立 PASS。Phase 0 / U-004 第二轮正式增量复核为 **CHANGES_REQUESTED（0 Critical / 0 High / 2 Medium / 3 Low）**，报告为 `reviews/phase-00-second-remediation-rereview-2026-07-27.md`；冻结产品/测试/门禁点 `3bfe83d9eaa4486bb39cc89fc3f05a975319e3af` 与材料 HEAD `c426480e718333ba864c2753c0a6c5d28b971221`。首轮 3 Medium 的原失败条件、prod docs 与 DataScope Low 已关闭；新阻断为 gate 不复核结束 HEAD，以及 target marker 未绑定实际 datasource/Redis/MinIO 目标。3 Low 为 verifier 来源/Windows 路径边界、应用上下文 `[x]` 过早、参数矩阵仅覆盖当前 32 项中的 24 项。独立离线 gate 21/21、Surefire 266/266、9 模块 package、前端 lint/type-check/build 全绿；真实依赖 exact 6/25 未执行。`main` 仍为 `e4f8228`，禁止擅自 merge/push。
 - Claude 当前不可用；用户于 2026-07-23 明确授权 Codex 作为本轮独立复核者。Phase 42 增量重核未采信实现自报，重新读码、核验现有真实 MySQL XML 与源码/编译时序，并独立执行安全的一次性构建门禁；按用户安全边界未重跑并发/latch、压力或任何可能属于 cyber 的验证。该应急授权只适用于本轮记录，不自动改写 `REVIEW-GATE` 的长期角色约定。
 - 原复核隔离空库基线：`mvn -B -ntp clean verify` 通过，Surefire **121/121**、Failsafe **144/144**，合计 **265/265**，Flyway V1–V28 与 `R__testseed` 成功。
 - WS-3 第二轮整改独立门禁：全新数据卷执行 Flyway V1–V29 成功，Surefire **121/121**、Failsafe **150/150**，合计 **271/271**；Phase 7 为 **29/29**；前端 type-check/build 通过。独立复核确认时间线、fast-hit、review 行锁和 V29 已闭环，但静态不变量仍发现 3 High / 3 Medium。
@@ -48,7 +48,8 @@
 - Phase 44 第四轮独立增量重核：正式冻结 `69f7462112e8df7aaffdd8d5f45914d3b030f5c6..228a3553607a8fb6ca2db048125d4137e65191ae`，材料 HEAD `9c3da0b7e6dff5faec1cc888ce99c90d5bff81b0` 只增加治理/提交材料，产品、测试与门禁路径未漂移。用户专用全新 MySQL/Redis 栈精确 **16/16**，XML SHA-256 `3505ead4877e0d280e56d837d3d7c0c5d2e6038a8279d979c9d9334769394981`，两个第四轮 testcase 均在 XML；棕地只读 preflight 为 `columns=2/2, invalid=0, noncanonical=0, collision=0`；Compose 非默认 `9m/3m` 与默认 `2m/20s` 双向展开。独立离线 `platform-system` **53/53**（更正用户摘要中的 46/46）、9 模块 package、前端 type-check/build、报告 lint 与 diff check PASS。第三轮 1 Medium / 4 Low 原失败条件全部关闭；新增 1 个非阻断 Low：preflight 尚未接入权威发布步骤，包装器证据缺数据库/账号/实例 target marker。正式结论 **PASS**。
 - Phase 0 / U-004 首轮独立增量重核：冻结 `dd04f21387f76adc7fc5d1443903ada0bec4d4c1..715b5f1c67a9943c5914eda08e485a1463c0524d`。两端 lint 与 api-docs 回归修复成立，Phase00 6/6、DataScope 9/9 的 XML/源码时间链可交叉支持运行事实；但同 MD5 用例只上传一次，宽泛 `mvn verify` 不锁定两个必需 suite，且全局 DoD/tasks/README/review gate 仍保留过时 Phase 0 口径。新增 4 Low 为 prod 静态 doc UI、证据 provenance、10/10 锚点过度与 T-DS-1 口径/层级漂移。独立离线 Surefire **257/257**、后端 9 模块 package、前端 lint/type-check/build、报告 lint 与 diff check PASS；正式结论 **CHANGES_REQUESTED（3 Medium / 4 Low）**。
 - Phase 0 / U-004 第二轮整改候选：冻结产品/测试/门禁点 `3bfe83d9eaa4486bb39cc89fc3f05a975319e3af`。按 R10 退役通用摘要秒传，两个测试层级均真实执行相同字节二次上传；exact gate 固定 6 suite / 25 testcase、候选 SHA、clean source、完整脱敏日志/XML、target marker、源码/工件哈希、manifest 与 `SHA256SUMS`；同步权威文档、prod docs 404、24 项参数矩阵和真实 Mapper/DataScope 组合链。整改者只执行离线 gate 21/21、Surefire 266/266、9 模块 package、前端 lint/type-check/build 与内部只读对抗检查；动态 exact gate 明确留给用户。
-- 全项目仍因 **Phase 0 / U-004** 保持 **CHANGES_REQUESTED**：WS-3、Phase 42、Phase 39、Phase 41、Phase 47、Phase 53 与 Phase 44 已独立 PASS；Phase 0 第二轮候选等待用户动态门禁与独立复核。Phase 7 两项广覆盖证据债、有效预签名链接的 bearer 合同与“未登录失败”规格冲突、Phase 39 三个基线债务候选、Phase 41 大行/生产灾备边界及 Phase 44 durable post-commit revision 边界留最终全量审计复查。
+- Phase 0 / U-004 第二轮独立增量重核：冻结 `8e3217d..c426480`，产品/测试/门禁点为 `3bfe83d`。首轮 3 Medium 全部按原失败条件关闭，prod docs 与 DataScope Low 关闭；独立离线 gate **21/21**、聚焦 **18/18**、Surefire **266/266**、9 模块 package、前端与 diff check 全绿。但 gate 只在 Maven 前绑定 HEAD，target marker 也未与真实连接变量/服务身份绑定，形成 **2 Medium**；3 Low 为 verifier 来源/Windows 路径边界、应用上下文 `[x]` 过早、参数矩阵仅 24/32。真实依赖 exact 6/25 尚未执行，正式结论 **CHANGES_REQUESTED（2 Medium / 3 Low）**。
+- 全项目仍因 **Phase 0 / U-004** 保持 **CHANGES_REQUESTED**：WS-3、Phase 42、Phase 39、Phase 41、Phase 47、Phase 53 与 Phase 44 已独立 PASS；Phase 0 先修复第二轮 2 Medium / 3 Low，再由用户执行最终 SHA 的隔离 exact 6/25 与 Compose/browser 必要证据。Phase 7 两项广覆盖证据债、有效预签名链接的 bearer 合同与“未登录失败”规格冲突、Phase 39 三个基线债务候选、Phase 41 大行/生产灾备边界及 Phase 44 durable post-commit revision 边界留最终全量审计复查。
 - 本轮是“逐阶段进度真实性 + 测试真实性 + 发布门禁”的复核，不替代最后的全量安全、业务规则、数据一致性、性能与运行期审计。
 
 ## 2. 逐阶段复核矩阵
@@ -61,7 +62,7 @@
 
 | 阶段 | 实现/合并状态 | 正式复核证据 | 本轮复核结论 |
 |---|---|---|---|
-| Phase 0 | 原始任务 10/10；第二轮产品/测试/门禁候选 `3bfe83d`（分支 `codex/phase00-remediation`）未合并 | 首轮 `reviews/phase-00-remediation-rereview-2026-07-27.md` CHANGES_REQUESTED；第二轮提交材料待动态/独立证据 | ❌ 正式状态仍为复核退回；等待用户 exact 6/25 动态门禁与第二轮独立复核 |
+| Phase 0 | 原始任务 10/10；第二轮产品/测试/门禁候选 `3bfe83d`（材料 HEAD `c426480`）未合并 | `reviews/phase-00-second-remediation-rereview-2026-07-27.md` CHANGES_REQUESTED（2 Medium / 3 Low） | ❌ 正式状态仍为复核退回；先修 provenance/清单问题，再运行最终 SHA exact 6/25 |
 | Phase 1 | 已完成 | `reviews/phase-01-review.md` PASS | ✅ 已复核；当前全量回归通过 |
 | Phase 2 | 已完成 | `reviews/phase-02-review.md` PASS | ✅ 已复核；当前全量回归通过 |
 | Phase 3 | 已完成 | `reviews/phase-03-review.md` PASS | ✅ 已复核；当前全量回归通过 |
@@ -136,7 +137,7 @@
 1. **U-001 CI 可复现性（WS-3 Major-3）—✅ 独立重核 PASS**：后端 job 的固定版本 MinIO、健康检查、桶初始化与前端 `npm run type-check` 已静态核对；独立 CI 等价环境全量 266/266、前端 type-check/build 通过。Phase 0 候选现已落地最小 ESLint；WS-6 只负责格式化、更严格规则、Vitest、Playwright 与 a11y。
 2. **U-002 WS-3 退回整改—✅ 独立重核 PASS**：`88d3136..2886442` 已确认关闭第五轮新增的 2 Medium：① reconciliation trigger 绑定独立 `TaskScheduler`，真实 scheduling + blocked backup 证据证明普通备份不再阻断对账提交；② `video_finalization_object_candidate` 纳入 37 表逻辑全量备份，scratch restore 后历史 generation、claim/retry/tombstone 完整且真实对账可续跑。唯一新增 Low 是提交材料把 32 个迁移写成 33 个，已在正式报告和活动文档勘误，不阻断。该报告只证明 candidate slice；当时仍独立退回的 Phase 41 整体备份问题现已由后续动态证据报告关闭。V32 发布继续遵守停写、停全部旧节点/worker、迁移、全量启动新实例后再放流，禁止 V31/旧稳定 key 协议混部与旧二进制回滚。独立报告为 `reviews/ws-03-sixth-remediation-rereview-2026-07-24.md`；未执行任何 cyber 指令，后续任何可能属于 cyber 的命令必须明确交由用户决定并亲自执行。
 3. **U-003 阶段退回整改—✅ 独立重核 PASS**：Phase 42、Phase 39、Phase 41、Phase 47、Phase 53 与 Phase 44 均已独立复核 PASS。Phase 44 第四轮 `69f7462..228a355` 的精确 16/16、棕地只读 identity preflight、Compose 双向展开与独立离线门禁成立，正式报告为 `reviews/phase-44-fourth-remediation-rereview-2026-07-27.md`；1 Low 非阻断，稳定发布前接入权威发布步骤并补 target marker。
-4. **U-004 Phase 0 复核退回整改—第二轮候选待动态门禁/独立复核**：首轮正式报告仍为 **CHANGES_REQUESTED（3 Medium / 4 Low）**。第二轮候选 `3bfe83d` 已按 R10 退役通用摘要秒传并补同字节二次上传真反例；CI 删除旧报告、精确锁定 6 suite / 25 testcase 与候选 SHA，并生成 clean-source/full-log/XML/manifest/hash/target-marker 证据；全局权威基线、prod docs 负向、参数矩阵与 T-DS-1 Mapper 组合链同步闭环。离线门禁全绿，但真实依赖 exact gate 尚未执行；用户按 `reviews/phase-00-second-remediation-submission-2026-07-27.md` 运行并交证据后，再做独立增量复核。第二轮独立 PASS 后才执行最终全量审计。
+4. **U-004 Phase 0 复核退回整改—第二轮独立重核 CHANGES_REQUESTED（2 Medium / 3 Low）**：首轮 3 Medium 的原失败条件、prod docs 与 DataScope Low 已关闭；正式报告为 `reviews/phase-00-second-remediation-rereview-2026-07-27.md`。新 Medium：gate 不验证 Maven 结束 HEAD 仍等于候选，target marker 不绑定实际 datasource/Redis/MinIO 目标。Low：verifier 来源/Windows 路径 containment、应用上下文 `[x]` 过早、参数矩阵 24/32。先整改门禁与清单，再由用户在获授权隔离栈执行最终 SHA exact 6/25，并补 Compose/browser 必要证据；独立 PASS 后才执行最终全量审计。
 
 ### P1：当前产品需求与上线安全
 
@@ -173,4 +174,4 @@
 2. 业务规格变化仍必须先改 `plan.md`/对应 phase 文档，并按 R10 写 `DEVLOG.md`；本文件只同步执行项。
 3. 阶段实现完成只能置“待复核”；独立复核报告 PASS 后，才能在本文件与 `PROGRESS.md` 同步置“✅ 已复核”。
 4. 每次复核同时记录：代码提交、测试命令/计数、运行环境、反例、未覆盖项、结论。
-5. 最终全量审计前，U-001–U-004 必须全部闭环；U-001/U-002/U-003 已独立重核 PASS，U-004 首轮正式状态仍为 CHANGES_REQUESTED，第二轮候选 `3bfe83d` 正等待用户 exact 6/25 动态门禁与独立复核。Phase 0 第二轮独立 PASS 后再执行用户要求的最终全量审计；此前不得宣称稳定发布就绪。
+5. 最终全量审计前，U-001–U-004 必须全部闭环；U-001/U-002/U-003 已独立重核 PASS，U-004 第二轮正式状态为 CHANGES_REQUESTED（2 Medium / 3 Low）。先修复 evidence gate 与验收边界，再执行最终 SHA exact 6/25 并独立复核；Phase 0 PASS 后才执行用户要求的最终全量审计，此前不得宣称稳定发布就绪。
