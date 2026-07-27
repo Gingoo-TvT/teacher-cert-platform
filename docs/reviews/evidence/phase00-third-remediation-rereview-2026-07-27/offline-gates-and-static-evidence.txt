@@ -1,0 +1,148 @@
+Phase 0 / U-004 第三轮整改候选独立增量复核
+日期：2026-07-27
+复核者：OpenAI Codex（用户授权独立复核）
+
+一、冻结范围
+
+- 分支：codex/phase00-remediation
+- 第二轮报告归档基线：
+  5d3aa88abc7e596a5b98c402a0c4aff2894bbc3a
+- 第三轮产品/测试/门禁提交：
+  cc5786cc1c1ed1a243152bf306eca6998bbc0eee
+- 第三轮提交材料/最终复核 HEAD：
+  30a76c8a52d053f39c1b974287434c1390e150ee
+- 完整冻结 diff：
+  5d3aa88abc7e596a5b98c402a0c4aff2894bbc3a..
+  30a76c8a52d053f39c1b974287434c1390e150ee
+- 完整规模：19 files changed, 7869 insertions(+), 340 deletions(-)
+- 实现规模：14 files changed, 7669 insertions(+), 323 deletions(-)
+- 提交数：2
+- implementation commit 是 material HEAD 的祖先：true
+- remote：无
+
+复核开始时 tracked worktree clean，仅保留既有未跟踪审计材料。未 stage、commit、
+merge、push 或 deploy。
+
+二、工具快照
+
+- Git 2.54.0.windows.1
+- JDK 17.0.19 Temurin
+- Maven 3.9.9
+- Node v24.15.0
+- npm 11.12.1
+- Python 3.14.3
+
+三、独立允许范围内的门禁
+
+1. Phase 0 gate 纯离线反例
+
+   python -B scripts/test_phase00_ci_gate.py -v
+
+   结果：PASS，60/60。
+
+2. 全量离线 Surefire
+
+   mvn -B -ntp -o clean test
+
+   结果：BUILD SUCCESS。命令结束后、下一次 clean package 前立即解析全部新鲜
+   target/surefire-reports/TEST-*.xml：
+
+   suites=32
+   tests=274
+   failures=0
+   errors=0
+   skipped=0
+
+   其中 Phase00TargetGuardInitializerTest 8/8。
+   控制台中的 ERROR 堆栈来自既有失败分支反例；XML 和 Maven 最终计数均为 0 failure/error/skip。
+
+3. 后端 clean package
+
+   mvn -B -ntp -o -DskipTests clean package
+
+   结果：PASS，9/9 reactor modules；platform-boot executable fat JAR 生成；
+   Checkstyle 0 violation。仅有既有 deprecated API 编译提示。
+
+4. 前端
+
+   npm --prefix frontend run lint
+   npm --prefix frontend run type-check
+   npm --prefix frontend run build
+
+   结果：三项均 PASS；build 只有既有的 >900 kB chunk warning。
+
+5. frozen diff hygiene
+
+   git diff --check
+     5d3aa88abc7e596a5b98c402a0c4aff2894bbc3a..
+     30a76c8a52d053f39c1b974287434c1390e150ee
+
+   结果：PASS。
+
+6. P00-R3-M1 安全内存级反例
+
+   将 scripts.phase00_ci_gate.verify_evidence 替换为只抛 OSError("locked") 的
+   in-memory stub，将 persist_manifest 替换为只记录 status 的 stub，然后调用
+   self_verify_or_downgrade。
+
+   结果：
+
+   OSError PASS ['PASS']
+
+   含义：函数先持久化 PASS；非 GateError 未触发 downgrade。反例没有文件写入、服务连接、
+   网络、容器或攻击性动作。
+
+四、第二轮 finding 关闭核对
+
+- M1 candidate drift：关闭。preflight/formal 分别从 expected commit Git objects 物化，
+  三点 HEAD、tree、path/mode/blob manifest 与 spec hash 均为 PASS 前置。
+- M2 target marker：关闭。marker 与 canonical config 精确比较；preflight/initializer/runtime
+  分别读取并交叉比较 MySQL UUID、Redis run_id/db、MinIO identity/deployment ID。
+- L1 原静态 Windows/source/spec 边界：关闭。drive/UNC/backslash/ADS/reserved/trailing、
+  strict JSON、candidate/live/archive spec 和 exact artifact provenance 已补齐。
+- L2 checklist：关闭。package [x] 与 fresh-schema context [~] 已拆分。
+- L3 params：关闭。migration、README、IT 均为 32 项 exact active set，key/value/type 无差异。
+
+五、本轮确认的新问题
+
+M1 — 自校验普通 I/O 异常后可保留 PASS manifest
+
+- self_verify_or_downgrade 先 persist PASS，只 except GateError。
+- verifier 中 sha256_file/read_bytes/stat 可抛 OSError/PermissionError。
+- main 也只捕获 GateError。
+- 命令失败与 evidence status 可能相互矛盾；Actions if:always 仍会上传目录。
+
+L1 — evidence containment 的 check/open TOCTOU
+
+- resolve_contained_path 检查父链和 reparse 后返回路径。
+- 后续 read/hash/stat 重新按路径打开，没有持有 no-follow handle。
+- 静态 reparse 测试成立，但检查后替换没有覆盖。
+- 本轮遵照用户安全边界，没有执行竞态 harness。
+
+L2 — MinIO 身份 header 未纳入无秘密证明
+
+- Server/x-minio-deployment-id 是外部响应文本，写入 preflight/runtime identity JSON。
+- identity artifact 原样归档，无 redactions。
+- manifest 无条件声明 containsSecrets=false。
+
+六、未执行的动态门禁
+
+本轮没有执行 Phase00TargetPreflight 的真实连接、Phase00ScaffoldIT、
+Phase00ParameterMatrixIT、Failsafe、Docker Compose、浏览器或任何真实
+MySQL/Redis/MinIO 操作。因此 30a76c8 尚无：
+
+- 真实 preflight 与首次 0/0/1/0；
+- exact 7 suites / 33 testcases；
+- fresh-schema context、Flyway、HTTP、MinIO 与 audit evidence；
+- docker-compose.dev.yml config；
+- 非生产 doc.html 浏览器结果；
+- 隔离容器、网络和数据卷销毁结果。
+
+由于新增 Medium 位于 evidence finalization，建议不要先运行当前 SHA 的动态门禁。
+先修 1 Medium / 2 Low，再针对新最终 SHA 只运行一次隔离 7/33。
+
+七、安全边界
+
+未启动或连接 Docker、MySQL、Redis、MinIO、HTTP 服务、浏览器或网络；未执行扫描、
+fuzz、故障注入、凭据、权限、攻击性、破坏性或其它可能属于 cyber 的动作。
+所有实际执行均为本地、离线、自然退出的构建/测试/静态检查。

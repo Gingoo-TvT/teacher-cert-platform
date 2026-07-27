@@ -15,6 +15,15 @@
 
 ---
 
+## [2026-07-27] GOV-032 Phase 0 / U-004 第三轮独立增量复核 — CHANGES_REQUESTED（1 Medium / 2 Low）
+- 做了什么：冻结第二轮报告归档 `5d3aa88abc7e596a5b98c402a0c4aff2894bbc3a`、第三轮实现 `cc5786cc1c1ed1a243152bf306eca6998bbc0eee` 与材料 HEAD `30a76c8a52d053f39c1b974287434c1390e150ee`（完整增量 2 提交、19 路径、`+7869/-340`；实现增量 14 路径、`+7669/-323`）。逐项复核 Git-object snapshot、candidate/source/spec provenance、preflight/formal 三点 HEAD、marker/config/真实服务身份设计、Windows/manifest、应用上下文状态和 32/32 参数矩阵，产出 `docs/reviews/phase-00-third-remediation-rereview-2026-07-27.md`、离线证据摘要与机器可读 metadata。第二轮 2 Medium / 3 Low 均按原失败条件关闭。
+- 关键决策与理由：正式结论为 **CHANGES_REQUESTED（0 Critical / 0 High / 1 Medium / 2 Low）**。Medium `P00-R3-M1`：`self_verify_or_downgrade` 先持久化 PASS，再自校验且只捕获 `GateError`；普通 `OSError` / `PermissionError` 会令进程失败，却可能留下并被 Actions `if: always()` 上传的表面 PASS evidence。Low `P00-R3-L1`：containment 检查与后续 reopen 分离，同用户并发 reparse/symlink 替换存在 TOCTOU。Low `P00-R3-L2`：MinIO `Server` / `x-minio-deployment-id` 响应头未经 schema 收窄或 redactor 进入 identity JSON，但 manifest 无条件声明 `containsSecrets=false`。
+- 问题与解决：用不落盘的内存级 monkeypatch 反例让 verifier 抛 `OSError`，稳定得到 `OSError PASS ['PASS']`，证明失败退出与已持久化状态矛盾；未运行涉及符号链接竞态、外部服务或环境破坏的验证。建议使用 staging/PENDING、捕获所有失败并原子发布最终 PASS；evidence 读取改为 handle/descriptor anchored no-follow 或独占 staging；身份对象只归档规范化 allowlist 字段并通过无秘密校验。
+- 与规格的偏差/疑问：无业务规则、Flyway、权限点、API 或前端产品流程变化。真实依赖 exact 合同仍为 7 suites / 33 testcases，但本轮因证据最终化存在阻断 Medium，不应先对当前 SHA 运行动态门禁。Surefire rerun/flaky 节点拒绝与 suite/support ID 字符集收窄记录为后续加固，不计本轮 finding。
+- 测试：独立纯离线 `python -B scripts/test_phase00_ci_gate.py -v` **60/60**；`mvn -B -ntp -o clean test` **32 suites / 274 tests**、0 failure/error/skip；`mvn -B -ntp -o -DskipTests clean package` **9/9 modules BUILD SUCCESS**、Checkstyle 0；前端 lint/type-check/build PASS；`git diff --check 5d3aa88..30a76c8` PASS。真实 MySQL/Redis/MinIO exact 7/33、Compose 与浏览器均未执行。
+- 安全边界：未启动或连接 Docker、数据库、Redis、MinIO、网络、HTTP 服务或浏览器；未执行扫描、fuzz、故障注入、凭据/权限、竞态文件替换、攻击性或破坏性操作；未 stage/commit/merge/push/deploy。
+- 下一步：先修 1 Medium / 2 Low 并增加所有异常路径“不得留下 PASS”纯离线反例；不要运行当前 SHA 的动态 7/33。修复后由用户在获授权的一次性隔离栈对新的最终 clean SHA 执行 exact 7/33、Compose config 与必要浏览器门禁，交回完整 evidence 后再做独立增量复核。Phase 0 PASS 前不进入最终全量审计。
+
 ## [2026-07-27] GOV-031 Phase 0 / U-004 第三轮退回整改候选 — `cc5786c` 待用户动态 7/33 与独立复核
 - 做了什么：针对第二轮正式报告的 2 Medium / 3 Low，形成产品/测试/门禁候选 `cc5786cc1c1ed1a243152bf306eca6998bbc0eee`（`5d3aa88..cc5786c`，14 路径，`+7669/-323`）。gate 改为从 expected candidate 的 Git tree/blob 物化不可变源码：preflight 后逐文件复核，删除构建树并从同一候选重物化 formal，formal 后再次复核；同时绑定 start/after-preflight/end HEAD。新增独立目标预检与 Spring initializer，把 marker 精确绑定到实际 datasource/Redis/MinIO 配置，并用 MySQL UUID、Redis run_id、MinIO 一次性身份对象/deployment ID 与 0/0/1/0 fresh 状态建立 preflight/runtime 双证据。补齐 Windows/reparse/strict manifest 边界，将应用上下文保持 `[~]`，参数矩阵扩为当前 32/32。
 - 关键决策与理由：①工作树不是候选权威，Maven 只能消费 Git object 快照；preflight 可能写源码或 clean HEAD 可能在窗口内切换，因此 formal 必须从同一候选重新物化，而不是继续复用预检树。②marker 只能证明自报文本，不能证明连接对象；预检必须在 Spring/Flyway 前读取真实服务身份与空状态，正式 context 又必须以 Spring 实际解析值复核，任一不一致失败关闭。③离线 verifier 不能从当前工作树加载可弱化 spec；内部只读检查发现这一剩余 Medium 后，改为直接读取 expected candidate 的 spec Git blob，并要求 live/archive 逐字节相同，随后新增真实临时 Git repo 与 fail-before-manifest 两条反例。

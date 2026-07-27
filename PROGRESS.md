@@ -5,11 +5,11 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**❌ Phase 0 / U-004 正式状态仍为 CHANGES_REQUESTED（第二轮 0 Critical / 0 High / 2 Medium / 3 Low）**。正式报告为 `docs/reviews/phase-00-second-remediation-rereview-2026-07-27.md`；第三轮产品/测试/门禁候选为 `cc5786cc1c1ed1a243152bf306eca6998bbc0eee`，提交材料为 `docs/reviews/phase-00-third-remediation-submission-2026-07-27.md`。候选已逐项整改第二轮 2 Medium / 3 Low，但尚无最终 SHA 动态证据和独立正式 PASS。统一入口为 `docs/CURRENT-EXECUTION-PLAN.md`。
-- 当前结论：WS-1/WS-2/WS-3/WS-10/WS-13 PASS；U-001/U-002/U-003 全部独立 PASS（Phase 42、39、41、47、53、44）。全项目仅剩 **Phase 0 / U-004** 一项退回；第三轮候选已把 exact gate 扩为 **7 suite / 33 testcase**，真实依赖门禁仍未执行，因此未放行最终全量审计。
+- 当前阶段：**❌ Phase 0 / U-004 第三轮独立增量复核为 CHANGES_REQUESTED（0 Critical / 0 High / 1 Medium / 2 Low）**。实现提交为 `cc5786cc1c1ed1a243152bf306eca6998bbc0eee`，材料 HEAD 为 `30a76c8a52d053f39c1b974287434c1390e150ee`；正式报告为 `docs/reviews/phase-00-third-remediation-rereview-2026-07-27.md`。第二轮 2 Medium / 3 Low 已全部按原失败条件关闭；本轮新增证据自校验异常后可残留 PASS manifest 的 1 Medium，以及路径 check-then-open TOCTOU、MinIO 响应头未经收窄却声明无秘密的 2 Low。统一入口为 `docs/CURRENT-EXECUTION-PLAN.md`。
+- 当前结论：WS-1/WS-2/WS-3/WS-10/WS-13 PASS；U-001/U-002/U-003 全部独立 PASS（Phase 42、39、41、47、53、44）。全项目仅剩 **Phase 0 / U-004** 一项退回；exact gate 已扩为 **7 suite / 33 testcase**，但真实依赖门禁尚未执行，且当前 SHA 必须先修复新的 evidence finalization 问题，因此未放行最终全量审计。
 - P0 放行项：Phase 41 上一轮 1 High / 2 Medium / 1 Low 全部关闭；正式 PASS 时新增的 1 个非阻断 Low 已在后续闭环——Gate A 示例补齐冷认证参数，runner 在 Maven 前强制受验证 TLS / `allowPublicKeyRetrieval=true` / 受控 RSA 公钥文件三选一，并由纯 stub 静态契约覆盖失败关闭。正式报告仍保留当时的 1 Low 快照。约 24 MiB 以上原始整行 fail-closed、写入侧未同界继续留最终全量审计。
-- 最近更新：2026-07-27（第三轮候选 `cc5786c`：纯离线 gate **60/60**、Surefire **274/274**、target guard **8/8**、9/9 modules clean package、前端 lint/type-check/build 与 diff check PASS；候选 spec Git-blob 加固的独立只读增量检查 0 High / 0 Medium / 0 Low，但不构成正式阶段复核。未执行任何 Docker/数据库/Redis/MinIO/网络/服务/浏览器/cyber 操作）。
-- 下一步：由用户在获授权的全新一次性 MySQL/Redis/MinIO 隔离栈执行**包含提交材料的最终 SHA**之 exact **7 suite / 33 testcase** gate，并交回完整 evidence、`docker compose ... config --quiet` 及必要浏览器结果；随后进行独立增量复核。Phase 0 正式 PASS 后才执行最终全量审计，不得 merge、部署或宣称稳定发布 GO。
+- 最近更新：2026-07-27（第三轮独立重核冻结 `5d3aa88..30a76c8`：纯离线 gate **60/60**、Surefire **32 suites / 274 tests**、9/9 modules clean package、Checkstyle 0、前端 lint/type-check/build 与 diff check PASS；内存级反例得到 `OSError PASS ['PASS']`，确认非 `GateError` 自校验异常会留下表面 PASS。未执行任何 Docker/数据库/Redis/MinIO/网络/服务/浏览器/cyber 操作）。
+- 下一步：先修复本轮 1 Medium / 2 Low，并为所有异常路径增加“不得留下 PASS”纯离线反例；**不要先运行当前 SHA 的动态 7/33**。修复后再由用户在获授权的全新一次性隔离栈对新的最终 clean SHA 执行 exact **7 suite / 33 testcase**、Compose config 与必要浏览器门禁，交回完整 evidence 后做独立增量复核。Phase 0 正式 PASS 后才执行最终全量审计，不得 merge、部署或宣称稳定发布 GO。
 ## 审计整改工作流
 | WS | 内容 | 状态 |
 |---|---|---|
@@ -23,7 +23,7 @@
 
 | 范围 | 实现状态 | 正式复核状态 | 本轮结论 |
 |---|---|---|---|
-| Phase 0 | 10/10；第三轮产品/测试/门禁候选 `cc5786c` 未合并 | 第二轮正式报告仍为 CHANGES_REQUESTED（2 Medium / 3 Low）；第三轮材料待动态证据与独立复核 | ❌ 正式状态仍为复核退回；候选 finding 已整改，待最终 SHA exact 7/33 |
+| Phase 0 | 10/10；第三轮产品/测试/门禁候选 `cc5786c`、材料 HEAD `30a76c8` 未合并 | `phase-00-third-remediation-rereview-2026-07-27.md` CHANGES_REQUESTED（1 Medium / 2 Low） | ❌ 第二轮 2 Medium / 3 Low 已关闭；先修本轮 evidence finding，再跑新最终 SHA exact 7/33 |
 | Phase 1–14 | 已完成 | 逐阶段 PASS 报告齐全 | ✅ 保持已复核 |
 | Phase 15–18 | WP-A/B/C/D 已完成 | WP 报告齐全 | ✅ 保持已复核 |
 | Phase 19–28 | 已完成 | 逐阶段 PASS 报告齐全 | ✅ 保持已复核（已纠正 26/28 滞后状态） |
@@ -43,7 +43,7 @@
 ## 阶段汇总
 | Phase | 名称 | 优先级 | 任务数 | 完成 | 状态 |
 |---|---|---|---|---|---|
-| 0 | 工程脚手架与基础设施 | P0 | 10 | 10 | ❌ 复核退回（第三轮候选 `cc5786c` 待最终 SHA 7/33 与独立复核） |
+| 0 | 工程脚手架与基础设施 | P0 | 10 | 10 | ❌ 复核退回（第三轮独立重核 1 Medium / 2 Low） |
 | 1 | 基础数据与字典 | P0 | 12 | 12 | ✅ 已复核(Claude 06-14) |
 | 2 | 账号角色权限 | P0 | 7 | 7 | ✅ 已复核(Claude 06-16) |
 | 3 | 基本信息 | P0 | 9 | 9 | ✅ 已复核(Claude 06-16) |
@@ -62,7 +62,7 @@
 
 ---
 
-## Phase 0 · 工程脚手架与基础设施 — 10/10 实现完成，❌ 复核退回（第三轮候选待动态 7/33 与独立复核）
+## Phase 0 · 工程脚手架与基础设施 — 10/10 实现完成，❌ 复核退回（第三轮 1 Medium / 2 Low）
 - [x] T-001 创建 Maven 父工程与 8 子模块骨架
 - [x] T-002 platform-common 基础设施（Result/异常/枚举/注解/上下文）
 - [x] T-003 platform-boot 启动与全局配置（MyBatis-Plus/Jackson Long→String/数据源）
