@@ -15,6 +15,14 @@
 
 ---
 
+## [2026-07-27] GOV-043 Phase 0 / U-004 第九轮 M1 最小整改候选 — `f3fa054`
+- 做了什么：只收口第八轮正式报告剩余的 `P00-R3-M1`。先补 canonical marker rename 入口 mutate/delete 两条确定性反例，旧实现均得到 `verified=True` 并先红；随后删除 withheld marker、final-path capture 与文件级 marker rename。完整 canonical bundle 在随机私有 sibling 中完成 payload match 和全量 verifier 后，以一次目录 rename 作为最后且唯一的成功转换。
+- 关键决策与理由：按正式报告给出的最小修法明确威胁边界：producer-private 是所有权前提而非 ACL；同 security principal 不在 verify→rename 间写私有 sibling，final 同期保持不存在。rename 不冻结 descendants，消费者必须完整校验 bundle，不能只信 `manifest.status`。未引入跨平台锁、ACL、`renameat2` 或不可变存储，避免 overengineering。
+- 问题与解决：第八轮“final capture 后再 marker rename”仍留窗口；本轮通过移除整个两阶段链而不是再加一次校验关闭。原“directory rename wrapper 内先篡改 private source”与正式收窄威胁模型冲突，改为目录 rename 抛错 fail-closed；另锁定成功后不再 capture。三路独立只读复审在该正式边界内最终均为 0 finding。
+- 与规格的偏差/疑问：无产品、API、Flyway、权限、依赖、配置、POSIX L1 或 exact 7/33 合同变化。发布后同账号主动篡改、断电持久化与特殊远程文件系统不在本轮保证内，完整 verifier 继续负责检测 evidence 变更。
+- 测试：Python **79 methods：Windows 77 PASS / 2 POSIX-only skipped**；离线 Surefire **32 suites / 274 tests**、0 failure/error/skip；后端 package **9/9 modules BUILD SUCCESS**、Checkstyle 0；`git diff --check` PASS。
+- 安全边界/下一步：Codex 未执行 Docker、MySQL、Redis、MinIO、网络、服务或浏览器。固化新最终 SHA 后，由 Linux/POSIX 跑 79/79，再由用户/获授权环境执行全新隔离栈 exact 7/33、离线 verify、Compose 与专属资源清理；正式独立 PASS 前继续 CHANGES_REQUESTED。
+
 ## [2026-07-27] GOV-042 Phase 0 / U-004 第八轮正式独立增量复核 — CHANGES_REQUESTED（1 Medium）
 - 做了什么：冻结 `9b97741a3da921e3bce648e0c98fdb2892ec72e2..1c9d41696574ff2b4d50a5908f5998c3ed55b437`，逐函数复核第八轮 M1/L1 实现与 77 项 Python 合同；正式报告和离线摘要为 `docs/reviews/phase-00-eighth-remediation-rereview-2026-07-27.md`、`docs/reviews/evidence/phase00-eighth-remediation-rereview-2026-07-27/`。L1 已在代码/合同层面关闭：POSIX root 从 `/` 起逐段 no-follow stat/openat/fstat，祖先 fd 持有到末次逐边复核，两项 Linux-only 反例命中原失败条件。
 - 关键决策与理由：M1 仍未完全关闭。final capture/match 返回并释放句柄后，canonical marker 才 rename 为 `manifest.json`；纯离线协调反例在 marker rename 入口改写 artifact，稳定得到 `verified=true`、canonical PASS 可见，而 SHA256SUMS 立即不一致。现有 `inside-rename` 测试实际注入私有目录到 final 的 rename，随后 final capture 会捕获，未覆盖该窗口。此项属于原 M1，不新增 finding。

@@ -5,11 +5,11 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**❌ Phase 0 / U-004 继续 CHANGES_REQUESTED（第八轮正式计数 0 Critical / 0 High / 1 Medium / 0 Low）**。最终 HEAD `1c9d416` 已关闭 L1 的 POSIX 祖先 fd 合同；M1 仍有 final capture 后至 canonical marker rename 前的 artifact 变更窗口。统一入口为 `docs/CURRENT-EXECUTION-PLAN.md`。
-- 当前结论：WS-1/WS-2/WS-3/WS-10/WS-13 PASS；U-001/U-002/U-003 全部独立 PASS（Phase 42、39、41、47、53、44）。全项目仅剩 **Phase 0 / U-004** 一项复核退回；第八轮正式报告为 `docs/reviews/phase-00-eighth-remediation-rereview-2026-07-27.md`，下一轮只修剩余 1 Medium。
+- 当前阶段：**❌ Phase 0 / U-004 继续 CHANGES_REQUESTED（最后正式计数 0 Critical / 0 High / 1 Medium / 0 Low）**。第八轮报告仍是权威正式结论；第九轮实现 `f3fa054` 已按其最小修法收口 M1，但尚未取得新最终 SHA 的动态 evidence 与正式独立 PASS。统一入口为 `docs/CURRENT-EXECUTION-PLAN.md`。
+- 当前结论：WS-1/WS-2/WS-3/WS-10/WS-13 PASS；U-001/U-002/U-003 全部独立 PASS（Phase 42、39、41、47、53、44）。全项目仅剩 **Phase 0 / U-004** 一项复核退回；第九轮候选不能用开发者自测自行关闭正式 1 Medium。
 - P0 放行项：Phase 41 上一轮 1 High / 2 Medium / 1 Low 全部关闭；正式 PASS 时新增的 1 个非阻断 Low 已在后续闭环——Gate A 示例补齐冷认证参数，runner 在 Maven 前强制受验证 TLS / `allowPublicKeyRetrieval=true` / 受控 RSA 公钥文件三选一，并由纯 stub 静态契约覆盖失败关闭。正式报告仍保留当时的 1 Low 快照。约 24 MiB 以上原始整行 fail-closed、写入侧未同界继续留最终全量审计。
-- 最近更新：2026-07-27（第八轮正式增量复核：L1 静态关闭；M1 marker-window 反例得到 `verified=true` + canonical PASS + checksum mismatch。Python **77 methods：Windows 75 PASS / 2 POSIX-only skipped**；Surefire **274/274**；后端 package **9/9**、Checkstyle 0；未找到 r8 动态 evidence。Codex 未执行 Docker、真实依赖、网络、服务或浏览器）。
-- 下一步：先只收口 M1 并固化新最终 SHA；再执行 Linux/POSIX 77/77，并由用户/获授权环境在全新一次性隔离栈重跑完整 gate，补 Compose `config --quiet` 与本轮专属容器/网络/卷销毁结果。不要求浏览器。正式独立 PASS 后才进入最终全量审计。
+- 最近更新：2026-07-27（第九轮实现 `f3fa054`：完整 canonical bundle 私有 verifier 后以单次目录 rename 发布，删除 withheld marker/final capture 链；威胁边界明确为 ownership assumption，消费者必须完整复验。Python **79 methods：Windows 77 PASS / 2 POSIX-only skipped**；Surefire **274/274**；后端 package **9/9**、Checkstyle 0；三路静态复审 0 finding。Codex 未执行 Docker、真实依赖、网络、服务或浏览器）。
+- 下一步：Linux/POSIX 对最终 SHA 执行 Python 79/79；随后由用户/获授权环境在全新一次性隔离栈重跑完整 gate，并补 Compose `config --quiet` 与本轮专属容器/网络/卷销毁结果。不要求浏览器。正式独立 PASS 后才进入最终全量审计。
 ## 审计整改工作流
 | WS | 内容 | 状态 |
 |---|---|---|
@@ -23,7 +23,7 @@
 
 | 范围 | 实现状态 | 正式复核状态 | 本轮结论 |
 |---|---|---|---|
-| Phase 0 | 10/10；第八轮最终 HEAD `1c9d416` 未合并 | 第八轮报告 CHANGES_REQUESTED（1 Medium） | ❌ L1 已关闭；M1 marker-window 待收口 |
+| Phase 0 | 10/10；第九轮实现 `f3fa054` 未合并 | 第八轮报告 CHANGES_REQUESTED（1 Medium）；第九轮待动态门禁/独立复核 | ❌ 候选已整改 M1，不自行改判 |
 | Phase 1–14 | 已完成 | 逐阶段 PASS 报告齐全 | ✅ 保持已复核 |
 | Phase 15–18 | WP-A/B/C/D 已完成 | WP 报告齐全 | ✅ 保持已复核 |
 | Phase 19–28 | 已完成 | 逐阶段 PASS 报告齐全 | ✅ 保持已复核（已纠正 26/28 滞后状态） |
@@ -43,7 +43,7 @@
 ## 阶段汇总
 | Phase | 名称 | 优先级 | 任务数 | 完成 | 状态 |
 |---|---|---|---|---|---|
-| 0 | 工程脚手架与基础设施 | P0 | 10 | 10 | ❌ 复核退回（第八轮正式仍有 1 Medium） |
+| 0 | 工程脚手架与基础设施 | P0 | 10 | 10 | ❌ 复核退回（第九轮候选待 Linux/真实 gate 与正式独立复核） |
 | 1 | 基础数据与字典 | P0 | 12 | 12 | ✅ 已复核(Claude 06-14) |
 | 2 | 账号角色权限 | P0 | 7 | 7 | ✅ 已复核(Claude 06-16) |
 | 3 | 基本信息 | P0 | 9 | 9 | ✅ 已复核(Claude 06-16) |
@@ -62,13 +62,13 @@
 
 ---
 
-## Phase 0 · 工程脚手架与基础设施 — 10/10 实现完成，❌ 复核退回（第八轮 1 Medium）
+## Phase 0 · 工程脚手架与基础设施 — 10/10 实现完成，❌ 复核退回（第九轮候选待门禁）
 - [x] T-001 创建 Maven 父工程与 8 子模块骨架
 - [x] T-002 platform-common 基础设施（Result/异常/枚举/注解/上下文）
 - [x] T-003 platform-boot 启动与全局配置（MyBatis-Plus/Jackson Long→String/数据源）
 - [x] T-004 Flyway 接入 + 基础表 V1（已验证 migrate + 17 参数种子）
 - [x] T-005 本地依赖 docker-compose 编排已交付（历史任务完成；第七轮 `9b97741` 的真实依赖 gate
-      已执行并独立离线复验；第八轮 `1c9d416` 因 M1 仍退回，动态 gate 延后到下一最终 SHA）
+      已执行并独立离线复验；第九轮最终 SHA 的 exact gate、Compose config 与专属资源销毁材料仍待补）
 - [x] T-006 platform-file MinIO 文件服务（上传/预签名/下载验证通过）
 - [x] T-007 审计切面 + 数据权限切面骨架（AuditLogAspect + DataScopeAspect）
 - [x] T-008 前端工程脚手架（Vue3+Vite+TS+Naive UI，构建通过）

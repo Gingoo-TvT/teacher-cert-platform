@@ -6,7 +6,7 @@
 
 ## 1. 当前基线与本轮结论
 
-- 当前分支：`codex/phase00-remediation`。Phase 39、Phase 41、Phase 47、Phase 53 与 Phase 44 均已独立 PASS。Phase 0 / U-004 第八轮正式独立增量复核为 **CHANGES_REQUESTED（0 Critical / 0 High / 1 Medium / 0 Low）**。最终 HEAD `1c9d416` 已在代码/合同层面关闭 L1；M1 仍可在 final capture 成功后、canonical marker rename 前改变 artifact 并留下 `verified=true` + canonical PASS + checksum mismatch。Python 75 PASS / 2 POSIX-only skipped、Surefire 274/274、9 模块 package、Checkstyle 0；未找到 r8 动态 evidence。下一轮只修 M1，固化新最终 SHA 后再补 Linux 77/77、真实 exact 7/33、Compose/专属资源清理。`main` 仍为 `e4f8228`，禁止擅自 merge/push。
+- 当前分支：`codex/phase00-remediation`。Phase 39、Phase 41、Phase 47、Phase 53 与 Phase 44 均已独立 PASS。Phase 0 / U-004 最后正式结论仍为第八轮 **CHANGES_REQUESTED（0 Critical / 0 High / 1 Medium / 0 Low）**。第九轮实现 `f3fa054` 已按正式报告的最小修法删除 withheld marker/final capture 链，完整 canonical bundle 私有 verifier 后以单次目录 rename 发布；Python 77 PASS / 2 POSIX-only skipped、Surefire 274/274、9 模块 package、Checkstyle 0、三路静态复审 0 finding。新最终 SHA 尚缺 Linux 79/79、真实 exact 7/33、Compose/专属资源清理和正式独立复核。`main` 仍为 `e4f8228`，禁止擅自 merge/push。
 - Claude 当前不可用；用户于 2026-07-23 明确授权 Codex 作为本轮独立复核者。Phase 42 增量重核未采信实现自报，重新读码、核验现有真实 MySQL XML 与源码/编译时序，并独立执行安全的一次性构建门禁；按用户安全边界未重跑并发/latch、压力或任何可能属于 cyber 的验证。该应急授权只适用于本轮记录，不自动改写 `REVIEW-GATE` 的长期角色约定。
 - 原复核隔离空库基线：`mvn -B -ntp clean verify` 通过，Surefire **121/121**、Failsafe **144/144**，合计 **265/265**，Flyway V1–V28 与 `R__testseed` 成功。
 - WS-3 第二轮整改独立门禁：全新数据卷执行 Flyway V1–V29 成功，Surefire **121/121**、Failsafe **150/150**，合计 **271/271**；Phase 7 为 **29/29**；前端 type-check/build 通过。独立复核确认时间线、fast-hit、review 行锁和 V29 已闭环，但静态不变量仍发现 3 High / 3 Medium。
@@ -63,7 +63,8 @@
 - Phase 0 / U-004 第七轮正式独立增量复核：当前 HEAD r7 evidence 的 manifest/checksums/XML/identity 与 source tree 均通过仓库 verifier，真实 exact 7/33 PASS，第六轮 JSON integer 缺陷和 MinIO header Low 关闭；但原 `P00-R3-M1` 仍可在内存验证后、PASS 持久化前改变 artifact 并得到 `verified=true + PASS manifest + checksum mismatch`，原 `P00-R3-L1` 的 POSIX evidence-root 非末段祖先也未逐段锚定。正式结论 **CHANGES_REQUESTED（1 Medium / 1 Low）**，见 `reviews/phase-00-seventh-remediation-rereview-2026-07-27.md`。
 - Phase 0 / U-004 第八轮候选：实现 `7810715` 从已验证 snapshot bytes 重建私有 bundle，final 以 withheld manifest 完成 exact capture 后才原子暴露 PASS；异常路径无 canonical PASS。POSIX root 从 `/` 起逐段 openat 并保留祖先 fd。四类发布反例、两类 POSIX 反例及独立静态复审已提交，见 `reviews/phase-00-eighth-remediation-submission-2026-07-27.md`。
 - Phase 0 / U-004 第八轮正式独立增量复核：冻结 `9b97741..1c9d416`。L1 的 POSIX 逐段 ancestor fd 与两项 Linux-only 原失败条件测试达到代码/合同关闭；M1 在 final capture 后、canonical marker rename 前仍可被定向改变 artifact，独立反例得到成功返回和 checksum 不一致的 canonical PASS。正式结论 **CHANGES_REQUESTED（1 Medium）**，见 `reviews/phase-00-eighth-remediation-rereview-2026-07-27.md`。
-- 全项目仍因 **Phase 0 / U-004** 保持 **CHANGES_REQUESTED**：下一轮只修 M1；固化新最终 SHA 后由 Linux/POSIX 执行 Python 77/77，再由用户/获授权环境重跑完整 gate、Compose `config --quiet` 并回传专属资源销毁结果。浏览器不要求；正式独立 PASS 前不进入最终全量审计。
+- Phase 0 / U-004 第九轮候选：实现 `f3fa054` 删除 withheld marker、final-path capture 与文件级 marker rename；完整 canonical bundle 在 producer-private sibling 做 exact match/full verifier 后以单次目录 rename 发布，rename 后无 fallible success 步骤。Python 79 methods 为 Windows 77/2，Surefire 274/274、9 模块 package、Checkstyle 0，三路静态复审 0 finding；材料为 `reviews/phase-00-ninth-remediation-submission-2026-07-27.md`。
+- 全项目仍因 **Phase 0 / U-004** 保持 **CHANGES_REQUESTED**：新最终 SHA 由 Linux/POSIX 执行 Python 79/79，再由用户/获授权环境重跑完整 gate、Compose `config --quiet` 并回传专属资源销毁结果。浏览器不要求；正式独立 PASS 前不进入最终全量审计。
 - 本轮是“逐阶段进度真实性 + 测试真实性 + 发布门禁”的复核，不替代最后的全量安全、业务规则、数据一致性、性能与运行期审计。
 
 ## 2. 逐阶段复核矩阵
@@ -76,7 +77,7 @@
 
 | 阶段 | 实现/合并状态 | 正式复核证据 | 本轮复核结论 |
 |---|---|---|---|
-| Phase 0 | 原始任务 10/10；第八轮最终 HEAD `1c9d416` 未合并 | `reviews/phase-00-eighth-remediation-rereview-2026-07-27.md` CHANGES_REQUESTED（1 Medium） | ❌ L1 关闭；M1 marker-window 待收口 |
+| Phase 0 | 原始任务 10/10；第九轮实现 `f3fa054` 未合并 | 第八轮 CHANGES_REQUESTED（1 Medium）；第九轮待门禁/独立复核 | ❌ 候选已整改 M1，不自行改判 |
 | Phase 1 | 已完成 | `reviews/phase-01-review.md` PASS | ✅ 已复核；当前全量回归通过 |
 | Phase 2 | 已完成 | `reviews/phase-02-review.md` PASS | ✅ 已复核；当前全量回归通过 |
 | Phase 3 | 已完成 | `reviews/phase-03-review.md` PASS | ✅ 已复核；当前全量回归通过 |
@@ -151,7 +152,7 @@
 1. **U-001 CI 可复现性（WS-3 Major-3）—✅ 独立重核 PASS**：后端 job 的固定版本 MinIO、健康检查、桶初始化与前端 `npm run type-check` 已静态核对；独立 CI 等价环境全量 266/266、前端 type-check/build 通过。Phase 0 候选现已落地最小 ESLint；WS-6 只负责格式化、更严格规则、Vitest、Playwright 与 a11y。
 2. **U-002 WS-3 退回整改—✅ 独立重核 PASS**：`88d3136..2886442` 已确认关闭第五轮新增的 2 Medium：① reconciliation trigger 绑定独立 `TaskScheduler`，真实 scheduling + blocked backup 证据证明普通备份不再阻断对账提交；② `video_finalization_object_candidate` 纳入 37 表逻辑全量备份，scratch restore 后历史 generation、claim/retry/tombstone 完整且真实对账可续跑。唯一新增 Low 是提交材料把 32 个迁移写成 33 个，已在正式报告和活动文档勘误，不阻断。该报告只证明 candidate slice；当时仍独立退回的 Phase 41 整体备份问题现已由后续动态证据报告关闭。V32 发布继续遵守停写、停全部旧节点/worker、迁移、全量启动新实例后再放流，禁止 V31/旧稳定 key 协议混部与旧二进制回滚。独立报告为 `reviews/ws-03-sixth-remediation-rereview-2026-07-24.md`；未执行任何 cyber 指令，后续任何可能属于 cyber 的命令必须明确交由用户决定并亲自执行。
 3. **U-003 阶段退回整改—✅ 独立重核 PASS**：Phase 42、Phase 39、Phase 41、Phase 47、Phase 53 与 Phase 44 均已独立复核 PASS。Phase 44 第四轮 `69f7462..228a355` 的精确 16/16、棕地只读 identity preflight、Compose 双向展开与独立离线门禁成立，正式报告为 `reviews/phase-44-fourth-remediation-rereview-2026-07-27.md`；1 Low 非阻断，稳定发布前接入权威发布步骤并补 target marker。
-4. **U-004 Phase 0 复核退回整改—第九轮只收口 M1**：第八轮正式为 CHANGES_REQUESTED（1 Medium）；L1 已关闭，M1 仍有 final capture → canonical marker rename 窗口。先补 marker-window mutate/delete 反例并收口单一发布线性化点；新最终 SHA 再补 Linux 77/77、exact 7/33、Compose/资源清理及正式独立复核。浏览器不要求。
+4. **U-004 Phase 0 复核退回整改—第九轮候选待门禁**：第八轮正式为 CHANGES_REQUESTED（1 Medium）；第九轮 `f3fa054` 已按正式最小修法收口单一目录发布线性化点并补 marker-window mutate/delete 红测。下一步补 Linux 79/79、新最终 SHA exact 7/33、Compose/资源清理及正式独立复核；浏览器不要求。
 
 ### P1：当前产品需求与上线安全
 
