@@ -5,11 +5,11 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**❌ Phase 0 / U-004 第三轮独立增量复核为 CHANGES_REQUESTED（0 Critical / 0 High / 1 Medium / 2 Low）**。实现提交为 `cc5786cc1c1ed1a243152bf306eca6998bbc0eee`，材料 HEAD 为 `30a76c8a52d053f39c1b974287434c1390e150ee`；正式报告为 `docs/reviews/phase-00-third-remediation-rereview-2026-07-27.md`。第二轮 2 Medium / 3 Low 已全部按原失败条件关闭；本轮新增证据自校验异常后可残留 PASS manifest 的 1 Medium，以及路径 check-then-open TOCTOU、MinIO 响应头未经收窄却声明无秘密的 2 Low。统一入口为 `docs/CURRENT-EXECUTION-PLAN.md`。
-- 当前结论：WS-1/WS-2/WS-3/WS-10/WS-13 PASS；U-001/U-002/U-003 全部独立 PASS（Phase 42、39、41、47、53、44）。全项目仅剩 **Phase 0 / U-004** 一项退回；exact gate 已扩为 **7 suite / 33 testcase**，但真实依赖门禁尚未执行，且当前 SHA 必须先修复新的 evidence finalization 问题，因此未放行最终全量审计。
+- 当前阶段：**❌ Phase 0 / U-004 正式状态仍为第三轮 CHANGES_REQUESTED（0 Critical / 0 High / 1 Medium / 2 Low）**。正式报告为 `docs/reviews/phase-00-third-remediation-rereview-2026-07-27.md`；第四轮实现候选 `74c1de53137958007f7fe7cf18306dbe00101e45` 已在代码与纯离线反例层关闭 PASS finalization、evidence handle TOCTOU 和 MinIO 原始响应头归档三项原失败条件，等待新最终 clean SHA 的用户动态门禁与正式独立增量复核。统一入口为 `docs/CURRENT-EXECUTION-PLAN.md`。
+- 当前结论：WS-1/WS-2/WS-3/WS-10/WS-13 PASS；U-001/U-002/U-003 全部独立 PASS（Phase 42、39、41、47、53、44）。全项目仅剩 **Phase 0 / U-004** 一项复核退回；exact gate 为 **7 suite / 33 testcase**，第四轮实现已完成但真实依赖门禁尚未执行，因此未放行最终全量审计。
 - P0 放行项：Phase 41 上一轮 1 High / 2 Medium / 1 Low 全部关闭；正式 PASS 时新增的 1 个非阻断 Low 已在后续闭环——Gate A 示例补齐冷认证参数，runner 在 Maven 前强制受验证 TLS / `allowPublicKeyRetrieval=true` / 受控 RSA 公钥文件三选一，并由纯 stub 静态契约覆盖失败关闭。正式报告仍保留当时的 1 Low 快照。约 24 MiB 以上原始整行 fail-closed、写入侧未同界继续留最终全量审计。
-- 最近更新：2026-07-27（第三轮独立重核冻结 `5d3aa88..30a76c8`：纯离线 gate **60/60**、Surefire **32 suites / 274 tests**、9/9 modules clean package、Checkstyle 0、前端 lint/type-check/build 与 diff check PASS；内存级反例得到 `OSError PASS ['PASS']`，确认非 `GateError` 自校验异常会留下表面 PASS。未执行任何 Docker/数据库/Redis/MinIO/网络/服务/浏览器/cyber 操作）。
-- 下一步：先修复本轮 1 Medium / 2 Low，并为所有异常路径增加“不得留下 PASS”纯离线反例；**不要先运行当前 SHA 的动态 7/33**。修复后再由用户在获授权的全新一次性隔离栈对新的最终 clean SHA 执行 exact **7 suite / 33 testcase**、Compose config 与必要浏览器门禁，交回完整 evidence 后做独立增量复核。Phase 0 正式 PASS 后才执行最终全量审计，不得 merge、部署或宣称稳定发布 GO。
+- 最近更新：2026-07-27（第四轮实现 `74c1de5`：纯离线 gate **70/70**、Surefire **32 suites / 274 tests**、后端 **9/9 modules package**、Checkstyle 0、diff check PASS；三个专项只读检查均为 0 Critical / 0 High / 0 Medium / 0 Low。未执行 Docker、数据库、Redis、MinIO、网络、服务、浏览器、故障注入或任何可能属于 cyber 的动作）。
+- 下一步：由用户在获授权的全新一次性隔离栈对**包含第四轮提交材料的最终 clean `HEAD`**执行 exact **7 suite / 33 testcase**、Compose config 与必要浏览器门禁，交回完整 PASS/FAIL evidence 和销毁结果后做正式独立增量复核。Phase 0 正式 PASS 后才执行最终全量审计，不得 merge、部署或宣称稳定发布 GO。
 ## 审计整改工作流
 | WS | 内容 | 状态 |
 |---|---|---|
@@ -23,7 +23,7 @@
 
 | 范围 | 实现状态 | 正式复核状态 | 本轮结论 |
 |---|---|---|---|
-| Phase 0 | 10/10；第三轮产品/测试/门禁候选 `cc5786c`、材料 HEAD `30a76c8` 未合并 | `phase-00-third-remediation-rereview-2026-07-27.md` CHANGES_REQUESTED（1 Medium / 2 Low） | ❌ 第二轮 2 Medium / 3 Low 已关闭；先修本轮 evidence finding，再跑新最终 SHA exact 7/33 |
+| Phase 0 | 10/10；第四轮实现候选 `74c1de5` 未合并 | `phase-00-third-remediation-rereview-2026-07-27.md` 仍为正式 CHANGES_REQUESTED（1 Medium / 2 Low） | ❌ 第四轮已代码/离线关闭三项原失败条件；待用户对新最终 SHA 跑 exact 7/33 与正式独立复核 |
 | Phase 1–14 | 已完成 | 逐阶段 PASS 报告齐全 | ✅ 保持已复核 |
 | Phase 15–18 | WP-A/B/C/D 已完成 | WP 报告齐全 | ✅ 保持已复核 |
 | Phase 19–28 | 已完成 | 逐阶段 PASS 报告齐全 | ✅ 保持已复核（已纠正 26/28 滞后状态） |
@@ -43,7 +43,7 @@
 ## 阶段汇总
 | Phase | 名称 | 优先级 | 任务数 | 完成 | 状态 |
 |---|---|---|---|---|---|
-| 0 | 工程脚手架与基础设施 | P0 | 10 | 10 | ❌ 复核退回（第三轮独立重核 1 Medium / 2 Low） |
+| 0 | 工程脚手架与基础设施 | P0 | 10 | 10 | ❌ 复核退回（第三轮正式结论；第四轮候选待动态门禁/独立复核） |
 | 1 | 基础数据与字典 | P0 | 12 | 12 | ✅ 已复核(Claude 06-14) |
 | 2 | 账号角色权限 | P0 | 7 | 7 | ✅ 已复核(Claude 06-16) |
 | 3 | 基本信息 | P0 | 9 | 9 | ✅ 已复核(Claude 06-16) |
@@ -62,12 +62,12 @@
 
 ---
 
-## Phase 0 · 工程脚手架与基础设施 — 10/10 实现完成，❌ 复核退回（第三轮 1 Medium / 2 Low）
+## Phase 0 · 工程脚手架与基础设施 — 10/10 实现完成，❌ 复核退回（第四轮候选待动态门禁/独立复核）
 - [x] T-001 创建 Maven 父工程与 8 子模块骨架
 - [x] T-002 platform-common 基础设施（Result/异常/枚举/注解/上下文）
 - [x] T-003 platform-boot 启动与全局配置（MyBatis-Plus/Jackson Long→String/数据源）
 - [x] T-004 Flyway 接入 + 基础表 V1（已验证 migrate + 17 参数种子）
-- [x] T-005 本地依赖 docker-compose 编排已交付（历史任务完成；第三轮隔离栈未由 Codex 启动，
+- [x] T-005 本地依赖 docker-compose 编排已交付（历史任务完成；第四轮隔离栈未由 Codex 启动，
       当前动态复验待用户执行）
 - [x] T-006 platform-file MinIO 文件服务（上传/预签名/下载验证通过）
 - [x] T-007 审计切面 + 数据权限切面骨架（AuditLogAspect + DataScopeAspect）
