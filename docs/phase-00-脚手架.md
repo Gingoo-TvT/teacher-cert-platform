@@ -33,8 +33,10 @@
 >    context refresh/Flyway 前复核空状态，并在每个 context refresh 前用 Spring
 >    `ConfigurableEnvironment` 的实际解析值再绑定目标；预签名下载使用的
 >    `MINIO_PUBLIC_ENDPOINT` 也必须与 SDK `MINIO_ENDPOINT` 的 scheme/host/port 同靶。MySQL UUID、
->    Redis run_id/db 和 MinIO
->    一次性对象/hash/deployment ID 的 schema-v3 运行期身份必须与预检逐字段一致。预检与正式 Maven
+>    Redis run_id/db 和 MinIO 一次性对象/hash 的 schema-v4 运行期身份必须与预检逐字段一致。
+>    MinIO 只接受唯一的 lowercase canonical deployment UUID，并以
+>    `SHA-256("phase00:minio-instance:v1\0" + nonce + "\0" + uuid)` 派生本次运行专属指纹；
+>    原始 `Server` / deployment header 不进入 JSON、manifest、record 或错误文本。预检与正式 Maven
 >    都只从 `git ls-tree` 固定的 path/mode/blob 清单及 `git cat-file`
 >    原始对象物化出的源码快照运行；每个 blob 重算 Git 对象 hash，Linux 同时复核 Git executable bit，
 >    既不读取可切换的操作工作树，也不受 `.git/info/attributes` 或 global/system attributes 的 export
@@ -45,7 +47,13 @@
 >    containment/reparse 边界及双身份原字节；verifier 直接从 expected candidate 的 Git blob 读取
 >    gate spec，并要求当前工作树与归档 spec 逐字节相同，未提交的弱化 spec 不能改变证据合同。manifest
 >    使用有大小上限、拒绝重复键的严格 JSON，顶层、
->    suite/support/artifact 及其闭合路径集合均须 exact。任一不一致均失败且不得宣称 PASS。
+>    suite/support/artifact 及其闭合路径集合均须 exact。离线 verifier 在 POSIX 以
+>    `openat + O_NOFOLLOW`、在 Windows 以从卷/共享根到 evidence root 的完整无 reparse handle 链
+>    捕获一次不可变 evidence snapshot，manifest/hash/JSON/XML/identity/spec 后续只消费该快照。
+>    全 artifact 与 manifest 通过 secret scan 后才允许写 `containsSecrets=false`。源码快照清理完成
+>    后才捕获最终 artifact snapshot，并在内存虚拟快照中完成完整 PASS 验证；磁盘随后先写校验和、
+>    最后原子写入已验证 PASS manifest，最终目录 rename 是最后一个证据状态转换。任一不一致均失败
+>    且不得宣称 PASS。
 
 ## 1. 目标与范围
 - Maven 多模块后端骨架 + Spring Boot 启动。
@@ -101,7 +109,7 @@ platform-parent/  (pom，dependencyManagement 锁版本)
 
 ## 8. 验收清单
 
-> 2026-07-27 第三轮整改候选口径：严格遵守 `AGENTS.md §8/§12`，`[x]` 仅表示本候选所需门禁已经执行
+> 2026-07-27 第四轮整改候选口径：严格遵守 `AGENTS.md §8/§12`，`[x]` 仅表示本候选所需门禁已经执行
 > 且通过；`[~]` 表示实现已落地、但仍等待获授权的 fresh-schema 真实依赖门禁。带 † 的两项按文首
 > 修订记录调整了原口径。Phase 0 在全部 `[~]` 转为 `[x]` 且独立复核 PASS 前保持复核退回。
 
@@ -114,23 +122,23 @@ platform-parent/  (pom，dependencyManagement 锁版本)
 - [~] 非生产 `/doc.html` 打开，示例接口可调通，返回统一 `Result`；生产文档面关闭。——
       `Phase00ScaffoldIT.docHtmlAndOpenApiAreServedWithoutAuthentication` 验证 dev `/doc.html` 200 +
       OpenAPI 文档含真实业务路径；`ApiDocumentationSecurityProfileTest` 验证 prod 文档 API/UI/静态资源
-      404 且 dev 保持公开。profile 单测已通过，真实 dev 文档 IT 等待第三轮最终动态门禁。
+      404 且 dev 保持公开。profile 单测已通过，真实 dev 文档 IT 等待第四轮最终动态门禁。
 - [~] 抛 `BizException` → HTTP 200 + `{code≠0,msg}`；`@Valid` 失败 → 字段级错误。——
       `Phase00ScaffoldIT.bizExceptionReturnsHttp200WithBusinessCode` / `validationFailureReturnsFieldLevelError`。
       未捕获异常合同按 P1-10 修订为 HTTP 500 + 统一 Result（监控可见），由
       `uncaughtExceptionReturnsUnifiedResultWithoutStackTraceLeak` 断言统一体且不泄漏堆栈；
-      等待第三轮最终动态门禁。
+      等待第四轮最终动态门禁。
 - [~] CI 等价 MySQL/Redis/MinIO services 上后端可连通；`docker-compose.dev.yml` 可静态解析。——
-      等待第三轮最终 CI/fresh-stack 动态门禁；不声称当前候选已 exact 启动 dev Compose。
+      等待第四轮最终 CI/fresh-stack 动态门禁；不声称当前候选已 exact 启动 dev Compose。
 - [~] Flyway 自动建 `sys_param`/`file_object`/`audit_log`，并生成 `docs/README.md` §6 参数基线。——
       `Phase00ParameterMatrixIT.allDocumentedDefaultsHaveExpectedValueAndType` 在 fresh schema 对全部 **32**
       个 active 参数逐项核对 exact key/value/type，并以全表 key 集合比较拒绝未知项或缺失项；
-      源码/迁移静态矩阵已核对，真实 fresh schema 执行仍待第三轮最终动态门禁。
+      源码/迁移静态矩阵已核对，真实 fresh schema 执行仍待第四轮最终动态门禁。
 - [~] 上传任意文件返回 fileId；预签名 URL 限时可访问，过期返回 403/失效。——
       `Phase00ScaffoldIT.uploadWritesAuditRowAndPresignedUrlExpiresAfterTtl`（3 秒 TTL 正向下载逐字节一致 +
-      过期后同一 URL 403）等待第三轮最终动态门禁。
+      过期后同一 URL 403）等待第四轮最终动态门禁。
 - [~] 标注 `@AuditLog` 的样例方法成功后写入 `audit_log`（操作人/时间/IP 不为空）。——同上用例对
-      `file/upload` 审计行的三字段非空断言等待第三轮最终动态门禁；更丰富链路由
+      `file/upload` 审计行的三字段非空断言等待第四轮最终动态门禁；更丰富链路由
       `Phase13SystemAuditIT` 覆盖。
 - [x] `@DataScope` 单测：不同范围生成的 SQL 条件正确。——`DataScopeSqlHandlerTest` 9 例（COLLEGE IN/SELF/ASSIGNED/
       全校无条件/空集合与 NONE fail-closed/未注册表跳过/别名匹配）；`DataScopeMapperChainTest` 5 例

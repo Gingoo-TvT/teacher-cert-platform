@@ -83,7 +83,7 @@
       "testcases": [
         "alternateDatasourceAndRedisRoutesFailClosedAcrossRelaxedAliases",
         "dottedLowercaseAliasCannotOverrideCanonicalDatasource",
-        "evidenceSchemaThreeContainsExactFreshnessKeys",
+        "evidenceSchemaFourContainsExactFreshnessAndFingerprintKeys",
         "freshnessRequiresExactlyZeroZeroOneZero",
         "lowercaseUnderscoreAliasCannotOverrideCanonicalRedisTarget",
         "matchingResolvedConfigurationIsAcceptedWithoutExternalConnections",
@@ -105,10 +105,10 @@
     "producerSuite": "cn.edu.gpnu.platform.boot.Phase00ScaffoldIT",
     "preflightPath": "platform-boot/target/phase00-target-preflight.json",
     "preflightProducer": "cn.edu.gpnu.platform.boot.Phase00TargetPreflight",
-    "schemaVersion": 3,
+    "schemaVersion": 4,
     "mysqlVersionPattern": "^8\\..+$",
     "redisVersionPattern": "^7\\..+$",
-    "minioIdentityMode": "provisioned-object-sha256",
+    "minioIdentityMode": "provisioned-object-sha256+deployment-uuid-nonce-fingerprint-v1",
     "required": true
   }
 }

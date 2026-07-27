@@ -164,7 +164,39 @@ class Phase00TargetGuardInitializerTest {
     }
 
     @Test
-    void evidenceSchemaThreeContainsExactFreshnessKeys() {
+    void evidenceSchemaFourContainsExactFreshnessAndFingerprintKeys() {
+        String identityNonce =
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        String rawDeploymentId = "123e4567-e89b-12d3-a456-426614174000";
+        String instanceFingerprintSha256 =
+                Phase00TargetPreflight.deriveMinioInstanceFingerprint(
+                        List.of(rawDeploymentId), identityNonce);
+        assertThat(instanceFingerprintSha256)
+                .isEqualTo("7fe3df67cf424bb6bf35a90cd42f348da3d7855a20b0f55f9d3b612cdaea2c1e")
+                .matches("^[0-9a-f]{64}$");
+        assertThat(Phase00TargetPreflight.deriveMinioInstanceFingerprint(
+                List.of("223e4567-e89b-12d3-a456-426614174000"), identityNonce))
+                .isNotEqualTo(instanceFingerprintSha256);
+
+        for (List<String> invalidHeaders : List.of(
+                List.<String>of(),
+                List.of(rawDeploymentId, rawDeploymentId),
+                List.of(rawDeploymentId.toUpperCase(java.util.Locale.ROOT)),
+                List.of("minio-secret-password"),
+                List.of(" " + rawDeploymentId),
+                List.of(rawDeploymentId + "\npassword=reflected"))) {
+            assertThatThrownBy(() -> Phase00TargetPreflight
+                    .deriveMinioInstanceFingerprint(invalidHeaders, identityNonce))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessage("MinIO deployment identity header 必须是单个 canonical UUID")
+                    .hasMessageNotContaining("minio-secret-password")
+                    .hasMessageNotContaining("password=reflected");
+        }
+        assertThatThrownBy(() -> Phase00TargetPreflight.deriveMinioInstanceFingerprint(
+                List.of(rawDeploymentId), "not-a-nonce"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("MinIO instance fingerprint nonce 非法");
+
         Phase00TargetPreflight.TargetAttestation attestation =
                 new Phase00TargetPreflight.TargetAttestation(
                         "0123456789abcdef0123456789abcdef01234567",
@@ -179,10 +211,9 @@ class Phase00TargetGuardInitializerTest {
                         "phase00-fresh",
                         ".phase00-target/identity.json",
                         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                        identityNonce,
                         "2026-07-27T00:00:00Z",
-                        "MinIO",
-                        "deployment-id",
+                        instanceFingerprintSha256,
                         0L,
                         0L,
                         1L,
@@ -200,7 +231,7 @@ class Phase00TargetGuardInitializerTest {
                 "mysql",
                 "redis",
                 "minio");
-        assertThat(document.get("schemaVersion")).isEqualTo(3);
+        assertThat(document.get("schemaVersion")).isEqualTo(4);
         assertThat(document.get("freshness")).isInstanceOf(Map.class);
         Map<?, ?> freshness = (Map<?, ?>) document.get("freshness");
         assertThat(freshness.keySet().stream().map(String::valueOf).toList())
@@ -213,6 +244,22 @@ class Phase00TargetGuardInitializerTest {
         assertThat(freshness.get("redisDatabaseSizeBefore")).isEqualTo(0L);
         assertThat(freshness.get("minioObjectCountBefore")).isEqualTo(1L);
         assertThat(freshness.get("minioUnexpectedObjectCountBefore")).isEqualTo(0L);
+        assertThat(document.get("minio")).isInstanceOf(Map.class);
+        Map<?, ?> minio = (Map<?, ?>) document.get("minio");
+        assertThat(minio.keySet().stream().map(String::valueOf).toList())
+                .containsExactlyInAnyOrder(
+                        "endpoint",
+                        "bucket",
+                        "identityObject",
+                        "identitySha256",
+                        "identityNonce",
+                        "identityIssuedAt",
+                        "instanceFingerprintSha256");
+        assertThat(minio.containsKey("server")).isFalse();
+        assertThat(minio.containsKey("deploymentId")).isFalse();
+        assertThat(minio.containsValue(rawDeploymentId)).isFalse();
+        assertThat(minio.get("instanceFingerprintSha256"))
+                .isEqualTo(instanceFingerprintSha256);
     }
 
     private MockEnvironment matchingEnvironment() {

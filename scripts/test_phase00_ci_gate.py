@@ -163,8 +163,12 @@ class Phase00CiGateTest(unittest.TestCase):
                 "identityIssuedAt": environment[
                     "PHASE00_EXPECTED_MINIO_IDENTITY_ISSUED_AT"
                 ],
-                "server": "MinIO",
-                "deploymentId": "fixture-deployment",
+                "instanceFingerprintSha256": (
+                    gate.derive_minio_instance_fingerprint(
+                        "123e4567-e89b-12d3-a456-426614174000",
+                        environment["PHASE00_EXPECTED_MINIO_IDENTITY_NONCE"],
+                    )
+                ),
             },
             "freshness": {
                 "mysqlTableCountBefore": 0,
@@ -253,12 +257,36 @@ class Phase00CiGateTest(unittest.TestCase):
                 "preflightProducer": (
                     "cn.edu.gpnu.platform.boot.Phase00TargetPreflight"
                 ),
-                "schemaVersion": 3,
+                "schemaVersion": 4,
                 "mysqlVersionPattern": r"^8\..+$",
                 "redisVersionPattern": r"^7\..+$",
-                "minioIdentityMode": "provisioned-object-sha256",
+                "minioIdentityMode": gate.MINIO_IDENTITY_MODE,
                 "required": True,
             },
+        )
+        nonce = "b" * 64
+        deployment_id = "123e4567-e89b-12d3-a456-426614174000"
+        fingerprint = gate.derive_minio_instance_fingerprint(
+            deployment_id,
+            nonce,
+        )
+        self.assertEqual(
+            fingerprint,
+            "7fe3df67cf424bb6bf35a90cd42f348da3d7855a20b0f55f9d3b612cdaea2c1e",
+        )
+        self.assertNotEqual(
+            fingerprint,
+            gate.derive_minio_instance_fingerprint(
+                "223e4567-e89b-12d3-a456-426614174000",
+                nonce,
+            ),
+        )
+        self.assertNotEqual(
+            fingerprint,
+            gate.derive_minio_instance_fingerprint(
+                deployment_id,
+                "c" * 64,
+            ),
         )
 
     def test_target_configuration_binds_markers_to_actual_services(self) -> None:
@@ -517,6 +545,8 @@ class Phase00CiGateTest(unittest.TestCase):
         weakened = json.loads(candidate_spec.decode("utf-8"))
         weakened["gateId"] = str(weakened["gateId"]) + "-weakened"
         spec_path.write_text(json.dumps(weakened), encoding="utf-8")
+        unused_evidence = self.repo / "unused-evidence"
+        unused_evidence.mkdir()
 
         with (
             patch.object(gate, "SCRIPT_DIR", self.repo / "scripts"),
@@ -531,12 +561,14 @@ class Phase00CiGateTest(unittest.TestCase):
                 "differs from the expected candidate Git blob",
             ):
                 gate.verify_evidence(
-                    self.repo / "unused-evidence",
+                    unused_evidence,
                     spec_path,
                     "a" * 40,
                 )
 
-    def test_mocked_success_run_self_verifies_complete_dual_evidence(self) -> None:
+    def test_mocked_success_finalizes_after_source_cleanup_and_ignores_print_failure(
+        self,
+    ) -> None:
         spec_path = self.repo / "scripts" / "phase00_ci_gate_spec.json"
         spec_path.parent.mkdir(parents=True)
         spec_path.write_bytes(gate.DEFAULT_SPEC.read_bytes())
@@ -562,6 +594,9 @@ class Phase00CiGateTest(unittest.TestCase):
         snapshot_spec.parent.mkdir(parents=True)
         snapshot_spec.write_bytes(gate.DEFAULT_SPEC.read_bytes())
         observed_build_roots: list[Path] = []
+        lifecycle_events: list[str] = []
+        source_snapshot_cleanup_complete = False
+        final_summary_print_attempted = False
 
         @contextmanager
         def fake_snapshot(
@@ -569,18 +604,36 @@ class Phase00CiGateTest(unittest.TestCase):
             requested_candidate: str,
             temporary_parent: Path | None = None,
         ):
+            nonlocal source_snapshot_cleanup_complete
             self.assertEqual(repo_root, self.repo.resolve(strict=True))
             self.assertEqual(requested_candidate, candidate)
             self.assertEqual(temporary_parent, self.repo)
-            yield gate.SourceSnapshot(
-                root=snapshot_root,
-                candidate_sha=candidate,
-                tree_sha="b" * 40,
-                manifest_sha256=gate.git_tree_manifest_sha256(
-                    self.mocked_git_tree_entries()
-                ),
-                file_count=len(self.mocked_git_tree_entries()),
-            )
+            lifecycle_events.append("source-enter")
+            try:
+                yield gate.SourceSnapshot(
+                    root=snapshot_root,
+                    candidate_sha=candidate,
+                    tree_sha="b" * 40,
+                    manifest_sha256=gate.git_tree_manifest_sha256(
+                        self.mocked_git_tree_entries()
+                    ),
+                    file_count=len(self.mocked_git_tree_entries()),
+                )
+            finally:
+                ready_directories = [
+                    child
+                    for child in self.repo.iterdir()
+                    if child.is_dir() and ".ready-" in child.name
+                ]
+                self.assertEqual(len(ready_directories), 1)
+                self.assertFalse(
+                    (ready_directories[0] / "manifest.json").exists()
+                )
+                self.assertFalse(
+                    (ready_directories[0] / "SHA256SUMS").exists()
+                )
+                source_snapshot_cleanup_complete = True
+                lifecycle_events.append("source-cleanup")
 
         def fake_preflight(
             command: list[str],
@@ -665,6 +718,27 @@ class Phase00CiGateTest(unittest.TestCase):
             if generated_module.exists():
                 gate.remove_directory_tree(generated_module)
 
+        original_self_verify = gate.self_verify_or_downgrade
+
+        def verify_only_after_source_cleanup(**kwargs):
+            self.assertTrue(source_snapshot_cleanup_complete)
+            self.assertEqual(lifecycle_events[-1], "source-cleanup")
+            lifecycle_events.append("self-verify")
+            return original_self_verify(**kwargs)
+
+        original_print = print
+
+        def fail_only_final_pass_summary(*values, **kwargs):
+            nonlocal final_summary_print_attempted
+            if (
+                values
+                and isinstance(values[0], str)
+                and values[0].startswith("[phase00-ci-gate] PASS:")
+            ):
+                final_summary_print_attempted = True
+                raise ValueError("published stdout is unavailable")
+            return original_print(*values, **kwargs)
+
         with (
             patch.dict(os.environ, environment, clear=True),
             patch.object(gate, "SCRIPT_DIR", self.repo / "scripts"),
@@ -717,8 +791,22 @@ class Phase00CiGateTest(unittest.TestCase):
                 "stream_maven",
                 side_effect=fake_formal_verify,
             ),
+            patch.object(
+                gate,
+                "self_verify_or_downgrade",
+                side_effect=verify_only_after_source_cleanup,
+            ),
+            patch(
+                "builtins.print",
+                side_effect=fail_only_final_pass_summary,
+            ),
         ):
             self.assertEqual(gate.run_gate(arguments), 0)
+        self.assertEqual(
+            lifecycle_events,
+            ["source-enter", "source-cleanup", "self-verify"],
+        )
+        self.assertTrue(final_summary_print_attempted)
         manifest = json.loads(
             (evidence / "manifest.json").read_text(encoding="utf-8")
         )
@@ -742,6 +830,78 @@ class Phase00CiGateTest(unittest.TestCase):
         self.assertTrue(manifest["source"]["snapshotVerifiedAfterPreflight"])
         self.assertTrue(manifest["source"]["snapshotRematerializedBeforeFormal"])
         self.assertTrue(manifest["source"]["snapshotVerifiedAfterFormal"])
+        self.assertFalse(
+            any(
+                ".ready-" in child.name or child.name.startswith(".phase00-source-")
+                for child in self.repo.iterdir()
+            )
+        )
+
+        evidence_snapshot = gate.capture_evidence_snapshot(evidence)
+        evidence_root = evidence.absolute()
+        original_open = Path.open
+        original_read_bytes = Path.read_bytes
+        original_read_text = Path.read_text
+        original_stat = Path.stat
+        original_sha256_file = gate.sha256_file
+
+        def reject_evidence_path(path: Path, operation: str) -> None:
+            if path.absolute().is_relative_to(evidence_root):
+                raise AssertionError(
+                    f"evidence path reopened by {operation}: {path}"
+                )
+
+        def guarded_open(path: Path, *args: object, **kwargs: object):
+            reject_evidence_path(path, "Path.open")
+            return original_open(path, *args, **kwargs)
+
+        def guarded_read_bytes(path: Path) -> bytes:
+            reject_evidence_path(path, "Path.read_bytes")
+            return original_read_bytes(path)
+
+        def guarded_read_text(
+            path: Path,
+            *args: object,
+            **kwargs: object,
+        ) -> str:
+            reject_evidence_path(path, "Path.read_text")
+            return original_read_text(path, *args, **kwargs)
+
+        def guarded_stat(path: Path, *args: object, **kwargs: object):
+            reject_evidence_path(path, "Path.stat")
+            return original_stat(path, *args, **kwargs)
+
+        def guarded_sha256_file(path: Path) -> str:
+            reject_evidence_path(path, "sha256_file")
+            return original_sha256_file(path)
+
+        with (
+            patch.object(gate, "SCRIPT_DIR", self.repo / "scripts"),
+            patch.object(gate, "git_tree_sha", return_value="b" * 40),
+            patch.object(
+                gate,
+                "git_tree_entries",
+                return_value=self.mocked_git_tree_entries(),
+            ),
+            patch.object(
+                gate,
+                "read_candidate_git_blob",
+                return_value=gate.DEFAULT_SPEC.read_bytes(),
+            ),
+            patch.object(Path, "open", guarded_open),
+            patch.object(Path, "read_bytes", guarded_read_bytes),
+            patch.object(Path, "read_text", guarded_read_text),
+            patch.object(Path, "stat", guarded_stat),
+            patch.object(gate, "sha256_file", guarded_sha256_file),
+        ):
+            self.assertEqual(
+                gate._verify_evidence_snapshot(
+                    evidence_snapshot,
+                    spec_path,
+                    candidate,
+                )["status"],
+                "PASS",
+            )
 
         def assert_rejected(mutated: dict[str, object], message: str) -> None:
             gate.persist_manifest(evidence, mutated)
@@ -815,6 +975,9 @@ class Phase00CiGateTest(unittest.TestCase):
                 extra_artifact,
                 kind="undeclared-fixture",
             )
+        )
+        with_extra_artifact["security"]["secretScan"]["artifactCount"] = len(
+            with_extra_artifact["artifacts"]
         )
         assert_rejected(with_extra_artifact, "artifact path set is not exact")
 
@@ -1026,6 +1189,20 @@ class Phase00CiGateTest(unittest.TestCase):
         with self.assertRaisesRegex(gate.GateError, "duplicate JSON field"):
             gate.strict_json_bytes(duplicate, "duplicate fixture")
 
+        legacy_headers = self.runtime_identity()
+        legacy_headers["minio"]["server"] = "MinIO"
+        legacy_headers["minio"]["deploymentId"] = (
+            "123e4567-e89b-12d3-a456-426614174000"
+        )
+        with self.assertRaisesRegex(gate.GateError, "fields are not exact"):
+            gate.validate_runtime_identity(
+                legacy_headers,
+                self.spec["targetEvidence"],
+                declared,
+                configured,
+                expected,
+            )
+
     def test_runtime_identity_rejects_candidate_and_run_context_drift(self) -> None:
         declared, configured, expected = self.target_contract()
         mutations = (
@@ -1068,7 +1245,7 @@ class Phase00CiGateTest(unittest.TestCase):
             ("minio", "identitySha256", "e" * 64),
             ("minio", "identityNonce", "f" * 64),
             ("minio", "identityIssuedAt", "2020-01-01T00:00:00Z"),
-            ("minio", "deploymentId", None),
+            ("minio", "instanceFingerprintSha256", None),
         )
         for service, field, value in mutations:
             with self.subTest(service=service, field=field):
@@ -1133,7 +1310,7 @@ class Phase00CiGateTest(unittest.TestCase):
         runtime = self.runtime_identity()
         gate.require_matching_preflight_and_runtime(preflight, runtime)
 
-        runtime["minio"]["server"] = "different-server-header"
+        runtime["minio"]["instanceFingerprintSha256"] = "0" * 64
         with self.assertRaisesRegex(gate.GateError, "exactly match preflight"):
             gate.require_matching_preflight_and_runtime(preflight, runtime)
 
@@ -1241,9 +1418,10 @@ class Phase00CiGateTest(unittest.TestCase):
                 self.target_environment()
             ),
         }
+        evidence_snapshot = gate.capture_evidence_snapshot(evidence)
         self.assertEqual(
             gate.verify_runtime_target_artifact(
-                evidence_dir=evidence,
+                evidence=evidence_snapshot,
                 targets_value=targets,
                 target_spec=self.spec["targetEvidence"],
                 expected_candidate=candidate,
@@ -1258,7 +1436,7 @@ class Phase00CiGateTest(unittest.TestCase):
         bad_hash["evidence"]["runtime"]["sourceSha256"] = "0" * 64
         with self.assertRaises(gate.GateError):
             gate.verify_runtime_target_artifact(
-                evidence_dir=evidence,
+                evidence=evidence_snapshot,
                 targets_value=bad_hash,
                 target_spec=self.spec["targetEvidence"],
                 expected_candidate=candidate,
@@ -1271,7 +1449,7 @@ class Phase00CiGateTest(unittest.TestCase):
         bad_runtime["runtime"]["mysql"]["database"] = "other_schema"
         with self.assertRaisesRegex(gate.GateError, "differs from the archived"):
             gate.verify_runtime_target_artifact(
-                evidence_dir=evidence,
+                evidence=evidence_snapshot,
                 targets_value=bad_runtime,
                 target_spec=self.spec["targetEvidence"],
                 expected_candidate=candidate,
@@ -1730,11 +1908,292 @@ class Phase00CiGateTest(unittest.TestCase):
             gate.PurePosixPath("xml/report.xml"),
         )
 
-    def test_reparse_artifact_is_rejected_before_hash_read(self) -> None:
-        evidence = self.repo / "reparse-evidence"
+    def test_windows_validated_reader_is_issued_only_after_boundary_validation(
+        self,
+    ) -> None:
+        root = gate._normalise_windows_handle_path(
+            r"C:\safe\evidence"
+        )
+        inside = gate._normalise_windows_handle_path(
+            r"C:\safe\evidence\report.xml"
+        )
+        events: list[str] = []
+
+        def inspect_handle(
+            handle: int,
+        ) -> tuple[int, tuple[int, int], int, int]:
+            self.assertEqual(handle, 101)
+            events.append("inspect")
+            return 0, (11, 22), 33, 44
+
+        def get_final_path(handle: int) -> str:
+            self.assertEqual(handle, 101)
+            events.append("final-path")
+            return inside
+
+        def validate_boundary(**arguments: object) -> None:
+            events.append("boundary")
+            gate.validate_windows_evidence_handle_boundary(**arguments)
+
+        def reader(
+            validated: gate.ValidatedWindowsEvidenceHandle,
+            opened_final: str,
+        ) -> str:
+            events.append("reader")
+            self.assertEqual(
+                validated,
+                gate.ValidatedWindowsEvidenceHandle(
+                    handle=101,
+                    attributes=0,
+                    file_id=(11, 22),
+                    size=33,
+                    mtime_ns=44,
+                ),
+            )
+            self.assertEqual(opened_final, inside)
+            return "read-result"
+
+        self.assertEqual(
+            gate.consume_validated_windows_evidence_handle(
+                root_final=root,
+                handle=101,
+                expected_directory=False,
+                label="fixture",
+                inspect_handle=inspect_handle,
+                get_final_path=get_final_path,
+                reader=reader,
+                boundary_validator=validate_boundary,
+            ),
+            "read-result",
+        )
+        self.assertEqual(
+            events,
+            ["inspect", "final-path", "boundary", "reader"],
+        )
+
+        failures = (
+            (
+                "outside",
+                0,
+                gate._normalise_windows_handle_path(
+                    r"C:\outside\secret.xml"
+                ),
+            ),
+            ("reparse", 0x400, inside),
+        )
+        for message, attributes, opened_final in failures:
+            with self.subTest(failure=message):
+                failure_events: list[str] = []
+
+                def inspect_failure(
+                    _handle: int,
+                ) -> tuple[int, tuple[int, int], int, int]:
+                    failure_events.append("inspect")
+                    return attributes, (11, 22), 33, 44
+
+                def final_failure(_handle: int) -> str:
+                    failure_events.append("final-path")
+                    return opened_final
+
+                def validate_failure(**arguments: object) -> None:
+                    failure_events.append("boundary")
+                    gate.validate_windows_evidence_handle_boundary(
+                        **arguments
+                    )
+
+                def forbidden_reader(
+                    _validated: gate.ValidatedWindowsEvidenceHandle,
+                    _opened_final: str,
+                ) -> None:
+                    failure_events.append("reader")
+
+                with self.assertRaisesRegex(gate.GateError, message):
+                    gate.consume_validated_windows_evidence_handle(
+                        root_final=root,
+                        handle=101,
+                        expected_directory=False,
+                        label="fixture",
+                        inspect_handle=inspect_failure,
+                        get_final_path=final_failure,
+                        reader=forbidden_reader,
+                        boundary_validator=validate_failure,
+                    )
+                self.assertEqual(
+                    failure_events,
+                    ["inspect", "final-path", "boundary"],
+                )
+
+    def test_windows_ancestor_chain_opens_all_and_closes_reverse(self) -> None:
+        root = r"C:\safe\evidence\bundle"
+        paths = gate.windows_evidence_ancestor_paths(root)
+        events: list[tuple[object, ...]] = []
+        path_by_handle: dict[int, str] = {}
+
+        def open_directory(path: str) -> int:
+            handle = len(path_by_handle) + 1
+            path_by_handle[handle] = path
+            events.append(("open", path, handle))
+            return handle
+
+        def get_attributes(handle: int) -> int:
+            events.append(("attributes", handle))
+            return 0x10
+
+        def get_final_path(handle: int) -> str:
+            events.append(("final-path", handle))
+            return gate._normalise_windows_handle_path(
+                path_by_handle[handle]
+            )
+
+        def close_handle(handle: int) -> None:
+            events.append(("close", handle))
+
+        with gate.locked_windows_evidence_ancestor_chain(
+            root,
+            open_directory=open_directory,
+            get_attributes=get_attributes,
+            get_final_path=get_final_path,
+            close_handle=close_handle,
+        ) as chain:
+            self.assertEqual(
+                tuple(handle for handle, _final in chain),
+                (1, 2, 3, 4),
+            )
+            self.assertEqual(
+                tuple(final for _handle, final in chain),
+                tuple(
+                    gate._normalise_windows_handle_path(path)
+                    for path in paths
+                ),
+            )
+            self.assertFalse(
+                any(event[0] == "close" for event in events)
+            )
+            events.append(("consumer",))
+
+        expected_events: list[tuple[object, ...]] = []
+        for handle, path in enumerate(paths, start=1):
+            expected_events.extend(
+                [
+                    ("open", path, handle),
+                    ("attributes", handle),
+                    ("final-path", handle),
+                ]
+            )
+        expected_events.extend(
+            [
+                ("consumer",),
+                ("close", 4),
+                ("close", 3),
+                ("close", 2),
+                ("close", 1),
+            ]
+        )
+        self.assertEqual(events, expected_events)
+
+    def test_windows_ancestor_chain_closes_reverse_on_consumer_error(
+        self,
+    ) -> None:
+        root = r"C:\safe\evidence\bundle"
+        path_by_handle: dict[int, str] = {}
+        closes: list[int] = []
+
+        def open_directory(path: str) -> int:
+            handle = len(path_by_handle) + 1
+            path_by_handle[handle] = path
+            return handle
+
+        with self.assertRaisesRegex(RuntimeError, "consumer failed"):
+            with gate.locked_windows_evidence_ancestor_chain(
+                root,
+                open_directory=open_directory,
+                get_attributes=lambda _handle: 0x10,
+                get_final_path=lambda handle: (
+                    gate._normalise_windows_handle_path(
+                        path_by_handle[handle]
+                    )
+                ),
+                close_handle=closes.append,
+            ):
+                raise RuntimeError("consumer failed")
+
+        self.assertEqual(closes, [4, 3, 2, 1])
+
+    def test_windows_capture_contract_locks_ancestors_and_handle_stability(
+        self,
+    ) -> None:
+        self.assertEqual(
+            gate.windows_evidence_ancestor_paths(
+                r"C:\safe\evidence\bundle"
+            ),
+            (
+                "C:\\",
+                r"C:\safe",
+                r"C:\safe\evidence",
+                r"C:\safe\evidence\bundle",
+            ),
+        )
+        directory_access, directory_share, directory_flags = (
+            gate.windows_evidence_open_contract(directory=True)
+        )
+        file_access, file_share, file_flags = (
+            gate.windows_evidence_open_contract(directory=False)
+        )
+        self.assertTrue(
+            directory_access & gate.WINDOWS_FILE_LIST_DIRECTORY
+        )
+        self.assertEqual(
+            directory_share,
+            gate.WINDOWS_FILE_SHARE_READ
+            | gate.WINDOWS_FILE_SHARE_WRITE,
+        )
+        self.assertEqual(file_share, gate.WINDOWS_FILE_SHARE_READ)
+        self.assertFalse(file_share & 0x4)
+        self.assertTrue(
+            directory_flags & gate.WINDOWS_FILE_FLAG_OPEN_REPARSE_POINT
+        )
+        self.assertTrue(
+            directory_flags & gate.WINDOWS_FILE_FLAG_BACKUP_SEMANTICS
+        )
+        self.assertTrue(file_access & gate.WINDOWS_GENERIC_READ)
+        self.assertTrue(
+            file_flags & gate.WINDOWS_FILE_FLAG_OPEN_REPARSE_POINT
+        )
+        before = gate.ValidatedWindowsEvidenceHandle(
+            handle=1,
+            attributes=0,
+            file_id=(11, 22),
+            size=33,
+            mtime_ns=44,
+        )
+        for field, value in (
+            ("after_attributes", 0x400),
+            ("after_file_id", (11, 23)),
+            ("after_size", 34),
+            ("after_mtime_ns", 45),
+        ):
+            arguments = {
+                "after_attributes": 0,
+                "after_file_id": (11, 22),
+                "after_size": 33,
+                "after_mtime_ns": 44,
+                "label": "fixture",
+            }
+            arguments[field] = value
+            with self.subTest(drift=field):
+                with self.assertRaisesRegex(gate.GateError, "changed"):
+                    gate.validate_windows_evidence_handle_stability(
+                        before,
+                        **arguments,
+                    )
+
+    def test_evidence_consumers_use_one_snapshot_without_path_reopen(self) -> None:
+        evidence = self.repo / "snapshot-evidence"
         evidence.mkdir()
         artifact = evidence / "report.xml"
+        manifest = evidence / "manifest.json"
         artifact.write_text("<testsuite/>", encoding="utf-8")
+        manifest.write_text("{}", encoding="utf-8")
         records = [
             {
                 "path": "report.xml",
@@ -1743,21 +2202,33 @@ class Phase00CiGateTest(unittest.TestCase):
                 "bytes": artifact.stat().st_size,
             }
         ]
-
-        def mark_artifact_as_reparse(path: Path) -> bool:
-            return path.absolute() == artifact.absolute()
-
+        gate.write_checksums(evidence, [artifact, manifest])
+        snapshot = gate.capture_evidence_snapshot(evidence)
         with (
             patch.object(
-                gate,
-                "path_is_link_or_reparse",
-                side_effect=mark_artifact_as_reparse,
+                Path,
+                "read_bytes",
+                side_effect=AssertionError("path reopened"),
             ),
-            patch.object(gate, "sha256_file") as hash_read,
+            patch.object(
+                Path,
+                "read_text",
+                side_effect=AssertionError("path reopened"),
+            ),
+            patch.object(
+                gate,
+                "sha256_file",
+                side_effect=AssertionError("path rehashed"),
+            ),
         ):
-            with self.assertRaisesRegex(gate.GateError, "symlink/reparse"):
-                gate.verify_artifact_records(evidence, records)
-            hash_read.assert_not_called()
+            self.assertEqual(
+                set(gate.verify_artifact_records(snapshot, records)),
+                {"report.xml"},
+            )
+            gate.verify_checksums_file(
+                snapshot,
+                expected_paths={"report.xml", "manifest.json"},
+            )
 
     def test_suite_and_support_source_provenance_is_exact(self) -> None:
         source_sha256 = "a" * 64
@@ -1916,7 +2387,9 @@ class Phase00CiGateTest(unittest.TestCase):
                 expected_paths={"artifact.txt", "manifest.json"},
             )
 
-    def test_self_verification_failure_rewrites_pass_manifest_to_fail(self) -> None:
+    def test_self_verification_failure_downgrades_private_staging_to_fail(
+        self,
+    ) -> None:
         evidence = self.repo / "self-verify"
         evidence.mkdir()
         candidate = "a" * 40
@@ -1981,6 +2454,7 @@ class Phase00CiGateTest(unittest.TestCase):
             spec_path=gate.DEFAULT_SPEC,
             expected_candidate=candidate,
             manifest=manifest,
+            redactor=gate.SecretRedactor({}),
         )
         self.assertFalse(verified)
         self.assertIn("self-verification failed", error)
@@ -1995,6 +2469,156 @@ class Phase00CiGateTest(unittest.TestCase):
             evidence,
             expected_paths={"manifest.json"},
         )
+
+    def test_self_verification_oserror_never_leaves_staging_pass(self) -> None:
+        evidence = self.repo / "self-verify-oserror"
+        evidence.mkdir()
+        candidate = "a" * 40
+        manifest = {
+            "schemaVersion": 1,
+            "gateId": self.spec["gateId"],
+            "status": "PASS",
+            "candidateSha": candidate,
+            "expectedCandidateSha": candidate,
+            "artifacts": [],
+            "errors": [],
+            "security": {},
+        }
+        def verifier_fails_before_disk_publish(
+            snapshot: gate.EvidenceSnapshot,
+            _spec_path: Path,
+            _expected_candidate: str,
+        ) -> dict[str, object]:
+            self.assertIn("manifest.json", snapshot.files)
+            self.assertEqual(
+                json.loads(
+                    snapshot.files["manifest.json"].content.decode("utf-8")
+                )["status"],
+                "PASS",
+            )
+            self.assertFalse((evidence / "manifest.json").exists())
+            self.assertFalse((evidence / "SHA256SUMS").exists())
+            raise PermissionError("locked")
+
+        with patch.object(
+            gate,
+            "_verify_evidence_snapshot",
+            side_effect=verifier_fails_before_disk_publish,
+        ):
+            verified, error = gate.self_verify_or_downgrade(
+                evidence_dir=evidence,
+                spec_path=gate.DEFAULT_SPEC,
+                expected_candidate=candidate,
+                manifest=manifest,
+                redactor=gate.SecretRedactor({}),
+            )
+        self.assertFalse(verified)
+        self.assertIn("PermissionError", error)
+        persisted = json.loads(
+            (evidence / "manifest.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(persisted["status"], "FAIL")
+        self.assertFalse(
+            any(
+                snapshot.name == "manifest.json"
+                and json.loads(snapshot.read_text(encoding="utf-8")).get("status")
+                == "PASS"
+                for snapshot in evidence.iterdir()
+                if snapshot.is_file() and snapshot.name == "manifest.json"
+            )
+        )
+
+    def test_failed_fail_write_never_creates_provisional_pass(self) -> None:
+        evidence = self.repo / "self-verify-double-failure"
+        evidence.mkdir()
+        candidate = "a" * 40
+        manifest = {
+            "schemaVersion": 1,
+            "gateId": self.spec["gateId"],
+            "status": "PASS",
+            "candidateSha": candidate,
+            "expectedCandidateSha": candidate,
+            "artifacts": [],
+            "errors": [],
+            "security": {},
+        }
+        with (
+            patch.object(
+                gate,
+                "_verify_evidence_snapshot",
+                side_effect=OSError("artifact disappeared"),
+            ),
+            patch.object(
+                gate,
+                "persist_manifest",
+                side_effect=PermissionError("cannot write FAIL"),
+            ),
+            patch.object(
+                Path,
+                "unlink",
+                side_effect=PermissionError("cannot unlink"),
+            ),
+        ):
+            verified, _error = gate.self_verify_or_downgrade(
+                evidence_dir=evidence,
+                spec_path=gate.DEFAULT_SPEC,
+                expected_candidate=candidate,
+                manifest=manifest,
+                redactor=gate.SecretRedactor({}),
+            )
+        self.assertFalse(verified)
+        self.assertFalse((evidence / "manifest.json").exists())
+        self.assertFalse((evidence / "SHA256SUMS").exists())
+
+    def test_preverified_pass_writes_manifest_last(self) -> None:
+        evidence = self.repo / "preverified-write-order"
+        evidence.mkdir()
+        prepared = gate.PreparedEvidenceManifest(
+            manifest_content=b'{"status":"PASS"}\n',
+            checksum_content=b"a" * 64 + b"  manifest.json\n",
+            virtual_snapshot=gate.EvidenceSnapshot(evidence, {}),
+            verified_manifest={"status": "PASS"},
+        )
+        original_atomic_write = gate.atomic_write_bytes
+        writes: list[str] = []
+
+        def fail_manifest_write(path: Path, content: bytes) -> None:
+            writes.append(path.name)
+            if path.name == "manifest.json":
+                raise PermissionError("manifest replace denied")
+            original_atomic_write(path, content)
+
+        with patch.object(
+            gate,
+            "atomic_write_bytes",
+            side_effect=fail_manifest_write,
+        ):
+            with self.assertRaises(PermissionError):
+                gate.persist_preverified_pass(evidence, prepared)
+        self.assertEqual(writes, ["SHA256SUMS", "manifest.json"])
+        self.assertTrue((evidence / "SHA256SUMS").exists())
+        self.assertFalse((evidence / "manifest.json").exists())
+
+    def test_atomic_publish_failure_never_exposes_final_directory(self) -> None:
+        staging = self.repo / "publish-ready"
+        staging.mkdir()
+        (staging / "manifest.json").write_text(
+            '{"status":"PASS"}',
+            encoding="utf-8",
+        )
+        final = self.repo / "publish-final"
+        with patch.object(
+            gate.os,
+            "rename",
+            side_effect=PermissionError("publish denied"),
+        ):
+            with self.assertRaisesRegex(gate.GateError, "atomically publish"):
+                gate.publish_ready_evidence(
+                    staging,
+                    final,
+                )
+        self.assertFalse(final.exists())
+        self.assertTrue(staging.exists())
 
     def test_xml_sanitiser_removes_properties_and_secret_values(self) -> None:
         suite = self.spec["suites"][0]
@@ -2033,6 +2657,58 @@ class Phase00CiGateTest(unittest.TestCase):
         self.assertNotIn("root123", redacted)
         self.assertNotIn("eyJabcdefgh", redacted)
         self.assertIn("[REDACTED_SECRET]", redacted)
+
+    def test_identity_artifact_secret_scan_precedes_no_secret_assertion(self) -> None:
+        evidence = self.repo / "identity-secret-scan"
+        evidence.mkdir()
+        identity = evidence / "target" / "runtime-identity.json"
+        identity.parent.mkdir()
+        identity.write_text(
+            '{"instanceFingerprintSha256":"password=reflected-secret"}',
+            encoding="utf-8",
+        )
+        manifest = {
+            "status": "PASS",
+            "artifacts": [
+                gate.artifact_record(
+                    evidence,
+                    identity,
+                    kind=gate.TARGET_IDENTITY_KIND,
+                )
+            ],
+            "security": {},
+        }
+        with self.assertRaisesRegex(gate.GateError, "credential-shaped"):
+            gate.finalize_manifest_security(
+                evidence,
+                manifest,
+                gate.SecretRedactor({}),
+            )
+        self.assertNotEqual(
+            manifest.get("security", {}).get("containsSecrets"),
+            False,
+        )
+        self.assertFalse((evidence / "manifest.json").exists())
+
+    def test_manifest_secret_scan_precedes_security_assertion(self) -> None:
+        evidence = self.repo / "manifest-secret-scan"
+        evidence.mkdir()
+        manifest = {
+            "status": "PASS",
+            "artifacts": [],
+            "errors": ["known-manifest-secret"],
+            "security": {},
+        }
+        with self.assertRaisesRegex(gate.GateError, "known secret"):
+            gate.finalize_manifest_security(
+                evidence,
+                manifest,
+                gate.SecretRedactor(
+                    {"PHASE00_FIXTURE_SECRET": "known-manifest-secret"}
+                ),
+            )
+        self.assertEqual(manifest["security"], {})
+        self.assertFalse((evidence / "manifest.json").exists())
 
     def test_spec_rejects_duplicate_declared_testcase(self) -> None:
         broken = json.loads(json.dumps(self.spec))

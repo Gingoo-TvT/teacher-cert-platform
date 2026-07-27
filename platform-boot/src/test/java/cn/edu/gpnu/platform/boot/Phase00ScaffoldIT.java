@@ -225,9 +225,8 @@ class Phase00ScaffoldIT {
                 .isEqualTo(minio.identityNonce());
         assertThat(preContextTargetAttestation.minioIdentityIssuedAt())
                 .isEqualTo(minio.identityIssuedAt());
-        assertThat(preContextTargetAttestation.minioServer()).isEqualTo(minio.server());
-        assertThat(preContextTargetAttestation.minioDeploymentId())
-                .isEqualTo(minio.deploymentId());
+        assertThat(preContextTargetAttestation.minioInstanceFingerprintSha256())
+                .isEqualTo(minio.instanceFingerprintSha256());
 
         writeTargetIdentity(
                 candidateSha,
@@ -538,8 +537,7 @@ class Phase00ScaffoldIT {
             String candidateSha,
             String runContext) throws Exception {
         byte[] content;
-        String serverHeader;
-        String deploymentId;
+        String instanceFingerprintSha256;
         try (GetObjectResponse response = minioClient.getObject(GetObjectArgs.builder()
                 .bucket(bucket)
                 .object(identityObject)
@@ -548,10 +546,10 @@ class Phase00ScaffoldIT {
             if (content.length > 4096) {
                 throw new IllegalStateException("MinIO provisioning identity object 超过 4096 bytes");
             }
-            serverHeader = safeHeader(response.headers().get("Server"));
-            deploymentId = requiredText(
-                    response.headers().get("x-minio-deployment-id"),
-                    "MinIO x-minio-deployment-id").toLowerCase(java.util.Locale.ROOT);
+            instanceFingerprintSha256 =
+                    Phase00TargetPreflight.deriveMinioInstanceFingerprint(
+                            response.headers().values("x-minio-deployment-id"),
+                            expectedNonce);
         }
 
         String actualSha256 = HexFormat.of().formatHex(
@@ -582,8 +580,7 @@ class Phase00ScaffoldIT {
                 actualSha256,
                 expectedNonce,
                 expectedIssuedAt,
-                serverHeader,
-                deploymentId);
+                instanceFingerprintSha256);
     }
 
     private void writeTargetIdentity(
@@ -614,8 +611,7 @@ class Phase00ScaffoldIT {
                         minio.identitySha256(),
                         minio.identityNonce(),
                         minio.identityIssuedAt(),
-                        minio.server(),
-                        minio.deploymentId(),
+                        minio.instanceFingerprintSha256(),
                         preContextAttestation.mysqlTableCountBefore(),
                         preContextAttestation.redisDatabaseSizeBefore(),
                         preContextAttestation.minioObjectCountBefore(),
@@ -693,20 +689,6 @@ class Phase00ScaffoldIT {
         return scheme + "://" + host + ":" + port;
     }
 
-    private String safeHeader(String value) {
-        if (value == null || value.isBlank()) {
-            return null;
-        }
-        String normalized = value.trim();
-        if (normalized.length() > 256
-                || normalized.indexOf('\r') >= 0
-                || normalized.indexOf('\n') >= 0
-                || normalized.indexOf('\u0000') >= 0) {
-            throw new IllegalStateException("MinIO 服务身份 header 非法");
-        }
-        return normalized;
-    }
-
     private record MysqlRuntimeIdentity(String database, String version, String serverUuid) {
     }
 
@@ -720,7 +702,6 @@ class Phase00ScaffoldIT {
             String identitySha256,
             String identityNonce,
             String identityIssuedAt,
-            String server,
-            String deploymentId) {
+            String instanceFingerprintSha256) {
     }
 }

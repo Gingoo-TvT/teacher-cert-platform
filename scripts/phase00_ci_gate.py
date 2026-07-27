@@ -30,6 +30,7 @@ import datetime as dt
 import hashlib
 import ipaddress
 import json
+import ntpath
 import os
 import re
 import secrets
@@ -41,7 +42,16 @@ import tempfile
 import time
 import xml.etree.ElementTree as ET
 from pathlib import Path, PurePosixPath, PureWindowsPath
-from typing import Any, Iterable, Iterator, Mapping, NamedTuple, Sequence
+from typing import (
+    Any,
+    Callable,
+    Iterable,
+    Iterator,
+    Mapping,
+    NamedTuple,
+    Sequence,
+    TypeVar,
+)
 from urllib.parse import parse_qsl, unquote_to_bytes, urlsplit
 
 
@@ -51,7 +61,17 @@ SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 GIT_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 MAX_STRICT_JSON_BYTES = 65_536
 MAX_MANIFEST_BYTES = 262_144
+MAX_EVIDENCE_FILES = 512
+MAX_EVIDENCE_TOTAL_BYTES = 512 * 1024 * 1024
+SECRET_SCAN_POLICY = "known-env-and-credential-patterns-v1"
+MINIO_INSTANCE_FINGERPRINT_DOMAIN = b"phase00:minio-instance:v1\x00"
+MINIO_IDENTITY_MODE = (
+    "provisioned-object-sha256+deployment-uuid-nonce-fingerprint-v1"
+)
 MYSQL_UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+)
+MINIO_DEPLOYMENT_UUID_RE = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
 )
 REDIS_RUN_ID_RE = re.compile(r"^[0-9a-f]{40}$")
@@ -226,6 +246,55 @@ class GitTreeEntry(NamedTuple):
     path: PurePosixPath
 
 
+class EvidenceFileSnapshot(NamedTuple):
+    """One evidence file read exactly once from an anchored OS handle."""
+
+    relative_path: str
+    content: bytes
+    sha256: str
+    size: int
+    mtime_ns: int
+    file_id: tuple[int, int]
+
+
+class EvidenceSnapshot:
+    """Immutable in-memory view of an untrusted evidence directory."""
+
+    def __init__(
+        self,
+        root: Path,
+        files: Mapping[str, EvidenceFileSnapshot],
+    ) -> None:
+        self.root = root
+        self.files = dict(files)
+
+    def require(self, relative_value: str, label: str) -> EvidenceFileSnapshot:
+        relative = safe_relative_path(relative_value, label).as_posix()
+        snapshot = self.files.get(relative)
+        if snapshot is None:
+            raise GateError(f"{label} does not exist: {relative!r}")
+        return snapshot
+
+
+class PreparedEvidenceManifest(NamedTuple):
+    """Exact PASS bytes verified before any PASS manifest reaches disk."""
+
+    manifest_content: bytes
+    checksum_content: bytes
+    virtual_snapshot: EvidenceSnapshot
+    verified_manifest: dict[str, Any]
+
+
+class ValidatedWindowsEvidenceHandle(NamedTuple):
+    """A file handle capability issued only after boundary validation."""
+
+    handle: int
+    attributes: int
+    file_id: tuple[int, int]
+    size: int
+    mtime_ns: int
+
+
 def utc_now() -> str:
     return (
         dt.datetime.now(dt.timezone.utc)
@@ -246,6 +315,30 @@ def parse_utc(value: str, label: str) -> dt.datetime:
 
 def sha256_bytes(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
+
+
+def derive_minio_instance_fingerprint(
+    deployment_id: str,
+    identity_nonce: str,
+) -> str:
+    """Mirror the frozen Java fingerprint-v1 byte contract for offline tests."""
+
+    if (
+        not isinstance(deployment_id, str)
+        or not MINIO_DEPLOYMENT_UUID_RE.fullmatch(deployment_id)
+    ):
+        raise GateError("MinIO deployment identity must be one canonical UUID")
+    if (
+        not isinstance(identity_nonce, str)
+        or not SHA256_RE.fullmatch(identity_nonce)
+    ):
+        raise GateError("MinIO instance fingerprint nonce must be lowercase hex")
+    return sha256_bytes(
+        MINIO_INSTANCE_FINGERPRINT_DOMAIN
+        + identity_nonce.encode("ascii")
+        + b"\x00"
+        + deployment_id.encode("ascii")
+    )
 
 
 def sha256_file(path: Path) -> str:
@@ -1269,12 +1362,6 @@ def validate_expected_manifest(
     return normalized
 
 
-def optional_identity_text(value: Any, label: str) -> str | None:
-    if value is None:
-        return None
-    return require_clean_text(value, label, maximum=256)
-
-
 def validate_runtime_identity(
     value: Any,
     target_spec: Mapping[str, Any],
@@ -1380,8 +1467,7 @@ def validate_runtime_identity(
             "identitySha256",
             "identityNonce",
             "identityIssuedAt",
-            "server",
-            "deploymentId",
+            "instanceFingerprintSha256",
         },
         "runtime target identity minio",
     )
@@ -1430,13 +1516,17 @@ def validate_runtime_identity(
     )
     if identity_issued_at != expected["minio"]["identityIssuedAt"]:
         raise GateError("runtime MinIO identity issuedAt does not match expected identity")
-    optional_identity_text(minio["server"], "runtime target identity minio.server")
-    deployment_id = optional_identity_text(
-        minio["deploymentId"],
-        "runtime target identity minio.deploymentId",
+    instance_fingerprint = require_clean_text(
+        minio["instanceFingerprintSha256"],
+        "runtime target identity minio.instanceFingerprintSha256",
     )
-    if deployment_id is None:
-        raise GateError("runtime MinIO deploymentId must be non-empty")
+    if (
+        instance_fingerprint != instance_fingerprint.lower()
+        or not SHA256_RE.fullmatch(instance_fingerprint)
+    ):
+        raise GateError(
+            "runtime MinIO instance fingerprint must be 64 lowercase hex"
+        )
     validate_target_freshness(identity["freshness"])
     return dict(identity)
 
@@ -1564,7 +1654,7 @@ def validate_manifest_target_preamble(
 
 def verify_one_target_identity_artifact(
     *,
-    evidence_dir: Path,
+    evidence: EvidenceSnapshot,
     manifest_identity: Any,
     evidence_value: Any,
     target_spec: Mapping[str, Any],
@@ -1579,7 +1669,7 @@ def verify_one_target_identity_artifact(
     started_ns: int,
     label: str,
 ) -> dict[str, Any]:
-    evidence = require_exact_keys(
+    evidence_provenance = require_exact_keys(
         evidence_value,
         {
             "sourcePath",
@@ -1591,16 +1681,16 @@ def verify_one_target_identity_artifact(
         f"{label} evidence",
     )
     if (
-        evidence["sourcePath"] != source_path
-        or evidence["artifactPath"] != artifact_path
-        or not isinstance(evidence["sourceSha256"], str)
-        or not SHA256_RE.fullmatch(evidence["sourceSha256"])
-        or not isinstance(evidence["sourceMtimeNs"], int)
-        or isinstance(evidence["sourceMtimeNs"], bool)
-        or evidence["sourceMtimeNs"] < started_ns - 2_000_000_000
-        or not isinstance(evidence["sourceBytes"], int)
-        or isinstance(evidence["sourceBytes"], bool)
-        or evidence["sourceBytes"] < 1
+        evidence_provenance["sourcePath"] != source_path
+        or evidence_provenance["artifactPath"] != artifact_path
+        or not isinstance(evidence_provenance["sourceSha256"], str)
+        or not SHA256_RE.fullmatch(evidence_provenance["sourceSha256"])
+        or not isinstance(evidence_provenance["sourceMtimeNs"], int)
+        or isinstance(evidence_provenance["sourceMtimeNs"], bool)
+        or evidence_provenance["sourceMtimeNs"] < started_ns - 2_000_000_000
+        or not isinstance(evidence_provenance["sourceBytes"], int)
+        or isinstance(evidence_provenance["sourceBytes"], bool)
+        or evidence_provenance["sourceBytes"] < 1
     ):
         raise GateError(f"{label} evidence provenance or freshness is invalid")
     record = records.get(artifact_path)
@@ -1610,13 +1700,13 @@ def verify_one_target_identity_artifact(
         record,
         expected_source_path=source_path,
         expected_kind=artifact_kind,
-        expected_source_sha256=evidence["sourceSha256"],
+        expected_source_sha256=evidence_provenance["sourceSha256"],
         source_retained=True,
         label=f"{label} artifact",
     )
     if (
-        record.get("sha256") != evidence["sourceSha256"]
-        or record.get("bytes") != evidence["sourceBytes"]
+        record.get("sha256") != evidence_provenance["sourceSha256"]
+        or record.get("bytes") != evidence_provenance["sourceBytes"]
         or sum(
             1
             for candidate in records.values()
@@ -1625,20 +1715,17 @@ def verify_one_target_identity_artifact(
         != 1
     ):
         raise GateError(f"{label} artifact hash/size is not exact")
-    (
-        archived_identity,
-        _archived_content,
-        archived_sha256,
-        archived_metadata,
-    ) = read_regular_json_source(
-        evidence_dir,
+    archived_file = evidence.require(
         artifact_path,
         f"archived {label}",
-        fresh_after_ns=None,
+    )
+    archived_identity = strict_json_bytes(
+        archived_file.content,
+        f"archived {label}",
     )
     if (
-        archived_sha256 != record.get("sha256")
-        or archived_metadata["bytes"] != record.get("bytes")
+        archived_file.sha256 != record.get("sha256")
+        or archived_file.size != record.get("bytes")
     ):
         raise GateError(f"archived {label} changed during verification")
     validated = validate_runtime_identity(
@@ -1656,7 +1743,7 @@ def verify_one_target_identity_artifact(
 
 def verify_runtime_target_artifact(
     *,
-    evidence_dir: Path,
+    evidence: EvidenceSnapshot,
     targets_value: Any,
     target_spec: Mapping[str, Any],
     expected_candidate: str,
@@ -1668,15 +1755,15 @@ def verify_runtime_target_artifact(
         targets_value,
         expected_candidate,
     )
-    evidence = require_exact_keys(
+    target_evidence = require_exact_keys(
         targets["evidence"],
         {"preflight", "runtime"},
         "targets.evidence",
     )
     preflight = verify_one_target_identity_artifact(
-        evidence_dir=evidence_dir,
+        evidence=evidence,
         manifest_identity=targets["preflight"],
-        evidence_value=evidence["preflight"],
+        evidence_value=target_evidence["preflight"],
         target_spec=target_spec,
         declared=declared,
         configured=configured,
@@ -1690,9 +1777,9 @@ def verify_runtime_target_artifact(
         label="preflight target identity",
     )
     runtime = verify_one_target_identity_artifact(
-        evidence_dir=evidence_dir,
+        evidence=evidence,
         manifest_identity=targets["runtime"],
-        evidence_value=evidence["runtime"],
+        evidence_value=target_evidence["runtime"],
         target_spec=target_spec,
         declared=declared,
         configured=configured,
@@ -1793,6 +1880,771 @@ def resolve_contained_path(
     if must_exist and not candidate.exists():
         raise GateError(f"{label} does not exist: {relative_value!r}")
     return candidate
+
+
+def _snapshot_file_from_bytes(
+    relative_path: str,
+    content: bytes,
+    *,
+    size: int,
+    mtime_ns: int,
+    file_id: tuple[int, int],
+) -> EvidenceFileSnapshot:
+    if len(content) != size:
+        raise GateError(
+            f"evidence file size changed while reading: {relative_path}"
+        )
+    return EvidenceFileSnapshot(
+        relative_path=relative_path,
+        content=content,
+        sha256=sha256_bytes(content),
+        size=size,
+        mtime_ns=mtime_ns,
+        file_id=file_id,
+    )
+
+
+def _capture_evidence_posix(root: Path) -> dict[str, EvidenceFileSnapshot]:
+    """Capture evidence with openat/O_NOFOLLOW; no checked path is reopened."""
+
+    nofollow = getattr(os, "O_NOFOLLOW", None)
+    directory_flag = getattr(os, "O_DIRECTORY", None)
+    if nofollow is None or directory_flag is None:
+        raise GateError(
+            "this platform cannot verify untrusted evidence with no-follow handles"
+        )
+    close_on_exec = getattr(os, "O_CLOEXEC", 0)
+    root_flags = os.O_RDONLY | directory_flag | nofollow | close_on_exec
+    file_flags = os.O_RDONLY | nofollow | close_on_exec
+    try:
+        root_fd = os.open(root, root_flags)
+    except OSError as exc:
+        raise GateError(f"cannot open anchored evidence root: {exc}") from exc
+
+    files: dict[str, EvidenceFileSnapshot] = {}
+    casefold_paths: dict[str, str] = {}
+    total_bytes = 0
+
+    def register(
+        relative_path: str,
+        content: bytes,
+        before: os.stat_result,
+        after: os.stat_result,
+    ) -> None:
+        nonlocal total_bytes
+        before_identity = (
+            before.st_dev,
+            before.st_ino,
+            before.st_size,
+            before.st_mtime_ns,
+            before.st_ctime_ns,
+        )
+        after_identity = (
+            after.st_dev,
+            after.st_ino,
+            after.st_size,
+            after.st_mtime_ns,
+            after.st_ctime_ns,
+        )
+        if before_identity != after_identity or not stat.S_ISREG(after.st_mode):
+            raise GateError(
+                f"evidence file changed on its anchored handle: {relative_path}"
+            )
+        folded = relative_path.casefold()
+        collision = casefold_paths.get(folded)
+        if collision is not None and collision != relative_path:
+            raise GateError(
+                "evidence contains a case-insensitive path collision: "
+                f"{collision!r}, {relative_path!r}"
+            )
+        if relative_path in files:
+            raise GateError(f"duplicate evidence path: {relative_path}")
+        if len(files) >= MAX_EVIDENCE_FILES:
+            raise GateError(
+                f"evidence exceeds {MAX_EVIDENCE_FILES} regular files"
+            )
+        total_bytes += len(content)
+        if total_bytes > MAX_EVIDENCE_TOTAL_BYTES:
+            raise GateError(
+                "evidence exceeds the bounded in-memory verification size"
+            )
+        casefold_paths[folded] = relative_path
+        files[relative_path] = _snapshot_file_from_bytes(
+            relative_path,
+            content,
+            size=before.st_size,
+            mtime_ns=before.st_mtime_ns,
+            file_id=(before.st_dev, before.st_ino),
+        )
+
+    def recurse(directory_fd: int, prefix: PurePosixPath | None) -> None:
+        try:
+            names_before = sorted(os.listdir(directory_fd))
+        except OSError as exc:
+            raise GateError("cannot enumerate anchored evidence directory") from exc
+        for name in names_before:
+            relative = (
+                PurePosixPath(name)
+                if prefix is None
+                else prefix / name
+            )
+            relative_text = safe_relative_path(
+                relative.as_posix(),
+                "evidence snapshot path",
+            ).as_posix()
+            try:
+                metadata = os.stat(
+                    name,
+                    dir_fd=directory_fd,
+                    follow_symlinks=False,
+                )
+            except OSError as exc:
+                raise GateError(
+                    f"cannot inspect anchored evidence entry: {relative_text}"
+                ) from exc
+            if stat.S_ISLNK(metadata.st_mode):
+                raise GateError(
+                    "evidence directory contains a symlink/reparse point: "
+                    f"{relative_text}"
+                )
+            if stat.S_ISDIR(metadata.st_mode):
+                try:
+                    child_fd = os.open(name, root_flags, dir_fd=directory_fd)
+                except OSError as exc:
+                    raise GateError(
+                        f"cannot open anchored evidence directory: {relative_text}"
+                    ) from exc
+                try:
+                    child_metadata = os.fstat(child_fd)
+                    if (
+                        not stat.S_ISDIR(child_metadata.st_mode)
+                        or (
+                            child_metadata.st_dev,
+                            child_metadata.st_ino,
+                        )
+                        != (metadata.st_dev, metadata.st_ino)
+                    ):
+                        raise GateError(
+                            "evidence directory changed before anchored open: "
+                            f"{relative_text}"
+                        )
+                    recurse(child_fd, relative)
+                finally:
+                    os.close(child_fd)
+                continue
+            if not stat.S_ISREG(metadata.st_mode):
+                raise GateError(
+                    f"evidence contains a non-regular entry: {relative_text}"
+                )
+            try:
+                file_fd = os.open(name, file_flags, dir_fd=directory_fd)
+            except OSError as exc:
+                raise GateError(
+                    f"cannot open anchored evidence file: {relative_text}"
+                ) from exc
+            try:
+                before = os.fstat(file_fd)
+                if (
+                    not stat.S_ISREG(before.st_mode)
+                    or (before.st_dev, before.st_ino)
+                    != (metadata.st_dev, metadata.st_ino)
+                ):
+                    raise GateError(
+                        "evidence file changed before anchored open: "
+                        f"{relative_text}"
+                    )
+                if (
+                    before.st_size < 0
+                    or before.st_size > MAX_EVIDENCE_TOTAL_BYTES
+                ):
+                    raise GateError(
+                        f"evidence file exceeds the bounded size: {relative_text}"
+                    )
+                chunks: list[bytes] = []
+                remaining = before.st_size
+                while remaining:
+                    chunk = os.read(file_fd, min(1024 * 1024, remaining))
+                    if not chunk:
+                        raise GateError(
+                            f"evidence file ended early: {relative_text}"
+                        )
+                    chunks.append(chunk)
+                    remaining -= len(chunk)
+                if os.read(file_fd, 1):
+                    raise GateError(
+                        f"evidence file grew while reading: {relative_text}"
+                    )
+                after = os.fstat(file_fd)
+                register(relative_text, b"".join(chunks), before, after)
+            finally:
+                os.close(file_fd)
+        try:
+            names_after = sorted(os.listdir(directory_fd))
+        except OSError as exc:
+            raise GateError("cannot re-enumerate anchored evidence directory") from exc
+        if names_after != names_before:
+            raise GateError("evidence directory changed while it was captured")
+
+    try:
+        root_metadata = os.fstat(root_fd)
+        if not stat.S_ISDIR(root_metadata.st_mode):
+            raise GateError("evidence root must be a directory")
+        recurse(root_fd, None)
+    finally:
+        os.close(root_fd)
+    return files
+
+
+def _normalise_windows_handle_path(value: str) -> str:
+    if value.startswith("\\\\?\\UNC\\"):
+        value = "\\\\" + value[len("\\\\?\\UNC\\") :]
+    elif value.startswith("\\\\?\\"):
+        value = value[len("\\\\?\\") :]
+    if value.startswith("\\\\.\\") or value.startswith("\\Device\\"):
+        raise GateError("evidence handle resolved to an unsupported device path")
+    return ntpath.normcase(ntpath.normpath(value))
+
+
+def _windows_path_is_contained(root: str, candidate: str) -> bool:
+    try:
+        return ntpath.commonpath([root, candidate]) == root and candidate != root
+    except ValueError:
+        return False
+
+
+WINDOWS_GENERIC_READ = 0x80000000
+WINDOWS_FILE_READ_ATTRIBUTES = 0x00000080
+WINDOWS_FILE_LIST_DIRECTORY = 0x00000001
+WINDOWS_FILE_SHARE_READ = 0x00000001
+WINDOWS_FILE_SHARE_WRITE = 0x00000002
+WINDOWS_FILE_FLAG_OPEN_REPARSE_POINT = 0x00200000
+WINDOWS_FILE_FLAG_BACKUP_SEMANTICS = 0x02000000
+WINDOWS_FILE_FLAG_SEQUENTIAL_SCAN = 0x08000000
+
+
+def windows_evidence_open_contract(
+    *,
+    directory: bool,
+) -> tuple[int, int, int]:
+    """Return access/share/flags for locked Windows evidence handles."""
+
+    access = (
+        WINDOWS_FILE_LIST_DIRECTORY | WINDOWS_FILE_READ_ATTRIBUTES
+        if directory
+        else WINDOWS_GENERIC_READ | WINDOWS_FILE_READ_ATTRIBUTES
+    )
+    share = (
+        WINDOWS_FILE_SHARE_READ | WINDOWS_FILE_SHARE_WRITE
+        if directory
+        else WINDOWS_FILE_SHARE_READ
+    )
+    flags = WINDOWS_FILE_FLAG_OPEN_REPARSE_POINT | (
+        WINDOWS_FILE_FLAG_BACKUP_SEMANTICS
+        if directory
+        else WINDOWS_FILE_FLAG_SEQUENTIAL_SCAN
+    )
+    return access, share, flags
+
+
+def windows_evidence_ancestor_paths(value: str) -> tuple[str, ...]:
+    """Return every lexical ancestor from volume/share root to evidence root."""
+
+    path = PureWindowsPath(value)
+    if not path.is_absolute() or not path.anchor or len(path.parts) < 1:
+        raise GateError("Windows evidence root must be an absolute path")
+    current = PureWindowsPath(path.parts[0])
+    ancestors = [str(current)]
+    for segment in path.parts[1:]:
+        current /= segment
+        ancestors.append(str(current))
+    return tuple(ancestors)
+
+
+def validate_windows_evidence_handle_boundary(
+    *,
+    root_final: str,
+    opened_final: str,
+    attributes: int,
+    expected_directory: bool,
+    label: str,
+) -> None:
+    """Validate a Windows handle before any ReadFile call is permitted."""
+
+    directory_flag = 0x00000010
+    reparse_flag = 0x00000400
+    if attributes & reparse_flag:
+        raise GateError(f"{label} is a reparse-point handle")
+    if bool(attributes & directory_flag) is not expected_directory:
+        raise GateError(f"{label} changed filesystem type before anchored open")
+    if not _windows_path_is_contained(root_final, opened_final):
+        raise GateError(f"{label} handle resolves outside its allowed root")
+
+
+def validate_windows_evidence_handle_stability(
+    before: ValidatedWindowsEvidenceHandle,
+    *,
+    after_attributes: int,
+    after_file_id: tuple[int, int],
+    after_size: int,
+    after_mtime_ns: int,
+    label: str,
+) -> None:
+    """Reject identity, size, timestamp, or type drift on one open handle."""
+
+    if (
+        after_attributes != before.attributes
+        or after_file_id != before.file_id
+        or after_size != before.size
+        or after_mtime_ns != before.mtime_ns
+    ):
+        raise GateError(f"{label} changed on its anchored handle")
+
+
+@contextmanager
+def locked_windows_evidence_ancestor_chain(
+    root_value: str,
+    *,
+    open_directory: Callable[[str], int],
+    get_attributes: Callable[[int], int],
+    get_final_path: Callable[[int], str],
+    close_handle: Callable[[int], Any],
+) -> Iterator[tuple[tuple[int, str], ...]]:
+    """Hold every non-reparse ancestor handle and always close in reverse."""
+
+    directory_flag = 0x00000010
+    reparse_flag = 0x00000400
+    ancestor_handles: list[tuple[int, str]] = []
+    try:
+        previous_final: str | None = None
+        for ancestor_path in windows_evidence_ancestor_paths(root_value):
+            handle = open_directory(ancestor_path)
+            try:
+                attributes = get_attributes(handle)
+                if (
+                    not attributes & directory_flag
+                    or attributes & reparse_flag
+                ):
+                    raise GateError(
+                        "Windows evidence ancestor must be a regular "
+                        f"non-reparse directory: {ancestor_path}"
+                    )
+                ancestor_final = get_final_path(handle)
+                if (
+                    previous_final is not None
+                    and not _windows_path_is_contained(
+                        previous_final,
+                        ancestor_final,
+                    )
+                ):
+                    raise GateError(
+                        "Windows evidence ancestor chain changed while opening"
+                    )
+                ancestor_handles.append((handle, ancestor_final))
+                previous_final = ancestor_final
+            except BaseException:
+                close_handle(handle)
+                raise
+        if not ancestor_handles:
+            raise GateError("Windows evidence ancestor chain is empty")
+        yield tuple(ancestor_handles)
+    finally:
+        for handle, _final in reversed(ancestor_handles):
+            close_handle(handle)
+
+
+_WindowsEvidenceReaderResult = TypeVar("_WindowsEvidenceReaderResult")
+
+
+def consume_validated_windows_evidence_handle(
+    *,
+    root_final: str,
+    handle: int,
+    expected_directory: bool,
+    label: str,
+    inspect_handle: Callable[
+        [int],
+        tuple[int, tuple[int, int], int, int],
+    ],
+    get_final_path: Callable[[int], str],
+    reader: Callable[
+        [ValidatedWindowsEvidenceHandle, str],
+        _WindowsEvidenceReaderResult,
+    ],
+    boundary_validator: Callable[..., None] = (
+        validate_windows_evidence_handle_boundary
+    ),
+) -> _WindowsEvidenceReaderResult:
+    """Issue a handle capability to ``reader`` only after boundary checks."""
+
+    attributes, file_id, size, mtime_ns = inspect_handle(handle)
+    opened_final = get_final_path(handle)
+    boundary_validator(
+        root_final=root_final,
+        opened_final=opened_final,
+        attributes=attributes,
+        expected_directory=expected_directory,
+        label=label,
+    )
+    validated = ValidatedWindowsEvidenceHandle(
+        handle=handle,
+        attributes=attributes,
+        file_id=file_id,
+        size=size,
+        mtime_ns=mtime_ns,
+    )
+    return reader(validated, opened_final)
+
+
+def _capture_evidence_windows(root: Path) -> dict[str, EvidenceFileSnapshot]:
+    """Capture evidence through locked Windows handles before any content read."""
+
+    import ctypes
+    from ctypes import wintypes
+
+    open_existing = 3
+    file_attribute_directory = 0x00000010
+    file_attribute_reparse_point = 0x00000400
+    file_type_disk = 0x0001
+    invalid_handle_value = ctypes.c_void_p(-1).value
+
+    class FileTime(ctypes.Structure):
+        _fields_ = [
+            ("low", wintypes.DWORD),
+            ("high", wintypes.DWORD),
+        ]
+
+    class ByHandleFileInformation(ctypes.Structure):
+        _fields_ = [
+            ("attributes", wintypes.DWORD),
+            ("creation_time", FileTime),
+            ("last_access_time", FileTime),
+            ("last_write_time", FileTime),
+            ("volume_serial", wintypes.DWORD),
+            ("size_high", wintypes.DWORD),
+            ("size_low", wintypes.DWORD),
+            ("number_of_links", wintypes.DWORD),
+            ("file_index_high", wintypes.DWORD),
+            ("file_index_low", wintypes.DWORD),
+        ]
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    create_file = kernel32.CreateFileW
+    create_file.argtypes = [
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.LPVOID,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.HANDLE,
+    ]
+    create_file.restype = wintypes.HANDLE
+    get_information = kernel32.GetFileInformationByHandle
+    get_information.argtypes = [
+        wintypes.HANDLE,
+        ctypes.POINTER(ByHandleFileInformation),
+    ]
+    get_information.restype = wintypes.BOOL
+    get_final_path = kernel32.GetFinalPathNameByHandleW
+    get_final_path.argtypes = [
+        wintypes.HANDLE,
+        wintypes.LPWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
+    ]
+    get_final_path.restype = wintypes.DWORD
+    get_file_type = kernel32.GetFileType
+    get_file_type.argtypes = [wintypes.HANDLE]
+    get_file_type.restype = wintypes.DWORD
+    read_file = kernel32.ReadFile
+    read_file.argtypes = [
+        wintypes.HANDLE,
+        wintypes.LPVOID,
+        wintypes.DWORD,
+        ctypes.POINTER(wintypes.DWORD),
+        wintypes.LPVOID,
+    ]
+    read_file.restype = wintypes.BOOL
+    close_handle = kernel32.CloseHandle
+    close_handle.argtypes = [wintypes.HANDLE]
+    close_handle.restype = wintypes.BOOL
+
+    def windows_error(label: str) -> GateError:
+        return GateError(f"{label}: Windows error {ctypes.get_last_error()}")
+
+    def open_handle(path: Path, *, directory: bool) -> int:
+        access, share, flags = windows_evidence_open_contract(
+            directory=directory,
+        )
+        handle = create_file(
+            str(path),
+            access,
+            share,
+            None,
+            open_existing,
+            flags,
+            None,
+        )
+        if handle in (None, 0, invalid_handle_value):
+            raise windows_error("cannot open anchored evidence handle")
+        return int(handle)
+
+    def information(handle: int) -> tuple[
+        ByHandleFileInformation,
+        tuple[int, int],
+        int,
+        int,
+    ]:
+        if get_file_type(handle) != file_type_disk:
+            raise GateError("evidence handle is not a disk file")
+        value = ByHandleFileInformation()
+        if not get_information(handle, ctypes.byref(value)):
+            raise windows_error("cannot inspect anchored evidence handle")
+        file_id = (
+            int(value.volume_serial),
+            (int(value.file_index_high) << 32) | int(value.file_index_low),
+        )
+        size = (int(value.size_high) << 32) | int(value.size_low)
+        mtime_ns = (
+            (int(value.last_write_time.high) << 32)
+            | int(value.last_write_time.low)
+        ) * 100
+        return value, file_id, size, mtime_ns
+
+    def inspect_handle(
+        handle: int,
+    ) -> tuple[int, tuple[int, int], int, int]:
+        value, file_id, size, mtime_ns = information(handle)
+        return int(value.attributes), file_id, size, mtime_ns
+
+    def final_path(handle: int) -> str:
+        buffer = ctypes.create_unicode_buffer(32_768)
+        length = get_final_path(handle, buffer, len(buffer), 0)
+        if length == 0 or length >= len(buffer):
+            raise windows_error("cannot resolve anchored evidence handle path")
+        return _normalise_windows_handle_path(buffer.value)
+
+    def read_locked_file(
+        validated: ValidatedWindowsEvidenceHandle,
+        relative_path: str,
+    ) -> EvidenceFileSnapshot:
+        handle = validated.handle
+        before_attributes = validated.attributes
+        before_id = validated.file_id
+        before_size = validated.size
+        before_mtime = validated.mtime_ns
+        if (
+            before_attributes & file_attribute_directory
+            or before_attributes & file_attribute_reparse_point
+        ):
+            raise GateError(
+                f"evidence file handle is not regular: {relative_path}"
+            )
+        if before_size > MAX_EVIDENCE_TOTAL_BYTES:
+            raise GateError(
+                f"evidence file exceeds the bounded size: {relative_path}"
+            )
+        chunks: list[bytes] = []
+        remaining = before_size
+        buffer = ctypes.create_string_buffer(1024 * 1024)
+        while remaining:
+            requested = min(len(buffer), remaining)
+            completed = wintypes.DWORD()
+            if not read_file(
+                handle,
+                buffer,
+                requested,
+                ctypes.byref(completed),
+                None,
+            ):
+                raise windows_error("cannot read anchored evidence file")
+            if completed.value == 0:
+                raise GateError(
+                    f"evidence file ended early: {relative_path}"
+                )
+            chunks.append(buffer.raw[: completed.value])
+            remaining -= completed.value
+        completed = wintypes.DWORD()
+        if not read_file(
+            handle,
+            buffer,
+            1,
+            ctypes.byref(completed),
+            None,
+        ):
+            raise windows_error("cannot finish anchored evidence read")
+        if completed.value:
+            raise GateError(f"evidence file grew while reading: {relative_path}")
+        (
+            after_attributes,
+            after_id,
+            after_size,
+            after_mtime,
+        ) = inspect_handle(handle)
+        validate_windows_evidence_handle_stability(
+            validated,
+            after_attributes=after_attributes,
+            after_file_id=after_id,
+            after_size=after_size,
+            after_mtime_ns=after_mtime,
+            label=f"evidence file {relative_path}",
+        )
+        return _snapshot_file_from_bytes(
+            relative_path,
+            b"".join(chunks),
+            size=before_size,
+            mtime_ns=before_mtime,
+            file_id=before_id,
+        )
+
+    files: dict[str, EvidenceFileSnapshot] = {}
+    casefold_paths: dict[str, str] = {}
+    total_bytes = 0
+    with locked_windows_evidence_ancestor_chain(
+        str(root),
+        open_directory=lambda path: open_handle(
+            Path(path),
+            directory=True,
+        ),
+        get_attributes=lambda handle: inspect_handle(handle)[0],
+        get_final_path=final_path,
+        close_handle=close_handle,
+    ) as ancestor_handles:
+        root_handle, root_final = ancestor_handles[-1]
+
+        def recurse(
+            directory_handle: int,
+            expected_final: str,
+            prefix: PurePosixPath | None,
+        ) -> None:
+            nonlocal total_bytes
+            directory_final = final_path(directory_handle)
+            if directory_final != expected_final:
+                raise GateError(
+                    "evidence directory handle path changed during capture"
+                )
+            if (
+                directory_handle != root_handle
+                and not _windows_path_is_contained(root_final, directory_final)
+            ):
+                raise GateError(
+                    "evidence directory handle resolves outside its root"
+                )
+            directory_path = Path(directory_final)
+            try:
+                entries_before = sorted(
+                    list(os.scandir(directory_path)),
+                    key=lambda entry: entry.name.casefold(),
+                )
+            except OSError as exc:
+                raise GateError(
+                    "cannot enumerate locked evidence directory"
+                ) from exc
+            names_before = [entry.name for entry in entries_before]
+            for entry in entries_before:
+                relative = (
+                    PurePosixPath(entry.name)
+                    if prefix is None
+                    else prefix / entry.name
+                )
+                relative_text = safe_relative_path(
+                    relative.as_posix(),
+                    "evidence snapshot path",
+                ).as_posix()
+                try:
+                    metadata = entry.stat(follow_symlinks=False)
+                except OSError as exc:
+                    raise GateError(
+                        f"cannot inspect locked evidence entry: {relative_text}"
+                    ) from exc
+                attributes = getattr(metadata, "st_file_attributes", 0)
+                if attributes & file_attribute_reparse_point:
+                    raise GateError(
+                        "evidence directory contains a symlink/reparse point: "
+                        f"{relative_text}"
+                    )
+                is_directory = bool(attributes & file_attribute_directory)
+                handle = open_handle(Path(entry.path), directory=is_directory)
+                try:
+                    if is_directory:
+                        consume_validated_windows_evidence_handle(
+                            root_final=root_final,
+                            handle=handle,
+                            expected_directory=True,
+                            label=f"evidence entry {relative_text}",
+                            inspect_handle=inspect_handle,
+                            get_final_path=final_path,
+                            reader=lambda validated, opened_final: recurse(
+                                validated.handle,
+                                opened_final,
+                                relative,
+                            ),
+                        )
+                        continue
+                    snapshot = consume_validated_windows_evidence_handle(
+                        root_final=root_final,
+                        handle=handle,
+                        expected_directory=False,
+                        label=f"evidence entry {relative_text}",
+                        inspect_handle=inspect_handle,
+                        get_final_path=final_path,
+                        reader=lambda validated, _opened_final: (
+                            read_locked_file(
+                                validated,
+                                relative_text,
+                            )
+                        ),
+                    )
+                    folded = relative_text.casefold()
+                    collision = casefold_paths.get(folded)
+                    if collision is not None and collision != relative_text:
+                        raise GateError(
+                            "evidence contains a case-insensitive path collision: "
+                            f"{collision!r}, {relative_text!r}"
+                        )
+                    if relative_text in files:
+                        raise GateError(
+                            f"duplicate evidence path: {relative_text}"
+                        )
+                    if len(files) >= MAX_EVIDENCE_FILES:
+                        raise GateError(
+                            f"evidence exceeds {MAX_EVIDENCE_FILES} regular files"
+                        )
+                    total_bytes += snapshot.size
+                    if total_bytes > MAX_EVIDENCE_TOTAL_BYTES:
+                        raise GateError(
+                            "evidence exceeds the bounded in-memory verification size"
+                        )
+                    casefold_paths[folded] = relative_text
+                    files[relative_text] = snapshot
+                finally:
+                    close_handle(handle)
+            try:
+                names_after = sorted(
+                    entry.name for entry in os.scandir(directory_path)
+                )
+            except OSError as exc:
+                raise GateError(
+                    "cannot re-enumerate locked evidence directory"
+                ) from exc
+            if sorted(names_before) != names_after:
+                raise GateError(
+                    "evidence directory changed while it was captured"
+                )
+
+        recurse(root_handle, root_final, None)
+    return files
+
+
+def capture_evidence_snapshot(evidence_dir: Path) -> EvidenceSnapshot:
+    """Read an untrusted evidence tree once through anchored, no-follow handles."""
+
+    root = evidence_dir.absolute()
+    if os.name == "nt":
+        files = _capture_evidence_windows(root)
+    else:
+        files = _capture_evidence_posix(root)
+    return EvidenceSnapshot(root, files)
 
 
 def resolve_repo_file(
@@ -1962,9 +2814,9 @@ def load_spec_bytes(content: bytes, label: str) -> dict[str, Any]:
         raise GateError("targetEvidence.preflightProducer is not the fixed producer")
     if (
         isinstance(target_evidence["schemaVersion"], bool)
-        or target_evidence["schemaVersion"] != 3
+        or target_evidence["schemaVersion"] != 4
     ):
-        raise GateError("targetEvidence.schemaVersion must be integer 3")
+        raise GateError("targetEvidence.schemaVersion must be integer 4")
     for key in ("mysqlVersionPattern", "redisVersionPattern"):
         pattern = target_evidence[key]
         if (
@@ -1977,9 +2829,9 @@ def load_spec_bytes(content: bytes, label: str) -> dict[str, Any]:
             re.compile(pattern)
         except re.error as exc:
             raise GateError(f"targetEvidence.{key} is invalid: {exc}") from exc
-    if target_evidence["minioIdentityMode"] != "provisioned-object-sha256":
+    if target_evidence["minioIdentityMode"] != MINIO_IDENTITY_MODE:
         raise GateError(
-            "targetEvidence.minioIdentityMode must be provisioned-object-sha256"
+            "targetEvidence.minioIdentityMode must lock the fingerprint-v1 contract"
         )
     if target_evidence["required"] is not True:
         raise GateError("targetEvidence.required must be true")
@@ -2138,6 +2990,97 @@ class SecretRedactor:
             r"\1[REDACTED_SECRET]", redacted
         )
         return self._jwt.sub("[REDACTED_SECRET]", redacted)
+
+
+class PendingPassEvidence(NamedTuple):
+    """PASS candidate retained in memory until source cleanup has succeeded."""
+
+    manifest: dict[str, Any]
+    redactor: SecretRedactor
+
+
+def assert_secret_free_bytes(
+    content: bytes,
+    label: str,
+    redactor: SecretRedactor,
+) -> None:
+    """Fail closed if a publishable text artifact still contains a credential."""
+
+    try:
+        text = content.decode("utf-8", errors="strict")
+    except UnicodeDecodeError as exc:
+        raise GateError(f"{label} is not UTF-8 and cannot be secret-scanned") from exc
+    if redactor.redact(text) != text:
+        raise GateError(
+            f"{label} contains a known secret or credential-shaped value"
+        )
+
+
+def serialize_manifest_bytes(manifest: Mapping[str, Any]) -> bytes:
+    serialized = (
+        json.dumps(manifest, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
+    ).encode("utf-8")
+    if len(serialized) > MAX_MANIFEST_BYTES:
+        raise GateError(
+            f"evidence manifest exceeds {MAX_MANIFEST_BYTES} bytes"
+        )
+    return serialized
+
+
+def finalize_manifest_security(
+    evidence: EvidenceSnapshot | Path,
+    manifest: dict[str, Any],
+    redactor: SecretRedactor,
+) -> None:
+    """Scan every publishable artifact before asserting containsSecrets=false."""
+
+    snapshot = (
+        evidence
+        if isinstance(evidence, EvidenceSnapshot)
+        else capture_evidence_snapshot(evidence)
+    )
+    artifacts = manifest.get("artifacts")
+    if not isinstance(artifacts, list):
+        raise GateError("manifest artifacts must be a list before secret scan")
+    scanned_paths: set[str] = set()
+    for index, record in enumerate(artifacts):
+        if not isinstance(record, Mapping):
+            raise GateError(f"manifest artifacts[{index}] is not an object")
+        path_value = record.get("path")
+        if not isinstance(path_value, str):
+            raise GateError(f"manifest artifacts[{index}] has no path")
+        relative = safe_relative_path(
+            path_value,
+            f"manifest artifacts[{index}].path",
+        ).as_posix()
+        if relative in scanned_paths:
+            raise GateError(f"duplicate artifact path before secret scan: {relative}")
+        artifact = snapshot.require(
+            relative,
+            f"secret scan artifact {index}",
+        )
+        assert_secret_free_bytes(
+            artifact.content,
+            f"artifact {relative}",
+            redactor,
+        )
+        scanned_paths.add(relative)
+    candidate_security = {
+        "containsSecrets": False,
+        "rawSourcesRetained": False,
+        "xmlPropertiesRemoved": True,
+        "logRedacted": True,
+        "secretScan": {
+            "status": "PASS",
+            "policy": SECRET_SCAN_POLICY,
+            "artifactCount": len(scanned_paths),
+        },
+    }
+    candidate_manifest = dict(manifest)
+    candidate_manifest["security"] = candidate_security
+    serialized = serialize_manifest_bytes(candidate_manifest)
+    assert_secret_free_bytes(serialized, "evidence manifest", redactor)
+    manifest["security"] = candidate_security
 
 
 def run_capture(
@@ -2928,20 +3871,43 @@ def inspect_suite_report(
     suite_spec: Mapping[str, Any],
     fresh_after_ns: int | None,
 ) -> dict[str, Any]:
-    class_name = suite_spec["suite"]
-    expected_names = list(suite_spec["testcases"])
     if not report_path.exists():
         raise GateError(f"required XML is missing: {suite_spec['report']}")
     if path_is_link_or_reparse(report_path) or not report_path.is_file():
         raise GateError(f"required XML must be a regular non-symlink file: {report_path}")
-    stat = report_path.stat()
-    if fresh_after_ns is not None and stat.st_mtime_ns < fresh_after_ns - 2_000_000_000:
+    metadata = report_path.stat()
+    if (
+        fresh_after_ns is not None
+        and metadata.st_mtime_ns < fresh_after_ns - 2_000_000_000
+    ):
         raise GateError(
             f"required XML predates this run and is stale: {suite_spec['report']}"
         )
     try:
-        root = ET.fromstring(report_path.read_bytes())
-    except (OSError, ET.ParseError) as exc:
+        content = report_path.read_bytes()
+    except OSError as exc:
+        raise GateError(
+            f"cannot read required XML {suite_spec['report']}: {exc}"
+        ) from exc
+    return inspect_suite_report_bytes(
+        content,
+        metadata.st_mtime_ns,
+        suite_spec,
+    )
+
+
+def inspect_suite_report_bytes(
+    content: bytes,
+    mtime_ns: int,
+    suite_spec: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Parse a suite from the same immutable bytes used for its hash."""
+
+    class_name = suite_spec["suite"]
+    expected_names = list(suite_spec["testcases"])
+    try:
+        root = ET.fromstring(content)
+    except ET.ParseError as exc:
         raise GateError(f"cannot parse required XML {suite_spec['report']}: {exc}") from exc
     if local_name(root.tag) != "testsuite":
         raise GateError(f"{suite_spec['report']} root is not testsuite")
@@ -3023,7 +3989,7 @@ def inspect_suite_report(
         "skipped": counts["skipped"],
         "testcases": observed_sorted,
         "sourceReport": suite_spec["report"],
-        "sourceMtimeNs": stat.st_mtime_ns,
+        "sourceMtimeNs": mtime_ns,
     }
 
 
@@ -3060,9 +4026,26 @@ def inspect_failsafe_summary(
     ):
         raise GateError(f"Failsafe summary predates this run and is stale: {path}")
     try:
-        root = ET.fromstring(path.read_bytes())
-    except (OSError, ET.ParseError) as exc:
-        raise GateError(f"cannot parse Failsafe summary {path}: {exc}") from exc
+        content = path.read_bytes()
+    except OSError as exc:
+        raise GateError(f"cannot read Failsafe summary {path}: {exc}") from exc
+    return inspect_failsafe_summary_bytes(
+        content,
+        minimum_completed=minimum_completed,
+    )
+
+
+def inspect_failsafe_summary_bytes(
+    content: bytes,
+    *,
+    minimum_completed: int,
+) -> dict[str, int]:
+    """Parse a Failsafe summary from immutable snapshot bytes."""
+
+    try:
+        root = ET.fromstring(content)
+    except ET.ParseError as exc:
+        raise GateError(f"cannot parse Failsafe summary XML: {exc}") from exc
     if local_name(root.tag) != "failsafe-summary":
         raise GateError(f"Failsafe summary root is wrong: {root.tag!r}")
     values = {
@@ -3214,6 +4197,99 @@ def prepare_evidence_dir(path: Path) -> None:
     path.mkdir(parents=True, exist_ok=False)
 
 
+def validate_failed_evidence_bundle(
+    evidence_dir: Path,
+    expected_candidate: str,
+) -> None:
+    """Validate a publishable FAIL bundle without accepting it as PASS."""
+
+    evidence = capture_evidence_snapshot(evidence_dir)
+    manifest = read_manifest(evidence)
+    validate_candidate(
+        str(manifest.get("candidateSha", "")),
+        expected_candidate,
+    )
+    if manifest.get("expectedCandidateSha") != expected_candidate:
+        raise GateError("FAIL manifest expected candidate is not exact")
+    if manifest.get("status") != "FAIL":
+        raise GateError("non-successful gate cannot publish a PASS manifest")
+    records = verify_artifact_records(evidence, manifest.get("artifacts"))
+    verify_checksums_file(
+        evidence,
+        expected_paths=set(records) | {"manifest.json"},
+    )
+    security = require_exact_keys(
+        manifest.get("security"),
+        {
+            "containsSecrets",
+            "rawSourcesRetained",
+            "xmlPropertiesRemoved",
+            "logRedacted",
+            "secretScan",
+        },
+        "FAIL manifest security",
+    )
+    secret_scan = require_exact_keys(
+        security.get("secretScan"),
+        {"status", "policy", "artifactCount"},
+        "FAIL manifest security.secretScan",
+    )
+    if (
+        security.get("containsSecrets") is not False
+        or secret_scan.get("status") != "PASS"
+        or secret_scan.get("policy") != SECRET_SCAN_POLICY
+        or secret_scan.get("artifactCount") != len(records)
+    ):
+        raise GateError("FAIL evidence did not complete its secret scan")
+    verification_redactor = SecretRedactor(dict(os.environ))
+    for artifact_path in records:
+        assert_secret_free_bytes(
+            evidence.require(
+                artifact_path,
+                f"FAIL secret-scanned artifact {artifact_path}",
+            ).content,
+            f"FAIL secret-scanned artifact {artifact_path}",
+            verification_redactor,
+        )
+    assert_secret_free_bytes(
+        evidence.require("manifest.json", "FAIL secret-scanned manifest").content,
+        "FAIL secret-scanned manifest",
+        verification_redactor,
+    )
+
+
+def publish_ready_evidence(
+    ready_dir: Path,
+    final_dir: Path,
+) -> None:
+    """Atomically publish as the final fallible state transition."""
+
+    if os.path.lexists(final_dir):
+        raise GateError(
+            f"evidence directory already exists; stale artifacts are rejected: {final_dir}"
+        )
+    try:
+        os.rename(ready_dir, final_dir)
+    except OSError as exc:
+        raise GateError(
+            "cannot atomically publish the verified evidence directory"
+        ) from exc
+
+
+def allocate_ready_evidence_path(parent: Path, final_name: str) -> Path:
+    """Choose an uncreated same-filesystem path for the ready evidence bundle."""
+
+    if not final_name or final_name in {".", ".."}:
+        raise GateError("evidence directory must have a concrete final name")
+    for _ in range(16):
+        candidate = parent / (
+            f".{final_name}.ready-{secrets.token_hex(16)}"
+        )
+        if not os.path.lexists(candidate):
+            return candidate
+    raise GateError("cannot allocate a unique ready evidence path")
+
+
 def artifact_record(
     evidence_dir: Path,
     path: Path,
@@ -3253,23 +4329,153 @@ def write_checksums(evidence_dir: Path, artifact_paths: Iterable[Path]) -> Path:
     return checksum_path
 
 
+def atomic_write_bytes(path: Path, content: bytes) -> None:
+    """Replace one staging file only after its complete bytes are durable."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+        dir=path.parent,
+    )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    except BaseException:
+        try:
+            os.close(descriptor)
+        except OSError:
+            pass
+        temporary.unlink(missing_ok=True)
+        raise
+
+
+def checksum_bytes_for_snapshot(
+    evidence: EvidenceSnapshot,
+    manifest: Mapping[str, Any],
+    manifest_content: bytes,
+) -> bytes:
+    """Build the exact checksum file from one already captured artifact view."""
+
+    artifacts = manifest.get("artifacts")
+    if not isinstance(artifacts, list):
+        raise GateError("manifest artifacts must be a list before checksumming")
+    digests: dict[str, str] = {
+        "manifest.json": sha256_bytes(manifest_content),
+    }
+    for index, record in enumerate(artifacts):
+        path_value = record.get("path") if isinstance(record, Mapping) else None
+        if not isinstance(path_value, str):
+            raise GateError(f"manifest artifacts[{index}] has no path")
+        relative = safe_relative_path(
+            path_value,
+            f"manifest artifacts[{index}].path",
+        ).as_posix()
+        if relative in digests:
+            raise GateError(f"duplicate artifact path before checksumming: {relative}")
+        digests[relative] = evidence.require(
+            relative,
+            f"checksummed artifact {index}",
+        ).sha256
+    return "".join(
+        f"{digests[path]}  {path}\n"
+        for path in sorted(digests)
+    ).encode("utf-8")
+
+
+def virtual_manifest_snapshot(
+    evidence: EvidenceSnapshot,
+    manifest_content: bytes,
+    checksum_content: bytes,
+) -> EvidenceSnapshot:
+    """Overlay exact manifest/checksum bytes without exposing them on disk."""
+
+    if "manifest.json" in evidence.files or "SHA256SUMS" in evidence.files:
+        raise GateError(
+            "private staging must not contain a manifest or checksum before verification"
+        )
+    now_ns = time.time_ns()
+    files = dict(evidence.files)
+    for ordinal, (relative, content) in enumerate(
+        (
+            ("manifest.json", manifest_content),
+            ("SHA256SUMS", checksum_content),
+        ),
+        start=1,
+    ):
+        files[relative] = _snapshot_file_from_bytes(
+            relative,
+            content,
+            size=len(content),
+            mtime_ns=now_ns,
+            file_id=(-1, ordinal),
+        )
+    return EvidenceSnapshot(evidence.root, files)
+
+
+def verify_prepared_pass(
+    *,
+    evidence_dir: Path,
+    spec_path: Path,
+    expected_candidate: str,
+    manifest: dict[str, Any],
+    redactor: SecretRedactor,
+) -> PreparedEvidenceManifest:
+    """Verify the exact future PASS bytes entirely in memory."""
+
+    artifact_snapshot = capture_evidence_snapshot(evidence_dir)
+    finalize_manifest_security(artifact_snapshot, manifest, redactor)
+    manifest_content = serialize_manifest_bytes(manifest)
+    checksum_content = checksum_bytes_for_snapshot(
+        artifact_snapshot,
+        manifest,
+        manifest_content,
+    )
+    virtual_snapshot = virtual_manifest_snapshot(
+        artifact_snapshot,
+        manifest_content,
+        checksum_content,
+    )
+    verified_manifest = _verify_evidence_snapshot(
+        virtual_snapshot,
+        spec_path,
+        expected_candidate,
+    )
+    return PreparedEvidenceManifest(
+        manifest_content=manifest_content,
+        checksum_content=checksum_content,
+        virtual_snapshot=virtual_snapshot,
+        verified_manifest=verified_manifest,
+    )
+
+
+def persist_preverified_pass(
+    evidence_dir: Path,
+    prepared: PreparedEvidenceManifest,
+) -> None:
+    """Write checksum first and make the verified PASS manifest visible last."""
+
+    manifest_path = evidence_dir / "manifest.json"
+    checksum_path = evidence_dir / "SHA256SUMS"
+    if os.path.lexists(manifest_path) or os.path.lexists(checksum_path):
+        raise GateError(
+            "private staging already contains a manifest or checksum"
+        )
+    atomic_write_bytes(checksum_path, prepared.checksum_content)
+    # No later operation may mutate the verified private bundle before rename.
+    atomic_write_bytes(manifest_path, prepared.manifest_content)
+
+
 def persist_manifest(
     evidence_dir: Path,
     manifest: Mapping[str, Any],
 ) -> Path:
     manifest_path = evidence_dir / "manifest.json"
-    serialized = (
-        json.dumps(manifest, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
-    )
-    if len(serialized.encode("utf-8")) > MAX_MANIFEST_BYTES:
-        raise GateError(
-            f"evidence manifest exceeds {MAX_MANIFEST_BYTES} bytes"
-        )
-    manifest_path.write_text(
-        serialized,
-        encoding="utf-8",
-        newline="\n",
-    )
+    serialized = serialize_manifest_bytes(manifest)
     artifact_files = []
     for index, record in enumerate(manifest.get("artifacts", [])):
         path_text = record.get("path") if isinstance(record, dict) else None
@@ -3280,7 +4486,18 @@ def persist_manifest(
             / safe_relative_path(path_text, f"manifest artifacts[{index}].path")
         )
     artifact_files.append(manifest_path)
-    write_checksums(evidence_dir, artifact_files)
+    checksum_lines = []
+    for path in sorted(artifact_files, key=lambda item: item.as_posix()):
+        relative = path.relative_to(evidence_dir).as_posix()
+        digest = (
+            sha256_bytes(serialized)
+            if path == manifest_path
+            else sha256_file(path)
+        )
+        checksum_lines.append(f"{digest}  {relative}\n")
+    checksum_content = "".join(checksum_lines).encode("utf-8")
+    atomic_write_bytes(evidence_dir / "SHA256SUMS", checksum_content)
+    atomic_write_bytes(manifest_path, serialized)
     return manifest_path
 
 
@@ -3290,25 +4507,43 @@ def self_verify_or_downgrade(
     spec_path: Path,
     expected_candidate: str,
     manifest: dict[str, Any],
+    redactor: SecretRedactor,
 ) -> tuple[bool, str | None]:
-    """Persist, verify, and never leave a false PASS manifest behind."""
+    """Verify future PASS bytes before they can exist in private staging."""
 
-    persist_manifest(evidence_dir, manifest)
     try:
-        verify_evidence(
+        prepared = verify_prepared_pass(
             evidence_dir=evidence_dir,
             spec_path=spec_path,
             expected_candidate=expected_candidate,
+            manifest=manifest,
+            redactor=redactor,
         )
-    except GateError as exc:
-        error = f"evidence self-verification failed: {exc}"
+        persist_preverified_pass(evidence_dir, prepared)
+    except Exception as exc:
+        safe_detail = redactor.redact(str(exc))
+        error = (
+            "evidence self-verification failed "
+            f"({type(exc).__name__}): {safe_detail}"
+        )
         manifest["status"] = "FAIL"
         errors = manifest.setdefault("errors", [])
         if not isinstance(errors, list):
             errors = []
             manifest["errors"] = errors
         errors.append(error)
-        persist_manifest(evidence_dir, manifest)
+        try:
+            finalize_manifest_security(evidence_dir, manifest, redactor)
+            persist_manifest(evidence_dir, manifest)
+        except Exception:
+            for path in (
+                evidence_dir / "manifest.json",
+                evidence_dir / "SHA256SUMS",
+            ):
+                try:
+                    path.unlink(missing_ok=True)
+                except OSError:
+                    pass
         return False, error
     return True, None
 
@@ -3359,18 +4594,108 @@ def run_gate(args: argparse.Namespace) -> int:
         args.expected_candidate_sha,
         dict(os.environ),
     )
-    with immutable_candidate_snapshot(
-        repo_root,
-        expected_candidate,
-        args.evidence_dir.absolute().parent,
-    ) as source_snapshot:
-        return _run_gate_from_snapshot(args, source_snapshot)
+    requested_evidence_dir = args.evidence_dir.absolute()
+    try:
+        requested_evidence_dir.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise GateError("cannot create the evidence parent directory") from exc
+    evidence_parent_input = requested_evidence_dir.parent
+    if (
+        path_is_link_or_reparse(evidence_parent_input)
+        or not evidence_parent_input.is_dir()
+    ):
+        raise GateError("evidence parent must be a regular non-reparse directory")
+    evidence_parent = evidence_parent_input.resolve(strict=True)
+    final_evidence_dir = evidence_parent / requested_evidence_dir.name
+    if os.path.lexists(final_evidence_dir):
+        raise GateError(
+            "evidence directory already exists; stale artifacts are rejected: "
+            f"{final_evidence_dir}"
+        )
+    ready_dir = allocate_ready_evidence_path(
+        evidence_parent,
+        final_evidence_dir.name,
+    )
+    published = False
+    try:
+        with immutable_candidate_snapshot(
+            repo_root,
+            expected_candidate,
+            evidence_parent,
+        ) as source_snapshot:
+            result, pending_pass = _run_gate_from_snapshot(
+                args,
+                source_snapshot,
+                ready_dir,
+            )
+        # No PASS bytes exist before source-snapshot cleanup completes.
+        spec_path = (
+            args.spec
+            if args.spec.is_absolute()
+            else Path.cwd() / args.spec
+        ).absolute()
+        suite_count = 0
+        testcase_count = 0
+        if result == 0:
+            if pending_pass is None:
+                raise GateError("successful gate did not retain a PASS candidate")
+            verified, verification_error = self_verify_or_downgrade(
+                evidence_dir=ready_dir,
+                spec_path=spec_path,
+                expected_candidate=expected_candidate,
+                manifest=pending_pass.manifest,
+                redactor=pending_pass.redactor,
+            )
+            if not verified:
+                result = 1
+                try:
+                    print(
+                        f"[phase00-ci-gate] FAIL: {verification_error}",
+                        file=sys.stderr,
+                    )
+                except Exception:
+                    pass
+            else:
+                suites = pending_pass.manifest.get("suites")
+                if not isinstance(suites, list):
+                    raise GateError("verified PASS manifest suites are invalid")
+                suite_count = len(suites)
+                testcase_count = sum(
+                    item.get("observedTests", 0)
+                    for item in suites
+                    if isinstance(item, Mapping)
+                )
+        if result != 0:
+            validate_failed_evidence_bundle(ready_dir, expected_candidate)
+        publish_ready_evidence(ready_dir, final_evidence_dir)
+        published = True
+    finally:
+        if not published and os.path.lexists(ready_dir):
+            if path_is_link_or_reparse(ready_dir):
+                raise GateError(
+                    "ready evidence path became a reparse point during cleanup"
+                )
+            remove_directory_tree(ready_dir)
+    if result == 0:
+        try:
+            print(
+                "[phase00-ci-gate] PASS: "
+                f"{suite_count} exact suites, "
+                f"{testcase_count} testcases, "
+                f"candidate={expected_candidate}"
+            )
+        except Exception:
+            # Publication already succeeded; a broken output stream must not
+            # turn an exact published PASS into a failure exit status.
+            pass
+    return result
 
 
 def _run_gate_from_snapshot(
     args: argparse.Namespace,
     source_snapshot: SourceSnapshot,
-) -> int:
+    evidence_dir: Path,
+) -> tuple[int, PendingPassEvidence | None]:
     repo_root_input = args.repo_root.absolute()
     if path_is_link_or_reparse(repo_root_input) or not repo_root_input.is_dir():
         raise GateError("repository root must be a regular non-reparse directory")
@@ -3382,7 +4707,6 @@ def _run_gate_from_snapshot(
         "gate spec",
     )
     spec_source_sha256_at_start = sha256_file(spec_path)
-    evidence_dir = args.evidence_dir.absolute()
     start_environment = dict(os.environ)
     expected_candidate = expected_candidate_from_args(
         args.expected_candidate_sha,
@@ -3588,6 +4912,11 @@ def _run_gate_from_snapshot(
             preflight_identity,
             preflight_run["startedEpochNs"],
         )
+        assert_secret_free_bytes(
+            preflight_content,
+            "preflight target identity",
+            redactor,
+        )
         preflight_destination = evidence_dir / PREFLIGHT_IDENTITY_ARTIFACT
         preflight_destination.parent.mkdir(parents=True, exist_ok=True)
         preflight_destination.write_bytes(preflight_content)
@@ -3725,18 +5054,14 @@ def _run_gate_from_snapshot(
             "supportingArtifacts": [],
             "artifacts": artifacts,
             "errors": errors,
-            "security": {
-                "containsSecrets": False,
-                "rawSourcesRetained": False,
-                "xmlPropertiesRemoved": True,
-                "logRedacted": True,
-            },
+            "security": {},
         }
+        finalize_manifest_security(evidence_dir, fail_manifest, redactor)
         persist_manifest(evidence_dir, fail_manifest)
         print("[phase00-ci-gate] PRECHECK FAIL:", file=sys.stderr)
         for error in errors:
             print(f"  - {error}", file=sys.stderr)
-        return 1
+        return 1, None
 
     maven_command = formal_maven_command(args.maven)
     started_at = utc_now()
@@ -3828,6 +5153,11 @@ def _run_gate_from_snapshot(
             require_matching_preflight_and_runtime(
                 preflight_identity,
                 runtime_identity,
+            )
+            assert_secret_free_bytes(
+                identity_content,
+                "runtime target identity",
+                redactor,
             )
             identity_destination = evidence_dir / TARGET_IDENTITY_ARTIFACT
             identity_destination.parent.mkdir(parents=True, exist_ok=True)
@@ -4082,52 +5412,35 @@ def _run_gate_from_snapshot(
             "supportingArtifacts": supporting_results,
             "artifacts": artifacts,
             "errors": errors,
-            "security": {
-                "containsSecrets": False,
-                "rawSourcesRetained": False,
-                "xmlPropertiesRemoved": True,
-                "logRedacted": True,
-            },
+            "security": {},
         }
         if status == "PASS":
-            verified, verification_error = self_verify_or_downgrade(
-                evidence_dir=evidence_dir,
-                spec_path=spec_path,
-                expected_candidate=expected_candidate,
+            return 0, PendingPassEvidence(
                 manifest=manifest,
+                redactor=redactor,
             )
-            if not verified:
-                print(f"[phase00-ci-gate] FAIL: {verification_error}", file=sys.stderr)
-                return 1
-            print(
-                "[phase00-ci-gate] PASS: "
-                f"{len(suite_results)} exact suites, "
-                f"{sum(item['observedTests'] for item in suite_results)} testcases, "
-                f"candidate={start_head}"
-            )
-            return 0
+        finalize_manifest_security(evidence_dir, manifest, redactor)
         persist_manifest(evidence_dir, manifest)
         print("[phase00-ci-gate] FAIL:", file=sys.stderr)
         for error in errors:
             print(f"  - {error}", file=sys.stderr)
-        return 1
+        return 1, None
     finally:
         safe_log_temp.unlink(missing_ok=True)
 
 
-def read_manifest(evidence_dir: Path) -> dict[str, Any]:
-    manifest_path = resolve_contained_path(
-        evidence_dir,
+def read_manifest(
+    evidence: EvidenceSnapshot | Path,
+) -> dict[str, Any]:
+    snapshot = (
+        evidence
+        if isinstance(evidence, EvidenceSnapshot)
+        else capture_evidence_snapshot(evidence)
+    )
+    content = snapshot.require(
         "manifest.json",
         "evidence manifest",
-        must_exist=True,
-    )
-    if not manifest_path.is_file():
-        raise GateError("evidence manifest must be a regular file")
-    try:
-        content = manifest_path.read_bytes()
-    except OSError as exc:
-        raise GateError(f"cannot read evidence manifest: {exc}") from exc
+    ).content
     manifest = require_exact_keys(
         strict_json_bytes(
             content,
@@ -4183,56 +5496,34 @@ def index_unique_manifest_objects(
     return indexed
 
 
-def list_evidence_files(evidence_dir: Path) -> set[str]:
-    """Enumerate evidence without following symlinks or Windows reparse points."""
+def list_evidence_files(evidence: EvidenceSnapshot | Path) -> set[str]:
+    """Return the exact file set from one immutable evidence snapshot."""
 
-    root_absolute = evidence_dir.absolute()
-    if path_is_link_or_reparse(root_absolute) or not root_absolute.is_dir():
-        raise GateError("evidence directory must be a regular non-reparse directory")
-    root_resolved = root_absolute.resolve(strict=True)
-    files: set[str] = set()
-    pending = [root_absolute]
-    while pending:
-        directory = pending.pop()
-        try:
-            entries = list(os.scandir(directory))
-        except OSError as exc:
-            raise GateError(f"cannot enumerate evidence directory: {directory}: {exc}") from exc
-        for entry in entries:
-            path = Path(entry.path)
-            if path_is_link_or_reparse(path):
-                raise GateError(f"evidence directory contains a symlink/reparse point: {path}")
-            if entry.is_dir(follow_symlinks=False):
-                resolved_directory = path.resolve(strict=True)
-                if not resolved_directory.is_relative_to(root_resolved):
-                    raise GateError(f"evidence directory escapes its root: {path}")
-                pending.append(path)
-            elif entry.is_file(follow_symlinks=False):
-                resolved_file = path.resolve(strict=True)
-                if not resolved_file.is_relative_to(root_resolved):
-                    raise GateError(f"evidence file escapes its root: {path}")
-                files.add(resolved_file.relative_to(root_resolved).as_posix())
-            else:
-                raise GateError(f"evidence contains a non-regular filesystem entry: {path}")
-    return files
+    snapshot = (
+        evidence
+        if isinstance(evidence, EvidenceSnapshot)
+        else capture_evidence_snapshot(evidence)
+    )
+    return set(snapshot.files)
 
 
 def verify_checksums_file(
-    evidence_dir: Path,
+    evidence: EvidenceSnapshot | Path,
     expected_paths: set[str],
 ) -> None:
-    checksum_path = resolve_contained_path(
-        evidence_dir,
-        "SHA256SUMS",
-        "SHA256SUMS",
-        must_exist=True,
+    snapshot = (
+        evidence
+        if isinstance(evidence, EvidenceSnapshot)
+        else capture_evidence_snapshot(evidence)
     )
-    if not checksum_path.is_file():
-        raise GateError("SHA256SUMS must be a regular file")
+    checksum_file = snapshot.require("SHA256SUMS", "SHA256SUMS")
     try:
-        lines = checksum_path.read_text(encoding="utf-8").splitlines()
-    except OSError as exc:
-        raise GateError(f"cannot read SHA256SUMS: {exc}") from exc
+        lines = checksum_file.content.decode(
+            "utf-8",
+            errors="strict",
+        ).splitlines()
+    except UnicodeDecodeError as exc:
+        raise GateError("SHA256SUMS is not UTF-8") from exc
     if not lines:
         raise GateError("SHA256SUMS is empty")
     seen: set[str] = set()
@@ -4245,15 +5536,11 @@ def verify_checksums_file(
         if relative_text in seen:
             raise GateError(f"duplicate SHA256SUMS path: {relative_text}")
         seen.add(relative_text)
-        path = resolve_contained_path(
-            evidence_dir,
+        artifact = snapshot.require(
             relative.as_posix(),
             "SHA256SUMS artifact",
-            must_exist=True,
         )
-        if not path.is_file():
-            raise GateError(f"SHA256SUMS artifact missing/non-regular: {relative_text}")
-        actual = sha256_file(path)
+        actual = artifact.sha256
         if actual != digest:
             raise GateError(
                 f"SHA256SUMS mismatch for {relative_text}: "
@@ -4266,7 +5553,7 @@ def verify_checksums_file(
             "SHA256SUMS coverage is not exact: "
             f"missing={missing}, unexpected={unexpected}"
         )
-    actual_files = list_evidence_files(evidence_dir)
+    actual_files = list_evidence_files(snapshot)
     expected_files = expected_paths | {"SHA256SUMS"}
     if actual_files != expected_files:
         missing = sorted(expected_files - actual_files)
@@ -4278,9 +5565,14 @@ def verify_checksums_file(
 
 
 def verify_artifact_records(
-    evidence_dir: Path,
+    evidence: EvidenceSnapshot | Path,
     artifacts: Any,
 ) -> dict[str, dict[str, Any]]:
+    snapshot = (
+        evidence
+        if isinstance(evidence, EvidenceSnapshot)
+        else capture_evidence_snapshot(evidence)
+    )
     if not isinstance(artifacts, list) or not artifacts:
         raise GateError("manifest artifacts must be a non-empty list")
     records: dict[str, dict[str, Any]] = {}
@@ -4364,21 +5656,17 @@ def verify_artifact_records(
             or len(redactions) != len(set(redactions))
         ):
             raise GateError(f"artifact redactions are invalid for {path_text}")
-        path = resolve_contained_path(
-            evidence_dir,
+        file_snapshot = snapshot.require(
             relative.as_posix(),
             f"artifact {index}",
-            must_exist=True,
         )
-        if not path.is_file():
-            raise GateError(f"artifact missing/non-regular: {path_text}")
-        actual = sha256_file(path)
+        actual = file_snapshot.sha256
         if actual != digest:
             raise GateError(
                 f"artifact SHA-256 mismatch for {path_text}: "
                 f"actual={actual}, expected={digest}"
             )
-        if path.stat().st_size != byte_count:
+        if file_snapshot.size != byte_count:
             raise GateError(f"artifact byte count mismatch for {path_text}")
         records[path_text] = record
     return records
@@ -4424,6 +5712,19 @@ def verify_evidence(
     spec_path: Path,
     expected_candidate: str,
 ) -> dict[str, Any]:
+    evidence = capture_evidence_snapshot(evidence_dir)
+    return _verify_evidence_snapshot(
+        evidence,
+        spec_path,
+        expected_candidate,
+    )
+
+
+def _verify_evidence_snapshot(
+    evidence: EvidenceSnapshot,
+    spec_path: Path,
+    expected_candidate: str,
+) -> dict[str, Any]:
     repo_root = SCRIPT_DIR.parent.resolve(strict=True)
     _spec_resolved, spec_source_path = resolve_repo_file(
         repo_root,
@@ -4456,7 +5757,7 @@ def verify_evidence(
         candidate_spec_content,
         f"candidate gate spec {spec_source_path}",
     )
-    manifest = read_manifest(evidence_dir)
+    manifest = read_manifest(evidence)
     verify_candidate_attestation(manifest, expected_candidate)
     if manifest.get("gateId") != spec["gateId"]:
         raise GateError("manifest gateId does not match gate spec")
@@ -4647,20 +5948,48 @@ def verify_evidence(
             "rawSourcesRetained",
             "xmlPropertiesRemoved",
             "logRedacted",
+            "secretScan",
         },
         "manifest security",
+    )
+    secret_scan = require_exact_keys(
+        security.get("secretScan"),
+        {"status", "policy", "artifactCount"},
+        "manifest security.secretScan",
     )
     if (
         security.get("containsSecrets") is not False
         or security.get("rawSourcesRetained") is not False
         or security.get("xmlPropertiesRemoved") is not True
         or security.get("logRedacted") is not True
+        or secret_scan.get("status") != "PASS"
+        or secret_scan.get("policy") != SECRET_SCAN_POLICY
+        or not isinstance(secret_scan.get("artifactCount"), int)
+        or isinstance(secret_scan.get("artifactCount"), bool)
+        or secret_scan.get("artifactCount") < 0
     ):
         raise GateError("manifest does not assert a secret-free artifact")
 
-    records = verify_artifact_records(evidence_dir, manifest.get("artifacts"))
+    records = verify_artifact_records(evidence, manifest.get("artifacts"))
+    if secret_scan.get("artifactCount") != len(records):
+        raise GateError("manifest secret scan artifact count is not exact")
+    verification_redactor = SecretRedactor(dict(os.environ))
+    for artifact_path in records:
+        assert_secret_free_bytes(
+            evidence.require(
+                artifact_path,
+                f"secret-scanned artifact {artifact_path}",
+            ).content,
+            f"secret-scanned artifact {artifact_path}",
+            verification_redactor,
+        )
+    assert_secret_free_bytes(
+        evidence.require("manifest.json", "secret-scanned manifest").content,
+        "secret-scanned manifest",
+        verification_redactor,
+    )
     verify_checksums_file(
-        evidence_dir,
+        evidence,
         expected_paths=set(records) | {"manifest.json"},
     )
     base_artifact_fields = {"path", "kind", "sha256", "bytes"}
@@ -4719,7 +6048,7 @@ def verify_evidence(
         if identity_record.get("kind") != identity_kind:
             raise GateError(f"{identity_path} artifact kind is invalid")
     verify_runtime_target_artifact(
-        evidence_dir=evidence_dir,
+        evidence=evidence,
         targets_value=manifest.get("targets"),
         target_spec=spec["targetEvidence"],
         expected_candidate=expected_candidate,
@@ -4764,13 +6093,11 @@ def verify_evidence(
     )
     if spec_record.get("sha256") != spec_source_sha256:
         raise GateError("archived gate spec hash does not match the verifier spec")
-    archived_spec = resolve_contained_path(
-        evidence_dir,
+    archived_spec = evidence.require(
         expected_spec_artifact,
         "archived gate spec",
-        must_exist=True,
     )
-    if archived_spec.read_bytes() != candidate_spec_content:
+    if archived_spec.content != candidate_spec_content:
         raise GateError(
             "archived gate spec bytes differ from the candidate Git blob"
         )
@@ -4870,15 +6197,14 @@ def verify_evidence(
             source_retained=False,
             label=f"manifest suite {suite['id']}",
         )
-        inspect_suite_report(
-            resolve_contained_path(
-                evidence_dir,
-                evidence_path,
-                "suite evidence path",
-                must_exist=True,
-            ),
+        suite_snapshot = evidence.require(
+            evidence_path,
+            "suite evidence path",
+        )
+        inspect_suite_report_bytes(
+            suite_snapshot.content,
+            suite_snapshot.mtime_ns,
             suite,
-            fresh_after_ns=None,
         )
 
     support_by_id = index_unique_manifest_objects(
@@ -4962,15 +6288,13 @@ def verify_evidence(
             label=f"supporting artifact {support_id}",
         )
         if support_spec["kind"] == "maven-summary-xml":
-            parsed_counts = inspect_failsafe_summary(
-                resolve_contained_path(
-                    evidence_dir,
-                    artifact_path,
-                    "supporting evidence path",
-                    must_exist=True,
-                ),
+            support_snapshot = evidence.require(
+                artifact_path,
+                "supporting evidence path",
+            )
+            parsed_counts = inspect_failsafe_summary_bytes(
+                support_snapshot.content,
                 minimum_completed=minimum_failsafe_completed,
-                fresh_after_ns=None,
             )
             if result.get("counts") != parsed_counts:
                 raise GateError(
@@ -5045,6 +6369,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         return int(args.handler(args))
     except GateError as exc:
         print(f"[phase00-ci-gate] FAIL: {exc}", file=sys.stderr)
+        return 1
+    except OSError as exc:
+        print(
+            "[phase00-ci-gate] FAIL: "
+            f"filesystem operation failed ({type(exc).__name__})",
+            file=sys.stderr,
+        )
+        return 1
+    except Exception as exc:
+        print(
+            "[phase00-ci-gate] FAIL: "
+            f"unexpected gate failure ({type(exc).__name__})",
+            file=sys.stderr,
+        )
         return 1
 
 
