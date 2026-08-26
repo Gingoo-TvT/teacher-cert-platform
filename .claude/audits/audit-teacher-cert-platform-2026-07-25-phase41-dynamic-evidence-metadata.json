@@ -1,0 +1,68 @@
+{
+  "timestamp": "2026-07-25T22:14:03+08:00",
+  "project": "teacher-cert-platform",
+  "reviewer": "OpenAI Codex",
+  "audit_mode": "incremental-dynamic-evidence",
+  "selected_modes": [
+    "security",
+    "stability",
+    "testing-authenticity",
+    "release",
+    "configuration",
+    "data-integrity",
+    "concurrency"
+  ],
+  "scope": "dynamic evidence after ef6b550052329dc97b56289a3a4364fdb569ab9c",
+  "code_commit": "b5ed7f5d2b0cb18fd6d8a83e12805c1e6deb7fef",
+  "submission_commit": "ef6b550052329dc97b56289a3a4364fdb569ab9c",
+  "outcome": "PASS",
+  "overall_score": 8.9,
+  "dimension_scores": {
+    "security": 9.2,
+    "stability": 9.1,
+    "testing_authenticity": 8.6,
+    "release": 8.7
+  },
+  "finding_counts": {
+    "critical": 0,
+    "high": 0,
+    "medium": 0,
+    "low": 1,
+    "info": 0
+  },
+  "evidence_gate_blockers": 0,
+  "previous_findings": {
+    "generated_columns_high": "closed",
+    "large_row_packet_medium": "closed",
+    "rollback_prefix_medium": "closed",
+    "workflow_dispatch_low": "closed",
+    "PG-M2_code_level": "closed",
+    "PG-M2_dynamic_gate": "closed"
+  },
+  "new_findings": {
+    "gate_a_cold_auth_runbook_low": "confirmed_non_blocking"
+  },
+  "dynamic_checks": [
+    "test-phase41-backup-restore-real.sh: PASS",
+    "Surefire: 149/149 PASS",
+    "Phase41BackupIT: 1/1 PASS on MySQL 8.4 with real CLI path",
+    "test-phase41-mysql-init-real.sh sourced mode: PASS",
+    "test-phase41-mysql-init-real.sh executable mode: PASS",
+    "real MySQL 8.4 account and exact privilege loop: PASS"
+  ],
+  "evidence_hashes": {
+    "backup_restore_log_sha256": "B53B7200A31362F0471E9C8D08133210DA0B589BA169CF0F4DAA6457FA1E4345",
+    "mysql_init_log_sha256": "FAD14E350704CB6E701835A189D7EA8B77F71C1F4C3286EE238A55578902A23F",
+    "phase41_backup_it_xml_sha256": "917AEC004C0D48C3850311462A4061DFAA83FA2FF10D0F50463DD9FC6AC368F0",
+    "failsafe_summary_sha256": "E0C771EE18C8D1143B6DAE097CF32756C21852D1AFA0BA39F0C991D6BEB0F3C3"
+  },
+  "evidence_limitations": [
+    "No database, object storage, account, container, volume, network, fuzz, stress or cyber-like mutation was executed by the independent reviewer",
+    "The logs do not embed git rev-parse HEAD or a cryptographic binding to the candidate commit",
+    "Gate A was not a clean build and patch version 8.4.10 is supplied by the executor rather than retained in the log",
+    "Post-run SHOW DATABASES, bucket inventory and dind zero-resource listings are supplied by the executor rather than retained as separate evidence files",
+    "The Gate A runbook URL omits the cold-cache TLS or RSA authentication prerequisite",
+    "Rows whose Base64 SQL representation exceeds 32 MiB fail closed by the accepted remediation contract; write-side alignment is deferred to the final full audit"
+  ],
+  "report_path": "docs/reviews/phase-41-second-remediation-dynamic-evidence-rereview-2026-07-25.md"
+}

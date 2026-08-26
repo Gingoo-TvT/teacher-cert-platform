@@ -15,6 +15,7 @@ import cn.edu.gpnu.platform.business.video.entity.VideoReview;
 import cn.edu.gpnu.platform.business.video.entity.VideoReviewTask;
 import cn.edu.gpnu.platform.business.video.mapper.VideoReviewMapper;
 import cn.edu.gpnu.platform.business.video.mapper.VideoReviewTaskMapper;
+import cn.edu.gpnu.platform.security.service.IdCardProtectionService;
 import cn.edu.gpnu.platform.system.entity.BackupRecord;
 import cn.edu.gpnu.platform.system.entity.SysAuditLog;
 import cn.edu.gpnu.platform.system.entity.SysParam;
@@ -24,6 +25,7 @@ import cn.edu.gpnu.platform.system.mapper.SysAuditLogMapper;
 import cn.edu.gpnu.platform.system.mapper.SysParamMapper;
 import cn.edu.gpnu.platform.system.mapper.SysUserMapper;
 import cn.edu.gpnu.platform.system.mapper.SysUserRoleMapper;
+import cn.edu.gpnu.platform.system.service.AuditLogService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -43,6 +45,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
@@ -50,11 +53,16 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
 @SpringBootTest(classes = PlatformApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @TestPropertySource(properties = {
         "platform.security.jwt.secret=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-        "platform.security.jwt.access-ttl-seconds=30"
+        "platform.security.jwt.access-ttl-seconds=30",
+        "platform.audit.trusted-proxies="
 })
 class Phase13SystemAuditIT {
 
@@ -100,6 +108,9 @@ class Phase13SystemAuditIT {
     private StudentMapper studentMapper;
 
     @Autowired
+    private IdCardProtectionService idCardProtectionService;
+
+    @Autowired
     private TrainingProfileMapper trainingProfileMapper;
 
     @Autowired
@@ -122,6 +133,9 @@ class Phase13SystemAuditIT {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @MockitoSpyBean
+    private AuditLogService auditLogService;
 
     @BeforeEach
     @AfterEach
@@ -172,6 +186,85 @@ class Phase13SystemAuditIT {
         JsonNode auditList = json(exchange("/api/audit/log?bizType=material&studentId=9001&keyword=复审退回原因",
                 HttpMethod.GET, auditor.accessToken(), null)).at("/data/records");
         assertThat(auditList.toString()).contains("SECOND_REVIEW").contains("SECOND_REJECTED").contains("复审退回原因");
+    }
+
+    @Test
+    void auditFailureRollsBackSystemParamUpdateInSameMysqlTransaction() throws Exception {
+        LoginResult academic = readyLogin("test_academic_admin");
+        SysParam parameter = paramMapper.selectOne(new LambdaQueryWrapper<SysParam>()
+                .eq(SysParam::getParamKey, "video.diffThreshold")
+                .last("LIMIT 1"));
+        assertThat(parameter).isNotNull();
+        Map<String, Object> before = jdbcTemplate.queryForMap(
+                "SELECT * FROM sys_param WHERE id = ?", parameter.getId());
+        long lastAuditId = latestAuditId();
+
+        doThrow(new IllegalStateException("forced generic audit failure"))
+                .when(auditLogService)
+                .record(argThat((SysAuditLog entry) -> "systemParam".equals(entry.getBizType())
+                        && "update".equals(entry.getOperation())));
+
+        ResponseEntity<String> failed = exchange("/api/system/param/" + parameter.getId(), HttpMethod.PUT,
+                academic.accessToken(), Map.of("paramValue", "8"));
+
+        assertThat(failed.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
+        assertThat(json(failed).at("/code").asInt()).isNotEqualTo(0);
+        verify(auditLogService, times(1)).record(argThat((SysAuditLog entry) ->
+                "systemParam".equals(entry.getBizType()) && "update".equals(entry.getOperation())));
+        assertThat(jdbcTemplate.queryForMap("SELECT * FROM sys_param WHERE id = ?", parameter.getId()))
+                .as("默认 @AuditLog 写入失败时，业务参数更新必须由真实 MySQL 同事务回滚")
+                .isEqualTo(before);
+        assertThat(auditLogMapper.selectCount(new LambdaQueryWrapper<SysAuditLog>()
+                .gt(SysAuditLog::getId, lastAuditId)
+                .eq(SysAuditLog::getBizType, "systemParam")
+                .eq(SysAuditLog::getOperation, "update")))
+                .as("审计失败不得留下成功样式日志")
+                .isZero();
+    }
+
+    @Test
+    void untrustedAndOverlongForwardedHeadersCannotSpoofPersistedAuditIp() throws Exception {
+        LoginResult academic = readyLogin("test_academic_admin");
+        SysParam parameter = paramMapper.selectOne(new LambdaQueryWrapper<SysParam>()
+                .eq(SysParam::getParamKey, "video.diffThreshold")
+                .last("LIMIT 1"));
+        assertThat(parameter).isNotNull();
+        long lastAuditId = latestAuditId();
+
+        ResponseEntity<String> updated = exchangeWithForwardedHeaders(
+                "/api/system/param/" + parameter.getId(), HttpMethod.PUT, academic.accessToken(),
+                Map.of("paramValue", "8"), "198.51.100.19", "198.51.100.20");
+        assertOk(updated);
+
+        SysAuditLog log = auditLogMapper.selectOne(new LambdaQueryWrapper<SysAuditLog>()
+                .gt(SysAuditLog::getId, lastAuditId)
+                .eq(SysAuditLog::getBizType, "systemParam")
+                .eq(SysAuditLog::getOperation, "update")
+                .orderByDesc(SysAuditLog::getId)
+                .last("LIMIT 1"));
+        assertThat(log).isNotNull();
+        assertThat(log.getIp())
+                .as("未列入 trusted-proxies 的直连请求必须忽略客户端伪造的转发头")
+                .isEqualTo("127.0.0.1")
+                .isNotEqualTo("198.51.100.19")
+                .isNotEqualTo("198.51.100.20");
+
+        long forgedAuditId = log.getId();
+        ResponseEntity<String> overlong = exchangeWithForwardedHeaders(
+                "/api/system/param/" + parameter.getId(), HttpMethod.PUT, academic.accessToken(),
+                Map.of("paramValue", "9"), "198.51.100.19," + "9".repeat(600), "198.51.100.20");
+        assertOk(overlong);
+        SysAuditLog overlongLog = auditLogMapper.selectOne(new LambdaQueryWrapper<SysAuditLog>()
+                .gt(SysAuditLog::getId, forgedAuditId)
+                .eq(SysAuditLog::getBizType, "systemParam")
+                .eq(SysAuditLog::getOperation, "update")
+                .orderByDesc(SysAuditLog::getId)
+                .last("LIMIT 1"));
+        assertThat(overlongLog).isNotNull();
+        assertThat(overlongLog.getIp())
+                .as("超长转发头不得进入审计 IP 字段")
+                .isEqualTo("127.0.0.1")
+                .hasSizeLessThanOrEqualTo(45);
     }
 
     @Test
@@ -525,12 +618,14 @@ class Phase13SystemAuditIT {
     }
 
     private long seedStudent(String studentNo, String status) {
+        String idCardNo = "H" + Math.floorMod(System.nanoTime(), 100000000);
         Student student = new Student();
         student.setStudentNo(studentNo);
         student.setName("P13审计学生");
         student.setGender("M");
         student.setIdCardType("hm_travel_permit");
-        student.setIdCardNo("H" + Math.floorMod(System.nanoTime(), 100000000));
+        student.setIdCardNo(idCardProtectionService.encrypt(idCardNo));
+        student.setIdCardHmac(idCardProtectionService.hmac(idCardNo));
         student.setBirthDate("2001/1/2");
         student.setIdentityType("normal_student");
         student.setCollegeId(COLLEGE_A);
@@ -586,6 +681,7 @@ class Phase13SystemAuditIT {
     }
 
     private long seedCertificate(long studentId, String status) {
+        String idCardNo = "H" + Math.floorMod(System.nanoTime(), 100000000);
         Certificate certificate = new Certificate();
         certificate.setStudentId(studentId);
         certificate.setCollegeId(COLLEGE_A);
@@ -594,7 +690,8 @@ class Phase13SystemAuditIT {
         certificate.setStudentNo("P13CERT-" + studentId);
         certificate.setStudentName("P13审计学生");
         certificate.setIdCardType("hm_travel_permit");
-        certificate.setIdCardNo("H" + Math.floorMod(System.nanoTime(), 100000000));
+        certificate.setIdCardNo(idCardProtectionService.encrypt(idCardNo));
+        certificate.setIdCardHmac(idCardProtectionService.hmac(idCardNo));
         certificate.setEducationLevel("undergraduate");
         certificate.setTrainingGoal("normal_education");
         certificate.setTeachingSegment("senior_middle_school");
@@ -640,6 +737,21 @@ class Phase13SystemAuditIT {
         headers.setBearerAuth(accessToken);
         headers.add("X-Forwarded-For", "127.0.0.1");
         return rest.exchange(url(path), method, new HttpEntity<>(body, headers), String.class);
+    }
+
+    private ResponseEntity<String> exchangeWithForwardedHeaders(String path, HttpMethod method,
+                                                                 String accessToken, Object body,
+                                                                 String forwardedFor, String realIp) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(accessToken);
+        headers.add("X-Forwarded-For", forwardedFor);
+        headers.add("X-Real-IP", realIp);
+        return rest.exchange(url(path), method, new HttpEntity<>(body, headers), String.class);
+    }
+
+    private long latestAuditId() {
+        Long id = jdbcTemplate.queryForObject("SELECT COALESCE(MAX(id), 0) FROM audit_log", Long.class);
+        return id == null ? 0L : id;
     }
 
     private JsonNode json(ResponseEntity<String> response) throws Exception {

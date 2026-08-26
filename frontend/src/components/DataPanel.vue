@@ -21,6 +21,8 @@ const props = withDefaults(defineProps<{
   striped?: boolean
   emptyTitle?: string
   emptyDescription?: string
+  error?: string
+  errorTitle?: string
   showRefresh?: boolean
   pagination?: false | PaginationProps
   rowProps?: (row: DataTableRowData) => Record<string, unknown>
@@ -35,6 +37,7 @@ const props = withDefaults(defineProps<{
   striped: true,
   emptyTitle: '暂无数据',
   emptyDescription: '当前筛选条件下没有可展示的记录。',
+  errorTitle: '数据加载失败',
   showRefresh: true,
   remote: false,
   page: 1
@@ -115,15 +118,21 @@ function numericWidth(value: unknown) {
 </script>
 
 <template>
-  <n-card :bordered="false" class="data-panel">
+  <n-card
+    :bordered="false"
+    class="data-panel"
+    role="region"
+    :aria-label="title"
+    :aria-busy="Boolean(initialLoading || loading)"
+  >
     <div class="data-panel__header">
       <div class="data-panel__title">
         <strong>{{ title }}</strong>
-        <n-tag size="small" :bordered="false" class="data-panel__count">{{ recordCount }} 条</n-tag>
+        <n-tag v-if="!(error && !data.length)" size="small" :bordered="false" class="data-panel__count">{{ recordCount }} 条</n-tag>
       </div>
       <div class="data-panel__actions">
         <slot name="actions" />
-        <n-button v-if="showRefresh" secondary size="small" :loading="loading" @click="emit('refresh')">
+        <n-button v-if="showRefresh && !(error && !data.length)" secondary size="small" :loading="loading" @click="emit('refresh')">
           <template #icon>
             <n-icon :component="RefreshOutline" />
           </template>
@@ -131,6 +140,19 @@ function numericWidth(value: unknown) {
         </n-button>
       </div>
     </div>
+
+    <n-alert
+      v-if="error && data.length"
+      type="error"
+      :title="errorTitle"
+      class="data-panel__stale-error"
+      role="alert"
+    >
+      <div class="data-panel__stale-error-content">
+        <span>{{ error }}。以下仍显示上次成功加载的结果。</span>
+        <n-button size="small" type="error" secondary :loading="loading" @click="emit('refresh')">重试</n-button>
+      </div>
+    </n-alert>
 
     <TableSkeleton v-if="initialLoading || (loading && !data.length)" :rows="5" :columns="Math.min(columns.length, 6)" />
     <n-data-table
@@ -150,7 +172,12 @@ function numericWidth(value: unknown) {
     >
       <template #empty>
         <slot name="empty">
-          <EmptyState :title="emptyTitle" :description="emptyDescription">
+          <n-result v-if="error" status="error" :title="errorTitle" :description="error" class="data-panel__error" role="alert">
+            <template #footer>
+              <n-button type="primary" :loading="loading" @click="emit('refresh')">重试</n-button>
+            </template>
+          </n-result>
+          <EmptyState v-else :title="emptyTitle" :description="emptyDescription">
             <template v-if="$slots.emptyAction" #action>
               <slot name="emptyAction" />
             </template>
@@ -163,11 +190,11 @@ function numericWidth(value: unknown) {
 
 <style scoped>
 .data-panel {
-  margin-bottom: var(--space-7);
+  margin-bottom: var(--space-6);
 }
 
 .data-panel :deep(.n-card__content) {
-  padding: var(--space-5);
+  padding: var(--space-4);
 }
 
 .data-panel__header {
@@ -186,13 +213,13 @@ function numericWidth(value: unknown) {
 }
 
 .data-panel__title strong {
-  font-size: 15px;
+  font-size: var(--font-size-lg);
   line-height: 22px;
   color: var(--text);
 }
 
 .data-panel__count {
-  color: var(--brand);
+  color: var(--brand-hover);
   background: var(--brand-soft);
 }
 
@@ -204,6 +231,26 @@ function numericWidth(value: unknown) {
   flex-wrap: wrap;
 }
 
+.data-panel__error {
+  min-height: 180px;
+  padding: var(--space-6) var(--space-4);
+}
+
+.data-panel__stale-error {
+  margin-bottom: var(--space-4);
+}
+
+.data-panel__stale-error-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.data-panel :deep(.n-data-table__pagination) {
+  min-width: 0;
+}
+
 @media (max-width: 720px) {
   .data-panel__header {
     align-items: flex-start;
@@ -212,6 +259,18 @@ function numericWidth(value: unknown) {
 
   .data-panel__actions {
     justify-content: flex-start;
+    width: 100%;
+  }
+
+  .data-panel__stale-error-content {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .data-panel :deep(.n-data-table__pagination) {
+    justify-content: flex-start;
+    overflow-x: auto;
+    padding-bottom: var(--space-1);
   }
 }
 </style>

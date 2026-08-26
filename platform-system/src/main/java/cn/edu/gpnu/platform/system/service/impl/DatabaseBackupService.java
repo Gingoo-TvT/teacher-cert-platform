@@ -1,6 +1,7 @@
 package cn.edu.gpnu.platform.system.service.impl;
 
 import cn.edu.gpnu.platform.common.exception.BizException;
+import cn.edu.gpnu.platform.system.config.DatabaseBackupProperties;
 import cn.edu.gpnu.platform.system.entity.BackupRecord;
 import cn.edu.gpnu.platform.system.mapper.BackupRecordMapper;
 import io.minio.BucketExistsArgs;
@@ -86,8 +87,6 @@ public class DatabaseBackupService {
     );
 
     private static final DateTimeFormatter STAMP = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss");
-    private static final int MIN_SQL_STATEMENT_BYTES = 1024;
-    private static final int MAX_SUPPORTED_SQL_STATEMENT_BYTES = 32 * 1024 * 1024;
     private static final int REQUIRED_PACKET_BYTES = 64 * 1024 * 1024;
     private static final int MYSQL_STREAMING_FETCH_SIZE = Integer.MIN_VALUE;
     private static final String ARTIFACT_FORMAT_VERSION = "TCP_SQL_V2";
@@ -98,11 +97,13 @@ public class DatabaseBackupService {
     private static final String JSON_LITERAL_PREFIX = "CAST(";
     private static final String JSON_LITERAL_SUFFIX = " AS JSON)";
     private static final int STATEMENT_TAIL_BYTES = 3; // ");\n"
+    private static final String BACKUP_LOCK_NAME = "teacher-cert-platform:database-backup";
 
     private final DataSource dataSource;
     private final MinioClient minioClient;
     private final BackupRecordMapper backupRecordMapper;
     private final TransactionTemplate transactionTemplate;
+    private final DatabaseBackupProperties backupProperties;
 
     /** 备份产物目标桶：默认复用业务桶（minio.bucket），prod 可用 platform.backup.bucket 指向独立桶。 */
     @Value("${platform.backup.bucket:${minio.bucket}}")
@@ -113,18 +114,29 @@ public class DatabaseBackupService {
     private String prefix;
 
     /**
-     * 单条恢复语句的 UTF-8 字节上限。允许向下收紧用于 fail-closed 验证，但不得超过已验证的 32 MiB；
-     * 恢复客户端和目标 MySQL 均须支持至少 64 MiB packet。
-     */
-    @Value("${platform.backup.max-sql-statement-bytes:33554432}")
-    private int maxSqlStatementBytes;
-
-    /**
      * 执行一次真实备份并落库。RUNNING 立即提交可见；导出/上传在事务外；末尾提交 COMPLETED/FAILED。
      *
      * @return 已落库的 BackupRecord（COMPLETED，含真实产物元数据）；失败抛 BizException（记录已置 FAILED）。
      */
     public BackupRecord backup(String backupType, String scope, String remark, Long operatorId) {
+        try (Connection lockConnection = dataSource.getConnection()) {
+            if (!tryAcquireBackupLock(lockConnection)) {
+                throw new BizException("已有备份任务正在运行");
+            }
+            try {
+                return backupUnderLease(backupType, scope, remark, operatorId);
+            } finally {
+                releaseBackupLock(lockConnection);
+            }
+        } catch (BizException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("获取或释放数据库备份单飞锁失败", e);
+            throw new BizException("备份协调失败，请稍后重试");
+        }
+    }
+
+    private BackupRecord backupUnderLease(String backupType, String scope, String remark, Long operatorId) {
         BackupRecord record = new BackupRecord();
         record.setBackupType(backupType);
         record.setScope(scope);
@@ -175,7 +187,7 @@ public class DatabaseBackupService {
             record.setErrorMessage(truncate(e.getMessage()));
             transactionTemplate.executeWithoutResult(s -> backupRecordMapper.updateById(record));
             log.error("备份失败 id={}", record.getId(), e);
-            throw new BizException("备份执行失败: " + e.getMessage());
+            throw new BizException("备份执行失败，请查看备份记录");
         } finally {
             if (tmp != null) {
                 try {
@@ -184,6 +196,45 @@ public class DatabaseBackupService {
                     log.warn("清理备份临时文件失败: {}", tmp);
                 }
             }
+        }
+    }
+
+    boolean tryAcquireBackupLock(Connection connection) throws Exception {
+        try (PreparedStatement statement = connection.prepareStatement("SELECT GET_LOCK(?, 0)")) {
+            statement.setString(1, BACKUP_LOCK_NAME);
+            try (ResultSet result = statement.executeQuery()) {
+                return result.next() && result.getInt(1) == 1 && !result.wasNull();
+            }
+        }
+    }
+
+    void releaseBackupLock(Connection connection) {
+        boolean released = false;
+        try (PreparedStatement statement = connection.prepareStatement("SELECT RELEASE_LOCK(?)")) {
+            statement.setString(1, BACKUP_LOCK_NAME);
+            try (ResultSet result = statement.executeQuery()) {
+                if (result.next()) {
+                    int releaseResult = result.getInt(1);
+                    released = releaseResult == 1 && !result.wasNull();
+                }
+                if (!released) {
+                    log.warn("数据库备份单飞锁未由当前连接释放");
+                }
+            }
+        } catch (Exception e) {
+            log.error("释放数据库备份单飞锁失败", e);
+        }
+        if (!released) {
+            abortBackupLockConnection(connection);
+        }
+    }
+
+    private void abortBackupLockConnection(Connection connection) {
+        try {
+            // 池化 close 可能只归还物理会话；named lock 释放结果不可信时必须终止该会话。
+            connection.abort(Runnable::run);
+        } catch (Exception e) {
+            log.error("终止持有状态不明的数据库备份锁连接失败", e);
         }
     }
 
@@ -440,14 +491,8 @@ public class DatabaseBackupService {
     }
 
     private int statementLimit() {
-        if (maxSqlStatementBytes < MIN_SQL_STATEMENT_BYTES
-                || maxSqlStatementBytes > MAX_SUPPORTED_SQL_STATEMENT_BYTES) {
-            throw new IllegalStateException(
-                    "platform.backup.max-sql-statement-bytes 必须在 "
-                            + MIN_SQL_STATEMENT_BYTES + ".."
-                            + MAX_SUPPORTED_SQL_STATEMENT_BYTES + " 之间");
-        }
-        return maxSqlStatementBytes;
+        backupProperties.validate();
+        return backupProperties.getMaxSqlStatementBytes();
     }
 
     private SqlLiteral checkedLiteral(String value, long utf8Bytes, long remainingBytes) {
@@ -531,7 +576,8 @@ public class DatabaseBackupService {
                 log.info("备份桶已创建: {}", bucket);
             }
         } catch (Exception e) {
-            throw new BizException("备份桶不可用: " + e.getMessage());
+            log.error("备份桶检查或创建失败", e);
+            throw new BizException("备份存储不可用，请稍后重试");
         }
     }
 

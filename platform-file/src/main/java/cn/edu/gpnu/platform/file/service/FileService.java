@@ -9,7 +9,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 文件服务：服务端小文件上传、浏览器可达的预签名访问与删除。
+ * 文件服务：服务端小文件上传、受控流读取与删除。
  *
  * <p>通用文件服务不公开摘要命中能力，避免调用方把摘要当成跨业务或跨主体复用对象的凭据。
  */
@@ -26,7 +26,9 @@ public interface FileService {
 
     void cancelDirectUpload(Long fileId);
 
-    String presignedGet(Long fileId, int expirySeconds);
+    FileObject readyFile(Long fileId);
+
+    InputStream openRange(Long fileId, long offset, long length);
 
     void delete(Long fileId);
 }

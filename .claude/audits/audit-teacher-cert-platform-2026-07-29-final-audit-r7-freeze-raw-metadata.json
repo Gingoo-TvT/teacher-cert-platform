@@ -1,0 +1,42 @@
+{
+  "timestamp": "2026-07-29T21:01:35+08:00",
+  "project": "teacher-cert-platform",
+  "selectedModes": [
+    "incremental",
+    "testing-authenticity"
+  ],
+  "scope": "final-audit R7 raw freeze bundle identity and manifest-bound exact-gate evidence",
+  "formalBundle": "final-audit-r7-freeze-raw/final-audit-r7.bundle",
+  "formalBundleSha256": "3c0bbce56f3c6df3f85a9f15b514366b9b259ade6a6478fc27ed75e0942a121d",
+  "freezeCommit": "a66eda76e4d6257a16311d478cb6939c7066ce32",
+  "freezeTree": "321a30931b354dc3757f5ab438626801f3cc3fc2",
+  "baseCommit": "aa3509a19151e2caad03014324b9b36e98bc0f05",
+  "candidateFingerprint": "0f9f2fef22ad88e2e6e58640b5a2d6c289fdf48f807ee68feabcd216c208bf6d",
+  "candidateManifestSha256": "b409d5fe8dbba8069af041fd7e479a7c1068d9a0bdb3c6d96f6a914cb105dd74",
+  "trackedChangedFiles": 82,
+  "untrackedFiles": 99,
+  "excludedNegativeControl": "final-audit-r7-freeze/final-audit-r7.bundle",
+  "evidenceHashCount": 11,
+  "exactGateResults": {
+    "Phase2SecurityIT": "4/4",
+    "Phase41BackupIT": "1/1"
+  },
+  "offlineSurefire": {
+    "suites": 50,
+    "tests": 349,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "findingCounts": {
+    "critical": 0,
+    "high": 0,
+    "medium": 0,
+    "low": 0,
+    "info": 0
+  },
+  "recommendation": "PASS",
+  "scopeStatus": "R7_INCREMENT_PASS",
+  "projectReleaseStatus": "CHANGES_REQUESTED_NO_GO",
+  "reportPath": "docs/reviews/final-audit-r7-freeze-raw-independent-rereview-2026-07-29.md"
+}

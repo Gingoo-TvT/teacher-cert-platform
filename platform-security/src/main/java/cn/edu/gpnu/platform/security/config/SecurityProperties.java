@@ -13,7 +13,7 @@ public class SecurityProperties {
     @Data
     public static class Jwt {
         private String secret;
-        private long accessTtlSeconds = 3600;
+        private long accessTtlSeconds = 900;
         private long refreshTtlSeconds = 604800;
     }
 

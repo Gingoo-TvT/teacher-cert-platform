@@ -1,10 +1,22 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
-import { getMe, refreshToken as requestRefreshToken, type CurrentUser, type LoginResult } from '@/api/auth'
+import {
+  getMe,
+  logout as requestLogout,
+  refreshToken as requestRefreshToken,
+  type CurrentUser,
+  type LoginResult
+} from '@/api/auth'
+import { executeLogout } from '@/stores/logoutFlow'
+import { SessionEpochGuard } from '@/stores/sessionEpoch'
+
+const RESTORE_BLOCK_KEY = 'authRestoreBlocked'
+const SESSION_EVENT_KEY = 'authSessionInvalidated'
 
 export const useUserStore = defineStore('user', () => {
-  const token = ref<string>(localStorage.getItem('accessToken') || localStorage.getItem('token') || '')
-  const refreshToken = ref<string>(localStorage.getItem('refreshToken') || '')
+  const sessionEpoch = new SessionEpochGuard()
+  const token = ref<string>('')
+  const sessionRestoreAttempted = ref<boolean>(localStorage.getItem(RESTORE_BLOCK_KEY) === '1')
   const perms = ref<string[]>([])
   const roles = ref<string[]>([])
   const username = ref<string>(localStorage.getItem('username') || '')
@@ -12,13 +24,24 @@ export const useUserStore = defineStore('user', () => {
   const mustChangePwd = ref<boolean>(localStorage.getItem('mustChangePwd') === 'true')
   const initialized = ref<boolean>(false)
   const currentUser = ref<CurrentUser | null>(null)
+  clearLegacyTokenStorage()
+  window.addEventListener('storage', (event) => {
+    if (event.key === SESSION_EVENT_KEY) {
+      resetSessionState()
+      window.location.replace('/login')
+    }
+  })
 
   function applyLogin(result: LoginResult) {
+    sessionEpoch.invalidate()
+    applyRefreshedSession(result)
+  }
+
+  function applyRefreshedSession(result: LoginResult) {
     token.value = result.accessToken
-    refreshToken.value = result.refreshToken
-    localStorage.setItem('accessToken', result.accessToken)
-    localStorage.setItem('refreshToken', result.refreshToken)
-    localStorage.removeItem('token')
+    sessionRestoreAttempted.value = true
+    localStorage.removeItem(RESTORE_BLOCK_KEY)
+    clearLegacyTokenStorage()
     applyUser(result.user)
   }
 
@@ -40,21 +63,42 @@ export const useUserStore = defineStore('user', () => {
       initialized.value = true
       return null
     }
+    const expectedEpoch = sessionEpoch.capture()
     const res = await getMe()
+    sessionEpoch.assertCurrent(expectedEpoch)
     applyUser(res.data)
     return res.data
   }
 
   async function refreshSession() {
-    if (!refreshToken.value) throw new Error('refresh token missing')
-    const res = await requestRefreshToken(refreshToken.value)
-    applyLogin(res.data)
+    const expectedEpoch = sessionEpoch.capture()
+    const res = await requestRefreshToken()
+    sessionEpoch.assertCurrent(expectedEpoch)
+    applyRefreshedSession(res.data)
     return res.data.accessToken
   }
 
+  async function restoreSession(): Promise<boolean> {
+    if (token.value) return true
+    if (sessionRestoreAttempted.value) return false
+    sessionRestoreAttempted.value = true
+    try {
+      await refreshSession()
+      return true
+    } catch {
+      clearSession()
+      return false
+    }
+  }
+
   function clearSession() {
+    resetSessionState()
+  }
+
+  function resetSessionState() {
+    sessionEpoch.invalidate()
     token.value = ''
-    refreshToken.value = ''
+    sessionRestoreAttempted.value = true
     perms.value = []
     roles.value = []
     username.value = ''
@@ -62,16 +106,34 @@ export const useUserStore = defineStore('user', () => {
     mustChangePwd.value = false
     initialized.value = false
     currentUser.value = null
-    localStorage.removeItem('accessToken')
-    localStorage.removeItem('refreshToken')
-    localStorage.removeItem('token')
+    localStorage.setItem(RESTORE_BLOCK_KEY, '1')
+    clearLegacyTokenStorage()
     localStorage.removeItem('username')
     localStorage.removeItem('realName')
     localStorage.removeItem('mustChangePwd')
   }
 
-  function logout() {
+  async function logout() {
+    try {
+      await executeLogout(requestLogout, clearSession)
+    } finally {
+      broadcastSessionInvalidation()
+    }
+  }
+
+  function clearSessionEverywhere() {
     clearSession()
+    broadcastSessionInvalidation()
+  }
+
+  function broadcastSessionInvalidation() {
+    localStorage.setItem(SESSION_EVENT_KEY, `${Date.now()}:${Math.random()}`)
+  }
+
+  function clearLegacyTokenStorage() {
+    localStorage.removeItem('accessToken')
+    localStorage.removeItem('refreshToken')
+    localStorage.removeItem('token')
   }
 
   const permSet = computed(() => new Set(perms.value))
@@ -86,7 +148,6 @@ export const useUserStore = defineStore('user', () => {
 
   return {
     token,
-    refreshToken,
     perms,
     roles,
     username,
@@ -98,7 +159,9 @@ export const useUserStore = defineStore('user', () => {
     applyUser,
     loadMe,
     refreshSession,
+    restoreSession,
     clearSession,
+    clearSessionEverywhere,
     logout,
     hasPerm,
     hasAnyPerm

@@ -28,8 +28,12 @@ import DictItemDrawer from './components/dict/DictItemDrawer.vue'
 const message = useMessage()
 const userStore = useUserStore()
 
-const typeLoading = ref(false)
-const itemLoading = ref(false)
+const typeLoading = ref(true)
+const itemLoading = ref(true)
+const typeError = ref('')
+const itemError = ref('')
+const hasLoadedTypes = ref(false)
+const hasLoadedItems = ref(false)
 const typeKeyword = ref('')
 const itemKeyword = ref('')
 const selectedTypeCode = ref('')
@@ -37,8 +41,19 @@ const dictTypes = ref<DictType[]>([])
 const dictItems = ref<DictItem[]>([])
 const typeDrawerRef = ref<InstanceType<typeof DictTypeDrawer> | null>(null)
 const itemDrawerRef = ref<InstanceType<typeof DictItemDrawer> | null>(null)
+const loadedItemsTypeCode = ref('')
+let typesRequestId = 0
+let itemsRequestId = 0
 
 const canManage = computed(() => userStore.hasPerm('dict:manage'))
+const typeDataFresh = computed(() => hasLoadedTypes.value && !typeLoading.value && !typeError.value)
+const itemDataFresh = computed(() =>
+  hasLoadedItems.value
+  && loadedItemsTypeCode.value === selectedTypeCode.value
+  && !itemLoading.value
+  && !itemError.value
+  && typeDataFresh.value
+)
 
 const filteredTypes = computed(() => {
   const keyword = typeKeyword.value.trim().toLowerCase()
@@ -74,12 +89,12 @@ const typeColumns = computed<DataTableColumns<DictType>>(() => {
       width: 146,
       render: (row) =>
         renderTableActions([
-          h(NButton, { size: 'small', quaternary: true, onClick: () => openTypeDrawer(row) }, { default: () => '编辑' }),
+          h(NButton, { size: 'small', quaternary: true, disabled: !typeDataFresh.value, onClick: () => openTypeDrawer(row) }, { default: () => '编辑' }),
           h(
             NPopconfirm,
-            { onPositiveClick: () => removeType(row) },
+            { disabled: !typeDataFresh.value, onPositiveClick: () => removeType(row) },
             {
-              trigger: () => h(NButton, { size: 'small', quaternary: true, type: 'error' }, { default: () => '删除' }),
+              trigger: () => h(NButton, { size: 'small', quaternary: true, type: 'error', disabled: !typeDataFresh.value }, { default: () => '删除' }),
               default: () => '删除字典类型会校验是否存在字典项。'
             }
           )
@@ -105,12 +120,12 @@ const itemColumns = computed<DataTableColumns<DictItem>>(() => {
       width: 146,
       render: (row) =>
         renderTableActions([
-          h(NButton, { size: 'small', quaternary: true, onClick: () => openItemDrawer(row) }, { default: () => '编辑' }),
+          h(NButton, { size: 'small', quaternary: true, disabled: !itemDataFresh.value, onClick: () => openItemDrawer(row) }, { default: () => '编辑' }),
           h(
             NPopconfirm,
-            { onPositiveClick: () => removeItem(row) },
+            { disabled: !itemDataFresh.value, onPositiveClick: () => removeItem(row) },
             {
-              trigger: () => h(NButton, { size: 'small', quaternary: true, type: 'error' }, { default: () => '删除' }),
+              trigger: () => h(NButton, { size: 'small', quaternary: true, type: 'error', disabled: !itemDataFresh.value }, { default: () => '删除' }),
               default: () => '确认删除该字典项？'
             }
           )
@@ -141,42 +156,74 @@ function typeRowProps(row: object) {
 }
 
 async function loadTypes() {
+  const requestId = ++typesRequestId
   typeLoading.value = true
+  typeError.value = ''
   try {
     const res = await listDictTypes()
+    if (requestId !== typesRequestId) return
     dictTypes.value = [...res.data].sort((a, b) => (a.sort || 0) - (b.sort || 0) || a.typeCode.localeCompare(b.typeCode))
+    hasLoadedTypes.value = true
     if (!selectedTypeCode.value && dictTypes.value.length > 0) selectedTypeCode.value = dictTypes.value[0].typeCode
     if (selectedTypeCode.value && !dictTypes.value.some((item) => item.typeCode === selectedTypeCode.value)) {
       selectedTypeCode.value = dictTypes.value[0]?.typeCode || ''
     }
     await loadItems()
   } catch (error) {
-    showError(error, '字典类型加载失败')
+    if (requestId !== typesRequestId) return
+    typeError.value = showError(error, '字典类型加载失败')
+    if (selectedTypeCode.value) {
+      await loadItems()
+    } else {
+      itemLoading.value = false
+      itemError.value = '字典类型尚未加载，暂时无法确定字典项'
+    }
   } finally {
-    typeLoading.value = false
+    if (requestId === typesRequestId) typeLoading.value = false
   }
 }
 
 async function loadItems(typeCode = selectedTypeCode.value) {
+  const requestId = ++itemsRequestId
   if (!typeCode) {
     dictItems.value = []
+    loadedItemsTypeCode.value = ''
+    itemLoading.value = false
+    if (typeError.value) {
+      itemError.value = '字典类型尚未加载，暂时无法确定字典项'
+      hasLoadedItems.value = false
+    } else {
+      itemError.value = ''
+      hasLoadedItems.value = true
+    }
     return
   }
   itemLoading.value = true
+  itemError.value = ''
   try {
     const res = await listDictItems(typeCode, false)
+    if (requestId !== itemsRequestId || typeCode !== selectedTypeCode.value) return
     dictItems.value = [...res.data].sort((a, b) => (a.sort || 0) - (b.sort || 0) || a.itemCode.localeCompare(b.itemCode))
+    hasLoadedItems.value = true
+    loadedItemsTypeCode.value = typeCode
   } catch (error) {
-    showError(error, '字典项加载失败')
+    if (requestId !== itemsRequestId || typeCode !== selectedTypeCode.value) return
+    itemError.value = showError(error, '字典项加载失败')
   } finally {
-    itemLoading.value = false
+    if (requestId === itemsRequestId) itemLoading.value = false
   }
 }
 
 function selectType(row: DictType) {
+  const typeChanged = selectedTypeCode.value !== row.typeCode
   selectedTypeCode.value = row.typeCode
   itemKeyword.value = ''
-  loadItems(row.typeCode)
+  if (typeChanged) {
+    dictItems.value = []
+    hasLoadedItems.value = false
+    loadedItemsTypeCode.value = ''
+  }
+  void loadItems(row.typeCode)
 }
 
 function resetTypeFilters() {
@@ -188,11 +235,21 @@ function resetItemFilters() {
 }
 
 function openTypeDrawer(row?: DictType) {
+  if (!typeDataFresh.value) return
   typeDrawerRef.value?.open(row)
 }
 
 function openItemDrawer(row?: DictItem) {
+  if (!itemDataFresh.value) return
   itemDrawerRef.value?.open(row)
+}
+
+function retryItems() {
+  if (selectedTypeCode.value) {
+    void loadItems()
+    return
+  }
+  void loadTypes()
 }
 
 function onTypeSaved(typeCode: string) {
@@ -205,6 +262,7 @@ function onItemSaved(typeCode: string) {
 }
 
 async function removeType(row: DictType) {
+  if (!typeDataFresh.value) return
   try {
     await deleteDictType(row.id)
     message.success('字典类型已删除')
@@ -216,6 +274,7 @@ async function removeType(row: DictType) {
 }
 
 async function removeItem(row: DictItem) {
+  if (!itemDataFresh.value) return
   try {
     await deleteDictItem(row.id)
     message.success('字典项已删除')
@@ -228,6 +287,7 @@ async function removeItem(row: DictItem) {
 function showError(error: unknown, fallback: string) {
   const detail = error instanceof Error ? error.message : fallback
   message.error(detail || fallback)
+  return detail || fallback
 }
 
 onMounted(loadTypes)
@@ -235,19 +295,12 @@ onMounted(loadTypes)
 
 <template>
   <PageContainer title="数据字典" description="维护系统数据字典与标准字段枚举。">
-    <template #actions>
-      <n-space>
-        <n-button secondary @click="loadTypes">刷新</n-button>
-        <n-button v-if="canManage" type="primary" @click="openTypeDrawer()">新增类型</n-button>
-      </n-space>
-    </template>
-
-    <div class="master-detail-grid">
-      <div class="page-section">
+    <n-grid responsive="self" item-responsive cols="1 1180:12" :x-gap="24" :y-gap="24">
+      <n-gi span="1 1180:5" class="page-section">
         <FilterBar :loading="typeLoading" @submit="loadTypes" @reset="resetTypeFilters">
           <label class="filter-field">
             <span>类型</span>
-            <n-input v-model:value="typeKeyword" clearable placeholder="编码 / 名称" style="width: 220px" />
+            <n-input v-model:value="typeKeyword" clearable placeholder="编码 / 名称" style="width: 220px; max-width: 100%" />
           </label>
         </FilterBar>
         <DataPanel
@@ -256,6 +309,8 @@ onMounted(loadTypes)
           :data="filteredTypes"
           :total="filteredTypes.length"
           :loading="typeLoading"
+          :error="typeError"
+          error-title="字典类型加载失败"
           :row-props="typeRowProps"
           :max-height="620"
           :pagination="false"
@@ -264,12 +319,12 @@ onMounted(loadTypes)
           @refresh="loadTypes"
         >
           <template #actions>
-            <n-button v-if="canManage" type="primary" size="small" @click="openTypeDrawer()">新增类型</n-button>
+            <n-button v-if="canManage" type="primary" size="small" :disabled="!typeDataFresh" @click="openTypeDrawer()">新增类型</n-button>
           </template>
         </DataPanel>
-      </div>
+      </n-gi>
 
-      <div class="page-section">
+      <n-gi span="1 1180:7" class="page-section">
         <n-card :bordered="false" class="detail-card">
           <div class="detail-head">
             <div>
@@ -284,7 +339,7 @@ onMounted(loadTypes)
         <FilterBar :loading="itemLoading" @submit="loadItems()" @reset="resetItemFilters">
           <label class="filter-field">
             <span>字典项</span>
-            <n-input v-model:value="itemKeyword" clearable placeholder="编码 / 值 / 父级" style="width: 240px" />
+            <n-input v-model:value="itemKeyword" clearable placeholder="编码 / 值 / 父级" style="width: 240px; max-width: 100%" />
           </label>
         </FilterBar>
         <DataPanel
@@ -293,18 +348,20 @@ onMounted(loadTypes)
           :data="filteredItems"
           :total="filteredItems.length"
           :loading="itemLoading"
+          :error="itemError"
+          error-title="字典项加载失败"
           :max-height="620"
           :pagination="false"
           empty-title="暂无字典项"
           empty-description="当前字典类型下没有可展示的字典项。"
-          @refresh="loadItems()"
+          @refresh="retryItems"
         >
           <template #actions>
-            <n-button v-if="canManage" type="primary" size="small" :disabled="!selectedTypeCode" @click="openItemDrawer()">新增项</n-button>
+            <n-button v-if="canManage" type="primary" size="small" :disabled="!selectedTypeCode || !itemDataFresh" @click="openItemDrawer()">新增项</n-button>
           </template>
         </DataPanel>
-      </div>
-    </div>
+      </n-gi>
+    </n-grid>
 
     <DictTypeDrawer ref="typeDrawerRef" @saved="onTypeSaved" />
     <DictItemDrawer ref="itemDrawerRef" :type-code="selectedTypeCode" @saved="onItemSaved" />
@@ -312,13 +369,6 @@ onMounted(loadTypes)
 </template>
 
 <style scoped>
-.master-detail-grid {
-  display: grid;
-  grid-template-columns: minmax(340px, 0.8fr) minmax(560px, 1.2fr);
-  gap: var(--space-6);
-  align-items: start;
-}
-
 .page-section {
   min-width: 0;
 }
@@ -349,10 +399,6 @@ onMounted(loadTypes)
 }
 
 @media (max-width: 1180px) {
-  .master-detail-grid {
-    grid-template-columns: 1fr;
-  }
-
   .detail-head {
     align-items: stretch;
     flex-direction: column;

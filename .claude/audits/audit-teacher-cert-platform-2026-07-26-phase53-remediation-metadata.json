@@ -1,0 +1,81 @@
+{
+  "timestamp": "2026-07-26T12:28:35+08:00",
+  "project": "teacher-cert-platform",
+  "reviewer": "OpenAI Codex",
+  "audit_mode": "incremental-remediation-rereview",
+  "selected_modes": [
+    "security",
+    "stability",
+    "testing-authenticity",
+    "release",
+    "configuration",
+    "data-integrity",
+    "concurrency"
+  ],
+  "scope": "4996811a028016280d63437c6336af3678cd5128..b9abc6c2614e98cd52e271bb5882383e03b25c09 across six production/test files, with submission 724e07d3cb58876fd475291c5e9714321e8c9c87 and dynamic evidence commit 8a772fe2fb25bbb63c317bdec8ebf06eb2d19408",
+  "baseline_commit": "4996811a028016280d63437c6336af3678cd5128",
+  "code_commit": "b9abc6c2614e98cd52e271bb5882383e03b25c09",
+  "submission_commit": "724e07d3cb58876fd475291c5e9714321e8c9c87",
+  "evidence_commit": "8a772fe2fb25bbb63c317bdec8ebf06eb2d19408",
+  "outcome": "CHANGES_REQUESTED",
+  "overall_score": 8.4,
+  "dimension_scores": {
+    "security": 8.8,
+    "stability": 9.2,
+    "performance": 8.5,
+    "testing": 7.6,
+    "maintainability": 8.8,
+    "design": 8.8,
+    "release": 7.4
+  },
+  "finding_counts": {
+    "critical": 0,
+    "high": 0,
+    "medium": 1,
+    "low": 2,
+    "info": 0
+  },
+  "previous_findings": {
+    "real_playable_demo_video_major": "closed_behaviorally",
+    "old_object_and_metadata_upgrade_supplemental_high": "closed_behaviorally"
+  },
+  "new_findings": {
+    "dynamic_raw_logs_ignored_medium": "confirmed_blocking",
+    "packaged_video_real_probe_test_missing_low": "confirmed_non_blocking",
+    "tracked_evidence_unredacted_expired_credentials_low": "confirmed_non_blocking"
+  },
+  "safe_checks": [
+    "mvn -o -B -ntp -pl platform-boot -am clean test: PASS 195/195",
+    "DemoDataInitializerTest: PASS 21/21",
+    "VideoMediaAcceptancePolicyTest: PASS 10/10",
+    "mvn -o -B -ntp -DskipTests package: PASS 9/9 modules",
+    "npm --prefix frontend run type-check: PASS",
+    "npm --prefix frontend run build: PASS",
+    "fat JAR demo resources and key class entries: PASS",
+    "audit report lint for all supported selected modes: PASS",
+    "git diff --check 4996811..b9abc6c: PASS",
+    "b9abc6c..8a772fe scoped code paths: unchanged"
+  ],
+  "evidence_hashes": {
+    "report_sha256": "D7FC62A1F263D02957BB38C24E83390D90A484B7C9887C97043FF84D713D4155",
+    "independent_evidence_sha256": "7814F5C0F2E43C6A64C0433E309036E798723CC0764593071B3F5672CD217D88",
+    "demo_initializer_test_xml_sha256": "7E9E7B29F6FECDABF44C02282BC75EDFE010D2463E145DED25D3590DC837EB1F",
+    "media_policy_test_xml_sha256": "F28B94B7C6846C15917FB0CD9BA2C7541D1FFE16E691DBC148A9A3C11336D38B",
+    "sample_video_sha256": "0A15C2E382438F3FBBD1E9B5302514AD35DA07B33B44F7EB61FBB5C8B31D611D",
+    "sample_material_sha256": "53AECE50AEFAF8236338F0DDADA8469E54D1422D26DA0A975A2F81C873BA9268",
+    "sample_image_sha256": "C589A04293EA064C50A46E8FEC832E6920B28EA3CF3718AED18B929F9FB631EE",
+    "demo_initializer_blob": "91ae74db379b6ca4e3113c86ec80c1d6c3a0d355",
+    "demo_sql_blob": "8a129332c1cf49ad4b4d7b10ffbafe83ba89d46f",
+    "media_policy_blob": "83f78eb77566ff7013e7817f603fd81818d5c296"
+  },
+  "evidence_limitations": [
+    "No service, Docker, database, MinIO, browser, network request, permission change, fault injection, scan, malicious payload, fuzz or stress action was executed",
+    "The user-run dynamic environment was not recreated by the independent reviewer",
+    "Twelve raw logs referenced by the dynamic report exist locally but are ignored and absent from the evidence commit",
+    "The focused unit tests stub the real media probe for the packaged demo video",
+    "Object storage writes have no CAS against external exact-key writers and depend on an isolated bucket and serialized operations",
+    "The Phase 7 copied-presigned-link requirement conflicts with the current time-limited bearer URL behavior and is carried to the final full audit"
+  ],
+  "evidence_path": "docs/reviews/evidence/phase53-remediation-rereview-2026-07-26/offline-gates-and-evidence-integrity.txt",
+  "report_path": "docs/reviews/phase-53-remediation-rereview-2026-07-26.md"
+}

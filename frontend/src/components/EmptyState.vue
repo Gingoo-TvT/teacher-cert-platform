@@ -11,7 +11,7 @@ withDefaults(defineProps<{
 </script>
 
 <template>
-  <div class="empty-state">
+  <div class="empty-state" role="status" aria-live="polite">
     <div class="empty-state__icon">
       <slot name="icon">
         <n-icon :component="DocumentTextOutline" />
@@ -50,7 +50,7 @@ withDefaults(defineProps<{
 
 .empty-state__title {
   margin-top: var(--space-4);
-  font-size: 15px;
+  font-size: var(--font-size-lg);
   font-weight: 600;
   color: var(--text);
 }
@@ -58,12 +58,12 @@ withDefaults(defineProps<{
 .empty-state__description {
   max-width: 360px;
   margin-top: var(--space-2);
-  font-size: 13px;
-  line-height: 20px;
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-sm);
   color: var(--text-muted);
 }
 
 .empty-state__action {
-  margin-top: var(--space-5);
+  margin-top: var(--space-4);
 }
 </style>

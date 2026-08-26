@@ -25,6 +25,9 @@ const message = useMessage()
 const userStore = useUserStore()
 const yearStore = useYearStore()
 const loading = ref(false)
+const loadError = ref('')
+const hasLoadedSuccessfully = ref(false)
+const loadedQueryKey = ref('')
 const saving = ref(false)
 const issueVisible = ref(false)
 const keyword = ref('')
@@ -39,6 +42,22 @@ const selected = ref<Certificate | null>(null)
 const canIssue = computed(() => userStore.hasPerm('cert:issue'))
 const canMarkFlow = computed(() => userStore.hasPerm('cert:view'))
 const canViewQueue = computed(() => userStore.hasPerm('cert:view'))
+let listRequestSequence = 0
+
+const listQueryKey = computed(() => JSON.stringify([
+  keyword.value,
+  assessmentYear.value,
+  statusFilter.value || '',
+  page.value,
+  size.value
+]))
+const listDataFresh = computed(() =>
+  hasLoadedSuccessfully.value
+  && loadedQueryKey.value === listQueryKey.value
+  && !loading.value
+  && !loadError.value
+)
+const writeBlocked = computed(() => !listDataFresh.value)
 
 const issueForm = reactive<CertificateIssuePayload>({
   issuer: userStore.realName || '',
@@ -72,7 +91,7 @@ const columns: DataTableColumns<Certificate> = [
     render: (row) =>
       renderTableActions([
         canIssue.value && row.status === 'GENERATED'
-          ? h(NButton, { size: 'small', type: 'primary', onClick: () => openIssue(row) }, { default: () => '签发' })
+          ? h(NButton, { size: 'small', type: 'primary', disabled: writeBlocked.value, onClick: () => openIssue(row) }, { default: () => '签发' })
           : null,
         canMarkFlow.value && row.status === 'ISSUED'
           ? confirmButton('已导出', '确认将该证书标记为已导出？', () => markExported(row))
@@ -85,25 +104,38 @@ const columns: DataTableColumns<Certificate> = [
 ]
 
 async function loadRecords() {
+  const requestSequence = ++listRequestSequence
   if (!canViewQueue.value) {
     records.value = []
+    certTotal.value = 0
+    loadError.value = ''
+    hasLoadedSuccessfully.value = false
+    loadedQueryKey.value = ''
+    loading.value = false
     return
   }
+  const queryKey = listQueryKey.value
+  const query = {
+    keyword: keyword.value,
+    assessmentYear: assessmentYear.value,
+    status: statusFilter.value,
+    page: page.value,
+    size: size.value
+  }
   loading.value = true
+  loadError.value = ''
   try {
-    const res = await listCertificates({
-      keyword: keyword.value,
-      assessmentYear: assessmentYear.value,
-      status: statusFilter.value,
-      page: page.value,
-      size: size.value
-    })
+    const res = await listCertificates(query)
+    if (requestSequence !== listRequestSequence || queryKey !== listQueryKey.value) return
     records.value = res.data.records
     certTotal.value = res.data.total
+    hasLoadedSuccessfully.value = true
+    loadedQueryKey.value = queryKey
   } catch (error) {
-    showError(error, '签发队列加载失败')
+    if (requestSequence !== listRequestSequence || queryKey !== listQueryKey.value) return
+    loadError.value = showError(error, '签发队列加载失败')
   } finally {
-    loading.value = false
+    if (requestSequence === listRequestSequence) loading.value = false
   }
 }
 
@@ -125,11 +157,16 @@ function onPageSizeChange(nextSize: number) {
 }
 
 async function loadOptions() {
-  const statusRes = await listDictItems('certificate_status', true)
-  statuses.value = statusRes.data
+  try {
+    const statusRes = await listDictItems('certificate_status', true)
+    statuses.value = statusRes.data
+  } catch (error) {
+    showError(error, '证书状态选项加载失败')
+  }
 }
 
 function openIssue(row: Certificate) {
+  if (writeBlocked.value) return
   selected.value = row
   issueForm.issuer = userStore.realName || row.issuer || ''
   issueForm.issueDate = todayText()
@@ -137,6 +174,7 @@ function openIssue(row: Certificate) {
 }
 
 async function saveIssue() {
+  if (saving.value || writeBlocked.value) return
   if (!selected.value || !issueForm.issuer.trim() || !issueForm.issueDate.trim()) {
     message.error('请填写签发人和签发日期')
     return
@@ -155,6 +193,7 @@ async function saveIssue() {
 }
 
 async function markExported(row: Certificate) {
+  if (writeBlocked.value) return
   try {
     await markCertificateExported(row.id)
     message.success('已标记导出')
@@ -165,6 +204,7 @@ async function markExported(row: Certificate) {
 }
 
 async function archive(row: Certificate) {
+  if (writeBlocked.value) return
   try {
     await archiveCertificate(row.id)
     message.success('已归档')
@@ -179,7 +219,7 @@ function confirmButton(label: string, text: string, onPositiveClick: () => void,
     NPopconfirm,
     { onPositiveClick },
     {
-      trigger: () => h(NButton, { size: 'small', quaternary: true, type: type === 'default' ? undefined : type }, { default: () => label }),
+      trigger: () => h(NButton, { size: 'small', quaternary: true, type: type === 'default' ? undefined : type, disabled: writeBlocked.value }, { default: () => label }),
       default: () => text
     }
   )
@@ -199,12 +239,13 @@ function todayText() {
 
 function showError(error: unknown, fallback: string) {
   const detail = error instanceof Error ? error.message : fallback
-  message.error(detail || fallback)
+  const text = detail || fallback
+  message.error(text)
+  return text
 }
 
-onMounted(async () => {
-  await loadOptions()
-  if (canViewQueue.value) await loadRecords()
+onMounted(() => {
+  void Promise.all([loadOptions(), canViewQueue.value ? loadRecords() : Promise.resolve()])
 })
 
 watch(
@@ -220,7 +261,7 @@ watch(
   <PageContainer title="证书签发队列" description="待签发证书队列。">
     <n-empty v-if="!canViewQueue" description="当前账号没有证书队列查看权限" class="page-section" />
 
-    <n-grid v-if="canViewQueue" :cols="3" :x-gap="12" responsive="screen" class="page-section">
+    <n-grid v-if="canViewQueue && hasLoadedSuccessfully" cols="1 440:2 720:3" :x-gap="12" :y-gap="12" responsive="self" class="page-section">
       <n-gi><StatCard label="待签发" :value="summary.waiting" tone="warning" /></n-gi>
       <n-gi><StatCard label="已签发" :value="summary.issued" tone="success" /></n-gi>
       <n-gi><StatCard label="已导出待归档" :value="summary.exported" tone="info" /></n-gi>
@@ -248,6 +289,7 @@ watch(
       :data="records"
       :total="certTotal"
       :loading="loading"
+      :error="loadError"
       remote
       :page="page"
       :page-size="size"
@@ -258,13 +300,21 @@ watch(
       @refresh="loadRecords"
     />
 
-    <n-modal v-model:show="issueVisible" preset="card" title="签发证书" style="width: 520px">
+    <n-modal
+      v-model:show="issueVisible"
+      preset="card"
+      title="签发证书"
+      style="width: min(var(--overlay-medium), var(--overlay-modal-max))"
+      :closable="!saving"
+      :close-on-esc="!saving"
+      :mask-closable="!saving"
+    >
       <n-space vertical>
-        <n-input v-model:value="issueForm.issuer" placeholder="签发人" />
-        <n-input v-model:value="issueForm.issueDate" placeholder="签发日期，如 2026/6/30" />
+        <n-input v-model:value="issueForm.issuer" placeholder="签发人" :disabled="saving" />
+        <n-input v-model:value="issueForm.issueDate" placeholder="签发日期，如 2026/6/30" :disabled="saving" />
         <n-space justify="end">
-          <n-button @click="issueVisible = false">取消</n-button>
-          <n-button type="primary" :loading="saving" @click="saveIssue">签发</n-button>
+          <n-button :disabled="saving" @click="issueVisible = false">取消</n-button>
+          <n-button type="primary" :loading="saving" :disabled="writeBlocked" @click="saveIssue">签发</n-button>
         </n-space>
       </n-space>
     </n-modal>

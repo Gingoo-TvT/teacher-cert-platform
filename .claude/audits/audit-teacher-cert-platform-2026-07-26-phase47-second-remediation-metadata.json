@@ -1,0 +1,69 @@
+{
+  "timestamp": "2026-07-26T01:31:24+08:00",
+  "project": "teacher-cert-platform",
+  "reviewer": "OpenAI Codex",
+  "audit_mode": "incremental-second-remediation-rereview",
+  "selected_modes": [
+    "security",
+    "stability",
+    "testing-authenticity",
+    "release",
+    "configuration",
+    "data-integrity",
+    "concurrency"
+  ],
+  "scope": "aa6f81c3518259c30cd7190a8c521cef61108843..3bddf6ce7aab8c7640e54675ee7d17aadcedfe93 limited to FileMaintenanceService.java and FileMaintenanceServiceTest.java, with submission material through db89d6e7110eb636f3fffac3d71c906d8ac84674",
+  "code_commit": "3bddf6ce7aab8c7640e54675ee7d17aadcedfe93",
+  "submission_commit": "db89d6e7110eb636f3fffac3d71c906d8ac84674",
+  "outcome": "PASS",
+  "overall_score": 8.7,
+  "dimension_scores": {
+    "security": 9.2,
+    "stability": 9.0,
+    "performance": 8.2,
+    "testing": 8.2,
+    "maintainability": 8.6,
+    "design": 8.6,
+    "release": 8.8
+  },
+  "finding_counts": {
+    "critical": 0,
+    "high": 0,
+    "medium": 0,
+    "low": 1,
+    "info": 0
+  },
+  "previous_findings": {
+    "minio_8_5_12_no_configuration_null_contract_medium": "closed",
+    "false_green_sdk_exception_contract": "closed",
+    "collapsed_error_class_logging_low": "closed"
+  },
+  "new_findings": {
+    "raw_non_throwable_log_argument_not_asserted_low": "confirmed_non_blocking"
+  },
+  "safe_checks": [
+    "mvn -o -B -ntp -pl platform-file -am clean test: PASS 16/16",
+    "FileMaintenanceServiceTest: PASS 13/13",
+    "mvn -o -B -ntp -DskipTests package: PASS 9/9 modules",
+    "mvn -o -B -ntp -pl platform-file dependency:tree -Dincludes=io.minio:minio: PASS, 8.5.12",
+    "mvn -o -B -ntp -pl platform-file dependency:tree for SLF4J/Logback: PASS, 2.0.17/1.5.22",
+    "git diff --check aa6f81c..3bddf6c: PASS"
+  ],
+  "evidence_hashes": {
+    "minio_8_5_12_jar_sha256": "9519FF2FD284AC0FC5C22D1091F21A9C9298C9C7CAC85615DE1FF10F1710786E",
+    "independent_file_maintenance_test_xml_sha256": "7A8ABB4A7DE28251DD8A6F82D3CF12310C6D44D21A39D17FFD84C2DA234843EC",
+    "code_file_maintenance_service_blob": "ed807c94a62d0bed6d3031759c779e28262418af",
+    "code_file_maintenance_test_blob": "01b002fcfcfdc1cfa502703727153b65aa3c6943",
+    "submission_file_maintenance_service_blob": "ed807c94a62d0bed6d3031759c779e28262418af",
+    "submission_file_maintenance_test_blob": "01b002fcfcfdc1cfa502703727153b65aa3c6943"
+  },
+  "evidence_limitations": [
+    "No service, Docker, database, object store, network, permission change, fault injection, scan, fuzz, stress or cyber-like action was executed",
+    "No real MinIO lifecycle read or write was executed",
+    "The independent runtime gate is an offline unit-test and build gate; the SDK contract is proven from the exact locked local jar bytecode and production injection path",
+    "Whole-bucket read-modify-write has no CAS and remains an existing architecture boundary for the final full audit",
+    "Idempotent matching still checks managed rule ID and days rather than the full rule shape and remains an existing baseline boundary"
+  ],
+  "evidence_path": "docs/reviews/evidence/phase47-second-remediation-rereview-2026-07-26/offline-gates-and-logging-contract.txt",
+  "report_path": "docs/reviews/phase-47-second-remediation-rereview-2026-07-26.md"
+}

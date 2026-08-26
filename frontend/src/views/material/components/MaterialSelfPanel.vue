@@ -18,6 +18,9 @@ const props = defineProps<{
   records: ProcessMaterial[]
   categories: DictItem[]
   loading: boolean
+  loadError: string
+  hasLoadedSuccessfully: boolean
+  optionsReady: boolean
   assessmentYear: string
 }>()
 
@@ -35,6 +38,9 @@ const assessmentYearModel = computed({
   get: () => props.assessmentYear,
   set: (value: string) => emit('update:assessmentYear', value)
 })
+
+const actionsBlocked = computed(() => props.loading || Boolean(props.loadError) || !props.hasLoadedSuccessfully || !props.optionsReady)
+const showingStaleData = computed(() => props.hasLoadedSuccessfully && Boolean(props.loadError))
 
 const materialCards = computed<MaterialCard[]>(() => {
   const icons = [DocumentTextOutline, CloudUploadOutline, CheckmarkCircleOutline, AlertCircleOutline]
@@ -60,6 +66,16 @@ function rejectComment(row?: ProcessMaterial | null) {
   if (!row.status.includes('REJECTED') && row.status !== 'FAILED') return ''
   return row.secondReviewComment || row.firstReviewComment || ''
 }
+
+function materialStatusText(card: MaterialCard) {
+  if (card.record) return card.record.statusLabel || statusLabel(card.record.status)
+  return showingStaleData.value ? '旧结果：待上传' : statusLabel('WAIT_UPLOAD')
+}
+
+function materialFileText(card: MaterialCard) {
+  if (card.record) return card.record.fileName
+  return showingStaleData.value ? '上次成功结果未记录材料' : '尚未上传材料'
+}
 </script>
 
 <template>
@@ -70,11 +86,38 @@ function rejectComment(row?: ProcessMaterial | null) {
         <n-input v-model:value="assessmentYearModel" placeholder="考核年度" class="mono-input" style="width: 130px" />
         <n-button secondary :loading="loading" @click="emit('refresh')">刷新</n-button>
       </n-space>
-      <n-button @click="emit('status')">合格判定</n-button>
+      <n-button :disabled="actionsBlocked" @click="emit('status')">合格判定</n-button>
     </n-space>
   </n-card>
 
-  <n-grid :cols="4" :x-gap="12" :y-gap="12" responsive="screen" class="page-section material-card-grid">
+  <n-card
+    v-if="loadError && !hasLoadedSuccessfully"
+    :bordered="false"
+    class="page-section material-load-result"
+    role="alert"
+  >
+    <n-result status="error" title="材料列表加载失败" :description="loadError">
+      <template #footer>
+        <n-button type="primary" :loading="loading" @click="emit('refresh')">重试</n-button>
+      </template>
+    </n-result>
+  </n-card>
+
+  <n-alert
+    v-else-if="showingStaleData"
+    type="warning"
+    title="刷新失败，当前显示上次成功结果"
+    :bordered="false"
+    class="page-section"
+    role="alert"
+  >
+    <div class="load-feedback">
+      <span>{{ loadError }}</span>
+      <n-button size="small" secondary :loading="loading" @click="emit('refresh')">重试</n-button>
+    </div>
+  </n-alert>
+
+  <n-grid v-if="hasLoadedSuccessfully" cols="1 440:2 900:4" :x-gap="12" :y-gap="12" responsive="self" class="page-section material-card-grid">
     <n-gi v-for="card in materialCards" :key="card.code">
       <n-card :bordered="false" class="material-card">
         <div class="material-card__head">
@@ -85,12 +128,12 @@ function rejectComment(row?: ProcessMaterial | null) {
             <strong>{{ card.label }}</strong>
             <StatusTag
               :value="card.record?.status || 'WAIT_UPLOAD'"
-              :text="card.record?.statusLabel || statusLabel(card.record?.status || 'WAIT_UPLOAD')"
+              :text="materialStatusText(card)"
             />
           </div>
         </div>
         <div class="material-card__file">
-          <span>{{ card.record?.fileName || '尚未上传材料' }}</span>
+          <span>{{ materialFileText(card) }}</span>
           <small>{{ formatFileSize(card.record?.fileSize) }}</small>
         </div>
         <n-alert v-if="rejectComment(card.record)" type="warning" :bordered="false">
@@ -98,10 +141,10 @@ function rejectComment(row?: ProcessMaterial | null) {
         </n-alert>
         <n-space class="material-card__actions">
           <n-button v-if="card.record" secondary size="small" @click="emit('preview', card.record)">预览</n-button>
-          <n-button size="small" @click="card.record ? emit('replace', card.record) : emit('upload', card.code)">
+          <n-button :disabled="actionsBlocked" size="small" @click="card.record ? emit('replace', card.record) : emit('upload', card.code)">
             {{ card.record ? '替换' : '上传' }}
           </n-button>
-          <n-button v-if="card.record" type="primary" size="small" @click="emit('submit', card.record)">提交</n-button>
+          <n-button v-if="card.record" type="primary" size="small" :disabled="actionsBlocked" @click="emit('submit', card.record)">提交</n-button>
         </n-space>
       </n-card>
     </n-gi>
@@ -192,5 +235,17 @@ function rejectComment(row?: ProcessMaterial | null) {
 
 .material-card__actions {
   margin-top: auto;
+}
+
+.material-load-result :deep(.n-card__content) {
+  padding: var(--space-4);
+}
+
+.load-feedback {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
 }
 </style>

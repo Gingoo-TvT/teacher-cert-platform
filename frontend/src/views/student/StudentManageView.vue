@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, h, onMounted, ref } from 'vue'
+import { computed, h, onBeforeUnmount, onMounted, ref } from 'vue'
 import {
   NButton,
   NPopconfirm,
   useMessage,
   type DataTableColumns,
+  type PaginationProps,
   type SelectOption
 } from 'naive-ui'
 import { PersonAddOutline } from '@vicons/ionicons5'
@@ -36,6 +37,12 @@ const userStore = useUserStore()
 const router = useRouter()
 
 const loading = ref(false)
+const loadError = ref('')
+const hasLoadedSuccessfully = ref(false)
+const loadedQueryKey = ref('')
+const optionsLoading = ref(false)
+const optionsError = ref('')
+const hasLoadedOptionsSuccessfully = ref(false)
 const reviewSaving = ref(false)
 const reviewVisible = ref(false)
 const detailVisible = ref(false)
@@ -54,6 +61,10 @@ const genders = ref<DictItem[]>([])
 const idCardTypes = ref<DictItem[]>([])
 const identityTypes = ref<DictItem[]>([])
 const selectedStudent = ref<Student | null>(null)
+const compactViewport = ref(false)
+let compactViewportQuery: MediaQueryList | null = null
+let listRequestSequence = 0
+let optionsRequestSequence = 0
 
 const statusOptions: SelectOption[] = [
   { label: '草稿', value: 'DRAFT' },
@@ -68,11 +79,37 @@ const statusOptions: SelectOption[] = [
 const canEdit = computed(() => userStore.hasPerm('student:edit'))
 const canFirstReview = computed(() => userStore.hasPerm('info:firstReview'))
 const canSecondReview = computed(() => userStore.hasPerm('info:secondReview'))
+const listQueryKey = computed(() => JSON.stringify([
+  keyword.value,
+  statusFilter.value || '',
+  collegeFilter.value || '',
+  gradeFilter.value,
+  page.value,
+  size.value
+]))
+const listDataFresh = computed(() =>
+  hasLoadedSuccessfully.value
+  && loadedQueryKey.value === listQueryKey.value
+  && !loading.value
+  && !loadError.value
+)
+const writeBlocked = computed(() => !listDataFresh.value)
+const optionsReady = computed(() =>
+  hasLoadedOptionsSuccessfully.value && !optionsLoading.value && !optionsError.value
+)
 
 const collegeOptions = computed<SelectOption[]>(() => colleges.value.map((item) => ({ label: item.name, value: item.id })))
 const genderOptions = computed<SelectOption[]>(() => dictOptions(genders.value))
 const idCardTypeOptions = computed<SelectOption[]>(() => dictOptions(idCardTypes.value))
 const identityTypeOptions = computed<SelectOption[]>(() => dictOptions(identityTypes.value))
+const detailColumns = computed(() => compactViewport.value ? 1 : 2)
+const tablePagination = computed<PaginationProps>(() => compactViewport.value
+  ? {
+      pageSlot: 3,
+      showSizePicker: false,
+      prefix: ({ itemCount }: { itemCount?: number }) => `${itemCount ?? studentTotal.value} 条`
+    }
+  : {})
 
 const detailItems = computed(() => {
   const row = selectedStudent.value
@@ -109,21 +146,21 @@ const columns: DataTableColumns<Student> = [
     title: '操作',
     key: 'actions',
     fixed: 'right',
-    width: 240,
+    width: 220,
     render: (row) =>
       {
         const actions = [
           h(NButton, { size: 'small', type: 'primary', onClick: () => openDetail(row) }, { default: () => '详情' })
         ]
         if (canEdit.value) {
-          actions.push(h(NButton, { size: 'small', quaternary: true, onClick: () => openDrawer(row) }, { default: () => '编辑' }))
-          actions.push(h(NButton, { size: 'small', quaternary: true, onClick: () => submit(row) }, { default: () => '提交' }))
+          actions.push(h(NButton, { size: 'small', quaternary: true, disabled: writeBlocked.value || !optionsReady.value, onClick: () => openDrawer(row) }, { default: () => '编辑' }))
+          actions.push(h(NButton, { size: 'small', quaternary: true, disabled: writeBlocked.value, onClick: () => submit(row) }, { default: () => '提交' }))
         }
         if (canFirstReview.value) {
-          actions.push(h(NButton, { size: 'small', quaternary: true, onClick: () => openReview(row, 'first') }, { default: () => '初审' }))
+          actions.push(h(NButton, { size: 'small', quaternary: true, disabled: writeBlocked.value, onClick: () => openReview(row, 'first') }, { default: () => '初审' }))
         }
         if (canSecondReview.value) {
-          actions.push(h(NButton, { size: 'small', quaternary: true, onClick: () => openReview(row, 'second') }, { default: () => '复审' }))
+          actions.push(h(NButton, { size: 'small', quaternary: true, disabled: writeBlocked.value, onClick: () => openReview(row, 'second') }, { default: () => '复审' }))
         }
         if (canEdit.value) {
           actions.push(
@@ -131,7 +168,7 @@ const columns: DataTableColumns<Student> = [
               NPopconfirm,
               { onPositiveClick: () => remove(row) },
               {
-                trigger: () => h(NButton, { size: 'small', quaternary: true, type: 'error' }, { default: () => '删除' }),
+                trigger: () => h(NButton, { size: 'small', quaternary: true, type: 'error', disabled: writeBlocked.value }, { default: () => '删除' }),
                 default: () => '确认删除该学生？'
               }
             )
@@ -143,22 +180,30 @@ const columns: DataTableColumns<Student> = [
 ]
 
 async function loadStudents() {
+  const requestSequence = ++listRequestSequence
+  const queryKey = listQueryKey.value
+  const query = {
+    keyword: keyword.value,
+    status: statusFilter.value,
+    collegeId: collegeFilter.value,
+    grade: gradeFilter.value,
+    page: page.value,
+    size: size.value
+  }
   loading.value = true
+  loadError.value = ''
   try {
-    const res = await listStudents({
-      keyword: keyword.value,
-      status: statusFilter.value,
-      collegeId: collegeFilter.value,
-      grade: gradeFilter.value,
-      page: page.value,
-      size: size.value
-    })
+    const res = await listStudents(query)
+    if (requestSequence !== listRequestSequence || queryKey !== listQueryKey.value) return
     records.value = res.data.records
     studentTotal.value = res.data.total
+    hasLoadedSuccessfully.value = true
+    loadedQueryKey.value = queryKey
   } catch (error) {
-    showError(error, '学生列表加载失败')
+    if (requestSequence !== listRequestSequence || queryKey !== listQueryKey.value) return
+    loadError.value = showError(error, '学生列表加载失败')
   } finally {
-    loading.value = false
+    if (requestSequence === listRequestSequence) loading.value = false
   }
 }
 
@@ -180,16 +225,28 @@ function onPageSizeChange(nextSize: number) {
 }
 
 async function loadOptions() {
-  const [collegeRes, genderRes, idTypeRes, identityRes] = await Promise.all([
-    listColleges(),
-    listDictItems('gender', true),
-    listDictItems('id_card_type', true),
-    listDictItems('identity_type', true)
-  ])
-  colleges.value = collegeRes.data
-  genders.value = genderRes.data
-  idCardTypes.value = idTypeRes.data
-  identityTypes.value = identityRes.data
+  const requestSequence = ++optionsRequestSequence
+  optionsLoading.value = true
+  optionsError.value = ''
+  try {
+    const [collegeRes, genderRes, idTypeRes, identityRes] = await Promise.all([
+      listColleges(),
+      listDictItems('gender', true),
+      listDictItems('id_card_type', true),
+      listDictItems('identity_type', true)
+    ])
+    if (requestSequence !== optionsRequestSequence) return
+    colleges.value = collegeRes.data
+    genders.value = genderRes.data
+    idCardTypes.value = idTypeRes.data
+    identityTypes.value = identityRes.data
+    hasLoadedOptionsSuccessfully.value = true
+  } catch (error) {
+    if (requestSequence !== optionsRequestSequence) return
+    optionsError.value = showError(error, '学生选项加载失败')
+  } finally {
+    if (requestSequence === optionsRequestSequence) optionsLoading.value = false
+  }
 }
 
 function openDetail(row: Student) {
@@ -198,10 +255,12 @@ function openDetail(row: Student) {
 }
 
 function openDrawer(row?: Student) {
+  if (writeBlocked.value || !optionsReady.value) return
   drawerRef.value?.open(row)
 }
 
 async function submit(row: Student) {
+  if (writeBlocked.value) return
   try {
     await submitStudent(row.id)
     message.success('已提交')
@@ -212,6 +271,7 @@ async function submit(row: Student) {
 }
 
 async function remove(row: Student) {
+  if (writeBlocked.value) return
   try {
     await deleteStudent(row.id)
     message.success('已删除')
@@ -222,12 +282,13 @@ async function remove(row: Student) {
 }
 
 function openReview(row: Student, stage: 'first' | 'second') {
+  if (writeBlocked.value) return
   reviewing.value = { student: row, stage }
   reviewVisible.value = true
 }
 
 async function saveReview(payload: ReviewPayload) {
-  if (!reviewing.value) return
+  if (!reviewing.value || writeBlocked.value) return
   if (payload.action !== 'PASS' && !payload.comment?.trim()) {
     message.error('退回或不通过必须填写原因')
     return
@@ -272,17 +333,35 @@ function collegeName(id?: string | null) {
 
 function showError(error: unknown, fallback: string) {
   const detail = error instanceof Error ? error.message : fallback
-  message.error(detail || fallback)
+  const text = detail || fallback
+  message.error(text)
+  return text
 }
 
-onMounted(async () => {
-  await loadOptions()
-  await loadStudents()
+function syncCompactViewport(event?: MediaQueryListEvent) {
+  compactViewport.value = event?.matches ?? compactViewportQuery?.matches ?? false
+}
+
+onMounted(() => {
+  compactViewportQuery = window.matchMedia('(max-width: 768px)')
+  syncCompactViewport()
+  compactViewportQuery.addEventListener('change', syncCompactViewport)
+  void loadOptions()
+  void loadStudents()
+})
+
+onBeforeUnmount(() => {
+  compactViewportQuery?.removeEventListener('change', syncCompactViewport)
 })
 </script>
 
 <template>
   <PageContainer title="学生基本信息" description="学生基本信息查询、初审与复审。">
+    <n-alert v-if="optionsError" type="warning" :bordered="false" class="page-section">
+      学生列表已独立加载，但表单选项加载失败；新增和编辑暂不可用。{{ optionsError }}
+      <n-button text type="warning" size="small" :loading="optionsLoading" @click="loadOptions">重试加载选项</n-button>
+    </n-alert>
+
     <FilterBar :loading="loading" @submit="search" @reset="resetFilters">
       <label class="filter-field">
         <span>关键词</span>
@@ -294,7 +373,7 @@ onMounted(async () => {
       </label>
       <label class="filter-field">
         <span>学院</span>
-        <n-select v-model:value="collegeFilter" clearable filterable :options="collegeOptions" placeholder="全部学院" style="width: 220px" />
+        <n-select v-model:value="collegeFilter" clearable filterable :loading="optionsLoading" :options="collegeOptions" placeholder="全部学院" style="width: 220px" />
       </label>
       <label class="filter-field">
         <span>年级/班级</span>
@@ -308,9 +387,11 @@ onMounted(async () => {
       :data="records"
       :total="studentTotal"
       :loading="loading"
+      :error="loadError"
       remote
       :page="page"
       :page-size="size"
+      :pagination="tablePagination"
       empty-title="暂无学生数据"
       empty-description="当前筛选条件下没有学生记录。"
       @update:page="onPageChange"
@@ -318,7 +399,7 @@ onMounted(async () => {
       @refresh="loadStudents"
     >
       <template #actions>
-        <n-button v-if="canEdit" type="primary" size="small" @click="openDrawer()">
+        <n-button v-if="canEdit" type="primary" size="small" :disabled="writeBlocked || !optionsReady" :loading="optionsLoading" @click="openDrawer()">
           <template #icon>
             <n-icon :component="PersonAddOutline" />
           </template>
@@ -339,9 +420,9 @@ onMounted(async () => {
       @saved="loadStudents"
     />
 
-    <n-drawer v-model:show="detailVisible" :width="560">
+    <n-drawer v-model:show="detailVisible" width="min(var(--overlay-medium), var(--overlay-drawer-max))">
       <n-drawer-content title="学生详情" closable>
-        <DetailPanel v-if="selectedStudent" :items="detailItems" :columns="2" />
+        <DetailPanel v-if="selectedStudent" :items="detailItems" :columns="detailColumns" />
       </n-drawer-content>
     </n-drawer>
 

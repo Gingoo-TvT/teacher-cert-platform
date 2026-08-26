@@ -1,6 +1,7 @@
 package cn.edu.gpnu.platform.boot;
 
 import cn.edu.gpnu.platform.PlatformApplication;
+import cn.edu.gpnu.platform.boot.support.StaleWriteSqlBarrier;
 import cn.edu.gpnu.platform.business.certificate.entity.Certificate;
 import cn.edu.gpnu.platform.business.certificate.mapper.CertificateMapper;
 import cn.edu.gpnu.platform.business.material.entity.ProcessMaterial;
@@ -13,6 +14,7 @@ import cn.edu.gpnu.platform.business.training.entity.TrainingProfile;
 import cn.edu.gpnu.platform.business.training.mapper.TrainingProfileMapper;
 import cn.edu.gpnu.platform.business.video.entity.VideoReview;
 import cn.edu.gpnu.platform.business.video.mapper.VideoReviewMapper;
+import cn.edu.gpnu.platform.security.service.IdCardProtectionService;
 import cn.edu.gpnu.platform.system.entity.SysAuditLog;
 import cn.edu.gpnu.platform.system.entity.SysParam;
 import cn.edu.gpnu.platform.system.entity.SysUser;
@@ -29,10 +31,14 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -41,6 +47,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.transaction.support.TransactionSynchronization;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -52,6 +59,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -61,6 +69,8 @@ import static org.assertj.core.api.Assertions.assertThat;
         "platform.security.jwt.secret=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
         "platform.security.jwt.access-ttl-seconds=30"
 })
+@Import(StaleWriteSqlBarrier.class)
+@Execution(ExecutionMode.SAME_THREAD)
 class Phase9CertificateIT {
 
     private static final String INITIAL_PASSWORD = "ChangeMe123!";
@@ -100,6 +110,9 @@ class Phase9CertificateIT {
     private StudentMapper studentMapper;
 
     @Autowired
+    private IdCardProtectionService idCardProtectionService;
+
+    @Autowired
     private TrainingProfileMapper trainingProfileMapper;
 
     @Autowired
@@ -132,9 +145,13 @@ class Phase9CertificateIT {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    @Autowired
+    private StaleWriteSqlBarrier staleWriteSqlBarrier;
+
     @BeforeEach
     @AfterEach
     void resetSeedUsers() {
+        staleWriteSqlBarrier.reset();
         cleanupGeneratedData();
         resetSeedStudents();
         ensureSecondCollegeStudent();
@@ -252,6 +269,112 @@ class Phase9CertificateIT {
     }
 
     @Test
+    @Timeout(90)
+    void issueCommitBeforeStaleCorrectionRejectsContentAndKeepsIssuedState() throws Exception {
+        LoginResult academic = readyLogin("test_academic_admin");
+        long studentId = seedEligibleStudent(
+                "P9RACEIF", COLLEGE_A, "2030", SENIOR_SEGMENT, SENIOR_SUBJECT_CODE, "语文");
+        long certId = generateOk(academic.accessToken(), studentId, "2030").at("/id").asLong();
+        staleWriteSqlBarrier.arm(
+                StaleWriteSqlBarrier.Mutation.CERTIFICATE_ISSUE,
+                StaleWriteSqlBarrier.Mutation.CERTIFICATE_CORRECT);
+
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        Future<ResponseEntity<String>> staleCorrection = null;
+        Future<ResponseEntity<String>> firstIssue = null;
+        try {
+            staleCorrection = pool.submit(() -> exchange(
+                    "/api/cert/" + certId + "/correct", HttpMethod.PUT, academic.accessToken(), Map.of(
+                            "teachingSubjectCode", "sms_math",
+                            "teachingSubjectName", "数学",
+                            "reason", "F-03 迟到更正"
+                    )));
+            awaitLateMutation(staleCorrection, "证书迟到更正");
+
+            firstIssue = pool.submit(() -> exchange(
+                    "/api/cert/" + certId + "/issue", HttpMethod.POST, academic.accessToken(), Map.of(
+                            "issuer", "F-03签发人",
+                            "issueDate", "2030/3/15"
+                    )));
+            awaitFirstCommit("证书签发");
+            ResponseEntity<String> issued = firstIssue.get(15, TimeUnit.SECONDS);
+            assertThat(json(issued).at("/code").asInt()).isEqualTo(0);
+
+            Certificate committed = certificateMapper.selectById(certId);
+            assertThat(committed.getStatus()).isEqualTo("ISSUED");
+            assertThat(committed.getTeachingSubjectCode()).isEqualTo(SENIOR_SUBJECT_CODE);
+            assertThat(committed.getTeachingSubjectName()).isEqualTo("语文");
+
+            staleWriteSqlBarrier.releaseLate();
+            ResponseEntity<String> rejected = staleCorrection.get(15, TimeUnit.SECONDS);
+            JsonNode rejectedBody = json(rejected);
+            assertThat(rejectedBody.at("/code").asInt()).isEqualTo(1000);
+            assertThat(rejectedBody.at("/msg").asText()).contains("操作冲突");
+
+            Certificate after = certificateMapper.selectById(certId);
+            assertThat(after.getStatus()).isEqualTo("ISSUED");
+            assertThat(after.getTeachingSubjectCode()).isEqualTo(SENIOR_SUBJECT_CODE);
+            assertThat(after.getTeachingSubjectName()).isEqualTo("语文");
+            assertThat(after.getIssuer()).isEqualTo("F-03签发人");
+        } finally {
+            releaseAndClose(pool, staleCorrection, firstIssue);
+        }
+    }
+
+    @Test
+    @Timeout(90)
+    void correctionCommitBeforeStaleIssuePreservesContentWhileIssuing() throws Exception {
+        LoginResult academic = readyLogin("test_academic_admin");
+        long studentId = seedEligibleStudent(
+                "P9RACECF", COLLEGE_A, "2031", SENIOR_SEGMENT, SENIOR_SUBJECT_CODE, "语文");
+        long certId = generateOk(academic.accessToken(), studentId, "2031").at("/id").asLong();
+        staleWriteSqlBarrier.arm(
+                StaleWriteSqlBarrier.Mutation.CERTIFICATE_CORRECT,
+                StaleWriteSqlBarrier.Mutation.CERTIFICATE_ISSUE);
+
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        Future<ResponseEntity<String>> staleIssue = null;
+        Future<ResponseEntity<String>> firstCorrection = null;
+        try {
+            staleIssue = pool.submit(() -> exchange(
+                    "/api/cert/" + certId + "/issue", HttpMethod.POST, academic.accessToken(), Map.of(
+                            "issuer", "F-03签发人",
+                            "issueDate", "2031/9/1"
+                    )));
+            awaitLateMutation(staleIssue, "证书迟到签发");
+
+            firstCorrection = pool.submit(() -> exchange(
+                    "/api/cert/" + certId + "/correct", HttpMethod.PUT, academic.accessToken(), Map.of(
+                            "teachingSubjectCode", "sms_math",
+                            "teachingSubjectName", "数学",
+                            "reason", "F-03 先提交更正"
+                    )));
+            awaitFirstCommit("证书更正");
+            ResponseEntity<String> corrected = firstCorrection.get(15, TimeUnit.SECONDS);
+            assertThat(json(corrected).at("/code").asInt()).isEqualTo(0);
+
+            Certificate committed = certificateMapper.selectById(certId);
+            assertThat(committed.getStatus()).isEqualTo("GENERATED");
+            assertThat(committed.getTeachingSubjectCode()).isEqualTo("sms_math");
+            assertThat(committed.getTeachingSubjectName()).isEqualTo("数学");
+            assertThat(committed.getCorrectionReason()).isEqualTo("F-03 先提交更正");
+
+            staleWriteSqlBarrier.releaseLate();
+            ResponseEntity<String> issued = staleIssue.get(15, TimeUnit.SECONDS);
+            assertThat(json(issued).at("/code").asInt()).isEqualTo(0);
+
+            Certificate after = certificateMapper.selectById(certId);
+            assertThat(after.getStatus()).isEqualTo("ISSUED");
+            assertThat(after.getTeachingSubjectCode()).isEqualTo("sms_math");
+            assertThat(after.getTeachingSubjectName()).isEqualTo("数学");
+            assertThat(after.getCorrectionReason()).isEqualTo("F-03 先提交更正");
+            assertThat(after.getIssuer()).isEqualTo("F-03签发人");
+        } finally {
+            releaseAndClose(pool, staleIssue, firstCorrection);
+        }
+    }
+
+    @Test
     void voidAndReissueCreateNewCertificateLinkedToOriginal() throws Exception {
         LoginResult academic = readyLogin("test_academic_admin");
         long studentId = seedEligibleStudent("P9VOID", COLLEGE_A, "2031", SENIOR_SEGMENT, SENIOR_SUBJECT_CODE, "语文");
@@ -283,6 +406,8 @@ class Phase9CertificateIT {
         LoginResult clerk = readyLogin("test_college_clerk");
         long a = seedEligibleStudent("P9SCPA", COLLEGE_A, "2032", SENIOR_SEGMENT, SENIOR_SUBJECT_CODE, "语文");
         long b = seedEligibleStudent("P9SCPB", COLLEGE_B, "2032", SENIOR_SEGMENT, SENIOR_SUBJECT_CODE, "语文");
+        String rawIdCardA = idCardProtectionService.decrypt(studentMapper.selectById(a).getIdCardNo());
+        String rawIdCardB = idCardProtectionService.decrypt(studentMapper.selectById(b).getIdCardNo());
         JsonNode certA = generateOk(academic.accessToken(), a, "2032");
         JsonNode certB = generateOk(academic.accessToken(), b, "2032");
         bindStudentUser("test_student", a, COLLEGE_A);
@@ -298,6 +423,31 @@ class Phase9CertificateIT {
                 HttpMethod.GET, clerk.accessToken(), null)).at("/data/records");
         assertThat(clerkRecords.toString()).contains(certA.at("/certNo").asText());
         assertThat(clerkRecords.toString()).doesNotContain(certB.at("/certNo").asText());
+        JsonNode clerkRecord = null;
+        for (JsonNode record : clerkRecords) {
+            if (certA.at("/certNo").asText().equals(record.at("/certNo").asText())) {
+                clerkRecord = record;
+                break;
+            }
+        }
+        assertThat(clerkRecord).isNotNull();
+        assertThat(clerkRecord.at("/idCardNo").asText())
+                .isNotEqualTo(rawIdCardA)
+                .contains("*");
+        assertThat(clerkRecords.toString()).doesNotContain(rawIdCardA);
+
+        JsonNode clerkDetail = json(exchange("/api/cert/" + certA.at("/id").asLong(),
+                HttpMethod.GET, clerk.accessToken(), null));
+        assertThat(clerkDetail.at("/code").asInt()).isZero();
+        assertThat(clerkDetail.at("/data/idCardNo").asText())
+                .isNotEqualTo(rawIdCardA)
+                .contains("*");
+        assertThat(clerkDetail.toString()).doesNotContain(rawIdCardA);
+
+        JsonNode crossCollegeDetail = json(exchange("/api/cert/" + certB.at("/id").asLong(),
+                HttpMethod.GET, clerk.accessToken(), null));
+        assertThat(crossCollegeDetail.at("/code").asInt()).isEqualTo(403);
+        assertThat(crossCollegeDetail.toString()).doesNotContain(rawIdCardB);
 
         JsonNode studentARecords = json(exchange("/api/cert?assessmentYear=2032",
                 HttpMethod.GET, studentA.accessToken(), null)).at("/data/records");
@@ -360,6 +510,47 @@ class Phase9CertificateIT {
         return root.at("/data");
     }
 
+    private void awaitLateMutation(Future<?> lateFuture, String label) throws InterruptedException {
+        assertThat(staleWriteSqlBarrier.awaitLateAtUpdate(15, TimeUnit.SECONDS))
+                .as("%s 必须到达真实 MyBatis UPDATE 屏障；observed=%s", label, staleWriteSqlBarrier.observedSql())
+                .isTrue();
+        assertThat(lateFuture.isDone()).as("%s 在放行前不得完成", label).isFalse();
+    }
+
+    private void awaitFirstCommit(String label) throws InterruptedException {
+        assertThat(staleWriteSqlBarrier.awaitFirstAtUpdate(15, TimeUnit.SECONDS))
+                .as("%s 必须到达真实 MyBatis UPDATE；observed=%s", label, staleWriteSqlBarrier.observedSql())
+                .isTrue();
+        assertThat(staleWriteSqlBarrier.awaitFirstCompletion(15, TimeUnit.SECONDS))
+                .as("%s 必须在放行迟到写之前完成真实事务", label)
+                .isTrue();
+        assertThat(staleWriteSqlBarrier.firstCompletionStatus())
+                .as("%s 必须真实 COMMIT", label)
+                .isEqualTo(TransactionSynchronization.STATUS_COMMITTED);
+        assertThat(staleWriteSqlBarrier.firstAutoCommit()).isFalse();
+        assertThat(staleWriteSqlBarrier.lateAutoCommit()).isFalse();
+        assertThat(staleWriteSqlBarrier.firstConnectionId()).isNotNull();
+        assertThat(staleWriteSqlBarrier.lateConnectionId()).isNotNull();
+        assertThat(staleWriteSqlBarrier.firstConnectionId())
+                .as("两个竞争事务必须使用不同 MySQL CONNECTION_ID()")
+                .isNotEqualTo(staleWriteSqlBarrier.lateConnectionId());
+    }
+
+    @SafeVarargs
+    private final void releaseAndClose(ExecutorService pool, Future<ResponseEntity<String>>... futures)
+            throws InterruptedException {
+        staleWriteSqlBarrier.releaseLate();
+        for (Future<?> future : futures) {
+            if (future != null && !future.isDone()) {
+                future.cancel(true);
+            }
+        }
+        pool.shutdownNow();
+        assertThat(pool.awaitTermination(10, TimeUnit.SECONDS))
+                .as("F-03 证书交错测试不得遗留工作线程")
+                .isTrue();
+    }
+
     private JsonNode issueOk(String token, long certId, String issuer, String issueDate) throws Exception {
         ResponseEntity<String> response = exchange("/api/cert/" + certId + "/issue", HttpMethod.POST, token,
                 Map.of("issuer", issuer, "issueDate", issueDate));
@@ -387,12 +578,14 @@ class Phase9CertificateIT {
     }
 
     private long insertStudent(String prefix, long collegeId) {
+        String idCardNo = uniqueTravelPermit(prefix.substring(0, 1));
         Student student = new Student();
         student.setStudentNo(prefix + "-" + Math.floorMod(System.nanoTime(), 1_000_000_000L));
         student.setName("证书学生" + prefix);
         student.setGender("female");
         student.setIdCardType("hm_travel_permit");
-        student.setIdCardNo(uniqueTravelPermit(prefix.substring(0, 1)));
+        student.setIdCardNo(idCardProtectionService.encrypt(idCardNo));
+        student.setIdCardHmac(idCardProtectionService.hmac(idCardNo));
         student.setBirthDate("2001/1/2");
         student.setIdentityType("normal_student");
         student.setSourceProvince("440000");

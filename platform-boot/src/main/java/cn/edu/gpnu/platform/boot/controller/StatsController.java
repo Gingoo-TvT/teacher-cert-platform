@@ -39,7 +39,7 @@ public class StatsController {
 
     @Operation(summary = "统计报表导出")
     @PreAuthorize("@pms.has('stats:view')")
-    @AuditLog(bizType = "stats", operation = "export")
+    @AuditLog(bizType = "stats", operation = "export", before = true)
     @PostMapping("/{type}/export")
     public void export(@PathVariable String type,
                        @RequestBody(required = false) StatsQuery query,

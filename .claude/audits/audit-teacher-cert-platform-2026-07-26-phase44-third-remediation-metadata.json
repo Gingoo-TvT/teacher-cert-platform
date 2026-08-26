@@ -1,0 +1,342 @@
+{
+  "metadata": {
+    "project": "teacher-cert-platform",
+    "auditModes": [
+      "incremental",
+      "security",
+      "stability",
+      "performance",
+      "testing-authenticity",
+      "release",
+      "configuration",
+      "data-integrity",
+      "concurrency"
+    ],
+    "date": "2026-07-26",
+    "reviewer": "OpenAI Codex",
+    "commitHash": "890aa6ebc919f13036caf3f87b13779a97120539",
+    "scope": "Phase 44 third remediation; baseline 25f8b1c, code/test candidate 8ff544d, material HEAD 890aa6e",
+    "reportLanguage": "zh-CN"
+  },
+  "executiveSummary": {
+    "text": "CHANGES REQUESTED: canonical identity and all three previous Low findings are closed, and the normal multi-writer lease path is sound. One Medium remains because a missing writers ZSET causes a still-present pending version to be normalized before beforeCommit, allowing the same transaction to publish its uncommitted read-your-writes result to shared Redis. Four non-blocking release, configuration, and evidence Low findings were also recorded."
+  },
+  "scoreDashboard": {
+    "dimensions": [
+      {
+        "name": "Security",
+        "score": 8.8,
+        "grade": "A",
+        "justification": "No auth, permission, credential, or external-interface delta; shared-cache exposure is primarily an integrity issue.",
+        "coverageConfidence": "Medium"
+      },
+      {
+        "name": "Stability",
+        "score": 7.0,
+        "grade": "B",
+        "justification": "Normal owner renewal is robust, but owner-loss recovery reopens the cache too early.",
+        "coverageConfidence": "High"
+      },
+      {
+        "name": "Performance",
+        "score": 8.4,
+        "grade": "A",
+        "justification": "The low-frequency write path remains bounded; no load benchmark was run.",
+        "coverageConfidence": "Medium"
+      },
+      {
+        "name": "Testing",
+        "score": 7.7,
+        "grade": "B",
+        "justification": "Real 16/16 and offline 44/44 evidence is strong, but the decisive owner-loss read-through is absent.",
+        "coverageConfidence": "High"
+      },
+      {
+        "name": "Maintainability",
+        "score": 8.0,
+        "grade": "A",
+        "justification": "Canonical identity and configuration validation are centralized.",
+        "coverageConfidence": "High"
+      },
+      {
+        "name": "Design",
+        "score": 7.0,
+        "grade": "B",
+        "justification": "Owner-scoped normal transitions are correct, while ambiguous missing-owner state is not fail-closed.",
+        "coverageConfidence": "High"
+      },
+      {
+        "name": "Release",
+        "score": 6.5,
+        "grade": "C",
+        "justification": "One Medium blocks the phase and the command, configuration, and rollout contracts are incomplete.",
+        "coverageConfidence": "High"
+      }
+    ],
+    "overall": {
+      "score": 7.6,
+      "grade": "B"
+    }
+  },
+  "findingStatistics": {
+    "bySeverity": [
+      {
+        "severity": "Critical",
+        "count": 0,
+        "confirmed": 0,
+        "suspected": 0
+      },
+      {
+        "severity": "High",
+        "count": 0,
+        "confirmed": 0,
+        "suspected": 0
+      },
+      {
+        "severity": "Medium",
+        "count": 1,
+        "confirmed": 1,
+        "suspected": 0
+      },
+      {
+        "severity": "Low",
+        "count": 4,
+        "confirmed": 4,
+        "suspected": 0
+      },
+      {
+        "severity": "Info",
+        "count": 0,
+        "confirmed": 0,
+        "suspected": 0
+      }
+    ],
+    "total": {
+      "count": 5,
+      "confirmed": 5,
+      "suspected": 0
+    }
+  },
+  "projectMap": {
+    "structure": "Spring Boot multi-module backend plus Vue frontend; Phase 44 owns notification batching and reference-data cache correctness.",
+    "keyComponents": [
+      "DictServiceImpl Redis payload/version/writers protocol",
+      "ReferenceCacheInvalidator transaction synchronization",
+      "EpochGuardedCache local publication guard",
+      "Phase44CacheCommitWindowIT real MySQL/Redis interleavings",
+      "DictCacheProperties and production deployment configuration"
+    ],
+    "riskAreas": [
+      "owner-loss recovery before transaction completion",
+      "portable test-gate execution",
+      "new/old cache protocol rollout",
+      "brownfield identity and collation assumptions"
+    ]
+  },
+  "coverageMatrix": [
+    {
+      "dimension": "Incremental",
+      "coverage": "High",
+      "evidenceInspected": "All 16 code/test paths in 25f8b1c..8ff544d plus material HEAD 890aa6e",
+      "exclusions": "Other phases were not reopened"
+    },
+    {
+      "dimension": "Testing Authenticity",
+      "coverage": "High",
+      "evidenceInspected": "16 IT source methods, XML/testcase set, hashes, time chain, offline 44/44",
+      "exclusions": "Codex did not operate real dependencies"
+    },
+    {
+      "dimension": "Data Integrity",
+      "coverage": "High",
+      "evidenceInspected": "MySQL read-your-writes, Redis READ/PUT/COMPLETE Lua, owner lifecycle",
+      "exclusions": "No independent fault injection"
+    },
+    {
+      "dimension": "Release",
+      "coverage": "High",
+      "evidenceInspected": "Git parent chain, Compose, .env, Phase 14 runbook, Maven gate",
+      "exclusions": "No merge, push, deployment, or rollback"
+    }
+  ],
+  "topRisks": [
+    {
+      "title": "Owner loss can publish an uncommitted dictionary value",
+      "severity": "Medium",
+      "summary": "READ normalizes a still-pending version when the writers ZSET is absent, so the same transaction can cache its uncommitted V2 before beforeCommit rolls back.",
+      "findingId": "P44-R3-M1"
+    },
+    {
+      "title": "The documented real gate cannot be executed verbatim",
+      "severity": "Low",
+      "summary": "The reactor root fails on zero matching specified integration tests unless the documented command adds a safeguard and verifies the target count.",
+      "findingId": "P44-R3-L1"
+    },
+    {
+      "title": "Lease settings are not propagated through Compose",
+      "severity": "Low",
+      "summary": "The official .env plus Compose path cannot override the two new writer lease settings.",
+      "findingId": "P44-R3-L2"
+    },
+    {
+      "title": "The incompatible protocol rollout is absent from the authoritative runbook",
+      "severity": "Low",
+      "summary": "The no-mixed-binary requirement exists only in the candidate submission.",
+      "findingId": "P44-R3-L3"
+    },
+    {
+      "title": "Brownfield identity assumptions lack a preflight",
+      "severity": "Low",
+      "summary": "Actual column collation and historical invalid or non-canonical type codes are not checked before upgrade.",
+      "findingId": "P44-R3-L4"
+    }
+  ],
+  "detailedFindings": [
+    {
+      "id": "P44-R3-M1",
+      "title": "Owner loss can publish an uncommitted dictionary value",
+      "severity": "Medium",
+      "confidence": "High",
+      "category": "Data Integrity / Concurrency / Stability",
+      "status": "Confirmed",
+      "affectedArea": "DictServiceImpl listItems and Redis write-window recovery",
+      "evidence": {
+        "file": "platform-system/src/main/java/cn/edu/gpnu/platform/system/service/impl/DictServiceImpl.java",
+        "lineNumbers": "115-127,275-289,457-515,596-611",
+        "functionOrModule": "READ_ITEMS_WITH_VERSION, listItems, putCachedItems, WriteWindowOwner.renewOrThrow",
+        "relevantBehavior": "A missing writers key turns an existing pending version into a normal version before the transaction is forced to roll back."
+      },
+      "failureTrigger": "The writers ZSET disappears while the write transaction remains active and calls listItems.",
+      "failureScenario": "The transaction reads its own uncommitted V2, publishes it under the newly normal version, another request observes V2, and only then beforeCommit detects the missing owner and rolls back.",
+      "userVisibleImpact": "Requests can consume a dictionary value that never commits.",
+      "minimalFix": "Keep a still-present pending version fail-closed until its recovery TTL expires and add a transaction-bound local guard against publishing read-your-writes values.",
+      "betterLongTermFix": "Use an explicit versioned cache transaction state or durable post-commit revision instead of inferring transaction completion from owner absence.",
+      "regressionTestSuggestion": "Delete writers, read from the same write transaction, concurrently read from another thread, and assert no payload plus eventual rollback.",
+      "estimatedEffort": "0.5-1 day"
+    },
+    {
+      "id": "P44-R3-L1",
+      "title": "The documented real gate cannot be executed verbatim",
+      "severity": "Low",
+      "confidence": "High",
+      "category": "Testing / Release",
+      "status": "Confirmed",
+      "affectedArea": "Phase 44 dynamic-gate runbook",
+      "evidence": {
+        "file": "docs/reviews/phase-44-third-remediation-submission-2026-07-26.md",
+        "lineNumbers": "104-111",
+        "functionOrModule": "Submission section 5",
+        "relevantBehavior": "The parent reactor binds Failsafe and fails before platform-boot when the specified IT does not exist in root."
+      },
+      "failureScenario": "A reviewer copies the command and gets BUILD FAILURE without running any test, or enables the safeguard without checking the target count.",
+      "userVisibleImpact": "The review gate is not reproducible as documented.",
+      "minimalFix": "Add failsafe.failIfNoSpecifiedTests=false and assert completed/tests equals 16.",
+      "regressionTestSuggestion": "The correct suite must report 16; a deliberately wrong suite name must fail.",
+      "estimatedEffort": "15-30 minutes"
+    },
+    {
+      "id": "P44-R3-L2",
+      "title": "Lease settings are not propagated through Compose",
+      "severity": "Low",
+      "confidence": "High",
+      "category": "Configuration / Release",
+      "status": "Confirmed",
+      "affectedArea": "docker-compose.yml and .env.example",
+      "evidence": {
+        "file": "platform-boot/src/main/resources/application.yml",
+        "lineNumbers": "32-35",
+        "functionOrModule": "platform.cache.dictionary",
+        "relevantBehavior": "Two environment-backed settings are declared but not injected by the production Compose service or documented in .env.example."
+      },
+      "failureScenario": "An operator sets the values in .env, but the container continues to use defaults.",
+      "userVisibleImpact": "Runtime lease behavior can differ from the operator's intended configuration.",
+      "minimalFix": "Propagate both variables through Compose, document constraints, and assert docker compose config.",
+      "regressionTestSuggestion": "Resolve a non-default .env and verify the container and bound properties receive the same values.",
+      "estimatedEffort": "30-60 minutes"
+    },
+    {
+      "id": "P44-R3-L3",
+      "title": "The incompatible protocol rollout is absent from the authoritative runbook",
+      "severity": "Low",
+      "confidence": "High",
+      "category": "Release / Stability",
+      "status": "Confirmed",
+      "affectedArea": "Phase 14 deployment documentation",
+      "evidence": {
+        "file": "docs/reviews/phase-44-third-remediation-submission-2026-07-26.md",
+        "lineNumbers": "56-57",
+        "functionOrModule": "Candidate release prerequisite",
+        "relevantBehavior": "The no-mixed-binary requirement exists only in candidate material, while old and new writers interpret pending ownership differently."
+      },
+      "failureScenario": "A rolling upgrade mixes an old single-pending writer with a new ZSET-aware reader and reopens cache publication.",
+      "userVisibleImpact": "A deployment can reintroduce stale or uncommitted reference data.",
+      "minimalFix": "Add a stop-all-old-nodes, start-all-new-nodes, no-old-binary-rollback procedure to Phase 14 and README.",
+      "regressionTestSuggestion": "Add a static deployment-contract check for the Phase 44 protocol transition.",
+      "estimatedEffort": "30-60 minutes"
+    },
+    {
+      "id": "P44-R3-L4",
+      "title": "Brownfield identity assumptions lack a preflight",
+      "severity": "Low",
+      "confidence": "Medium",
+      "category": "Data Integrity / Release",
+      "status": "Confirmed",
+      "affectedArea": "Existing sys_dict_type and sys_dict_item type_code values",
+      "evidence": {
+        "file": "platform-boot/src/main/resources/db/migration/V2__dict.sql",
+        "lineNumbers": "7-43",
+        "functionOrModule": "Dictionary schema and upgrade path",
+        "relevantBehavior": "The columns inherit database collation and the candidate adds no migration or portable preflight for historical identities."
+      },
+      "failureScenario": "A drifted case-sensitive brownfield schema or historical invalid code is no longer queryable or maintainable after canonicalization.",
+      "userVisibleImpact": "Dictionary endpoints can miss or reject existing rows during upgrade.",
+      "minimalFix": "Verify collation and enumerate non-canonical or invalid values before release; use Flyway if physical normalization is required.",
+      "regressionTestSuggestion": "Seed physical uppercase and invalid historical rows and test preflight plus CRUD behavior.",
+      "estimatedEffort": "0.5 day"
+    }
+  ],
+  "fixOrder": [
+    {
+      "priority": 1,
+      "findingId": "P44-R3-M1",
+      "reason": "It is the only phase-blocking data-integrity defect."
+    },
+    {
+      "priority": 2,
+      "findingId": "P44-R3-L1",
+      "reason": "The next independent gate must be reproducible and count the intended tests."
+    },
+    {
+      "priority": 3,
+      "findingId": "P44-R3-L3",
+      "reason": "The incompatible protocol needs an authoritative rollout contract before deployment."
+    },
+    {
+      "priority": 4,
+      "findingId": "P44-R3-L2",
+      "reason": "The correctness-sensitive lease settings need a real deployment path."
+    },
+    {
+      "priority": 5,
+      "findingId": "P44-R3-L4",
+      "reason": "Brownfield assumptions should be verified before stable release."
+    }
+  ],
+  "quickWins": [
+    {
+      "findingId": "P44-R3-L1",
+      "effort": "15-30 minutes",
+      "impact": "Makes the real gate executable while preventing zero-test false green."
+    },
+    {
+      "findingId": "P44-R3-L2",
+      "effort": "30-60 minutes",
+      "impact": "Makes lease tuning available through the official deployment path."
+    },
+    {
+      "findingId": "P44-R3-L3",
+      "effort": "30-60 minutes",
+      "impact": "Prevents unsafe rolling upgrades and old-binary rollback."
+    }
+  ]
+}

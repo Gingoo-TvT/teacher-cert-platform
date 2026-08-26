@@ -18,6 +18,7 @@ import cn.edu.gpnu.platform.exchange.mapper.ImportExportBatchMapper;
 import cn.edu.gpnu.platform.exchange.mapper.ImportRecordRefMapper;
 import cn.edu.gpnu.platform.exchange.service.ExchangeService;
 import cn.edu.gpnu.platform.exchange.vo.RollbackResultVO;
+import cn.edu.gpnu.platform.security.service.IdCardProtectionService;
 import cn.edu.gpnu.platform.security.service.SecurityAdminService;
 import cn.edu.gpnu.platform.system.config.CacheConfig;
 import cn.edu.gpnu.platform.system.dto.MajorSaveRequest;
@@ -111,6 +112,9 @@ class Phase39CollegeIntegrityIT {
 
     @Autowired
     private StudentMapper studentMapper;
+
+    @Autowired
+    private IdCardProtectionService idCardProtectionService;
 
     @Autowired
     private TrainingProfileMapper trainingProfileMapper;
@@ -607,13 +611,15 @@ class Phase39CollegeIntegrityIT {
     private HistoricalRollbackFixture seedHistoricalRollbackFixture(String direction) throws Exception {
         CollegeFixture sourceCollege = insertCollege(direction + "A");
         CollegeFixture targetCollege = insertCollege(direction + "B");
+        String idCardNo = "R" + sourceCollege.digits();
 
         Student student = new Student();
         student.setStudentNo(sourceCollege.key() + "S");
         student.setName("Phase39历史回滚学生");
         student.setGender("MALE");
         student.setIdCardType("hm_travel_permit");
-        student.setIdCardNo("R" + sourceCollege.digits());
+        student.setIdCardNo(idCardProtectionService.encrypt(idCardNo));
+        student.setIdCardHmac(idCardProtectionService.hmac(idCardNo));
         student.setBirthDate("2000/1/2");
         student.setIdentityType("normal");
         student.setCollegeId(sourceCollege.collegeId());
@@ -663,7 +669,8 @@ class Phase39CollegeIntegrityIT {
         certificate.setStudentNo(student.getStudentNo());
         certificate.setStudentName(student.getName());
         certificate.setIdCardType(student.getIdCardType());
-        certificate.setIdCardNo(student.getIdCardNo());
+        certificate.setIdCardNo(idCardProtectionService.encrypt(idCardNo));
+        certificate.setIdCardHmac(idCardProtectionService.hmac(idCardNo));
         certificate.setEducationLevel("undergraduate");
         certificate.setTrainingGoal("primary_school_teacher");
         certificate.setTeachingSegment("primary_school");

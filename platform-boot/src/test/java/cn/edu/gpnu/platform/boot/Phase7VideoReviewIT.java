@@ -1244,9 +1244,70 @@ class Phase7VideoReviewIT {
 
         ResponseEntity<String> noToken = rest.getForEntity(url("/api/video/reviews/" + own + "/play"), String.class);
         assertThat(noToken.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
-        JsonNode play = json(exchange("/api/video/reviews/" + own + "/play", HttpMethod.GET, reviewerA.accessToken(), null)).at("/data");
-        assertThat(play.at("/url").asText()).contains("X-Amz-");
+        ResponseEntity<String> playResponse = exchange(
+                "/api/video/reviews/" + own + "/play", HttpMethod.GET, reviewerA.accessToken(), null);
+        JsonNode play = json(playResponse).at("/data");
+        String contentPath = "/api/video/reviews/" + own + "/content";
+        assertThat(play.at("/url").asText()).isEqualTo(contentPath);
         assertThat(play.at("/watermarkText").asText()).contains("test_review_teacher");
+
+        ResponseEntity<byte[]> copiedUrl = rest.getForEntity(url(contentPath), byte[].class);
+        assertThat(copiedUrl.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+
+        String setCookie = playResponse.getHeaders().getFirst(HttpHeaders.SET_COOKIE);
+        assertThat(setCookie).contains("TCP_MEDIA_ACCESS=").contains("HttpOnly").contains("SameSite=Strict");
+        long cookieMaxAge = Long.parseLong(setCookie.replaceAll(".*Max-Age=([0-9]+).*", "$1"));
+        assertThat(cookieMaxAge).isBetween(1L, 30L);
+        HttpHeaders mediaHeaders = new HttpHeaders();
+        mediaHeaders.set(HttpHeaders.COOKIE, setCookie.substring(0, setCookie.indexOf(';')));
+        mediaHeaders.set(HttpHeaders.RANGE, "bytes=0-3");
+        ResponseEntity<byte[]> media = rest.exchange(
+                url(contentPath), HttpMethod.GET, new HttpEntity<>(mediaHeaders), byte[].class);
+        assertThat(media.getStatusCode()).isEqualTo(HttpStatus.PARTIAL_CONTENT);
+        assertThat(media.getHeaders().getFirst(HttpHeaders.CONTENT_RANGE)).startsWith("bytes 0-3/");
+        assertThat(media.getBody()).hasSize(4);
+
+        ResponseEntity<String> logout = exchange(
+                "/api/auth/logout", HttpMethod.POST, reviewerA.accessToken(), null);
+        assertThat(json(logout).at("/code").asInt()).isZero();
+        assertThat(logout.getHeaders().get(HttpHeaders.SET_COOKIE))
+                .isNotNull()
+                .anySatisfy(cookie -> assertThat(cookie)
+                        .contains("TCP_MEDIA_ACCESS=")
+                        .contains("Max-Age=0"));
+        ResponseEntity<byte[]> afterLogout = rest.exchange(
+                url(contentPath), HttpMethod.GET, new HttpEntity<>(mediaHeaders), byte[].class);
+        assertThat(afterLogout.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+
+        ResponseEntity<String> switched = loginRaw("test_student_b", CHANGED_PASSWORD);
+        JsonNode switchedData = json(switched).at("/data");
+        assertThat(json(switched).at("/code").asInt()).isZero();
+        String clearedCookie = switched.getHeaders().getFirst(HttpHeaders.SET_COOKIE);
+        assertThat(clearedCookie)
+                .contains("TCP_MEDIA_ACCESS=")
+                .contains("Max-Age=0")
+                .contains("Path=/api");
+        HttpHeaders afterSwitchHeaders = new HttpHeaders();
+        afterSwitchHeaders.set(HttpHeaders.COOKIE,
+                clearedCookie.substring(0, clearedCookie.indexOf(';')));
+        afterSwitchHeaders.set(HttpHeaders.RANGE, "bytes=0-3");
+        ResponseEntity<byte[]> afterSwitch = rest.exchange(
+                url(contentPath), HttpMethod.GET, new HttpEntity<>(afterSwitchHeaders), byte[].class);
+        assertThat(afterSwitch.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+
+        ResponseEntity<String> otherPlay = exchange(
+                "/api/video/reviews/" + other + "/play", HttpMethod.GET,
+                switchedData.at("/accessToken").asText(), null);
+        assertThat(json(otherPlay).at("/code").asInt()).isZero();
+        String otherSetCookie = otherPlay.getHeaders().getFirst(HttpHeaders.SET_COOKIE);
+        assertThat(otherSetCookie).contains("TCP_MEDIA_ACCESS=");
+        HttpHeaders crossAccountHeaders = new HttpHeaders();
+        crossAccountHeaders.set(HttpHeaders.COOKIE,
+                otherSetCookie.substring(0, otherSetCookie.indexOf(';')));
+        crossAccountHeaders.set(HttpHeaders.RANGE, "bytes=0-3");
+        ResponseEntity<String> crossAccount = rest.exchange(
+                url(contentPath), HttpMethod.GET, new HttpEntity<>(crossAccountHeaders), String.class);
+        assertThat(json(crossAccount).at("/code").asInt()).isEqualTo(403);
     }
 
     @Test

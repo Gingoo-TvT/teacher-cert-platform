@@ -1,0 +1,385 @@
+{
+  "metadata": {
+    "project": "teacher-cert-platform",
+    "auditModes": [
+      "incremental",
+      "testing-authenticity",
+      "release",
+      "configuration",
+      "documentation",
+      "supply-chain",
+      "security"
+    ],
+    "date": "2026-07-27",
+    "reviewer": "OpenAI Codex",
+    "commitHash": "715b5f1c67a9943c5914eda08e485a1463c0524d",
+    "scope": "Phase 0 / U-004 remediation; baseline dd04f21, candidate 715b5f1",
+    "reportLanguage": "zh-CN",
+    "verdict": "CHANGES_REQUESTED"
+  },
+  "executiveSummary": {
+    "text": "CHANGES_REQUESTED: Checkstyle, ESLint, api-docs recovery, core Phase 0 integration evidence, and DataScope branch tests are real, but T-FILE-1 never performs the claimed second upload, CI does not lock the required Phase 0 suites, and the authoritative acceptance/status documents still conflict. Four additional Low findings cover production static documentation UI exposure, evidence provenance, overclaimed acceptance anchors, and T-DS-1 drift."
+  },
+  "scoreDashboard": {
+    "dimensions": [
+      {
+        "name": "Incremental",
+        "score": 6.0,
+        "grade": "B",
+        "justification": "The candidate closes important implementation gaps but retains three blocking review findings.",
+        "coverageConfidence": "High"
+      },
+      {
+        "name": "Testing Authenticity",
+        "score": 5.0,
+        "grade": "B",
+        "justification": "Most new tests are valuable, but one key test is false confidence and required suites are not locked.",
+        "coverageConfidence": "High"
+      },
+      {
+        "name": "Release",
+        "score": 5.5,
+        "grade": "B",
+        "justification": "CI executes lint and broad tests but can silently lose the Phase 0 acceptance suites.",
+        "coverageConfidence": "High"
+      },
+      {
+        "name": "Configuration",
+        "score": 7.0,
+        "grade": "A",
+        "justification": "The dev API-doc regression is fixed; production still publicly serves the static documentation UI shell.",
+        "coverageConfidence": "Medium"
+      },
+      {
+        "name": "Documentation",
+        "score": 4.5,
+        "grade": "C",
+        "justification": "Multiple authoritative entrypoints retain contradictory Phase 0 acceptance and status statements.",
+        "coverageConfidence": "High"
+      },
+      {
+        "name": "Supply Chain",
+        "score": 7.5,
+        "grade": "A",
+        "justification": "New dependency versions are locked with integrity data; artifact provenance remains incomplete.",
+        "coverageConfidence": "Medium"
+      },
+      {
+        "name": "Security",
+        "score": 7.5,
+        "grade": "A",
+        "justification": "No high-risk security delta was found; production documentation surface closure is incomplete.",
+        "coverageConfidence": "Medium"
+      }
+    ],
+    "overall": {
+      "score": 6.1,
+      "grade": "B"
+    }
+  },
+  "findingStatistics": {
+    "bySeverity": [
+      {
+        "severity": "Critical",
+        "count": 0,
+        "confirmed": 0,
+        "suspected": 0
+      },
+      {
+        "severity": "High",
+        "count": 0,
+        "confirmed": 0,
+        "suspected": 0
+      },
+      {
+        "severity": "Medium",
+        "count": 3,
+        "confirmed": 3,
+        "suspected": 0
+      },
+      {
+        "severity": "Low",
+        "count": 4,
+        "confirmed": 4,
+        "suspected": 0
+      },
+      {
+        "severity": "Info",
+        "count": 0,
+        "confirmed": 0,
+        "suspected": 0
+      }
+    ],
+    "total": {
+      "count": 7,
+      "confirmed": 7,
+      "suspected": 0
+    }
+  },
+  "projectMap": {
+    "structure": "Nine-module Spring Boot Maven reactor plus Vue 3 frontend; Phase 0 owns build, shared infrastructure, file service, audit/data-scope scaffolding, and CI foundations.",
+    "keyComponents": [
+      "Maven and Checkstyle lifecycle",
+      "GitHub Actions backend and frontend gates",
+      "Phase00ScaffoldIT real dependency contracts",
+      "DataScopeSqlHandlerTest SQL rewrite branches",
+      "FileServiceImpl and FileController upload path",
+      "Springdoc and Knife4j environment configuration",
+      "Phase 0 authoritative documentation chain"
+    ],
+    "riskAreas": [
+      "false-positive file deduplication test",
+      "required-suite test discovery",
+      "authoritative acceptance drift",
+      "production documentation exposure",
+      "evidence artifact provenance"
+    ]
+  },
+  "coverageMatrix": [
+    {
+      "dimension": "Incremental",
+      "coverage": "High",
+      "evidenceInspected": "All 24 paths in dd04f21..715b5f1, commit ancestry, source and documentation context",
+      "exclusions": "Other phases were not reopened"
+    },
+    {
+      "dimension": "Testing Authenticity",
+      "coverage": "High",
+      "evidenceInspected": "New test source, production call chains, XML, hashes, time chain, independent 257/257",
+      "exclusions": "Codex did not operate real dependencies"
+    },
+    {
+      "dimension": "Release",
+      "coverage": "High",
+      "evidenceInspected": "CI workflow, Maven lifecycle, test discovery, Git scope and review gate",
+      "exclusions": "No GitHub Actions, merge, push, deployment, or rollback"
+    },
+    {
+      "dimension": "Configuration",
+      "coverage": "Medium",
+      "evidenceInspected": "Dev/prod application configuration, SecurityConfig and locked UI artifact",
+      "exclusions": "No profile startup or HTTP request"
+    },
+    {
+      "dimension": "Documentation",
+      "coverage": "High",
+      "evidenceInspected": "Phase 0 spec, global DoD, tasks, current plan, root README, review gate and submission",
+      "exclusions": "Historical phase reports were sampled only when directly referenced"
+    },
+    {
+      "dimension": "Supply Chain",
+      "coverage": "Medium",
+      "evidenceInspected": "Pinned Maven/npm versions, package-lock integrity and workflow references",
+      "exclusions": "No online advisory scan, SBOM, signing or attestation"
+    },
+    {
+      "dimension": "Security",
+      "coverage": "Medium",
+      "evidenceInspected": "Public documentation paths, production switches, candidate secret diff and MD5 boundary",
+      "exclusions": "No scan, fuzz, credentials, permission or attack-like action"
+    }
+  ],
+  "topRisks": [
+    {
+      "title": "T-FILE-1 never performs the claimed second upload",
+      "severity": "Medium",
+      "summary": "The test proves lookup after one upload while production upload always writes a new object and row.",
+      "findingId": "P00-R1-M1"
+    },
+    {
+      "title": "CI does not lock required Phase 0 suites",
+      "severity": "Medium",
+      "summary": "Broad Maven verify can remain green when either acceptance suite is deleted or undiscovered.",
+      "findingId": "P00-R1-M2"
+    },
+    {
+      "title": "Authoritative Phase 0 acceptance documents still conflict",
+      "severity": "Medium",
+      "summary": "Global DoD, tasks, plan, README and review gate contradict the candidate phase specification.",
+      "findingId": "P00-R1-M3"
+    }
+  ],
+  "detailedFindings": [
+    {
+      "id": "P00-R1-M1",
+      "title": "T-FILE-1 never performs the claimed second upload",
+      "severity": "Medium",
+      "confidence": "High",
+      "category": "Testing / Data Integrity / Backend API",
+      "status": "Confirmed",
+      "affectedArea": "Phase 0 file deduplication acceptance",
+      "evidence": {
+        "file": "platform-boot/src/test/java/cn/edu/gpnu/platform/boot/Phase00ScaffoldIT.java",
+        "lineNumbers": "261-278",
+        "functionOrModule": "sameMd5LookupHitsExistingObjectWithoutSecondCopy",
+        "relevantBehavior": "The test uploads once, performs a lookup, and asserts the naturally single row while production upload always writes."
+      },
+      "failureScenario": "A client uploads the same content twice, creating two objects and rows while the named acceptance test remains green.",
+      "userVisibleImpact": "Storage deduplication and instant-upload behavior are falsely reported as complete.",
+      "minimalFix": "Implement scoped deduplication and real sequential/concurrent second-upload tests, or retire the requirement through R10.",
+      "betterLongTermFix": "Use server-computed strong digests, authorization-scoped reuse, unique idempotency and reconciliation.",
+      "regressionTestSuggestion": "Assert two real attempts preserve one authorized file ID, DB row and object, including concurrency.",
+      "estimatedEffort": "1-2 days"
+    },
+    {
+      "id": "P00-R1-M2",
+      "title": "CI does not lock required Phase 0 suites",
+      "severity": "Medium",
+      "confidence": "High",
+      "category": "Release / Testing Authenticity",
+      "status": "Confirmed",
+      "affectedArea": "GitHub Actions and Maven test discovery",
+      "evidence": {
+        "file": ".github/workflows/ci.yml",
+        "lineNumbers": "84-88",
+        "functionOrModule": "backend mvn verify",
+        "relevantBehavior": "The workflow performs broad verification without post-validating Phase00 or DataScope XML and testcase sets."
+      },
+      "failureScenario": "The target test is renamed outside plugin discovery and hundreds of unrelated tests keep CI green.",
+      "userVisibleImpact": "A Phase 0 regression can merge without the required acceptance test running.",
+      "minimalFix": "Delete stale reports, run clean verify, and parse fresh XML for exact suites, counts, cases and candidate SHA.",
+      "betterLongTermFix": "Use a machine-readable phase gate manifest and CI-generated evidence artifact.",
+      "regressionTestSuggestion": "Exercise missing, stale, renamed, skipped and incomplete XML against the gate.",
+      "estimatedEffort": "0.5-1 day"
+    },
+    {
+      "id": "P00-R1-M3",
+      "title": "Authoritative Phase 0 acceptance documents still conflict",
+      "severity": "Medium",
+      "confidence": "High",
+      "category": "Documentation / Release / Maintainability",
+      "status": "Confirmed",
+      "affectedArea": "Global DoD, tasks, current plan, README and review gate",
+      "evidence": {
+        "file": "docs/README.md",
+        "lineNumbers": "21,31",
+        "functionOrModule": "global DoD and test policy",
+        "relevantBehavior": "It still says Checkstyle and ESLint are not implemented while the candidate and CI implement them."
+      },
+      "failureScenario": "Different contributors follow contradictory active instructions and either duplicate WS-6 work or skip the Phase 0 review.",
+      "userVisibleImpact": "The project cannot determine its true phase status or acceptance baseline from required entrypoints.",
+      "minimalFix": "Synchronize all active entrypoints and narrow WS-6 to the genuinely remaining work.",
+      "betterLongTermFix": "Generate human documentation from one machine-readable phase state and capability source.",
+      "regressionTestSuggestion": "Add a documentation consistency check for phase status, package manager and active quality gates.",
+      "estimatedEffort": "1-2 hours"
+    },
+    {
+      "id": "P00-R1-L1",
+      "title": "Production still publicly serves the Knife4j static UI",
+      "severity": "Low",
+      "confidence": "High",
+      "category": "Security / Configuration",
+      "status": "Confirmed",
+      "affectedArea": "Production API documentation paths",
+      "evidence": {
+        "file": "platform-security/src/main/java/cn/edu/gpnu/platform/security/config/SecurityConfig.java",
+        "lineNumbers": "60-62",
+        "functionOrModule": "public request matchers",
+        "relevantBehavior": "All profiles permit static documentation paths and the locked UI JAR contains doc.html."
+      },
+      "failureScenario": "An external production request obtains the Knife4j UI shell and assets despite the configuration claiming no trial UI.",
+      "userVisibleImpact": "Production exposes unnecessary technology fingerprinting and violates its stated environment contract.",
+      "minimalFix": "Deny all documentation paths in prod and add negative profile tests.",
+      "betterLongTermFix": "Make documentation UI a non-production optional dependency controlled by one validated property.",
+      "regressionTestSuggestion": "Assert prod returns 403 or 404 for doc.html, webjars, Swagger and api-docs while dev remains positive.",
+      "estimatedEffort": "2-4 hours"
+    },
+    {
+      "id": "P00-R1-L2",
+      "title": "Candidate evidence lacks immutable provenance",
+      "severity": "Low",
+      "confidence": "High",
+      "category": "Testing Authenticity / Release / Supply Chain",
+      "status": "Confirmed",
+      "affectedArea": "Phase 0 evidence archive",
+      "evidence": {
+        "file": "docs/reviews/evidence/phase00-remediation-2026-07-27/gates-2026-07-27.txt",
+        "lineNumbers": "1-97",
+        "functionOrModule": "manually curated gate excerpt",
+        "relevantBehavior": "The artifact omits complete logs, raw XML, candidate SHA, hashes, target markers and exit metadata."
+      },
+      "failureScenario": "A later local run overwrites target XML while the old hand-written counts remain in Git.",
+      "userVisibleImpact": "Reviewers cannot independently attribute the green evidence to a candidate and environment.",
+      "minimalFix": "Archive complete redacted logs, XML and a SHA-256/candidate/target manifest generated by the gate.",
+      "betterLongTermFix": "Publish CI provenance artifacts and render documentation summaries from them.",
+      "regressionTestSuggestion": "Fail evidence validation on any hash, suite, testcase, time-chain, target or candidate mismatch.",
+      "estimatedEffort": "2-4 hours"
+    },
+    {
+      "id": "P00-R1-L3",
+      "title": "Three 10-of-10 checklist anchors overstate their evidence",
+      "severity": "Low",
+      "confidence": "High",
+      "category": "Documentation / Testing Authenticity",
+      "status": "Confirmed",
+      "affectedArea": "Phase 0 acceptance checklist",
+      "evidence": {
+        "file": "docs/phase-00-脚手架.md",
+        "lineNumbers": "77-88",
+        "functionOrModule": "Compose, sys_param and frontend acceptance",
+        "relevantBehavior": "Exact checklist items are marked complete using equivalent, sampled or historical rather than direct evidence."
+      },
+      "failureScenario": "An exact dev Compose, newly documented parameter or login-route regression escapes because the checklist remains fully checked.",
+      "userVisibleImpact": "The next reviewer cannot tell which acceptance statements are directly proven.",
+      "minimalFix": "Provide exact evidence or narrow each statement and label evidence type and limits.",
+      "betterLongTermFix": "Bind machine-readable checklist items to gate artifacts and last successful candidate SHA.",
+      "regressionTestSuggestion": "Add exact Compose smoke, fresh-schema key matrix and current browser login-route E2E.",
+      "estimatedEffort": "0.5-1 day"
+    },
+    {
+      "id": "P00-R1-L4",
+      "title": "T-DS-1 specification and test layer remain misaligned",
+      "severity": "Low",
+      "confidence": "High",
+      "category": "Testing / Documentation",
+      "status": "Confirmed",
+      "affectedArea": "Phase 0 DataScope acceptance",
+      "evidence": {
+        "file": "docs/phase-00-脚手架.md",
+        "lineNumbers": "94",
+        "functionOrModule": "T-DS-1",
+        "relevantBehavior": "The spec says equals and ALL, while the test uses IN and SCHOOL and calls only the handler."
+      },
+      "failureScenario": "A mapper loses its annotation or alias integration while the isolated handler tests remain green.",
+      "userVisibleImpact": "A real list query can lose data-scope filtering despite the Phase 0 unit gate.",
+      "minimalFix": "Update the authoritative wording through R10 and add a real mapper/interceptor SQL integration.",
+      "betterLongTermFix": "Build a parameterized data-scope integration matrix across types, aliases and pagination.",
+      "regressionTestSuggestion": "Capture final mapper count/data SQL and results for COLLEGE, SCHOOL, SELF, NONE and empty scopes.",
+      "estimatedEffort": "0.5-1 day"
+    }
+  ],
+  "fixOrder": [
+    {
+      "priority": 1,
+      "findingId": "P00-R1-M1",
+      "reason": "The phase currently reports an untested and apparently unimplemented product contract as complete."
+    },
+    {
+      "priority": 2,
+      "findingId": "P00-R1-M2",
+      "reason": "The new acceptance tests must not be able to disappear while CI stays green."
+    },
+    {
+      "priority": 3,
+      "findingId": "P00-R1-M3",
+      "reason": "The original U-004 source-of-truth defect must be closed before Phase 0 can pass."
+    }
+  ],
+  "quickWins": [
+    {
+      "findingId": "P00-R1-M3",
+      "effort": "1-2 hours",
+      "impact": "Restores one authoritative Phase 0 baseline and state."
+    },
+    {
+      "findingId": "P00-R1-M2",
+      "effort": "2-4 hours",
+      "impact": "Makes the Phase 0 acceptance suites mandatory in CI."
+    },
+    {
+      "findingId": "P00-R1-L1",
+      "effort": "2-4 hours",
+      "impact": "Closes the remaining production documentation surface."
+    }
+  ]
+}

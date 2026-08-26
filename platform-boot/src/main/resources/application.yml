@@ -31,6 +31,19 @@ logging:
     cn.edu.gpnu.platform: info
 
 platform:
+  audit:
+    # 仅列出直接连接后端、且会覆盖转发头的代理 IP；留空时忽略全部 XFF/X-Real-IP。
+    trusted-proxies: ${AUDIT_TRUSTED_PROXIES:}
+  exchange:
+    import:
+        # 独立于 Spring multipart 总闸门，在 SAX 读取/整批预览物化前限制标准名册的资源占用。
+        max-file-bytes: ${EXCHANGE_IMPORT_MAX_FILE_BYTES:16777216}
+        max-expanded-bytes: ${EXCHANGE_IMPORT_MAX_EXPANDED_BYTES:67108864}
+        max-rows: ${EXCHANGE_IMPORT_MAX_ROWS:20000}
+        max-cell-characters: ${EXCHANGE_IMPORT_MAX_CELL_CHARACTERS:4096}
+        max-error-details: ${EXCHANGE_IMPORT_MAX_ERROR_DETAILS:20000}
+        # 20 MiB 经备份 Base64 后仍低于 32 MiB 单 SQL 语句上限，并为其它列/SQL 语法留余量。
+        max-preview-json-bytes: ${EXCHANGE_IMPORT_MAX_PREVIEW_JSON_BYTES:20971520}
   cache:
     dictionary:
       # 活事务会后台续租，并在提交前强制验证；租约只承担崩溃后的 owner 回收。
@@ -56,9 +69,13 @@ platform:
       artifact-cleanup-interval: ${VIDEO_PROBE_ARTIFACT_CLEANUP_INTERVAL:5m}
       artifact-cleanup-scan-limit: ${VIDEO_PROBE_ARTIFACT_CLEANUP_SCAN_LIMIT:10000}
   security:
+    id-card:
+      # WS-8：base profile 不提供 secret 默认值；生产缺失或弱配置时在上下文创建前失败关闭。
+      encryption-key: ${IDCARD_ENCRYPTION_KEY:}
+      hmac-pepper: ${IDCARD_HMAC_PEPPER:}
     jwt:
       secret: ${JWT_SECRET:}
-      access-ttl-seconds: ${JWT_ACCESS_TTL_SECONDS:3600}
+      access-ttl-seconds: ${JWT_ACCESS_TTL_SECONDS:900}
       refresh-ttl-seconds: ${JWT_REFRESH_TTL_SECONDS:604800}
     login:
       lock-threshold: ${LOGIN_LOCK_THRESHOLD:5}

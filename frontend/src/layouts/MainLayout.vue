@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, h, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, h, onBeforeUnmount, onMounted, ref, watch, type HTMLAttributes } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
-import { NBadge, NButton, NDropdown, NIcon, NTag, type MenuOption, type SelectOption } from 'naive-ui'
+import { NBadge, NButton, NDropdown, NIcon, NTag, type MenuOption, type SelectOption, useMessage } from 'naive-ui'
 import {
   BarChartOutline,
   HomeOutline,
   FolderOpenOutline,
+  MenuOutline,
   NotificationsOutline,
   PersonOutline,
   RibbonOutline,
@@ -22,7 +23,11 @@ const route = useRoute()
 const userStore = useUserStore()
 const yearStore = useYearStore()
 const noticeStore = useNoticeStore()
+const message = useMessage()
 const collapsed = ref(false)
+const mobileMediaQuery = window.matchMedia('(max-width: 720px)')
+const isMobile = ref(mobileMediaQuery.matches)
+const mobileMenuOpen = ref(false)
 const unreadCount = computed(() => noticeStore.unreadCount)
 let noticeTimer: number | undefined
 
@@ -47,7 +52,7 @@ const rawMenu: AppMenuGroup[] = [
     key: 'g-dashboard',
     icon: HomeOutline,
     children: [
-      { label: '首页', key: 'dashboard', path: '/' }
+      { label: '工作台', key: 'dashboard', path: '/' }
     ]
   },
   {
@@ -120,12 +125,12 @@ const rawMenu: AppMenuGroup[] = [
   }
 ]
 
-const pageTitle = computed(() => String(route.meta.title || '工作台'))
 const activeMenu = computed(() => String(route.name || 'dashboard'))
 const displayName = computed(() => userStore.realName || userStore.username || '未命名用户')
 const roleLabel = computed(() => roleName(userStore.roles[0]))
 const canViewNotice = computed(() => userStore.hasPerm('notice:view'))
 const yearOptions = computed<SelectOption[]>(() => yearStore.yearOptions.map((year) => ({ label: year, value: year })))
+const expandedKeys = ref<string[]>([])
 
 const menuOptions = computed<MenuOption[]>(() => {
   return rawMenu
@@ -153,10 +158,19 @@ const menuOptions = computed<MenuOption[]>(() => {
     .filter(Boolean) as MenuOption[]
 })
 
-const expandedKeys = computed(() => {
-  return rawMenu
-    .filter((group) => group.children.some((leaf) => leaf.key === route.name && canShowLeaf(leaf)))
-    .map((group) => group.key)
+const routeContext = computed(() => {
+  const group = rawMenu.find((item) => item.children.some((leaf) => leaf.key === route.name))
+  const leaf = group?.children.find((item) => item.key === route.name)
+  const page = leaf?.label || String(route.meta.title || '工作台')
+  return group && group.label !== page ? [group.label, page] : [page]
+})
+
+const activeGroupKey = computed(() => {
+  const group = rawMenu.find((item) => item.children.some((leaf) => leaf.key === route.name && canShowLeaf(leaf)))
+  if (!group) return null
+  const visibleChildren = group.children.filter(canShowLeaf)
+  const rendersAsLeaf = visibleChildren.length === 1 && visibleChildren[0].label === group.label
+  return rendersAsLeaf ? null : group.key
 })
 
 const userMenu = computed(() => [
@@ -164,13 +178,26 @@ const userMenu = computed(() => [
 ])
 
 onMounted(() => {
+  syncMobileLayout(mobileMediaQuery.matches)
+  mobileMediaQuery.addEventListener('change', onMobileMediaChange)
   refreshUnread()
   noticeTimer = window.setInterval(refreshUnread, 60000)
 })
 
 onBeforeUnmount(() => {
+  mobileMediaQuery.removeEventListener('change', onMobileMediaChange)
   if (noticeTimer) window.clearInterval(noticeTimer)
 })
+
+watch(() => route.fullPath, () => {
+  mobileMenuOpen.value = false
+})
+
+watch([() => route.fullPath, activeGroupKey], ([, key]) => {
+  if (key && !expandedKeys.value.includes(key)) {
+    expandedKeys.value = [...expandedKeys.value, key]
+  }
+}, { immediate: true })
 
 function canShowLeaf(leaf: AppMenuLeaf) {
   // 「本人…」自助页仅对学生本人有意义：超级管理员虽持全部权限点，但无学生档案，应隐藏。
@@ -192,6 +219,39 @@ function renderMenuIcon(icon: typeof HomeOutline) {
   return () => h(NIcon, { component: icon, size: 19 })
 }
 
+function updateExpandedKeys(keys: Array<string | number>) {
+  expandedKeys.value = keys.map(String)
+}
+
+function menuNodeProps(option: MenuOption): HTMLAttributes {
+  const key = String(option.key ?? '')
+  if (!key.startsWith('g-')) return {}
+  const menuCollapsed = !isMobile.value && collapsed.value
+
+  return {
+    tabindex: 0,
+    'aria-expanded': !menuCollapsed && expandedKeys.value.includes(key),
+    onKeydown: (event: KeyboardEvent) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return
+      event.preventDefault()
+      event.stopPropagation()
+      if (menuCollapsed) collapsed.value = false
+      expandedKeys.value = menuCollapsed || !expandedKeys.value.includes(key)
+        ? [...expandedKeys.value.filter((item) => item !== key), key]
+        : expandedKeys.value.filter((item) => item !== key)
+    }
+  }
+}
+
+function syncMobileLayout(matches: boolean) {
+  isMobile.value = matches
+  if (!matches) mobileMenuOpen.value = false
+}
+
+function onMobileMediaChange(event: MediaQueryListEvent) {
+  syncMobileLayout(event.matches)
+}
+
 async function refreshUnread() {
   if (!canViewNotice.value) {
     noticeStore.reset()
@@ -204,10 +264,16 @@ function openNoticeCenter() {
   router.push({ name: 'noticeCenter' })
 }
 
-function onUserMenu(key: string) {
+async function onUserMenu(key: string) {
   if (key !== 'logout') return
-  userStore.logout()
-  router.push('/login')
+  try {
+    await userStore.logout()
+  } catch {
+    // 本地秘密已清理，但必须明确告知服务端撤销未确认，避免把旧令牌误认为已失效。
+    message.warning('本地会话已清除，但服务端退出结果未确认，请稍后重试')
+  } finally {
+    await router.push('/login')
+  }
 }
 
 function roleName(code?: string) {
@@ -225,8 +291,9 @@ function roleName(code?: string) {
 </script>
 
 <template>
-  <n-layout has-sider class="app-shell">
+  <n-layout :has-sider="!isMobile" class="app-shell">
     <n-layout-sider
+      v-if="!isMobile"
       bordered
       collapse-mode="width"
       :collapsed-width="64"
@@ -246,30 +313,55 @@ function roleName(code?: string) {
         </div>
       </div>
       <n-menu
+        class="app-menu"
         :value="activeMenu"
-        :default-expanded-keys="expandedKeys"
+        :expanded-keys="expandedKeys"
         :options="menuOptions"
+        :node-props="menuNodeProps"
         :collapsed="collapsed"
         :collapsed-width="64"
         :indent="18"
+        @update:expanded-keys="updateExpandedKeys"
       />
     </n-layout-sider>
 
     <n-layout>
       <n-layout-header bordered class="app-header">
-        <div class="page-title">{{ pageTitle }}</div>
+        <n-button
+          v-if="isMobile"
+          quaternary
+          circle
+          class="mobile-menu-button"
+          aria-label="打开导航菜单"
+          :aria-expanded="mobileMenuOpen"
+          @click="mobileMenuOpen = true"
+        >
+          <template #icon>
+            <n-icon :component="MenuOutline" />
+          </template>
+        </n-button>
+        <nav class="route-context" aria-label="当前位置">
+          <n-breadcrumb separator="/">
+            <n-breadcrumb-item v-for="(item, index) in routeContext" :key="item" :clickable="false">
+              <span class="route-context__item" :class="{ 'route-context__item--current': index === routeContext.length - 1 }">
+                {{ item }}
+              </span>
+            </n-breadcrumb-item>
+          </n-breadcrumb>
+        </nav>
         <div class="header-actions">
           <div class="year-picker">
-            <span>考核学年</span>
+            <span>当前考核学年</span>
             <n-select
               :value="yearStore.assessmentYear"
               :options="yearOptions"
               size="small"
+              aria-label="考核学年"
               @update:value="(value: string) => yearStore.setYear(value)"
             />
           </div>
           <n-badge v-if="canViewNotice" :value="unreadCount" :max="99" :show-zero="false" color="var(--brand)">
-            <n-button quaternary circle size="small" title="通知中心" @click="openNoticeCenter">
+            <n-button quaternary circle size="small" title="通知中心" aria-label="通知中心" @click="openNoticeCenter">
               <template #icon>
                 <n-icon :component="NotificationsOutline" />
               </template>
@@ -289,11 +381,37 @@ function roleName(code?: string) {
       </n-layout-header>
 
       <n-layout-content :native-scrollbar="false" class="app-content">
-        <router-view v-slot="{ Component }">
-          <component :is="Component" :key="route.fullPath" />
-        </router-view>
+        <div class="app-content-frame">
+          <router-view v-slot="{ Component }">
+            <component :is="Component" :key="route.fullPath" />
+          </router-view>
+        </div>
       </n-layout-content>
     </n-layout>
+
+    <n-drawer
+      v-model:show="mobileMenuOpen"
+      placement="left"
+      width="min(280px, calc(100vw - 48px))"
+    >
+      <n-drawer-content
+        title="教师证书平台"
+        closable
+        :native-scrollbar="false"
+        body-content-style="padding: 0;"
+      >
+        <n-menu
+          class="app-menu"
+          :value="activeMenu"
+          :expanded-keys="expandedKeys"
+          :options="menuOptions"
+          :node-props="menuNodeProps"
+          :indent="18"
+          @update:expanded-keys="updateExpandedKeys"
+          @update:value="mobileMenuOpen = false"
+        />
+      </n-drawer-content>
+    </n-drawer>
   </n-layout>
 </template>
 
@@ -305,6 +423,12 @@ function roleName(code?: string) {
 .app-sider {
   background: var(--surface);
   border-right: 1px solid var(--border);
+}
+
+.app-menu :deep(.n-menu-item[tabindex='0']:focus-visible) {
+  outline: 2px solid var(--brand);
+  outline-offset: -2px;
+  border-radius: var(--radius-control);
 }
 
 .brand {
@@ -363,21 +487,28 @@ function roleName(code?: string) {
   border-bottom: 1px solid var(--border);
 }
 
-.page-title {
+.route-context {
   min-width: 0;
-  font-size: 20px;
-  line-height: 30px;
-  font-weight: 600;
-  color: var(--text);
+  flex: 1;
   overflow: hidden;
-  text-overflow: ellipsis;
+}
+
+.route-context__item {
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
   white-space: nowrap;
+}
+
+.route-context__item--current {
+  color: var(--text-secondary);
+  font-weight: 500;
 }
 
 .header-actions {
   display: flex;
   align-items: center;
   gap: var(--space-3);
+  flex: none;
 }
 
 .year-picker {
@@ -454,6 +585,12 @@ function roleName(code?: string) {
   min-width: 0;
 }
 
+.app-content-frame {
+  width: 100%;
+  max-width: 1480px;
+  margin: 0 auto;
+}
+
 :deep(.n-menu) {
   padding: var(--space-3) var(--space-3) var(--space-5);
 }
@@ -506,10 +643,6 @@ function roleName(code?: string) {
   box-shadow: 0 0 0 3px var(--brand-soft-strong);
 }
 
-:deep(.page-container) {
-  max-width: 1480px;
-}
-
 @media (max-width: 900px) {
   .app-header {
     padding: 0 var(--space-5);
@@ -530,6 +663,25 @@ function roleName(code?: string) {
 
   .app-content {
     padding: var(--space-5);
+  }
+}
+
+@media (max-width: 720px) {
+  .app-header {
+    justify-content: space-between;
+    padding: 0 var(--space-4);
+  }
+
+  .mobile-menu-button {
+    flex: 0 0 auto;
+  }
+
+  .route-context {
+    display: none;
+  }
+
+  .app-content {
+    padding: var(--space-4);
   }
 }
 </style>

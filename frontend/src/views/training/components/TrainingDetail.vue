@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import DetailPanel from '@/components/DetailPanel.vue'
 import type { DictItem } from '@/api/dict'
 import type { College } from '@/api/organization'
@@ -18,6 +18,10 @@ const props = defineProps<{
 
 const detailVisible = ref(false)
 const selectedProfile = ref<TrainingProfile | null>(null)
+const compactViewport = ref(false)
+let compactViewportQuery: MediaQueryList | null = null
+
+const detailColumns = computed(() => compactViewport.value ? 1 : 2)
 
 const detailItems = computed(() => {
   const row = selectedProfile.value
@@ -55,13 +59,27 @@ function collegeName(id?: string | null) {
   return props.colleges.find((item) => item.id === id)?.name || id || '-'
 }
 
+function syncCompactViewport(event?: MediaQueryListEvent) {
+  compactViewport.value = event?.matches ?? compactViewportQuery?.matches ?? false
+}
+
+onMounted(() => {
+  compactViewportQuery = window.matchMedia('(max-width: 768px)')
+  syncCompactViewport()
+  compactViewportQuery.addEventListener('change', syncCompactViewport)
+})
+
+onBeforeUnmount(() => {
+  compactViewportQuery?.removeEventListener('change', syncCompactViewport)
+})
+
 defineExpose({ open })
 </script>
 
 <template>
-  <n-drawer v-model:show="detailVisible" :width="560">
+  <n-drawer v-model:show="detailVisible" width="min(var(--overlay-medium), var(--overlay-drawer-max))">
     <n-drawer-content title="培养信息详情" closable>
-      <DetailPanel v-if="selectedProfile" :items="detailItems" :columns="2" />
+      <DetailPanel v-if="selectedProfile" :items="detailItems" :columns="detailColumns" />
     </n-drawer-content>
   </n-drawer>
 </template>

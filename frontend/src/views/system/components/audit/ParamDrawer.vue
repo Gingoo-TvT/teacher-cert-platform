@@ -31,10 +31,15 @@ function open(row: SysParam) {
 }
 
 async function saveParam() {
+  if (saving.value) return
   if (!editingParam.value) return
-  await paramFormRef.value?.validate()
   saving.value = true
   try {
+    try {
+      await paramFormRef.value?.validate()
+    } catch {
+      return
+    }
     await updateSystemParam(editingParam.value.id, {
       paramValue: paramForm.paramValue.trim(),
       description: paramForm.description.trim() || null
@@ -58,22 +63,28 @@ defineExpose({ open })
 </script>
 
 <template>
-  <n-drawer v-model:show="paramDrawerVisible" :width="560" placement="right">
-    <n-drawer-content :title="editingParam ? editingParam.paramKey : '编辑参数'">
-      <n-form ref="paramFormRef" :model="paramForm" :rules="paramRules" label-placement="top">
+  <n-drawer
+    v-model:show="paramDrawerVisible"
+    width="min(var(--overlay-medium), var(--overlay-drawer-max))"
+    placement="right"
+    :mask-closable="!saving"
+    :close-on-esc="!saving"
+  >
+    <n-drawer-content :title="editingParam ? editingParam.paramKey : '编辑参数'" :closable="!saving">
+      <n-form ref="paramFormRef" :model="paramForm" :rules="paramRules" label-placement="top" :disabled="saving">
         <div class="form-section-title">参数内容</div>
-        <n-grid :cols="2" :x-gap="12">
-          <n-form-item-gi label="参数值" path="paramValue" :span="2">
+        <n-grid cols="1 480:2" responsive="self" item-responsive :x-gap="12">
+          <n-form-item-gi label="参数值" path="paramValue" span="1 480:2">
             <n-input v-model:value="paramForm.paramValue" maxlength="512" show-count />
           </n-form-item-gi>
-          <n-form-item-gi label="说明" :span="2">
+          <n-form-item-gi label="说明" span="1 480:2">
             <n-input v-model:value="paramForm.description" type="textarea" maxlength="255" show-count />
           </n-form-item-gi>
         </n-grid>
       </n-form>
       <template #footer>
         <n-space justify="end">
-          <n-button @click="paramDrawerVisible = false">取消</n-button>
+          <n-button :disabled="saving" @click="paramDrawerVisible = false">取消</n-button>
           <n-button type="primary" :loading="saving" @click="saveParam">保存</n-button>
         </n-space>
       </template>

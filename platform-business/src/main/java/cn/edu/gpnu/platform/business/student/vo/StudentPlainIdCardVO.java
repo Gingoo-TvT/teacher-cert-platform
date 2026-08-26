@@ -9,4 +9,5 @@ public class StudentPlainIdCardVO {
 
     private Long id;
     private String idCardNo;
+    private String birthDate;
 }

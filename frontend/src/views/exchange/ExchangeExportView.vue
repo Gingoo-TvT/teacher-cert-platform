@@ -35,6 +35,7 @@ const goals = ref<DictItem[]>([])
 const colleges = ref<College[]>([])
 
 const query = reactive<ExchangeQuery>({
+  batchId: '',
   keyword: '',
   assessmentYear: yearStore.assessmentYear,
   collegeId: '',
@@ -157,6 +158,7 @@ function filename(type: string) {
 
 function resetQuery() {
   Object.assign(query, {
+    batchId: '',
     keyword: '',
     assessmentYear: yearStore.assessmentYear,
     collegeId: '',
@@ -244,6 +246,10 @@ watch(
       <label class="filter-field">
         <span>关键词</span>
         <n-input v-model:value="query.keyword" clearable placeholder="学号/姓名/证书编号" style="width: 230px" />
+      </label>
+      <label v-if="exportType === 'ERROR'" class="filter-field">
+        <span>导入批次ID</span>
+        <n-input v-model:value="query.batchId" clearable placeholder="必填；校级可导出任意批次" style="width: 220px" />
       </label>
       <label class="filter-field">
         <span>学院</span>

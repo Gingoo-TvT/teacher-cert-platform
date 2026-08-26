@@ -11,4 +11,7 @@ public interface AuditLogService {
 
     void record(String bizType, Long bizId, String target, String operation,
                 String oldStatus, String newStatus, String comment);
+
+    void recordRequiresNew(String bizType, Long bizId, String target, String operation,
+                           String oldStatus, String newStatus, String comment);
 }

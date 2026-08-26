@@ -71,9 +71,14 @@ function open(row?: Major) {
 }
 
 async function saveMajor() {
-  await majorFormRef.value?.validate()
+  if (saving.value) return
   saving.value = true
   try {
+    try {
+      await majorFormRef.value?.validate()
+    } catch {
+      return
+    }
     const payload: MajorPayload = {
       collegeId: majorForm.collegeId || '',
       internalMajorCode: majorForm.internalMajorCode.trim(),
@@ -118,12 +123,18 @@ defineExpose({ open })
 </script>
 
 <template>
-  <n-drawer v-model:show="visible" :width="560" placement="right">
-    <n-drawer-content :title="editingMajorId ? '编辑专业' : '新增专业'">
-      <n-form ref="majorFormRef" :model="majorForm" :rules="majorRules" label-placement="top">
+  <n-drawer
+    v-model:show="visible"
+    width="min(var(--overlay-medium), var(--overlay-drawer-max))"
+    placement="right"
+    :mask-closable="!saving"
+    :close-on-esc="!saving"
+  >
+    <n-drawer-content :title="editingMajorId ? '编辑专业' : '新增专业'" :closable="!saving">
+      <n-form ref="majorFormRef" :model="majorForm" :rules="majorRules" label-placement="top" :disabled="saving">
         <div class="form-section-title">基本信息</div>
-        <n-grid :cols="2" :x-gap="12">
-          <n-form-item-gi label="学院" path="collegeId" :span="2">
+        <n-grid cols="1 480:2" responsive="self" item-responsive :x-gap="12">
+          <n-form-item-gi label="学院" path="collegeId" span="1 480:2">
             <n-select v-model:value="majorForm.collegeId" :options="collegeOptions" filterable />
           </n-form-item-gi>
           <n-form-item-gi label="校内专业代码" path="internalMajorCode">
@@ -134,7 +145,7 @@ defineExpose({ open })
           </n-form-item-gi>
         </n-grid>
         <div class="form-section-title">学科信息</div>
-        <n-grid :cols="2" :x-gap="12">
+        <n-grid cols="1 480:2" responsive="self" item-responsive :x-gap="12">
           <n-form-item-gi label="二级学科代码" path="secondDisciplineCode">
             <n-input v-model:value="majorForm.secondDisciplineCode" maxlength="64" show-count />
           </n-form-item-gi>
@@ -143,7 +154,7 @@ defineExpose({ open })
           </n-form-item-gi>
         </n-grid>
         <div class="form-section-title">状态设置</div>
-        <n-grid :cols="2" :x-gap="12">
+        <n-grid cols="1 480:2" responsive="self" item-responsive :x-gap="12">
           <n-form-item-gi label="年度版本" path="yearVersion">
             <n-input v-model:value="majorForm.yearVersion" maxlength="16" show-count />
           </n-form-item-gi>
@@ -160,7 +171,7 @@ defineExpose({ open })
       </n-form>
       <template #footer>
         <n-space justify="end">
-          <n-button @click="visible = false">取消</n-button>
+          <n-button :disabled="saving" @click="visible = false">取消</n-button>
           <n-button type="primary" :loading="saving" @click="saveMajor">保存</n-button>
         </n-space>
       </template>

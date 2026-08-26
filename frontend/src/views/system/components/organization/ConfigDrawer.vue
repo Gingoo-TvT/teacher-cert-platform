@@ -57,17 +57,22 @@ function open(row?: TrainingGoalConfig) {
 }
 
 async function saveConfig() {
-  await configFormRef.value?.validate()
-  if (!configForm.defaultSegment || !configForm.allowedSegments.includes(configForm.defaultSegment)) {
-    message.error('默认任教学段必须包含在允许任教学段中')
-    return
-  }
-  if (!configForm.defaultInternshipLocation || !configForm.allowedInternshipLocations.includes(configForm.defaultInternshipLocation)) {
-    message.error('默认实习地点必须包含在允许实习地点中')
-    return
-  }
+  if (saving.value) return
   saving.value = true
   try {
+    try {
+      await configFormRef.value?.validate()
+    } catch {
+      return
+    }
+    if (!configForm.defaultSegment || !configForm.allowedSegments.includes(configForm.defaultSegment)) {
+      message.error('默认任教学段必须包含在允许任教学段中')
+      return
+    }
+    if (!configForm.defaultInternshipLocation || !configForm.allowedInternshipLocations.includes(configForm.defaultInternshipLocation)) {
+      message.error('默认实习地点必须包含在允许实习地点中')
+      return
+    }
     const payload: TrainingGoalConfigPayload = {
       trainingGoalCode: configForm.trainingGoalCode || '',
       defaultSegment: configForm.defaultSegment,
@@ -96,18 +101,24 @@ defineExpose({ open })
 </script>
 
 <template>
-  <n-drawer v-model:show="visible" :width="560" placement="right">
-    <n-drawer-content title="培养目标联动配置">
-      <n-form ref="configFormRef" :model="configForm" :rules="configRules" label-placement="top">
+  <n-drawer
+    v-model:show="visible"
+    width="min(var(--overlay-medium), var(--overlay-drawer-max))"
+    placement="right"
+    :mask-closable="!saving"
+    :close-on-esc="!saving"
+  >
+    <n-drawer-content title="培养目标联动配置" :closable="!saving">
+      <n-form ref="configFormRef" :model="configForm" :rules="configRules" label-placement="top" :disabled="saving">
         <div class="form-section-title">培养目标</div>
-        <n-grid :cols="2" :x-gap="12">
-          <n-form-item-gi label="培养目标" path="trainingGoalCode" :span="2">
+        <n-grid cols="1 480:2" responsive="self" item-responsive :x-gap="12">
+          <n-form-item-gi label="培养目标" path="trainingGoalCode" span="1 480:2">
             <n-select v-model:value="configForm.trainingGoalCode" :options="trainingGoalOptions" filterable />
           </n-form-item-gi>
         </n-grid>
         <div class="form-section-title">任教学段</div>
-        <n-grid :cols="2" :x-gap="12">
-          <n-form-item-gi label="允许任教学段" path="allowedSegments" :span="2">
+        <n-grid cols="1 480:2" responsive="self" item-responsive :x-gap="12">
+          <n-form-item-gi label="允许任教学段" path="allowedSegments" span="1 480:2">
             <n-select v-model:value="configForm.allowedSegments" :options="segmentOptions" multiple filterable />
           </n-form-item-gi>
           <n-form-item-gi label="默认任教学段" path="defaultSegment">
@@ -118,18 +129,18 @@ defineExpose({ open })
           </n-form-item-gi>
         </n-grid>
         <div class="form-section-title">实习地点</div>
-        <n-grid :cols="2" :x-gap="12">
-          <n-form-item-gi label="允许实习地点" path="allowedInternshipLocations" :span="2">
+        <n-grid cols="1 480:2" responsive="self" item-responsive :x-gap="12">
+          <n-form-item-gi label="允许实习地点" path="allowedInternshipLocations" span="1 480:2">
             <n-select v-model:value="configForm.allowedInternshipLocations" :options="internshipLocationOptions" multiple filterable />
           </n-form-item-gi>
-          <n-form-item-gi label="默认实习地点" path="defaultInternshipLocation" :span="2">
+          <n-form-item-gi label="默认实习地点" path="defaultInternshipLocation" span="1 480:2">
             <n-select v-model:value="configForm.defaultInternshipLocation" :options="internshipLocationOptions" filterable />
           </n-form-item-gi>
         </n-grid>
       </n-form>
       <template #footer>
         <n-space justify="end">
-          <n-button @click="visible = false">取消</n-button>
+          <n-button :disabled="saving" @click="visible = false">取消</n-button>
           <n-button type="primary" :loading="saving" @click="saveConfig">保存</n-button>
         </n-space>
       </template>

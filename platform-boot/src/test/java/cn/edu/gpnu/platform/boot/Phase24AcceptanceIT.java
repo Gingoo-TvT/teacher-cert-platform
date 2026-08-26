@@ -14,6 +14,7 @@ import cn.edu.gpnu.platform.business.video.mapper.VideoReviewTaskMapper;
 import cn.edu.gpnu.platform.exchange.model.ExchangeColumn;
 import cn.edu.gpnu.platform.exchange.model.ExchangeStandardRow;
 import cn.edu.gpnu.platform.exchange.support.ExchangeExcelHelper;
+import cn.edu.gpnu.platform.security.service.IdCardProtectionService;
 import cn.edu.gpnu.platform.system.entity.SysDictItem;
 import cn.edu.gpnu.platform.system.entity.SysParam;
 import cn.edu.gpnu.platform.system.entity.SysUser;
@@ -123,6 +124,9 @@ class Phase24AcceptanceIT {
 
     @Autowired
     private StudentMapper studentMapper;
+
+    @Autowired
+    private IdCardProtectionService idCardProtectionService;
 
     @Autowired
     private TrainingProfileMapper trainingProfileMapper;
@@ -249,7 +253,11 @@ class Phase24AcceptanceIT {
                 .last("LIMIT 1"));
         assertThat(student).isNotNull();
         assertThat(student.getStudentNo()).isEqualTo(STUDENT_NO);
-        assertThat(student.getIdCardNo()).isEqualTo(importedRow.getIdCardNo());
+        assertThat(idCardProtectionService.isEncrypted(student.getIdCardNo())).isTrue();
+        assertThat(idCardProtectionService.decrypt(student.getIdCardNo()))
+                .isEqualTo(importedRow.getIdCardNo());
+        assertThat(student.getIdCardHmac())
+                .isEqualTo(idCardProtectionService.hmac(importedRow.getIdCardNo()));
         training = trainingByStudentYear(student.getId(), YEAR);
         assertThat(training).isNotNull();
         assertThat(training.getInternshipLocation()).isEqualTo(importedRow.getInternshipLocation());

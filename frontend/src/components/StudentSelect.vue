@@ -22,7 +22,7 @@ const emit = defineEmits<{
 const loading = ref(false)
 const remoteOptions = ref<SelectOption[]>([])
 const studentMap = ref(new Map<string, Student>())
-let searchTimer: ReturnType<typeof setTimeout> | null = null
+let searchTimer: ReturnType<typeof window.setTimeout> | null = null
 
 const currentOption = computed<SelectOption[]>(() => {
   if (!props.value || !props.selectedLabel) return []

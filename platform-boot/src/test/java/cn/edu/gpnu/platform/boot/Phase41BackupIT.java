@@ -2,6 +2,8 @@ package cn.edu.gpnu.platform.boot;
 
 import cn.edu.gpnu.platform.PlatformApplication;
 import cn.edu.gpnu.platform.common.exception.BizException;
+import cn.edu.gpnu.platform.security.service.IdCardProtectionService;
+import cn.edu.gpnu.platform.system.config.DatabaseBackupProperties;
 import cn.edu.gpnu.platform.system.entity.BackupRecord;
 import cn.edu.gpnu.platform.system.service.impl.DatabaseBackupService;
 import io.minio.BucketExistsArgs;
@@ -22,7 +24,6 @@ import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.springframework.test.util.ReflectionTestUtils;
 
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
@@ -40,6 +41,7 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
@@ -69,6 +71,8 @@ class Phase41BackupIT {
 
     private static final Pattern TABLE_SECTION =
             Pattern.compile("(?m)^-- ---------- ([a-z0-9_]+) ----------\\r?$");
+    private static final Pattern BASE64_LITERAL =
+            Pattern.compile("FROM_BASE64\\('([A-Za-z0-9+/]*={0,2})'\\)");
     private static final String BASE_URL = setting(
             "SPRING_DATASOURCE_URL",
             "jdbc:mysql://localhost:3306/teacher_cert"
@@ -96,9 +100,11 @@ class Phase41BackupIT {
     private static final long MATERIAL_ID = 341000000000000014L;
     private static final long LARGE_BATCH_ID = 341000000000000015L;
     private static final long ADMIN_USER_ID = 800000000000003001L;
+    private static final String ID_CARD_NO = "11010119900628002X";
     private static final int LARGE_PREVIEW_PAYLOAD_BYTES = 13 * 1024 * 1024;
     private static final int MYSQL_DEFAULT_CLIENT_PACKET_BYTES = 16 * 1024 * 1024;
-    private static final int DEFAULT_MAX_SQL_STATEMENT_BYTES = 32 * 1024 * 1024;
+    private static final int DEFAULT_MAX_SQL_STATEMENT_BYTES =
+            DatabaseBackupProperties.MAX_SQL_STATEMENT_BYTES;
     private static final int REQUIRED_PACKET_BYTES = 64 * 1024 * 1024;
     private static final String ACTIVE_UPLOAD_CONTEXT_HASH =
             "4141414141414141414141414141414141414141414141414141414141414141";
@@ -146,10 +152,16 @@ class Phase41BackupIT {
     private DatabaseBackupService backupService;
 
     @Autowired
+    private DatabaseBackupProperties backupProperties;
+
+    @Autowired
     private MinioClient minioClient;
 
     @Autowired
     private JdbcTemplate source;
+
+    @Autowired
+    private IdCardProtectionService idCardProtectionService;
 
     @Value("${platform.backup.bucket:${minio.bucket}}")
     private String bucket;
@@ -162,7 +174,7 @@ class Phase41BackupIT {
         insertSourceFixtures();
         Set<String> tables = tableNames(source);
         assertThat(tables).hasSize(37);
-        assertGeneratedColumnValues(source);
+        assertDerivedColumnsAndProtectedIdCards(source);
         Map<String, TableSnapshot> expected = backupArtifactSnapshots(source, tables);
         long expectedRows = expected.values().stream().mapToLong(TableSnapshot::rowCount).sum();
         if (requiredMysqlCliRestore()) {
@@ -219,13 +231,13 @@ class Phase41BackupIT {
 
             replayArtifact(SCRATCH.restoreUrl(), sql);
             assertRestoredSnapshot(restore, tables, expected, backup.getId(), flywayRowsBefore);
-            assertGeneratedColumnValues(restore);
+            assertDerivedColumnsAndProtectedIdCards(restore);
             assertLargePreviewRestored(restore);
             if (requiredMysqlCliRestore()) {
                 replayArtifactWithMysql84Cli(restore, sql);
                 assertRestoredSnapshot(
                         restore, tables, expected, backup.getId(), flywayRowsBefore);
-                assertGeneratedColumnValues(restore);
+                assertDerivedColumnsAndProtectedIdCards(restore);
                 assertLargePreviewRestored(restore);
             }
 
@@ -233,7 +245,7 @@ class Phase41BackupIT {
             insertRestoreOnlySentinel(restore);
             replayArtifact(SCRATCH.restoreUrl(), sql);
             assertRestoredSnapshot(restore, tables, expected, backup.getId(), flywayRowsBefore);
-            assertGeneratedColumnValues(restore);
+            assertDerivedColumnsAndProtectedIdCards(restore);
             assertLargePreviewRestored(restore);
 
             // 目标先制造 drift；故障放到唯一 COMMIT 前，确保全部正常 INSERT 已执行后仍整体回滚。
@@ -310,6 +322,7 @@ class Phase41BackupIT {
         assertThat(sql).contains("COMMIT;");
         assertThat(sql).contains("SET FOREIGN_KEY_CHECKS=@TCP_OLD_FOREIGN_KEY_CHECKS;");
         assertThat(tableSections(sql)).containsExactlyInAnyOrderElementsOf(tables);
+        assertDecodedBackupOmitsReadableIdCard(sql);
     }
 
     private void assertRestoredSnapshot(
@@ -358,11 +371,14 @@ class Phase41BackupIT {
                 WHERE success = 1 AND version IS NOT NULL
                 ORDER BY installed_rank DESC
                 LIMIT 1
-                """, String.class)).isEqualTo("32");
+                """, String.class)).isEqualTo("33");
     }
 
     private void insertSourceFixtures() {
         LocalDateTime now = LocalDateTime.of(2026, 7, 25, 9, 30);
+        String studentIdCard = idCardProtectionService.encrypt(ID_CARD_NO);
+        String certificateIdCard = idCardProtectionService.encrypt(ID_CARD_NO);
+        String idCardHmac = idCardProtectionService.hmac(ID_CARD_NO);
         source.update("""
                 INSERT INTO sys_college
                     (id, code, name, sort, status, created_by, created_at,
@@ -380,21 +396,21 @@ class Phase41BackupIT {
                 """, MAJOR_ID, COLLEGE_ID, "Phase 41 恢复专业", now, now);
         source.update("""
                 INSERT INTO student
-                    (id, student_no, name, gender, id_card_type, id_card_no,
+                    (id, student_no, name, gender, id_card_type, id_card_no, id_card_hmac,
                      birth_date, identity_type, source_province, source_city,
                      source_county, source_full, college_id, grade, class_name,
                      status, locked, created_by, created_at, updated_by, updated_at, deleted)
                 VALUES
                     (?, 'P41S0001', 'Phase 41 生成列学生', 'female',
-                     'resident_id_card', '11010119900628002X', '1990/6/28',
+                     'resident_id_card', ?, ?, '1990/6/28',
                      'normal_student', '440000', '440100', '440106',
                      '广东省/广州市/天河区', ?, '2022', 'Phase41班',
                      'PASSED', 1, 0, ?, 0, ?, 0)
-                """, STUDENT_ID, COLLEGE_ID, now, now);
+                """, STUDENT_ID, studentIdCard, idCardHmac, COLLEGE_ID, now, now);
         source.update("""
                 INSERT INTO certificate
                     (id, student_id, college_id, assessment_year, cert_no,
-                     student_no, student_name, id_card_type, id_card_no,
+                     student_no, student_name, id_card_type, id_card_no, id_card_hmac,
                      education_level, training_goal, teaching_segment,
                      teaching_subject_code, teaching_subject_name, issue_date,
                      valid_until, status, locked, created_by, created_at,
@@ -402,10 +418,11 @@ class Phase41BackupIT {
                 VALUES
                     (?, ?, ?, '2026', '202610588344400001', 'P41S0001',
                      'Phase 41 生成列学生', 'resident_id_card',
-                     '11010119900628002X', 'bachelor', '中学教师培养目标',
+                     ?, ?, 'bachelor', '中学教师培养目标',
                      'senior_middle_school', 'sms_math', '数学', '2026/6/30',
                      '2029/6/30', 'GENERATED', 1, 0, ?, 0, ?, 0)
-                """, CERTIFICATE_ID, STUDENT_ID, COLLEGE_ID, now, now);
+                """, CERTIFICATE_ID, STUDENT_ID, COLLEGE_ID,
+                certificateIdCard, idCardHmac, now, now);
         source.update("""
                 INSERT INTO file_object
                     (id, original_name, stored_name, bucket, object_key, `size`,
@@ -518,7 +535,9 @@ class Phase41BackupIT {
                 """, (rs, rowNum) -> new GeneratedColumn(
                 rs.getString("table_name"),
                 rs.getString("column_name")));
-        assertThat(generatedColumns).hasSize(5);
+        assertThat(generatedColumns)
+                .hasSize(4)
+                .doesNotContain(new GeneratedColumn("student", "idcard_key"));
         for (GeneratedColumn generated : generatedColumns) {
             assertThat(jdbc.queryForObject(
                     "SELECT COUNT(*) FROM `" + generated.table() + "`",
@@ -537,10 +556,31 @@ class Phase41BackupIT {
         }
     }
 
-    private void assertGeneratedColumnValues(JdbcTemplate jdbc) {
+    private void assertDerivedColumnsAndProtectedIdCards(JdbcTemplate jdbc) {
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*)
+                FROM information_schema.columns
+                WHERE table_schema = DATABASE() AND table_name = 'student'
+                  AND column_name = 'idcard_key'
+                """, Long.class)).isZero();
+        String studentIdCard = jdbc.queryForObject(
+                "SELECT id_card_no FROM student WHERE id = ?", String.class, STUDENT_ID);
+        String certificateIdCard = jdbc.queryForObject(
+                "SELECT id_card_no FROM certificate WHERE id = ?", String.class, CERTIFICATE_ID);
+        String expectedHmac = idCardProtectionService.hmac(ID_CARD_NO);
+        assertThat(studentIdCard).isNotNull().isNotEqualTo(ID_CARD_NO);
+        assertThat(certificateIdCard).isNotNull().isNotEqualTo(ID_CARD_NO);
+        assertThat(idCardProtectionService.isEncrypted(studentIdCard)).isTrue();
+        assertThat(idCardProtectionService.isEncrypted(certificateIdCard)).isTrue();
+        assertThat(idCardProtectionService.decrypt(studentIdCard)).isEqualTo(ID_CARD_NO);
+        assertThat(idCardProtectionService.decrypt(certificateIdCard)).isEqualTo(ID_CARD_NO);
+        assertThat(studentIdCard).isNotEqualTo(certificateIdCard);
         assertThat(jdbc.queryForObject(
-                "SELECT idcard_key FROM student WHERE id = ?",
-                String.class, STUDENT_ID)).isEqualTo("11010119900628002X");
+                "SELECT id_card_hmac FROM student WHERE id = ?",
+                String.class, STUDENT_ID)).isEqualTo(expectedHmac);
+        assertThat(jdbc.queryForObject(
+                "SELECT id_card_hmac FROM certificate WHERE id = ?",
+                String.class, CERTIFICATE_ID)).isEqualTo(expectedHmac);
         assertThat(jdbc.queryForObject(
                 "SELECT active_key FROM certificate WHERE id = ?",
                 String.class, CERTIFICATE_ID)).isEqualTo(STUDENT_ID + "-2026");
@@ -554,6 +594,18 @@ class Phase41BackupIT {
         assertThat(jdbc.queryForObject(
                 "SELECT active_file_key FROM process_material WHERE id = ?",
                 Long.class, MATERIAL_ID)).isEqualTo(READY_FILE_ID);
+    }
+
+    private static void assertDecodedBackupOmitsReadableIdCard(String sql) {
+        Matcher matcher = BASE64_LITERAL.matcher(sql);
+        int decodedLiterals = 0;
+        while (matcher.find()) {
+            decodedLiterals++;
+            String decoded = new String(
+                    Base64.getDecoder().decode(matcher.group(1)), StandardCharsets.UTF_8);
+            assertThat(decoded).doesNotContain(ID_CARD_NO);
+        }
+        assertThat(decodedLiterals).isGreaterThan(0);
     }
 
     private void assertLargePreviewStatementBound(String sql) {
@@ -596,14 +648,14 @@ class Phase41BackupIT {
     }
 
     private void assertOversizedStatementFailsClosed() {
-        ReflectionTestUtils.setField(
-                backupService, "maxSqlStatementBytes", 1024 * 1024);
+        int originalLimit = backupProperties.getMaxSqlStatementBytes();
+        assertThat(originalLimit).isEqualTo(DEFAULT_MAX_SQL_STATEMENT_BYTES);
+        backupProperties.setMaxSqlStatementBytes(1024 * 1024);
         try {
             assertThatThrownBy(() -> backupService.backup(
                     "full", "P41-STATEMENT-LIMIT", "单语句超限必须失败关闭", 0L))
                     .isInstanceOf(BizException.class)
-                    .hasMessageContaining("备份行 SQL 超出单语句上限")
-                    .hasMessageContaining("table=import_export_batch")
+                    .hasMessage("备份执行失败，请查看备份记录")
                     .hasMessageNotContaining("xxxxxxxx");
             Map<String, Object> failed = source.queryForMap("""
                     SELECT status, storage_uri, checksum, error_message
@@ -621,8 +673,7 @@ class Phase41BackupIT {
                     .contains("maxBytes=1048576")
                     .doesNotContain("xxxxxxxx");
         } finally {
-            ReflectionTestUtils.setField(
-                    backupService, "maxSqlStatementBytes", DEFAULT_MAX_SQL_STATEMENT_BYTES);
+            backupProperties.setMaxSqlStatementBytes(originalLimit);
         }
     }
 

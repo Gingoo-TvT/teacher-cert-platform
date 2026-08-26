@@ -43,10 +43,15 @@ function open(row?: Major) {
 }
 
 async function saveGoals() {
-  await goalFormRef.value?.validate()
+  if (saving.value) return
   if (!editingMajor.value) return
   saving.value = true
   try {
+    try {
+      await goalFormRef.value?.validate()
+    } catch {
+      return
+    }
     await replaceMajorTrainingGoals(editingMajor.value.id, goalForm.trainingGoalCodes)
     message.success('专业培养目标已保存')
     visible.value = false
@@ -67,22 +72,28 @@ defineExpose({ open })
 </script>
 
 <template>
-  <n-drawer v-model:show="visible" :width="560" placement="right">
-    <n-drawer-content title="专业培养目标">
-      <n-form ref="goalFormRef" :model="goalForm" :rules="goalRules" label-placement="top">
+  <n-drawer
+    v-model:show="visible"
+    width="min(var(--overlay-medium), var(--overlay-drawer-max))"
+    placement="right"
+    :mask-closable="!saving"
+    :close-on-esc="!saving"
+  >
+    <n-drawer-content title="专业培养目标" :closable="!saving">
+      <n-form ref="goalFormRef" :model="goalForm" :rules="goalRules" label-placement="top" :disabled="saving">
         <div class="form-section-title">目标设置</div>
-        <n-grid :cols="2" :x-gap="12">
-          <n-form-item-gi label="专业" :span="2">
+        <n-grid cols="1 480:2" responsive="self" item-responsive :x-gap="12">
+          <n-form-item-gi label="专业" span="1 480:2">
             <n-input :value="editingMajor ? `${editingMajor.internalMajorName} ${editingMajor.internalMajorCode}` : ''" disabled />
           </n-form-item-gi>
-          <n-form-item-gi label="培养目标" path="trainingGoalCodes" :span="2">
+          <n-form-item-gi label="培养目标" path="trainingGoalCodes" span="1 480:2">
             <n-select v-model:value="goalForm.trainingGoalCodes" :options="trainingGoalOptions" multiple filterable />
           </n-form-item-gi>
         </n-grid>
       </n-form>
       <template #footer>
         <n-space justify="end">
-          <n-button @click="visible = false">取消</n-button>
+          <n-button :disabled="saving" @click="visible = false">取消</n-button>
           <n-button type="primary" :loading="saving" @click="saveGoals">保存</n-button>
         </n-space>
       </template>

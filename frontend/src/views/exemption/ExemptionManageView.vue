@@ -42,6 +42,16 @@ const userStore = useUserStore()
 const yearStore = useYearStore()
 
 const loading = ref(false)
+const loadError = ref('')
+const hasLoadedSuccessfully = ref(false)
+const loadedQueryKey = ref('')
+const optionsLoading = ref(false)
+const optionsError = ref('')
+const hasLoadedOptionsSuccessfully = ref(false)
+const subjectsLoading = ref(false)
+const subjectsError = ref('')
+const hasLoadedSubjectsSuccessfully = ref(false)
+const loadedSubjectsSegment = ref<string | null>(null)
 const reviewSaving = ref(false)
 const reviewVisible = ref(false)
 const keyword = ref('')
@@ -61,11 +71,38 @@ const drawerRef = ref<InstanceType<typeof ExemptionDrawer>>()
 const previewModalRef = ref<InstanceType<typeof ExemptionPreviewModal>>()
 const replaceModalRef = ref<InstanceType<typeof ExemptionReplaceModal>>()
 const examModalRef = ref<InstanceType<typeof ExemptionExamModal>>()
+let listRequestSequence = 0
+let optionsRequestSequence = 0
+let subjectsRequestSequence = 0
 
 const canApply = computed(() => userStore.hasPerm('exemption:apply'))
 const canFirstReview = computed(() => userStore.hasPerm('exemption:firstReview'))
 const canSecondReview = computed(() => userStore.hasPerm('exemption:secondReview'))
 const selfMode = computed(() => canApply.value && !canFirstReview.value && !canSecondReview.value)
+const listQueryKey = computed(() => JSON.stringify([
+  keyword.value,
+  assessmentYear.value,
+  statusFilter.value || '',
+  segmentFilter.value || '',
+  page.value,
+  size.value
+]))
+const listDataFresh = computed(() =>
+  hasLoadedSuccessfully.value
+  && loadedQueryKey.value === listQueryKey.value
+  && !loading.value
+  && !loadError.value
+)
+const writeBlocked = computed(() => !listDataFresh.value)
+const applicationOptionsReady = computed(() =>
+  hasLoadedOptionsSuccessfully.value
+  && hasLoadedSubjectsSuccessfully.value
+  && !optionsLoading.value
+  && !subjectsLoading.value
+  && !optionsError.value
+  && !subjectsError.value
+)
+const applicationOptionsFeedback = computed(() => optionsError.value || subjectsError.value)
 
 const statusOptions: SelectOption[] = [
   { label: '草稿', value: 'DRAFT' },
@@ -118,14 +155,14 @@ const columns: DataTableColumns<ExemptionRequest> = [
           )
         }
         if (canApply.value) {
-          actions.push(h(NButton, { size: 'small', quaternary: true, onClick: () => submit(row) }, { default: () => '提交' }))
-          actions.push(h(NButton, { size: 'small', quaternary: true, onClick: () => replaceModalRef.value?.open(row) }, { default: () => '换佐证' }))
+          actions.push(h(NButton, { size: 'small', quaternary: true, disabled: writeBlocked.value, onClick: () => submit(row) }, { default: () => '提交' }))
+          actions.push(h(NButton, { size: 'small', quaternary: true, disabled: writeBlocked.value, onClick: () => openReplace(row) }, { default: () => '换佐证' }))
         }
         if (canFirstReview.value) {
-          actions.push(h(NButton, { size: 'small', quaternary: true, onClick: () => openReview(row, 'first') }, { default: () => '初审' }))
+          actions.push(h(NButton, { size: 'small', quaternary: true, disabled: writeBlocked.value, onClick: () => openReview(row, 'first') }, { default: () => '初审' }))
         }
         if (canSecondReview.value) {
-          actions.push(h(NButton, { size: 'small', quaternary: true, onClick: () => openReview(row, 'second') }, { default: () => '复审' }))
+          actions.push(h(NButton, { size: 'small', quaternary: true, disabled: writeBlocked.value, onClick: () => openReview(row, 'second') }, { default: () => '复审' }))
         }
         if (canApply.value && row.materials[0]) {
           actions.push(
@@ -133,7 +170,7 @@ const columns: DataTableColumns<ExemptionRequest> = [
               NPopconfirm,
               { onPositiveClick: () => removeMaterial(row.materials[0]) },
               {
-                trigger: () => h(NButton, { size: 'small', quaternary: true, type: 'error' }, { default: () => '删佐证' }),
+                trigger: () => h(NButton, { size: 'small', quaternary: true, type: 'error', disabled: writeBlocked.value }, { default: () => '删佐证' }),
                 default: () => '确认删除该佐证？'
               }
             )
@@ -145,22 +182,30 @@ const columns: DataTableColumns<ExemptionRequest> = [
 ]
 
 async function loadRecords() {
+  const requestSequence = ++listRequestSequence
+  const queryKey = listQueryKey.value
+  const query = {
+    keyword: keyword.value,
+    status: statusFilter.value,
+    assessmentYear: assessmentYear.value,
+    teachingSegment: segmentFilter.value,
+    page: page.value,
+    size: size.value
+  }
   loading.value = true
+  loadError.value = ''
   try {
-    const res = await listExemptions({
-      keyword: keyword.value,
-      status: statusFilter.value,
-      assessmentYear: assessmentYear.value,
-      teachingSegment: segmentFilter.value,
-      page: page.value,
-      size: size.value
-    })
+    const res = await listExemptions(query)
+    if (requestSequence !== listRequestSequence || queryKey !== listQueryKey.value) return
     records.value = res.data.records
     total.value = res.data.total
+    hasLoadedSuccessfully.value = true
+    loadedQueryKey.value = queryKey
   } catch (error) {
-    showError(error, '免考列表加载失败')
+    if (requestSequence !== listRequestSequence || queryKey !== listQueryKey.value) return
+    loadError.value = showError(error, '免考列表加载失败')
   } finally {
-    loading.value = false
+    if (requestSequence === listRequestSequence) loading.value = false
   }
 }
 
@@ -182,24 +227,61 @@ function onPageSizeChange(nextSize: number) {
 }
 
 async function loadOptions() {
-  const [segmentRes, basisRes] = await Promise.all([
-    listDictItems('teaching_segment', true),
-    listDictItems('exemption_basis', true)
-  ])
-  segments.value = segmentRes.data
-  bases.value = basisRes.data
-}
-
-async function loadSubjects(segment: string | null) {
+  const requestSequence = ++optionsRequestSequence
+  optionsLoading.value = true
+  optionsError.value = ''
   try {
-    const res = await getExemptionSubjects(segment)
-    subjects.value = res.data
+    const [segmentRes, basisRes] = await Promise.all([
+      listDictItems('teaching_segment', true),
+      listDictItems('exemption_basis', true)
+    ])
+    if (requestSequence !== optionsRequestSequence) return
+    segments.value = segmentRes.data
+    bases.value = basisRes.data
+    hasLoadedOptionsSuccessfully.value = true
   } catch (error) {
-    showError(error, '免考科目加载失败')
+    if (requestSequence !== optionsRequestSequence) return
+    optionsError.value = showError(error, '免考选项加载失败')
+  } finally {
+    if (requestSequence === optionsRequestSequence) optionsLoading.value = false
   }
 }
 
+async function loadSubjects(segment: string | null) {
+  const requestSequence = ++subjectsRequestSequence
+  const requestedSegment = segment || null
+  subjectsLoading.value = true
+  subjectsError.value = ''
+  try {
+    const res = await getExemptionSubjects(requestedSegment)
+    if (requestSequence !== subjectsRequestSequence) return
+    subjects.value = res.data
+    hasLoadedSubjectsSuccessfully.value = true
+    loadedSubjectsSegment.value = requestedSegment
+  } catch (error) {
+    if (requestSequence !== subjectsRequestSequence) return
+    subjectsError.value = showError(error, '免考科目加载失败')
+  } finally {
+    if (requestSequence === subjectsRequestSequence) subjectsLoading.value = false
+  }
+}
+
+async function reloadApplicationOptions() {
+  await Promise.all([loadOptions(), loadSubjects(segmentFilter.value)])
+}
+
+function openApplication() {
+  if (writeBlocked.value || !applicationOptionsReady.value) return
+  drawerRef.value?.open()
+}
+
+function openReplace(row: ExemptionRequest) {
+  if (writeBlocked.value) return
+  replaceModalRef.value?.open(row)
+}
+
 async function removeMaterial(material: ExemptionMaterial) {
+  if (writeBlocked.value) return
   try {
     await deleteExemptionMaterial(material.id)
     message.success('已删除佐证')
@@ -210,6 +292,7 @@ async function removeMaterial(material: ExemptionMaterial) {
 }
 
 async function submit(row: ExemptionRequest) {
+  if (writeBlocked.value) return
   try {
     await submitExemption(row.id)
     message.success('已提交')
@@ -220,12 +303,13 @@ async function submit(row: ExemptionRequest) {
 }
 
 function openReview(row: ExemptionRequest, stage: 'first' | 'second') {
+  if (writeBlocked.value) return
   reviewing.value = { record: row, stage }
   reviewVisible.value = true
 }
 
 async function saveReview(payload: ReviewPayload) {
-  if (!reviewing.value) return
+  if (!reviewing.value || writeBlocked.value) return
   if (payload.action !== 'PASS' && !payload.comment?.trim()) {
     message.error('退回或不通过必须填写原因')
     return
@@ -283,12 +367,14 @@ function renderEvidence(materials: ExemptionMaterial[]) {
 
 function showError(error: unknown, fallback: string) {
   const detail = error instanceof Error ? error.message : fallback
-  message.error(detail || fallback)
+  const text = detail || fallback
+  message.error(text)
+  return text
 }
 
 onMounted(() => {
   // 并行加载，避免多段串行造成的骨架屏二次闪烁
-  void Promise.all([loadOptions(), loadSubjects(null), loadRecords()])
+  void Promise.all([reloadApplicationOptions(), loadRecords()])
 })
 
 watch(
@@ -303,7 +389,12 @@ watch(
 
 <template>
   <PageContainer title="免考管理" description="多科免考申请、佐证上传、二级审核与应考科目展示。">
-    <n-grid :cols="4" :x-gap="12" responsive="screen" class="page-section">
+    <n-alert v-if="applicationOptionsFeedback" type="warning" title="免考申请选项加载失败" :bordered="false" class="page-section" role="alert">
+      免考列表仍可查看，但申请入口暂不可用。{{ applicationOptionsFeedback }}
+      <n-button text type="warning" size="small" :loading="optionsLoading || subjectsLoading" @click="reloadApplicationOptions">重试加载选项</n-button>
+    </n-alert>
+
+    <n-grid v-if="hasLoadedSuccessfully" cols="1 440:2 900:4" :x-gap="12" :y-gap="12" responsive="self" class="page-section">
       <n-gi><StatCard label="申请科次" :value="total" /></n-gi>
       <n-gi><StatCard label="复审通过" :value="statusSummary.passed" tone="success" /></n-gi>
       <n-gi><StatCard label="已移出应考" :value="statusSummary.removed" tone="info" /></n-gi>
@@ -321,7 +412,7 @@ watch(
       </label>
       <label class="filter-field">
         <span>学段</span>
-        <n-select v-model:value="segmentFilter" clearable :options="segmentOptions" placeholder="全部学段" style="width: 150px" @update:value="handleFilterSegmentChange" />
+        <n-select v-model:value="segmentFilter" clearable :loading="optionsLoading || subjectsLoading" :options="segmentOptions" placeholder="全部学段" style="width: 150px" @update:value="handleFilterSegmentChange" />
       </label>
       <label class="filter-field">
         <span>状态</span>
@@ -335,6 +426,7 @@ watch(
       :data="records"
       :total="total"
       :loading="loading"
+      :error="loadError"
       remote
       :page="page"
       :page-size="size"
@@ -346,10 +438,17 @@ watch(
     >
       <template #actions>
         <n-button size="small" @click="showExamSubjects">应考口径</n-button>
-        <n-button v-if="canApply" type="primary" size="small" @click="drawerRef?.open()">免考申请</n-button>
+        <n-button
+          v-if="canApply && records.length > 0"
+          type="primary"
+          size="small"
+          :disabled="writeBlocked || !applicationOptionsReady"
+          :loading="optionsLoading || subjectsLoading"
+          @click="openApplication"
+        >免考申请</n-button>
       </template>
       <template v-if="canApply" #emptyAction>
-        <n-button type="primary" @click="drawerRef?.open()">免考申请</n-button>
+        <n-button type="primary" :disabled="writeBlocked || !applicationOptionsReady" :loading="optionsLoading || subjectsLoading" @click="openApplication">免考申请</n-button>
       </template>
     </DataPanel>
 
@@ -361,6 +460,10 @@ watch(
       :self-mode="selfMode"
       :assessment-year="assessmentYear"
       :segment-filter="segmentFilter"
+      :subjects-loading="subjectsLoading"
+      :subjects-error="subjectsError"
+      :subjects-loaded-successfully="hasLoadedSubjectsSuccessfully"
+      :subjects-loaded-segment="loadedSubjectsSegment"
       @saved="loadRecords"
       @load-subjects="loadSubjects"
     />

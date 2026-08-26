@@ -3,6 +3,7 @@ import type { ApiResult } from '@/api/dict'
 import type { PageResult } from '@/api/security'
 
 export interface ExchangeQuery {
+  batchId?: string | null
   keyword?: string | null
   assessmentYear?: string | null
   collegeId?: string | null

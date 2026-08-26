@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, h, onMounted, ref } from 'vue'
+import { computed, h, onBeforeUnmount, onMounted, ref } from 'vue'
 import {
   NButton,
   NPopconfirm,
@@ -35,8 +35,12 @@ const message = useMessage()
 const userStore = useUserStore()
 const yearStore = useYearStore()
 const loading = ref(false)
+const batchLoadError = ref('')
+const hasLoadedBatchesSuccessfully = ref(false)
 const uploading = ref(false)
 const confirming = ref(false)
+const rollingBackBatchId = ref<string | null>(null)
+const prevalidateError = ref('')
 const activeStep = ref(1)
 const fileList = ref<UploadFileInfo[]>([])
 const prevalidate = ref<PrevalidateResult | null>(null)
@@ -45,6 +49,9 @@ const batches = ref<ExchangeBatch[]>([])
 const batchTotal = ref(0)
 const batchPage = ref(1)
 const batchSize = ref(20)
+const compactViewport = ref(false)
+let compactViewportQuery: MediaQueryList | null = null
+let batchRequestSequence = 0
 
 const strategyOptions: SelectOption[] = [
   { label: '新增', value: 'INSERT_ONLY' },
@@ -55,11 +62,12 @@ const strategyOptions: SelectOption[] = [
 
 const currentFile = computed(() => fileList.value[0]?.file ?? null)
 const hasErrors = computed(() => Boolean(prevalidate.value && prevalidate.value.failCount > 0))
-const canConfirm = computed(() => Boolean(prevalidate.value && prevalidate.value.successCount > 0))
+const canConfirm = computed(() => Boolean(prevalidate.value && prevalidate.value.successCount > 0 && !prevalidateError.value))
 const canDownloadTemplate = computed(() => userStore.hasPerm('exchange:template'))
 const canPrevalidate = computed(() => userStore.hasPerm('exchange:prevalidate'))
 const canImport = computed(() => userStore.hasPerm('exchange:import'))
 const canViewBatches = computed(() => canImport.value)
+const operationBusy = computed(() => uploading.value || confirming.value || Boolean(rollingBackBatchId.value))
 
 const batchColumns: DataTableColumns<ExchangeBatch> = [
   { title: '批次号', key: 'batchNo', minWidth: 180, ellipsis: { tooltip: true }, render: (row) => h('span', { class: 'mono' }, row.batchNo) },
@@ -83,7 +91,13 @@ const batchColumns: DataTableColumns<ExchangeBatch> = [
               NPopconfirm,
               { onPositiveClick: () => rollback(row.id) },
               {
-                trigger: () => h(NButton, { size: 'small', quaternary: true, type: 'warning' }, { default: () => '回滚' }),
+                trigger: () => h(NButton, {
+                  size: 'small',
+                  quaternary: true,
+                  type: 'warning',
+                  disabled: operationBusy.value,
+                  loading: rollingBackBatchId.value === row.id
+                }, { default: () => '回滚' }),
                 default: () => '回滚会按导入追溯恢复数据，已被后续修改的记录会跳过。'
               }
             )
@@ -111,20 +125,30 @@ const errorColumns: DataTableColumns<ImportError> = [
 ]
 
 async function loadBatches() {
+  const requestSequence = ++batchRequestSequence
   if (!canViewBatches.value) {
     batches.value = []
     batchTotal.value = 0
+    batchLoadError.value = ''
+    hasLoadedBatchesSuccessfully.value = false
+    loading.value = false
     return
   }
+  const requestedPage = batchPage.value
+  const requestedSize = batchSize.value
   loading.value = true
+  batchLoadError.value = ''
   try {
-    const res = await listExchangeBatches('import', null, batchPage.value, batchSize.value)
+    const res = await listExchangeBatches('import', null, requestedPage, requestedSize)
+    if (requestSequence !== batchRequestSequence) return
     batches.value = res.data.records
     batchTotal.value = res.data.total
+    hasLoadedBatchesSuccessfully.value = true
   } catch (error) {
-    showError(error, '批次列表加载失败')
+    if (requestSequence !== batchRequestSequence) return
+    batchLoadError.value = showError(error, '批次列表加载失败')
   } finally {
-    loading.value = false
+    if (requestSequence === batchRequestSequence) loading.value = false
   }
 }
 
@@ -140,7 +164,7 @@ function onBatchPageSizeChange(nextSize: number) {
 }
 
 async function downloadTpl() {
-  if (!canDownloadTemplate.value) return
+  if (!canDownloadTemplate.value || operationBusy.value) return
   try {
     const blob = await downloadTemplate({ assessmentYear: yearStore.assessmentYear })
     saveBlob(blob, '教育部标准导入模板.xlsx')
@@ -151,27 +175,29 @@ async function downloadTpl() {
 }
 
 async function runPrevalidate() {
-  if (!canPrevalidate.value) return
-  if (!currentFile.value) {
+  if (!canPrevalidate.value || operationBusy.value) return
+  const file = currentFile.value
+  if (!file) {
     message.error('请选择Excel文件')
     return
   }
   uploading.value = true
+  prevalidateError.value = ''
   try {
-    const res = await prevalidateExchange(currentFile.value)
+    const res = await prevalidateExchange(file)
     prevalidate.value = res.data
     activeStep.value = res.data.failCount > 0 ? 3 : 4
     message.success(`预校验完成：成功 ${res.data.successCount}，失败 ${res.data.failCount}`)
     await loadBatches()
   } catch (error) {
-    showError(error, '预校验失败')
+    prevalidateError.value = showError(error, '预校验失败')
   } finally {
     uploading.value = false
   }
 }
 
 async function confirmImport() {
-  if (!canImport.value) return
+  if (!canImport.value || operationBusy.value) return
   if (!prevalidate.value) {
     message.error('请先完成预校验')
     return
@@ -205,21 +231,34 @@ async function downloadError(batchId: string) {
 }
 
 async function rollback(batchId: string) {
-  if (!canImport.value) return
+  if (!canImport.value || operationBusy.value) return
+  rollingBackBatchId.value = batchId
   try {
     const res = await rollbackExchangeImport(batchId)
     message.success(`回滚 ${res.data.rolledBackCount} 条，冲突 ${res.data.conflictCount} 条`)
     await loadBatches()
   } catch (error) {
     showError(error, '回滚失败')
+  } finally {
+    rollingBackBatchId.value = null
   }
 }
 
 function resetImport() {
+  if (operationBusy.value) return
   fileList.value = []
   prevalidate.value = null
+  prevalidateError.value = ''
   strategy.value = 'INSERT_ONLY'
   activeStep.value = 1
+}
+
+function onFileListUpdate(next: UploadFileInfo[]) {
+  if (operationBusy.value) return
+  fileList.value = next
+  prevalidate.value = null
+  prevalidateError.value = ''
+  activeStep.value = next.length ? 2 : 1
 }
 
 function batchTypeLabel(type?: string | null) {
@@ -263,11 +302,24 @@ function batchStatusLabel(value?: string | null) {
 
 function showError(error: unknown, fallback: string) {
   const detail = error instanceof Error ? error.message : fallback
-  message.error(detail || fallback)
+  const text = detail || fallback
+  message.error(text)
+  return text
+}
+
+function syncCompactViewport(event?: MediaQueryListEvent) {
+  compactViewport.value = event?.matches ?? compactViewportQuery?.matches ?? false
 }
 
 onMounted(() => {
+  compactViewportQuery = window.matchMedia('(max-width: 720px)')
+  syncCompactViewport()
+  compactViewportQuery.addEventListener('change', syncCompactViewport)
   if (canViewBatches.value) void loadBatches()
+})
+
+onBeforeUnmount(() => {
+  compactViewportQuery?.removeEventListener('change', syncCompactViewport)
 })
 </script>
 
@@ -277,27 +329,48 @@ onMounted(() => {
       <n-button v-if="canViewBatches" secondary @click="loadBatches">刷新批次</n-button>
     </template>
 
-    <n-steps v-model:current="activeStep" class="page-section">
+    <n-steps
+      v-model:current="activeStep"
+      :vertical="compactViewport"
+      :size="compactViewport ? 'small' : 'medium'"
+      class="page-section import-steps"
+    >
       <n-step title="模板" description="下载标准 26 列模板" />
       <n-step title="上传" description="上传 Excel 并预校验" />
       <n-step title="异常" description="查看校验错误明细" />
       <n-step title="导入" description="选择策略确认入库" />
     </n-steps>
 
-    <n-grid :cols="3" :x-gap="12" responsive="screen" class="page-section">
+    <n-grid v-if="prevalidate" cols="1 440:2 760:3" responsive="self" :x-gap="12" :y-gap="12" class="page-section import-stats">
       <n-gi><StatCard label="总行数" :value="prevalidate?.total ?? 0" /></n-gi>
       <n-gi><StatCard label="预校验通过" :value="prevalidate?.successCount ?? 0" tone="success" /></n-gi>
       <n-gi><StatCard label="异常数" :value="prevalidate?.failCount ?? 0" tone="error" /></n-gi>
     </n-grid>
 
-    <FilterBar :loading="uploading" submit-text="预校验" reset-text="清空" @submit="runPrevalidate" @reset="resetImport">
+    <n-alert
+      v-if="prevalidateError"
+      type="error"
+      :title="prevalidate ? '预校验重试失败，保留上次结果' : '预校验失败'"
+      :bordered="false"
+      class="page-section"
+      role="alert"
+    >
+      <div class="operation-feedback">
+        <span>{{ prevalidateError }}</span>
+        <n-button size="small" type="error" secondary :loading="uploading" :disabled="operationBusy || !currentFile" @click="runPrevalidate">
+          重试预校验
+        </n-button>
+      </div>
+    </n-alert>
+
+    <FilterBar class="import-workbench" :loading="operationBusy" submit-text="预校验" reset-text="清空" @submit="runPrevalidate" @reset="resetImport">
       <label class="filter-field">
         <span>模板</span>
-        <n-button v-if="canDownloadTemplate" type="primary" @click="downloadTpl">模板下载</n-button>
+        <n-button v-if="canDownloadTemplate" type="primary" :disabled="operationBusy" @click="downloadTpl">模板下载</n-button>
       </label>
       <label class="filter-field">
         <span>文件</span>
-        <n-upload v-model:file-list="fileList" :max="1" accept=".xlsx" :default-upload="false">
+        <n-upload :file-list="fileList" :max="1" accept=".xlsx" :default-upload="false" :disabled="operationBusy" @update:file-list="onFileListUpdate">
           <n-upload-dragger class="compact-upload">
             <n-text>点击或拖拽 Excel 到此处上传</n-text>
             <n-p depth="3">支持 XLSX 文件，最多 1 个文件。</n-p>
@@ -306,15 +379,15 @@ onMounted(() => {
       </label>
       <label class="filter-field">
         <span>策略</span>
-        <n-select v-model:value="strategy" :options="strategyOptions" style="width: 170px" />
+        <n-select v-model:value="strategy" :options="strategyOptions" :disabled="operationBusy" style="width: 170px" />
       </label>
       <label class="filter-field">
         <span>导入</span>
-        <n-button v-if="canImport" :disabled="!canConfirm" :loading="confirming" @click="confirmImport">确认导入</n-button>
+        <n-button v-if="canImport" :disabled="!canConfirm || operationBusy" :loading="confirming" @click="confirmImport">确认导入</n-button>
       </label>
       <label class="filter-field">
         <span>异常</span>
-        <n-button v-if="canPrevalidate" :disabled="!hasErrors" @click="downloadCurrentError">异常报告</n-button>
+        <n-button v-if="canPrevalidate" :disabled="!hasErrors || operationBusy" @click="downloadCurrentError">异常报告</n-button>
       </label>
     </FilterBar>
 
@@ -350,6 +423,9 @@ onMounted(() => {
           :data="batches"
           :total="batchTotal"
           :loading="loading"
+          :initial-loading="loading && !hasLoadedBatchesSuccessfully"
+          :error="batchLoadError"
+          error-title="批次记录加载失败"
           remote
           :page="batchPage"
           :page-size="batchSize"
@@ -367,5 +443,36 @@ onMounted(() => {
 <style scoped>
 .compact-upload {
   width: min(360px, 100%);
+}
+
+.operation-feedback {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+@media (max-width: 720px) {
+  .import-steps {
+    width: 100%;
+  }
+
+  .import-workbench :deep(.filter-bar__actions) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .import-workbench :deep(.filter-bar__actions .n-button),
+  .import-workbench :deep(.filter-field > .n-button),
+  .import-workbench :deep(.filter-field > .n-upload),
+  .compact-upload {
+    width: 100%;
+  }
+
+  .operation-feedback {
+    align-items: stretch;
+    flex-direction: column;
+  }
 }
 </style>

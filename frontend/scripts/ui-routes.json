@@ -1,0 +1,160 @@
+{
+  "schemaVersion": 1,
+  "breakpoints": [
+    { "id": "phone", "width": 375, "height": 812 },
+    { "id": "tablet-portrait", "width": 768, "height": 1024 },
+    { "id": "tablet-landscape", "width": 1024, "height": 768 },
+    { "id": "laptop", "width": 1280, "height": 800 },
+    { "id": "desktop", "width": 1920, "height": 1080 }
+  ],
+  "publicRoutes": [
+    { "id": "login", "title": "登录", "path": "/login" },
+    { "id": "not-found", "title": "未找到页面", "path": "/ui-audit-not-found" }
+  ],
+  "roles": [
+    {
+      "id": "student",
+      "label": "学生",
+      "username": "demo_student",
+      "passwordEnv": "UI_AUDIT_STUDENT_PASSWORD",
+      "expectedRouteIds": [
+        "dashboard",
+        "student-manage",
+        "student-self",
+        "training-manage",
+        "material-manage",
+        "exemption-manage",
+        "video-review",
+        "test-result-manage",
+        "certificate-manage",
+        "notice-center"
+      ]
+    },
+    {
+      "id": "college-clerk",
+      "label": "学院教务员",
+      "username": "test_college_clerk",
+      "passwordEnv": "UI_AUDIT_COLLEGE_CLERK_PASSWORD",
+      "expectedRouteIds": [
+        "dashboard",
+        "system-audit",
+        "student-manage",
+        "training-manage",
+        "material-manage",
+        "exemption-manage",
+        "video-review",
+        "test-result-manage",
+        "certificate-manage",
+        "exchange-export",
+        "stats-report",
+        "notice-center"
+      ]
+    },
+    {
+      "id": "college-auditor",
+      "label": "学院负责人",
+      "username": "test_college_auditor",
+      "passwordEnv": "UI_AUDIT_COLLEGE_AUDITOR_PASSWORD",
+      "expectedRouteIds": [
+        "dashboard",
+        "system-audit",
+        "student-manage",
+        "training-manage",
+        "material-manage",
+        "exemption-manage",
+        "video-review",
+        "test-result-manage",
+        "certificate-manage",
+        "exchange-import",
+        "exchange-export",
+        "stats-report",
+        "notice-center"
+      ]
+    },
+    {
+      "id": "review-teacher",
+      "label": "评审教师",
+      "username": "test_review_teacher",
+      "passwordEnv": "UI_AUDIT_REVIEW_TEACHER_PASSWORD",
+      "expectedRouteIds": [
+        "dashboard",
+        "video-review",
+        "notice-center"
+      ]
+    },
+    {
+      "id": "academic-admin",
+      "label": "教务处管理员",
+      "username": "test_academic_admin",
+      "passwordEnv": "UI_AUDIT_ACADEMIC_ADMIN_PASSWORD",
+      "expectedRouteIds": [
+        "dashboard",
+        "dict-manage",
+        "region-manage",
+        "subject-manage",
+        "organization-manage",
+        "system-audit",
+        "student-manage",
+        "training-manage",
+        "material-manage",
+        "video-review",
+        "test-result-manage",
+        "certificate-manage",
+        "certificate-issue",
+        "exchange-import",
+        "exchange-export",
+        "stats-report",
+        "notice-center"
+      ]
+    },
+    {
+      "id": "sys-admin",
+      "label": "系统管理员",
+      "username": "test_sys_admin",
+      "passwordEnv": "UI_AUDIT_SYS_ADMIN_PASSWORD",
+      "expectedRouteIds": [
+        "dashboard",
+        "dict-manage",
+        "region-manage",
+        "subject-manage",
+        "organization-manage",
+        "security-manage",
+        "system-audit",
+        "student-manage",
+        "training-manage",
+        "material-manage",
+        "exemption-manage",
+        "video-review",
+        "test-result-manage",
+        "certificate-manage",
+        "certificate-issue",
+        "exchange-import",
+        "exchange-export",
+        "stats-report",
+        "notice-center"
+      ]
+    }
+  ],
+  "authenticatedRoutes": [
+    { "id": "dashboard", "title": "首页", "path": "/" },
+    { "id": "dict-manage", "title": "字典管理", "path": "/system/dicts", "permissionAny": ["dict:manage"] },
+    { "id": "region-manage", "title": "行政区划", "path": "/system/regions", "permissionAny": ["region:manage"] },
+    { "id": "subject-manage", "title": "任教学科库", "path": "/system/subjects", "permissionAny": ["subject:manage"] },
+    { "id": "organization-manage", "title": "组织与专业", "path": "/system/organizations", "permissionAny": ["college:manage", "major:manage"] },
+    { "id": "security-manage", "title": "账号权限", "path": "/system/security", "permissionAny": ["system:user:manage", "system:role:manage", "system:perm:manage"] },
+    { "id": "system-audit", "title": "参数审计备份", "path": "/system/audit", "permissionAny": ["system:param:manage", "audit:view", "system:backup"] },
+    { "id": "student-manage", "title": "学生基本信息", "path": "/students", "permissionAny": ["student:view"] },
+    { "id": "student-self", "title": "本人基本信息", "path": "/student/self", "permissionAny": ["student:confirm"], "studentOnly": true },
+    { "id": "training-manage", "title": "专业培养信息", "path": "/training", "permissionAny": ["student:view", "training:confirm"] },
+    { "id": "material-manage", "title": "过程性材料", "path": "/materials", "permissionAny": ["material:upload", "material:firstReview", "material:secondReview", "material:batchDownload"] },
+    { "id": "exemption-manage", "title": "免考管理", "path": "/exemptions", "permissionAny": ["exemption:apply", "exemption:firstReview", "exemption:secondReview"] },
+    { "id": "video-review", "title": "视频评审", "path": "/videos", "permissionAny": ["video:upload", "video:score", "video:assign", "video:arbitrate", "video:confirm", "video:play"] },
+    { "id": "test-result-manage", "title": "测试结果", "path": "/tests", "permissionAny": ["student:view", "test:import", "test:confirm"] },
+    { "id": "certificate-manage", "title": "证书管理", "path": "/certificates", "permissionAny": ["cert:view", "cert:generate", "cert:correct", "cert:void", "cert:reissue"] },
+    { "id": "certificate-issue", "title": "证书签发", "path": "/certificate-issue", "permissionAny": ["cert:issue"] },
+    { "id": "exchange-import", "title": "导入预校验", "path": "/exchange/import", "permissionAny": ["exchange:template", "exchange:prevalidate", "exchange:import"] },
+    { "id": "exchange-export", "title": "导出中心", "path": "/exchange/export", "permissionAny": ["exchange:export:standard", "exchange:export:full"] },
+    { "id": "stats-report", "title": "统计报表", "path": "/stats", "permissionAny": ["stats:view"] },
+    { "id": "notice-center", "title": "通知中心", "path": "/notice", "permissionAny": ["notice:view"] }
+  ]
+}

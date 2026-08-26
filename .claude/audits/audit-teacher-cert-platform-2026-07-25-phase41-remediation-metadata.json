@@ -1,0 +1,52 @@
+{
+  "timestamp": "2026-07-25T15:58:43+08:00",
+  "project": "teacher-cert-platform",
+  "reviewer": "OpenAI Codex",
+  "audit_mode": "incremental",
+  "selected_modes": [
+    "security",
+    "stability",
+    "testing-authenticity",
+    "release",
+    "configuration",
+    "data-integrity",
+    "concurrency"
+  ],
+  "scope": "ca11ecc191723aa38b1e3627d4101dda1c5844ee..274a9393ebe8996df90d335509619d1bbcb05478",
+  "code_commit": "c69ea73858fa39158e7c9494c3b587992434a03b",
+  "submission_commit": "274a9393ebe8996df90d335509619d1bbcb05478",
+  "outcome": "CHANGES_REQUESTED",
+  "overall_score": 5.2,
+  "dimension_scores": {
+    "security": 8.2,
+    "stability": 4.5,
+    "testing_authenticity": 4.2,
+    "release": 3.8
+  },
+  "finding_counts": {
+    "critical": 0,
+    "high": 1,
+    "medium": 2,
+    "low": 1,
+    "info": 0
+  },
+  "previous_findings_closed": {
+    "PG-H2": false,
+    "PG-M2_code_level": true,
+    "PG-M2_dynamic_gate": false
+  },
+  "new_findings": {
+    "critical": 0,
+    "high": 1,
+    "medium": 2,
+    "low": 1
+  },
+  "evidence_limitations": [
+    "No persistent service, database account operation, credential attempt, destructive container action, fuzz, stress or cyber-like action was executed",
+    "The existing 334-test XML is a developer run on MySQL 8.0 and does not cover generated-column rows, large packets or the MySQL 8.4 account gate",
+    "The real mysql client restore pipeline was not executed",
+    "Git Bash and WSL syntax checks were blocked by local sandbox or signal-pipe permissions and were not counted as candidate failures",
+    "Unrelated baseline configuration debt remains deferred to the final full audit"
+  ],
+  "report_path": "docs/reviews/phase-41-remediation-rereview-2026-07-25.md"
+}

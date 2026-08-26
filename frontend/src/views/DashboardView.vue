@@ -28,7 +28,9 @@ import { listNotices, markNoticeRead, unreadNoticeCount, type NotificationItem }
 import { getStatsReport, type StatsReport, type StatsRow } from '@/api/stats'
 import { useUserStore } from '@/stores/user'
 import { useYearStore } from '@/stores/year'
+import { designTokens } from '@/theme/tokens'
 import { formatDateTime } from '@/utils/format'
+import { LatestRequestGuard } from './dashboardLatestRequest'
 
 interface DashboardProfile {
   statType: string
@@ -43,15 +45,27 @@ interface QuickEntry {
   perms?: string[]
 }
 
+interface DashboardStatCard {
+  label: string
+  value: string | number
+  unit: string | null
+  sub: string | null
+  icon: Component
+  tone: 'brand' | 'error' | 'info' | 'neutral'
+}
+
 const message = useMessage()
 const router = useRouter()
 const userStore = useUserStore()
 const yearStore = useYearStore()
 const loading = ref(false)
+const loadError = ref('')
+const hasLoaded = ref(false)
 const notices = ref<NotificationItem[]>([])
 const noticeTotal = ref(0)
 const unreadTotal = ref(0)
 const report = ref<StatsReport | null>(null)
+const dashboardLoadGuard = new LatestRequestGuard()
 
 const roleNameMap: Record<string, string> = {
   SYS_ADMIN: '系统管理员',
@@ -80,8 +94,10 @@ const metrics = computed(() => report.value?.metrics || [])
 const rows = computed(() => report.value?.rows || [])
 const canViewStats = computed(() => userStore.hasPerm('stats:view'))
 const canViewNotice = computed(() => userStore.hasPerm('notice:view'))
+const overviewColumns = computed(() => canViewStats.value && canViewNotice.value ? '1 760:2' : '1')
+const quickEntries = computed(() => roleEntries().filter((item) => !item.perms?.length || item.perms.some((perm) => userStore.hasPerm(perm))).slice(0, 6))
 
-const statCards = computed(() => {
+const statCards = computed<DashboardStatCard[]>(() => {
   const icons = [StatsChartOutline, BarChartOutline, SchoolOutline, NotificationsOutline]
   const dedupedMetrics = uniqueMetricsByLabel(metrics.value).slice(0, 4)
   const cards = dedupedMetrics.map((item, index) => ({
@@ -94,15 +110,20 @@ const statCards = computed(() => {
   }))
   if (cards.length) return cards
   const statsTotal = rows.value.reduce((sum, row) => sum + Number(row.count || 0), 0)
-  return [
-    { label: '统计汇总', value: statsTotal, unit: null, sub: null, icon: BarChartOutline, tone: 'brand' as const },
-    { label: '未读通知', value: unreadTotal.value, unit: null, sub: null, icon: NotificationsOutline, tone: 'error' as const },
-    { label: '通知总数', value: noticeTotal.value, unit: null, sub: null, icon: NotificationsOutline, tone: 'info' as const },
-    { label: '当前学年', value: yearStore.assessmentYear, unit: null, sub: null, icon: SchoolOutline, tone: 'neutral' as const }
+  const fallbackCards: DashboardStatCard[] = [
+    canViewStats.value
+      ? { label: '统计汇总', value: statsTotal, unit: null, sub: null, icon: BarChartOutline, tone: 'brand' as const }
+      : { label: '可办理事项', value: quickEntries.value.length, unit: null, sub: null, icon: ClipboardOutline, tone: 'brand' as const }
   ]
+  if (canViewNotice.value) {
+    fallbackCards.push(
+      { label: '未读通知', value: unreadTotal.value, unit: null, sub: null, icon: NotificationsOutline, tone: 'error' as const },
+      { label: '通知总数', value: noticeTotal.value, unit: null, sub: null, icon: NotificationsOutline, tone: 'info' as const }
+    )
+  }
+  fallbackCards.push({ label: '当前学年', value: yearStore.assessmentYear, unit: null, sub: null, icon: SchoolOutline, tone: 'neutral' as const })
+  return fallbackCards
 })
-
-const quickEntries = computed(() => roleEntries().filter((item) => !item.perms?.length || item.perms.some((perm) => userStore.hasPerm(perm))).slice(0, 6))
 
 // 类目 ≤8 且有数值 → 环形图看占比；否则用普通列表展示（不再画柱状图）。
 const chartRows = computed(() => rows.value.filter((row) => Number(row.count || 0) > 0))
@@ -116,7 +137,7 @@ const chartOption = computed<EChartsOption>(() => ({
       radius: ['42%', '68%'],
       center: ['50%', '50%'],
       avoidLabelOverlap: true,
-      itemStyle: { borderColor: '#fff', borderWidth: 2, borderRadius: 6 },
+      itemStyle: { borderColor: designTokens.colors.surface, borderWidth: 2, borderRadius: 6 },
       label: { formatter: '{b}\n{c} ({d}%)', color: 'inherit', fontSize: 13, lineHeight: 18 },
       labelLine: { length: 14, length2: 10 },
       data: chartRows.value.map((row) => ({ name: chartLabel(row), value: Number(row.count || 0) }))
@@ -132,21 +153,30 @@ watch(
 )
 
 async function loadDashboard() {
+  const generation = dashboardLoadGuard.begin()
+  const assessmentYear = yearStore.assessmentYear
+  const statType = profile.value.statType
+  const includeStats = canViewStats.value
+  const includeNotices = canViewNotice.value
   loading.value = true
+  loadError.value = ''
   try {
     const [statsRes, noticeRes, unreadRes] = await Promise.all([
-      canViewStats.value ? getStatsReport(profile.value.statType, { assessmentYear: yearStore.assessmentYear }) : Promise.resolve(null),
-      canViewNotice.value ? listNotices(null) : Promise.resolve({ data: { records: [] as NotificationItem[], total: 0 } }),
-      canViewNotice.value ? unreadNoticeCount() : Promise.resolve({ data: 0 })
+      includeStats ? getStatsReport(statType, { assessmentYear }) : Promise.resolve(null),
+      includeNotices ? listNotices(null) : Promise.resolve({ data: { records: [] as NotificationItem[], total: 0 } }),
+      includeNotices ? unreadNoticeCount() : Promise.resolve({ data: 0 })
     ])
+    if (!dashboardLoadGuard.isCurrent(generation)) return
     report.value = statsRes?.data || null
     notices.value = noticeRes.data.records.slice(0, 8)
     noticeTotal.value = noticeRes.data.total
     unreadTotal.value = Number(unreadRes.data || 0)
+    hasLoaded.value = true
   } catch (error) {
-    showError(error, '工作台加载失败')
+    if (!dashboardLoadGuard.isCurrent(generation)) return
+    loadError.value = errorText(error, '工作台加载失败')
   } finally {
-    loading.value = false
+    if (dashboardLoadGuard.isCurrent(generation)) loading.value = false
   }
 }
 
@@ -266,8 +296,12 @@ function dateText() {
 }
 
 function showError(error: unknown, fallback: string) {
+  message.error(errorText(error, fallback))
+}
+
+function errorText(error: unknown, fallback: string) {
   const detail = error instanceof Error ? error.message : fallback
-  message.error(detail || fallback)
+  return detail || fallback
 }
 </script>
 
@@ -277,7 +311,21 @@ function showError(error: unknown, fallback: string) {
       <n-button secondary :loading="loading" @click="loadDashboard">刷新</n-button>
     </template>
 
-    <n-grid :cols="4" :x-gap="12" responsive="screen" class="page-section">
+    <n-alert v-if="loadError" type="error" title="工作台加载失败" class="page-section" role="alert">
+      <div class="dashboard-feedback">
+        <span>{{ loadError }}。{{ hasLoaded ? '以下保留上次成功加载的结果。' : '快捷入口仍可使用，可重试加载概览数据。' }}</span>
+        <n-button size="small" type="error" secondary :loading="loading" @click="loadDashboard">重试</n-button>
+      </div>
+    </n-alert>
+
+    <n-grid
+      v-if="hasLoaded || (!canViewStats && !canViewNotice)"
+      cols="1 440:2 900:4"
+      :x-gap="12"
+      :y-gap="12"
+      responsive="self"
+      class="page-section"
+    >
       <n-gi v-for="item in statCards" :key="item.label">
         <StatCard :label="item.label" :value="item.value" :unit="item.unit" :sub="item.sub" :tone="item.tone" :icon="item.icon" />
       </n-gi>
@@ -285,7 +333,7 @@ function showError(error: unknown, fallback: string) {
 
     <n-card :bordered="false" class="page-section quick-card">
       <template #header>快捷入口</template>
-      <n-grid :cols="3" :x-gap="12" :y-gap="12" responsive="screen">
+      <n-grid cols="1 440:2 840:3" :x-gap="12" :y-gap="12" responsive="self">
         <n-gi v-for="item in quickEntries" :key="item.title">
           <button class="quick-entry" type="button" @click="goEntry(item)">
             <span class="quick-entry__icon"><n-icon :component="item.icon" /></span>
@@ -298,8 +346,8 @@ function showError(error: unknown, fallback: string) {
       </n-grid>
     </n-card>
 
-    <n-grid :cols="2" :x-gap="12" responsive="screen" class="page-section">
-      <n-gi v-if="canViewStats">
+    <n-grid v-if="hasLoaded" :cols="overviewColumns" :x-gap="12" :y-gap="12" responsive="self" class="page-section overview-grid">
+      <n-gi v-if="canViewStats" class="overview-panel">
         <n-card :bordered="false" class="chart-card">
           <template #header>{{ report?.title || '业务统计' }}</template>
           <ChartBox v-if="showChart" :option="chartOption" height="320px" />
@@ -313,7 +361,7 @@ function showError(error: unknown, fallback: string) {
         </n-card>
       </n-gi>
 
-      <n-gi>
+      <n-gi v-if="canViewNotice" class="overview-panel">
         <n-card :bordered="false" class="notice-card">
           <template #header>最近通知</template>
           <template #header-extra>
@@ -322,7 +370,17 @@ function showError(error: unknown, fallback: string) {
           <n-spin :show="loading">
             <n-empty v-if="!notices.length" description="暂无通知" />
             <n-list v-else hoverable clickable class="notice-list">
-              <n-list-item v-for="item in notices" :key="item.id" @click="openNotice(item)">
+              <n-list-item
+                v-for="item in notices"
+                :key="item.id"
+                class="notice-item"
+                role="button"
+                tabindex="0"
+                @click="openNotice(item)"
+                @keydown.space.prevent
+                @keyup.enter.prevent="openNotice(item)"
+                @keyup.space.prevent="openNotice(item)"
+              >
                 <div class="notice-row">
                   <span class="notice-dot" :class="{ 'notice-dot--read': item.readFlag === 1 }" />
                   <div class="notice-main">
@@ -345,6 +403,29 @@ function showError(error: unknown, fallback: string) {
 .chart-card :deep(.n-card-header),
 .notice-card :deep(.n-card-header) {
   padding-bottom: var(--space-3);
+}
+
+.dashboard-feedback {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.overview-panel {
+  min-width: 0;
+}
+
+@media (max-width: 720px) {
+  .dashboard-feedback {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+.chart-card,
+.notice-card {
+  height: 100%;
 }
 
 .stat-list {
@@ -441,6 +522,11 @@ function showError(error: unknown, fallback: string) {
 
 .notice-list {
   margin: calc(var(--space-3) * -1);
+}
+
+.notice-item:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: -2px;
 }
 
 .notice-row {

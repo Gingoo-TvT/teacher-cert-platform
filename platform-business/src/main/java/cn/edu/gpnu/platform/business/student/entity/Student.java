@@ -17,6 +17,7 @@ public class Student extends BaseEntity {
     private String gender;
     private String idCardType;
     private String idCardNo;
+    private String idCardHmac;
     private String birthDate;
     private String identityType;
     private String sourceProvince;

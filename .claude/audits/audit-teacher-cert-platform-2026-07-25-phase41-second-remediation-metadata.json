@@ -1,0 +1,59 @@
+{
+  "timestamp": "2026-07-25T18:31:47+08:00",
+  "project": "teacher-cert-platform",
+  "reviewer": "OpenAI Codex",
+  "audit_mode": "incremental",
+  "selected_modes": [
+    "security",
+    "stability",
+    "testing-authenticity",
+    "release",
+    "configuration",
+    "data-integrity",
+    "concurrency"
+  ],
+  "scope": "17b11aa64512f57d27fc832e83342b189925272a..ef6b550052329dc97b56289a3a4364fdb569ab9c",
+  "code_commit": "b5ed7f5d2b0cb18fd6d8a83e12805c1e6deb7fef",
+  "submission_commit": "ef6b550052329dc97b56289a3a4364fdb569ab9c",
+  "outcome": "CHANGES_REQUESTED",
+  "overall_score": 6.4,
+  "dimension_scores": {
+    "security": 8.8,
+    "stability": 7.8,
+    "testing_authenticity": 5.0,
+    "release": 4.5
+  },
+  "finding_counts": {
+    "critical": 0,
+    "high": 0,
+    "medium": 0,
+    "low": 0,
+    "info": 0
+  },
+  "evidence_gate_blockers": 2,
+  "previous_findings": {
+    "generated_columns_high": "code_closed_dynamic_pending",
+    "large_row_packet_medium": "code_closed_dynamic_pending",
+    "rollback_prefix_medium": "code_closed_dynamic_pending",
+    "workflow_dispatch_low": "closed",
+    "PG-M2_code_level": "closed",
+    "PG-M2_dynamic_gate": "pending"
+  },
+  "independent_checks": [
+    "mvn -B -ntp test: 149/149 PASS",
+    "mvn -B -ntp -DskipTests package: 9 modules PASS",
+    "frontend type-check: PASS",
+    "frontend production build: PASS with existing chunk-size warning",
+    "development Compose config: PASS",
+    "production Compose config: PASS with expected missing-local-env warnings",
+    "git diff --check 17b11aa..ef6b550: PASS"
+  ],
+  "evidence_limitations": [
+    "No database, object storage, account, container, volume, network, fuzz, stress or cyber-like mutation was executed",
+    "The existing Phase41BackupIT XML predates the second-remediation source and commit and was produced with MySQL 8.0",
+    "No current-candidate phase41-backup-restore-real PASS log exists",
+    "No current-candidate phase41-mysql-init-real PASS log exists",
+    "Rows whose Base64 SQL representation exceeds 32 MiB fail closed by the accepted remediation contract; write-side alignment is deferred to the final full audit"
+  ],
+  "report_path": "docs/reviews/phase-41-second-remediation-rereview-2026-07-25.md"
+}

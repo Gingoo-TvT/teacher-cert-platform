@@ -47,6 +47,7 @@ function open(row: Certificate) {
 }
 
 async function saveCorrect() {
+  if (saving.value) return
   if (!selected.value || !correctForm.reason.trim()) {
     message.error('请填写更正原因')
     return
@@ -73,12 +74,17 @@ defineExpose({ open })
 </script>
 
 <template>
-  <n-drawer v-model:show="correctVisible" :width="560">
-    <n-drawer-content title="证书更正" closable>
-      <n-form label-placement="top">
+  <n-drawer
+    v-model:show="correctVisible"
+    width="min(var(--overlay-medium), var(--overlay-drawer-max))"
+    :mask-closable="!saving"
+    :close-on-esc="!saving"
+  >
+    <n-drawer-content title="证书更正" :closable="!saving">
+      <n-form label-placement="top" :disabled="saving">
         <div class="form-section-title">证书信息</div>
-        <n-grid :cols="2" :x-gap="12">
-          <n-form-item-gi label="证书编号" :span="2">
+        <n-grid cols="1 480:2" responsive="self" item-responsive :x-gap="12">
+          <n-form-item-gi label="证书编号" span="1 480:2">
             <n-input v-model:value="correctForm.certNo" placeholder="18位证书编号" class="mono-input" />
           </n-form-item-gi>
           <n-form-item-gi label="有效期至">
@@ -89,27 +95,27 @@ defineExpose({ open })
           </n-form-item-gi>
         </n-grid>
         <div class="form-section-title">任教学科</div>
-        <n-grid :cols="2" :x-gap="12">
+        <n-grid cols="1 480:2" responsive="self" item-responsive :x-gap="12">
           <n-form-item-gi label="学科代码">
             <n-input v-model:value="correctForm.teachingSubjectCode" placeholder="任教学科代码" class="mono-input" />
           </n-form-item-gi>
           <n-form-item-gi label="学科名称">
             <n-input v-model:value="correctForm.teachingSubjectName" placeholder="任教学科名称" />
           </n-form-item-gi>
-          <n-form-item-gi label="培养目标" :span="2">
+          <n-form-item-gi label="培养目标" span="1 480:2">
             <n-select v-model:value="correctForm.trainingGoal" clearable :options="goalOptions" placeholder="培养目标" />
           </n-form-item-gi>
         </n-grid>
         <div class="form-section-title">更正原因</div>
-        <n-grid :cols="2" :x-gap="12">
-          <n-form-item-gi label="原因" :span="2">
+        <n-grid cols="1 480:2" responsive="self" item-responsive :x-gap="12">
+          <n-form-item-gi label="原因" span="1 480:2">
             <n-input v-model:value="correctForm.reason" type="textarea" :autosize="{ minRows: 3, maxRows: 6 }" placeholder="更正原因" />
           </n-form-item-gi>
         </n-grid>
       </n-form>
       <template #footer>
         <n-space justify="end">
-          <n-button @click="correctVisible = false">取消</n-button>
+          <n-button :disabled="saving" @click="correctVisible = false">取消</n-button>
           <n-button type="primary" :loading="saving" @click="saveCorrect">保存更正</n-button>
         </n-space>
       </template>

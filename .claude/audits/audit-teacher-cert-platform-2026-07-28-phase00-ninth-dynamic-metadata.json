@@ -1,0 +1,29 @@
+{
+  "timestamp": "2026-07-28T00:23:36+08:00",
+  "project": "teacher-cert-platform",
+  "commitHash": "ea760bf2bd6041c8fd185bd6ab887380bf920171",
+  "treeHash": "fd2174f5079adf6bc5a34e2f5a12f8df2c998c09",
+  "selectedModes": [
+    "incremental",
+    "testing-authenticity",
+    "release"
+  ],
+  "scope": "Phase 0 ninth-remediation final dynamic evidence",
+  "overallScore": 9.6,
+  "dimensionScores": {
+    "testingAuthenticity": 9.7,
+    "release": 9.4
+  },
+  "findingCounts": {
+    "critical": 0,
+    "high": 0,
+    "medium": 0,
+    "low": 0,
+    "info": 0
+  },
+  "recommendation": "PASS",
+  "phaseStatus": "PASS",
+  "projectReleaseStatus": "FINAL_AUDIT_PENDING",
+  "reportPath": "docs/reviews/phase-00-ninth-remediation-dynamic-evidence-rereview-2026-07-28.md",
+  "evidenceSummaryPath": "docs/reviews/evidence/phase00-ninth-remediation-dynamic-rereview-2026-07-28/independent-verification.txt"
+}

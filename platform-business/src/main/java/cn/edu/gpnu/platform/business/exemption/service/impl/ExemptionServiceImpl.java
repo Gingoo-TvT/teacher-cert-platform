@@ -37,6 +37,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.StringUtils;
 
 import java.io.InputStream;
@@ -57,7 +58,6 @@ public class ExemptionServiceImpl implements ExemptionService {
 
     private static final String EXEMPTION_BIZ_TYPE = "exemption-material";
     private static final long DEFAULT_EXEMPTION_MAX_SIZE = 52_428_800L;
-    private static final int PREVIEW_EXPIRY_SECONDS = 600;
 
     private final ExemptionRequestMapper requestMapper;
     private final ExemptionMaterialMapper materialMapper;
@@ -70,6 +70,7 @@ public class ExemptionServiceImpl implements ExemptionService {
     private final DictService dictService;
     private final ReviewNotificationHelper notificationHelper;
     private final AuditLogService auditLogService;
+    private final TransactionTemplate transactionTemplate;
 
     @Override
     public List<SysDictItem> subjects(String segment) {
@@ -141,10 +142,23 @@ public class ExemptionServiceImpl implements ExemptionService {
             } else {
                 ensureCanWriteRequest(entity, "exemption:apply");
                 ensureEditable(entity);
+                String expectedStatus = entity.getFinalStatus();
+                Integer expectedLocked = entity.getLocked();
                 entity.setCollegeId(student.getCollegeId());
                 entity.setTeachingSegment(segment);
                 fillApply(entity, subjectLabels, basisLabels, item);
-                requestMapper.updateById(entity);
+                if (requestMapper.update(new ExemptionRequest(), new LambdaUpdateWrapper<ExemptionRequest>()
+                        .eq(ExemptionRequest::getId, entity.getId())
+                        .eq(ExemptionRequest::getFinalStatus, expectedStatus)
+                        .eq(ExemptionRequest::getLocked, expectedLocked)
+                        .set(ExemptionRequest::getCollegeId, entity.getCollegeId())
+                        .set(ExemptionRequest::getTeachingSegment, entity.getTeachingSegment())
+                        .set(ExemptionRequest::getSubjectLabel, entity.getSubjectLabel())
+                        .set(ExemptionRequest::getBasis, entity.getBasis())
+                        .set(ExemptionRequest::getBasisLabel, entity.getBasisLabel())
+                        .set(ExemptionRequest::getRemark, entity.getRemark())) == 0) {
+                    throw new BizException("操作冲突：免考申请状态已变更，请刷新后重试");
+                }
             }
             ids.add(entity.getId());
         }
@@ -165,7 +179,15 @@ public class ExemptionServiceImpl implements ExemptionService {
         entity.setBasis(basis);
         entity.setBasisLabel(basisLabels.get(basis));
         entity.setRemark(trimToNull(request.getRemark()));
-        requestMapper.updateById(entity);
+        if (requestMapper.update(new ExemptionRequest(), new LambdaUpdateWrapper<ExemptionRequest>()
+                .eq(ExemptionRequest::getId, id)
+                .eq(ExemptionRequest::getFinalStatus, entity.getFinalStatus())
+                .eq(ExemptionRequest::getLocked, entity.getLocked())
+                .set(ExemptionRequest::getBasis, entity.getBasis())
+                .set(ExemptionRequest::getBasisLabel, entity.getBasisLabel())
+                .set(ExemptionRequest::getRemark, entity.getRemark())) == 0) {
+            throw new BizException("操作冲突：免考申请状态已变更，请刷新后重试");
+        }
     }
 
     @Override
@@ -177,12 +199,18 @@ public class ExemptionServiceImpl implements ExemptionService {
         validateFile(originalFilename, contentType, size);
         FileObject file = fileService.upload(input, requiredTrim(originalFilename, "文件名不能为空"),
                 normalizeContentType(originalFilename, contentType), size, EXEMPTION_BIZ_TYPE);
-        ExemptionMaterial material = new ExemptionMaterial();
-        material.setExemptionRequestId(entity.getId());
-        material.setStudentId(entity.getStudentId());
-        material.setCollegeId(entity.getCollegeId());
-        fillFile(material, file);
-        materialMapper.insert(material);
+        // MinIO I/O 已结束后才进入短事务；父申请行锁把附件变更与 submit 的材料计数线性化。
+        transactionTemplate.executeWithoutResult(ignored -> {
+            ExemptionRequest current = requireRequestForUpdate(id);
+            ensureCanWriteRequest(current, "exemption:apply");
+            ensureEditable(current);
+            ExemptionMaterial material = new ExemptionMaterial();
+            material.setExemptionRequestId(current.getId());
+            material.setStudentId(current.getStudentId());
+            material.setCollegeId(current.getCollegeId());
+            fillFile(material, file);
+            materialMapper.insert(material);
+        });
     }
 
     @Override
@@ -195,32 +223,53 @@ public class ExemptionServiceImpl implements ExemptionService {
         validateFile(originalFilename, contentType, size);
         FileObject file = fileService.upload(input, requiredTrim(originalFilename, "文件名不能为空"),
                 normalizeContentType(originalFilename, contentType), size, EXEMPTION_BIZ_TYPE);
-        fillFile(material, file);
-        materialMapper.updateById(material);
+        transactionTemplate.executeWithoutResult(ignored -> {
+            ExemptionRequest current = requireRequestForUpdate(request.getId());
+            ensureCanWriteRequest(current, "exemption:apply");
+            ensureEditable(current);
+            ExemptionMaterial currentMaterial = requireMaterial(materialId);
+            if (!current.getId().equals(currentMaterial.getExemptionRequestId())) {
+                throw new BizException("免考佐证所属申请已变更，请刷新后重试");
+            }
+            Long expectedFileId = currentMaterial.getFileId();
+            fillFile(currentMaterial, file);
+            if (updateMaterialFile(currentMaterial, expectedFileId) == 0) {
+                throw new BizException("操作冲突：免考佐证已被替换或删除，请刷新后重试");
+            }
+        });
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void deleteMaterial(Long materialId) {
         ExemptionMaterial material = requireMaterial(materialId);
-        ExemptionRequest request = requireRequest(material.getExemptionRequestId());
+        ExemptionRequest request = requireRequestForUpdate(material.getExemptionRequestId());
         ensureCanWriteRequest(request, "exemption:apply");
         ensureEditable(request);
-        materialMapper.deleteById(materialId);
+        ExemptionMaterial currentMaterial = requireMaterial(materialId);
+        if (!request.getId().equals(currentMaterial.getExemptionRequestId())) {
+            throw new BizException("免考佐证所属申请已变更，请刷新后重试");
+        }
+        if (materialMapper.delete(new LambdaQueryWrapper<ExemptionMaterial>()
+                .eq(ExemptionMaterial::getId, materialId)
+                .eq(ExemptionMaterial::getExemptionRequestId, request.getId())
+                .eq(ExemptionMaterial::getFileId, currentMaterial.getFileId())) == 0) {
+            throw new BizException("操作冲突：免考佐证已被替换或删除，请刷新后重试");
+        }
     }
 
     @Override
-    public String previewMaterial(Long materialId) {
+    public Long previewMaterialFileId(Long materialId) {
         ExemptionMaterial material = requireMaterial(materialId);
         ExemptionRequest request = requireRequest(material.getExemptionRequestId());
         ensureReadableRequest(request);
-        return fileService.presignedGet(material.getFileId(), PREVIEW_EXPIRY_SECONDS);
+        return material.getFileId();
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void submit(Long id) {
-        ExemptionRequest entity = requireRequest(id);
+        ExemptionRequest entity = requireRequestForUpdate(id);
         ensureCanWriteRequest(entity, "exemption:apply");
         ExemptionStatus status = ExemptionStatus.of(entity.getFinalStatus());
         if (!status.editable()) {
@@ -233,9 +282,11 @@ public class ExemptionServiceImpl implements ExemptionService {
         String targetStatus = returnTargetFromSecondRejected(status);
         entity.setFinalStatus(targetStatus);
         entity.setIncludedInExam(1);
-        // 原子条件更新：仅当状态未被并发改变时才写入，防重复提交竞态（P0-10）
-        if (requestMapper.update(entity, new LambdaUpdateWrapper<ExemptionRequest>()
-                .eq(ExemptionRequest::getId, id).eq(ExemptionRequest::getFinalStatus, oldStatus)) == 0) {
+        if (requestMapper.update(new ExemptionRequest(), new LambdaUpdateWrapper<ExemptionRequest>()
+                .eq(ExemptionRequest::getId, id)
+                .eq(ExemptionRequest::getFinalStatus, oldStatus)
+                .set(ExemptionRequest::getFinalStatus, targetStatus)
+                .set(ExemptionRequest::getIncludedInExam, entity.getIncludedInExam())) == 0) {
             throw new BizException("操作冲突：该记录已被其他操作更新，请刷新后重试");
         }
         notificationHelper.notifySubmitted(entity.getCollegeId(), entity.getStudentId(), "免考申请",
@@ -269,9 +320,17 @@ public class ExemptionServiceImpl implements ExemptionService {
         entity.setFirstReviewerId(UserContext.getUserIdOrSystem());
         entity.setFirstReviewTime(LocalDateTime.now());
         entity.setFirstReviewComment(trimToNull(request.getComment()));
-        // 原子条件更新：仅当仍为初审态时才写入，防并发/重复初审竞态（P0-10）
-        if (requestMapper.update(entity, new LambdaUpdateWrapper<ExemptionRequest>()
-                .eq(ExemptionRequest::getId, id).eq(ExemptionRequest::getFinalStatus, oldStatus)) == 0) {
+        LambdaUpdateWrapper<ExemptionRequest> update = new LambdaUpdateWrapper<ExemptionRequest>()
+                .eq(ExemptionRequest::getId, id)
+                .eq(ExemptionRequest::getFinalStatus, oldStatus)
+                .set(ExemptionRequest::getFinalStatus, entity.getFinalStatus())
+                .set(ExemptionRequest::getIncludedInExam, entity.getIncludedInExam())
+                .set("FAIL".equals(action), ExemptionRequest::getLocked, entity.getLocked())
+                .set(ExemptionRequest::getFirstReviewStatus, entity.getFirstReviewStatus())
+                .set(ExemptionRequest::getFirstReviewerId, entity.getFirstReviewerId())
+                .set(ExemptionRequest::getFirstReviewTime, entity.getFirstReviewTime())
+                .set(ExemptionRequest::getFirstReviewComment, entity.getFirstReviewComment());
+        if (requestMapper.update(new ExemptionRequest(), update) == 0) {
             throw new BizException("操作冲突：该记录已被其他操作更新，请刷新后重试");
         }
         auditLogService.record("exemption", entity.getId(), exemptionTarget(entity), "firstReview",
@@ -316,9 +375,16 @@ public class ExemptionServiceImpl implements ExemptionService {
         entity.setSecondReviewerId(UserContext.getUserIdOrSystem());
         entity.setSecondReviewTime(LocalDateTime.now());
         entity.setSecondReviewComment(trimToNull(request.getComment()));
-        // 原子条件更新：仅当仍为复审态时才写入，防并发/重复复审竞态（P0-10）
-        if (requestMapper.update(entity, new LambdaUpdateWrapper<ExemptionRequest>()
-                .eq(ExemptionRequest::getId, id).eq(ExemptionRequest::getFinalStatus, oldStatus)) == 0) {
+        if (requestMapper.update(new ExemptionRequest(), new LambdaUpdateWrapper<ExemptionRequest>()
+                .eq(ExemptionRequest::getId, id)
+                .eq(ExemptionRequest::getFinalStatus, oldStatus)
+                .set(ExemptionRequest::getFinalStatus, entity.getFinalStatus())
+                .set(ExemptionRequest::getIncludedInExam, entity.getIncludedInExam())
+                .set(ExemptionRequest::getLocked, entity.getLocked())
+                .set(ExemptionRequest::getSecondReviewStatus, entity.getSecondReviewStatus())
+                .set(ExemptionRequest::getSecondReviewerId, entity.getSecondReviewerId())
+                .set(ExemptionRequest::getSecondReviewTime, entity.getSecondReviewTime())
+                .set(ExemptionRequest::getSecondReviewComment, entity.getSecondReviewComment())) == 0) {
             throw new BizException("操作冲突：该记录已被其他操作更新，请刷新后重试");
         }
         auditLogService.record("exemption", entity.getId(), exemptionTarget(entity), "secondReview",
@@ -484,6 +550,21 @@ public class ExemptionServiceImpl implements ExemptionService {
         material.setContentType(file.getContentType());
         material.setUploaderId(UserContext.getUserIdOrSystem());
         material.setUploadTime(LocalDateTime.now());
+    }
+
+    private int updateMaterialFile(ExemptionMaterial material, Long expectedFileId) {
+        LambdaUpdateWrapper<ExemptionMaterial> update = new LambdaUpdateWrapper<ExemptionMaterial>()
+                .eq(ExemptionMaterial::getId, material.getId())
+                .eq(ExemptionMaterial::getExemptionRequestId, material.getExemptionRequestId())
+                .eq(ExemptionMaterial::getFileId, expectedFileId)
+                .set(ExemptionMaterial::getFileId, material.getFileId())
+                .set(ExemptionMaterial::getFileName, material.getFileName())
+                .set(ExemptionMaterial::getFilePath, material.getFilePath())
+                .set(ExemptionMaterial::getFileSize, material.getFileSize())
+                .set(ExemptionMaterial::getContentType, material.getContentType())
+                .set(ExemptionMaterial::getUploaderId, material.getUploaderId())
+                .set(ExemptionMaterial::getUploadTime, material.getUploadTime());
+        return materialMapper.update(new ExemptionMaterial(), update);
     }
 
     private String validateSegment(String segment) {
@@ -663,6 +744,17 @@ public class ExemptionServiceImpl implements ExemptionService {
             throw new BizException("免考申请ID不能为空");
         }
         ExemptionRequest entity = requestMapper.selectById(id);
+        if (entity == null) {
+            throw new BizException(ResultCode.NOT_FOUND.getCode(), "免考申请不存在");
+        }
+        return entity;
+    }
+
+    private ExemptionRequest requireRequestForUpdate(Long id) {
+        if (id == null) {
+            throw new BizException("免考申请ID不能为空");
+        }
+        ExemptionRequest entity = requestMapper.selectByIdForUpdate(id);
         if (entity == null) {
             throw new BizException(ResultCode.NOT_FOUND.getCode(), "免考申请不存在");
         }

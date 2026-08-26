@@ -1,51 +1,74 @@
-export const STATUS_LABELS: Record<string, string> = {
-  DRAFT: '草稿',
-  WAIT_SUBMIT: '待提交',
-  FIRST_REVIEW: '待初审',
-  FIRST_REJECTED: '初审退回',
-  SECOND_REVIEW: '待复审',
-  SECOND_REJECTED: '复审退回',
-  PASSED: '已通过',
-  FAILED: '不合格',
-  PASS: '通过',
-  REJECT: '退回',
-  FAIL: '不通过',
-  LOCKED: '已锁定',
-  NORMAL: '正常',
-  CONFIRMED: '已确认',
-  RETURNED: '已退回',
-  WAIT_UPLOAD: '待上传',
-  VALIDATING: '校验中',
-  VALIDATION_FAILED: '校验未通过',
-  WAIT_REVIEW: '待评审',
-  REVIEWING: '评审中',
-  NEED_REVIEW: '需复评',
-  REVIEW_COMPLETED: '评审完成',
-  GENERATED: '已生成',
-  ISSUED: '已签发',
-  EXPORTED: '已导出',
-  ARCHIVED: '已归档',
-  VOIDED: '已作废',
-  REISSUED: '已重开',
-  COMPLETED: '已完成',
-  RUNNING: '运行中',
-  PENDING: '待处理',
-  FAILED_TASK: '失败',
-  ENABLED: '启用',
-  DISABLED: '停用',
-  UNREAD: '未读',
-  READ: '已读',
-  IMPORTED: '导入成功',
-  IMPORTING: '导入中',
-  PREVALIDATED: '预校验通过',
-  ROLLED_BACK: '已回滚',
-  INSERT: '新增',
-  UPDATE: '更新',
-  DELETE: '删除',
-  SUCCESS: '成功',
-  ERROR: '失败',
-  WARNING: '警告',
-  INFO: '提示'
+export type StatusTone = 'default' | 'success' | 'warning' | 'error' | 'info'
+
+export const STATUS_META: Record<string, { label: string; tone: StatusTone }> = {
+  DRAFT: { label: '草稿', tone: 'default' },
+  WAIT_SUBMIT: { label: '待提交', tone: 'default' },
+  FIRST_REVIEW: { label: '待初审', tone: 'warning' },
+  FIRST_REJECTED: { label: '初审退回', tone: 'warning' },
+  SECOND_REVIEW: { label: '待复审', tone: 'warning' },
+  SECOND_REJECTED: { label: '复审退回', tone: 'warning' },
+  PASSED: { label: '已通过', tone: 'success' },
+  FAILED: { label: '不合格', tone: 'error' },
+  PASS: { label: '通过', tone: 'success' },
+  REJECT: { label: '退回', tone: 'error' },
+  FAIL: { label: '不通过', tone: 'error' },
+  LOCKED: { label: '已锁定', tone: 'warning' },
+  NORMAL: { label: '正常', tone: 'success' },
+  CONFIRMED: { label: '已确认', tone: 'success' },
+  RETURNED: { label: '已退回', tone: 'warning' },
+  WAIT_UPLOAD: { label: '待上传', tone: 'default' },
+  VALIDATING: { label: '校验中', tone: 'info' },
+  VALIDATION_FAILED: { label: '校验未通过', tone: 'error' },
+  WAIT_REVIEW: { label: '待评审', tone: 'warning' },
+  REVIEWING: { label: '评审中', tone: 'info' },
+  NEED_REVIEW: { label: '需复评', tone: 'warning' },
+  REVIEW_COMPLETED: { label: '评审完成', tone: 'success' },
+  GENERATED: { label: '已生成', tone: 'warning' },
+  ISSUED: { label: '已签发', tone: 'success' },
+  EXPORTED: { label: '已导出', tone: 'info' },
+  ARCHIVED: { label: '已归档', tone: 'success' },
+  VOIDED: { label: '已作废', tone: 'error' },
+  REISSUED: { label: '已重开', tone: 'warning' },
+  COMPLETED: { label: '已完成', tone: 'success' },
+  RUNNING: { label: '运行中', tone: 'info' },
+  PENDING: { label: '待处理', tone: 'warning' },
+  FAILED_TASK: { label: '失败', tone: 'error' },
+  ENABLED: { label: '启用', tone: 'success' },
+  DISABLED: { label: '停用', tone: 'error' },
+  UNREAD: { label: '未读', tone: 'warning' },
+  READ: { label: '已读', tone: 'success' },
+  IMPORTED: { label: '导入成功', tone: 'success' },
+  IMPORTING: { label: '导入中', tone: 'info' },
+  PREVALIDATED: { label: '预校验通过', tone: 'info' },
+  ROLLED_BACK: { label: '已回滚', tone: 'warning' },
+  INSERT: { label: '新增', tone: 'info' },
+  UPDATE: { label: '更新', tone: 'info' },
+  DELETE: { label: '删除', tone: 'error' },
+  SUCCESS: { label: '成功', tone: 'success' },
+  ERROR: { label: '失败', tone: 'error' },
+  WARNING: { label: '警告', tone: 'warning' },
+  INFO: { label: '提示', tone: 'info' },
+  qualified: { label: '合格', tone: 'success' },
+  unqualified: { label: '不合格', tone: 'error' },
+  exempted: { label: '免考', tone: 'success' },
+  pending_confirm: { label: '待确认', tone: 'warning' }
+}
+
+export const STATUS_LABELS: Record<string, string> = Object.fromEntries(
+  Object.entries(STATUS_META).map(([code, meta]) => [code, meta.label])
+)
+
+const STATUS_TONE_ALIASES: Record<string, StatusTone> = {
+  未开始: 'default',
+  待审核: 'warning',
+  待确认: 'warning',
+  进行中: 'info',
+  待签发: 'warning',
+  待复评: 'warning',
+  初审通过: 'info',
+  合格: 'success',
+  锁定: 'error',
+  异常: 'error'
 }
 
 export const OPERATION_LABELS: Record<string, string> = {
@@ -109,6 +132,17 @@ export const OPERATION_LABELS: Record<string, string> = {
 export function statusLabel(code?: string | null) {
   if (!code) return '-'
   return STATUS_LABELS[code] || code
+}
+
+export function statusTone(codeOrLabel?: string | null, fallbackLabel?: string | null): StatusTone {
+  if (!codeOrLabel) return fallbackLabel ? statusTone(fallbackLabel) : 'default'
+  const direct = STATUS_META[codeOrLabel]
+  if (direct) return direct.tone
+  const byLabel = Object.values(STATUS_META).find((meta) => meta.label === codeOrLabel)
+  if (byLabel) return byLabel.tone
+  const alias = STATUS_TONE_ALIASES[codeOrLabel]
+  if (alias) return alias
+  return fallbackLabel && fallbackLabel !== codeOrLabel ? statusTone(fallbackLabel) : 'default'
 }
 
 export function operationLabel(code?: string | null) {

@@ -5,11 +5,181 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前阶段：**✅ Phase 0 / U-004 第九轮正式独立复核 PASS（0 finding）**。最终 SHA `ea760bf` 的 Linux 79/79、全新隔离栈 exact 7/33、同 bundle 离线 verifier、Compose 与专属资源清理五项门禁全部闭环。统一入口为 `docs/CURRENT-EXECUTION-PLAN.md`。
-- 当前结论：WS-1/WS-2/WS-3/WS-10/WS-13 与 U-001/U-002/U-003/U-004 全部独立 PASS；逐阶段退回项已清零。当前状态为 **FINAL_AUDIT_PENDING**，Phase PASS 不等于 merge、push、deploy 或稳定发布 GO。
-- P0 放行项：Phase 41 上一轮 1 High / 2 Medium / 1 Low 全部关闭；正式 PASS 时新增的 1 个非阻断 Low 已在后续闭环——Gate A 示例补齐冷认证参数，runner 在 Maven 前强制受验证 TLS / `allowPublicKeyRetrieval=true` / 受控 RSA 公钥文件三选一，并由纯 stub 静态契约覆盖失败关闭。正式报告仍保留当时的 1 Low 快照。约 24 MiB 以上原始整行 fail-closed、写入侧未同界继续留最终全量审计。
-- 最近更新：2026-07-28（第九轮最终动态证据独立复核：Linux/POSIX **79/79、skipped=0**；exact **7 suites / 33 testcases**；离线 verifier exit 0；14/14 checksum、15-file exact closure、双身份 0/0/1/0 与 source/worktree 绑定成立；Compose exit 0、专属资源零残留。Phase 0 正式 PASS，0 finding）。
-- 下一步：按用户要求执行最终全量审计，重新裁定项目级安全、业务规则、数据一致性、性能、运维与发布 GO；不把逐阶段 PASS 直接解释为发布授权。
+- 当前唯一阶段：`WS-8` `[~]` **LOCAL_REMEDIATION_R3_READY / HOSTED_WHOLE_WORKFLOW_PENDING**，分支
+  `feature/ws08-idcard-encryption`。R2 fingerprint `09ee0c39...42ba` 的 Hosted run `31661893931` 已关闭原
+  profile Medium：六 suite **46/46**、0 failure/error/skip，仅构成 WS-8 scoped PASS。最新正式报告
+  `C:\Users\wenbibuhaoqwq\Documents\脚本\ws08-hosted-independent-rereview-20260813-09ee0c39-run31661893931\review.md`
+  （SHA-256 `CEAF031A...F4D0B4`）裁定 **CHANGES_REQUESTED（0 Critical / 0 High / 1 Medium / 1 Low）**；唯一
+  Medium 是过期 WS-7 当前态合同导致 workflow 红灯并跳过 WS-8 V33 静态合同及最终镜像/SBOM。R3 已把该合同
+  收敛为有界历史证据与篡改反例；Low 的外部证据根清单已补为 17/17。待新候选整体绿灯 Hosted workflow 与独立
+  阶段 PASS；不扩展到 WS-9，也不运行 cyber/攻击性检查。
+- `WS-7` 最终候选 fingerprint
+  `d5ea9863739de05449d8b2d2110a1075b121aa8745bd824c53f6e45359ce9e24` 已取得
+  **INDEPENDENT_STAGE_PASS（0 Critical / 0 High / 0 Medium / 1 Low）**。正式报告
+  `C:\Users\wenbibuhaoqwq\Documents\脚本\ws07-hosted-ci-independent-rereview-20260812-d5ea9863\review.md`
+  （SHA-256 `60dd2733...35c8b`）确认 Hosted run `31507732334` 的双 SPDX、镜像身份、校验和与 artifact 闭环；唯一
+  Low（临时 `ws7-evidence` remote）已在复核后清除。该 PASS 仅放行 WS-8，项目继续 **CHANGES_REQUESTED / NO-GO**。
+- `WS-6` 第二轮候选 `f5d63378...8607` 已取得
+  **INDEPENDENT_INCREMENTAL_PASS（0 Critical / 0 High / 0 Medium / 0 Low）**，原 multipart Medium 正式关闭，
+  两个 Low 不重开。WS-6 状态为 `INDEPENDENT_SCOPED_PASS`，不等于项目发布 GO。
+- `WS-5` 整改候选 `9e33d20f...a83a` 已取得 **INDEPENDENT_INCREMENTAL_PASS（0 open finding）**：T1
+  `DYNAMIC_CLOSED`，结合 T2/T3 scoped PASS，WS-5 为 `INDEPENDENT_SCOPED_PASS`。该结论不是项目 GO。
+- `FINAL-F07-DYN` 已在 fingerprint `091538b7...c0f8e7` 上取得
+  **INDEPENDENT_INCREMENTAL_PASS / DYNAMIC_CLOSED**：定向 2/2、F07 69/69、完整 116/116、Surefire
+  352/352、F04 低堆 14/14，0 open finding。该 scoped PASS 不等于项目发布 GO；项目继续
+  **CHANGES_REQUESTED / NO-GO**。
+- 当前阶段：最终全量审计已完成，正式基线 `dfdfb91` 的结论为
+  **CHANGES_REQUESTED / NO-GO（0 Critical / 7 High / 13 Medium / 4 Low）**。Phase 0 / U-004
+  仍保持独立 PASS；全量审计结论见
+  `docs/reviews/audit-report-teacher-cert-platform-2026-07-28.md`。
+- **历史（2026-07-28，已被后续 scoped PASS 与当前 WS-7 候选取代）**：分支 `feature/ws05-tls-csp`、基线 HEAD `aa3509a` 的未提交工作树
+  自报完成 7 个 High 的代码级最小整改，并继续按原审计口径处理 6 个确定性 Medium（退役通用上传、文件
+  intent/补偿、统计批次 owner-only、导入预览与备份单行预算绑定、备份单飞、Dashboard 最新请求）
+  和 3 个 Low（固定客户端错误、通知键盘可达、验收文档状态漂移）。该状态只是整改候选，尚未获得
+  独立动态 PASS，不改写正式审计报告。
+- 独立增量复核：24 项当前代码级矩阵为 **6 STATIC_CLOSED / 10 PARTIAL / 8 OPEN**；确认
+  **1 High / 4 Medium / 2 Low** 的残余或新增问题，结论为
+  **CHANGES_REQUESTED / NO-GO**。其中 F-04 仍有检查前 JSON 大对象物化；Phase 3 真实 IT 与
+  新脱敏合同确定性冲突；审计、logout、备份配置、异常文本和 Phase 05/07 状态仍需整改。报告见
+  `docs/reviews/final-audit-remediation-independent-rereview-2026-07-28.md`。
+- 本轮第二整改候选：按上述原失败条件做最小收口——预览 JSON 改为写入期间硬限流、备份上限统一
+  读取 `platform.backup`；改密/重置恢复同事务审计，导入与 logout 显式记录
+  `PENDING → outcome`；前端 logout 撤销失败给出警告；Phase 3 断言改为普通权限脱敏；Exchange
+  非业务异常固定返回“导入失败”；Phase 05/07 撤回未取得动态证据的勾选。该工作树仍只是整改
+  候选，须由独立增量复核按 1 High / 4 Medium / 2 Low 原反例判定，不在此自报关闭 finding。
+- 当前证据：离线 Surefire 全仓 **347/347**；本轮聚焦回归
+  `platform-system` **2/2**、`platform-boot` **27/27**；真实 sharedStrings 的
+  `-Xmx128m` 有界预览反例 **14/14**；后端 9 模块 offline package、前端
+  lint/type-check/auth-logout-contract/dashboard-latest-request/build 与 `git diff --check`
+  均通过。真实 MySQL/Redis/MinIO、Docker/HTTP/浏览器和双连接交错未由 Codex 执行，继续由用户
+  或获授权独立复核环境完成。
+- 第二整改候选独立增量复核：七项原问题为 **6 CANDIDATE_CLOSED / 1 PARTIAL**，但仍有
+  **2 Medium** 阻断。其一是 resetPassword 成功审计没有被重置用户的 `bizId/target`；其二是
+  新配置 Bean 迁移后 `Phase41BackupIT` 仍反射已删除的服务字段，真实恢复门禁将确定性红灯。
+  独立低堆聚焦 Surefire 为 **34/34**、后端 9/9 package、前端 lint/type-check/logout contract/
+  build 与 diff check 均 PASS。报告见
+  `docs/reviews/final-audit-remediation-second-remediation-rereview-2026-07-29.md`。
+- 第三整改候选：`Phase41BackupIT` 已改为注入同一个 `DatabaseBackupProperties`，测试临时收紧
+  上限后按原值恢复，不再反射生产私有字段；密码重置在现有 `@Transactional` 服务方法内写入
+  `bizId=<被重置用户>`、`target=user:<id>`、`newStatus=SUCCESS` 的单一结构化审计，Controller
+  不再生成重复空目标记录，审计内容不含临时口令。离线聚焦 **39/39**、全仓 Surefire
+  **50 suites / 349 tests**、9 模块 package、Checkstyle 0 与 diff check 均通过。该状态仍只是
+  本地整改候选，真实 Phase 41 与同库回滚门禁未执行，不自行关闭 2 Medium。
+- 第三整改候选真实门禁反馈与第四整改候选：用户在一次性隔离栈确认密码重置成功审计及审计失败
+  MySQL 回滚 **2/2 PASS**；Phase 41 正式脚本 **2/2 FAIL**，唯一失败为 IT 同时要求对外
+  `BizException` 暴露内部“单语句超限”明细，而产品会正确收敛成通用消息并把明细写入
+  `backup_record.error_message`。第四整改候选已只修正该错误边界断言；既有
+  `Phase2SecurityIT` 同步增加两个真实重置目标的 `bizId/target/SUCCESS` 精确断言，未把创建
+  全局 Trigger 的一次性故障注入测试加入默认 Failsafe。离线 test-compile、聚焦 **39/39**、
+  全仓 Surefire **349/349**、9/9 模块 package、Checkstyle 0 与 diff check 通过；仍须对当前
+  新 diff 重跑正式真实门禁。
+- 第四整改候选真实门禁与第五整改候选：Claude 在同口径全新隔离栈确认 Phase 41
+  **1/1 PASS**、仓库内 `Phase2SecurityIT` **3/3 PASS**，并在当前候选重跑外部 SQLSTATE
+  故障注入 **2/2 PASS**；上一轮 Phase 41 阻断和两个密码重置目标审计原失败条件已有真实证据。
+  为防审计失败回滚语义日后静默退化，现将第 4 条反例并入 `Phase2SecurityIT`：测试局部 spy
+  只负责抛出审计异常，HTTP、事务代理及 `sys_user` 全行回滚继续依赖真实 MySQL；不创建全局
+  Trigger。新增源码已离线 test-compile，全仓 Surefire **349/349**、9/9 模块 package、
+  Checkstyle 0 与 diff check 通过；第 4 条动态用例尚须由用户在隔离栈执行，故第五候选不自行
+  宣称完整 PASS。
+- 第五整改候选独立增量复核：执行者证据为 Phase 2 **4/4 PASS**、Phase 41 **1/1 PASS**，
+  归档 7/7 SHA-256 一致；独立离线复核为聚焦 **33/33**、全仓 Surefire **50 suites /
+  349 tests**、9/9 package、Checkstyle 0 与 diff check PASS。上轮两个 Medium 均已
+  `FUNCTIONALLY_CLOSED`，但新增 **1 Medium / 1 Low**：真实门禁只绑定 tracked diff，遗漏直接
+  参与编译的 untracked `DatabaseBackupProperties.java`；README 将 113 个总状态项误写为
+  113 个 tracked 改动。正式结论继续 **CHANGES_REQUESTED / NO-GO**，报告见
+  `docs/reviews/final-audit-remediation-fifth-remediation-rereview-2026-07-29.md`。
+- 第六整改候选（证据层）：未再修改生产逻辑。新增离线完整候选清单工具，绑定 HEAD、tracked
+  binary diff 原始字节和每个非忽略 untracked 文件的路径/大小/SHA-256，且强制清单写到仓库外；
+  捕获及复核均会双读输入并在漂移时失败关闭。当前
+  `DatabaseBackupProperties.java` 已被实际清单枚举，6 个纯离线正反例及当前工作树
+  capture/verify smoke 均 PASS。历史 README 的 81/32/113 口径及“严格绑定”表述已修正。
+  当前为 **DYNAMIC_EVIDENCE_PENDING**；新指纹上的真实 Phase 2 / Phase 41 尚未执行，
+  不自行关闭 1 Medium / 1 Low。
+- 第六整改候选独立增量复核：README 计数 Low 已 `CLOSED`，source manifest 工具达到
+  `STATIC_READY`，独立 6/6 与当前工作树 capture/verify 均 PASS；但旧 4/4 + 1/1 门禁早于
+  新 manifest，候选绑定 Medium 仍为 `DYNAMIC_EVIDENCE_PENDING`。另新增 **1 Medium**：
+  `SHA256SUMS` 引用的两份 `run3-*.log` 命中全局 `*.log` ignore 且未受 Git 跟踪，普通提交或
+  fresh clone 会缺件。正式结论继续 **CHANGES_REQUESTED / NO-GO**，报告见
+  `docs/reviews/final-audit-remediation-sixth-remediation-rereview-2026-07-29.md`。
+- 第七整改候选（证据归档层）：未修改生产逻辑。两份 `run3-*.log` 已逐字节复制为可由普通
+  Git 提交携带的 `.log.txt`，规范 `SHA256SUMS` 已切换到新路径；`.gitattributes` 固定
+  `-text -diff`，防止 checkout 改写原始日志字节。原 ignored `.log` 只作为本机历史来源保留，
+  不再属于规范证据包。当前为
+  **EVIDENCE_PORTABILITY_REMEDIATION_READY / REVIEW_PENDING**，尚未在 staged/committed tree
+  或 fresh checkout 独立核验；候选绑定 Medium 仍为 `DYNAMIC_EVIDENCE_PENDING`。
+- R7 正式冻结包独立增量复核：唯一正式对象
+  `final-audit-r7-freeze-raw/final-audit-r7.bundle` 已通过 bundle 身份、完整对象闭包、fresh
+  重建与 manifest 逐字节复算；同一指纹下 Phase 2 **4/4**、Phase 41 **1/1**，门禁前后
+  verify 与外部证据 **11/11** 哈希闭合。原 `final-audit-r7-freeze` 仅为失败反例并完全排除。
+  上轮两个 Medium 均 `CLOSED`，本 R7 增量 **PASS（0 finding）**。该结论不改写最终全量审计
+  其它 OPEN/PARTIAL 项或项目 **CHANGES_REQUESTED / NO-GO** 基线。
+- **历史（首轮统一复核）**：2026-08-10 统一候选 `d2e3a7b1...c4105c` 已完成用户独立增量动态复核：F01、F03、F04、F05、F06
+  均 `DYNAMIC_CLOSED`；F07 为 **PARTIAL / OPEN**。八个 Failsafe suite 精确 **114/116**，其中 Phase 5
+  **18/19**、Phase 6 **5/6**、Phase 7 **44/44**。唯一 Medium 是 Phase 5/6 跨账号内容读取实际按
+  `@DataScope` 返回业务码 404，测试却断言 403，且断言失败遮蔽后续换号、logout 校验；请求已被拒绝，未发现
+  数据泄露。正式结论仍为 **CHANGES_REQUESTED / NO-GO**。
+- F07 当前本地最小整改已完成：不改生产鉴权，明确范围外定向读取“不可见即不存在”返回业务码 404；两条 IT
+  用 `assertAll` 让 Range、跨账号、换号、logout 四组场景互不遮蔽，并同步 Phase 5/6 规格。9 模块离线
+  `test-compile`、Checkstyle 0 与 `git diff --check` PASS；新候选动态复跑与独立裁定仍由用户完成。
+- **历史（2026-08-06）** 本轮独立复核目标：`FINAL-F01-DYN` `[!]`（产品代码无新增 finding，正式证据待补）。首轮真实 Phase 10 门禁绑定 fingerprint
+  `5749abd8...18e1`，15 个测试执行完整但 **5 失败 / 10 通过**；根因是候选新增的五个
+  `LIMIT 1 FOR UPDATE` 被 MyBatis-Plus 重排为 MySQL 非法 `FOR UPDATE LIMIT 1`。五处已最小
+  修复，并保留多条作废/重开证书历史的 Phase 48 合同；离线 test-compile、聚焦单测 13/13、
+  diff check 通过。第二轮执行者真实门禁绑定完整 fingerprint
+  `48a6c264d80824082d9fde1b5c1aaa5f26a6845605bf71cdbbbef88069ba5929`（HEAD `aa3509a`，
+  manifest 82 tracked / 101 untracked），门禁前后验证一致；Phase 10 **15/15**、Phase 48
+  **2/2**、Failsafe **17/17**、Surefire **349/349** 均 PASS。上一轮锁定 SQL Blocker 已按原
+  失败条件关闭。本轮独立复算归档 9/9 checksum、17/17 Failsafe 与 349/349 Surefire，并在当前工作树
+  复验聚焦 13/13、全仓离线 349/349、manifest 工具 6/6；但证据包没有容器内 `/workspace` 前后 verify、
+  可重建 tracked patch/bundle、target marker 与 teardown 原始记录，当前候选也已漂移为
+  `7409c46f...0647a`。正式报告为 `docs/reviews/final-f01-dynamic-independent-rereview-2026-08-06.md`，
+  结论 **CHANGES_REQUESTED / EVIDENCE_PENDING（0 个新增代码 finding / 1 个 Medium 证据 finding）**；
+  F-01 与项目整体均不自行改判，项目保持 **CHANGES_REQUESTED / NO-GO**。
+- 已完成任务：`FINAL-F02-DYN` `[x]`（独立增量 PASS）。按原审计顺序为 F-02 补最小常驻
+  Phase 13 动态反例：默认
+  `@AuditLog` 在业务成功后写审计失败时，要求 HTTP 500、真实 MySQL 参数整行回滚且不留成功样式
+  审计；不可信直连携带伪造及超长 XFF/X-Real-IP 时，要求落库 IP 仍为直连地址且长度受限。未改
+  生产架构；9 模块 offline test-compile、Checkstyle 0、`AuditIpTest` 7/7、
+  `AuditLogServiceImplTest` 3/3、`AuditLogAspectTest` 4/4 与 diff check 均通过。独立环境在完整
+  fingerprint `3cddcb748e...f98d2` 上确认 Surefire **349/349**、Phase 13 **11/11**、门禁后
+  manifest 不变；专用 `f02audit` rendered Nginx 入口把伪造 XFF/X-Real-IP 收敛为真实来源
+  `172.31.99.1`，且 `audit_log.ip` 精确相同。隔离资源已清理、线上未触碰，F-02 为
+  `DYNAMIC_CLOSED / INDEPENDENT_INCREMENTAL_PASS`；项目总体仍为 **CHANGES_REQUESTED / NO-GO**。
+- **历史（2026-08-06）** `FINAL-F03-DYN` 的本地真实门禁曾绑定 fingerprint
+  `34eb8298506074cb3933d478ba32a3d7b885cc01daba7a52080997c30c14007d`，`Phase8TestResultIT` **9/9**、
+  `Phase9CertificateIT` **10/10**，四组确定性交错使用不同真实 MySQL `CONNECTION_ID()`。当前工作树随后又
+  修改了 Phase 9 测试与共享候选，故该结果只保留为历史执行者证据；当前状态为
+  `HISTORICAL_LOCAL_GATE_PASS / UNIFIED_CANDIDATE_RERUN_PENDING`。
+- **历史（2026-08-06 冻结前）** `FINAL-F04-DYN` 已在当时工作树重跑 `-Xmx128m` 资源门禁：
+  `ExchangeImportResourceBudgetTest` **14/14 PASS**，JVM 原始标志确认
+  `MaxHeapSize=134217728`，包括真实 `sharedStrings 20000 × 4096` 用例。当前为
+  `LOCAL_RESOURCE_GATE_PASS / FORMAL_FREEZE_BINDING_PENDING`。
+- **历史（2026-08-06 冻结前）** `FINAL-F05-DYN` 已补普通证书列表/本院详情脱敏、跨学院详情 403 反例；STANDARD 普通/敏感导出合同继续
+  由 Phase 10 常驻用例覆盖。离线 `SensitiveProjectionTest + ExchangeExportGuardTest` **12/12 PASS**，但旧
+  Phase 3 **9/9** 早于本轮改动，当前候选的 Phase 3/9/10 真实门禁尚未执行。当前为
+  `LOCAL_IMPLEMENTATION_AND_OFFLINE_GATE_PASS / UNIFIED_DYNAMIC_GATE_PENDING`。
+- **历史（2026-08-06 冻结前）** `FINAL-F06-DYN` 已补 logout 后旧 access token 请求 `/api/auth/me` 为 401；前端共享退出流程在远端成功/失败
+  时均清理本地会话，失败继续抛给调用方告警，实际 store 的接线合同同步校验。当前工作树的
+  `test:auth-logout-contract`、lint、type-check、build 均 PASS；旧 Phase 2 **4/4** 早于新增断言，当前为
+  `LOCAL_IMPLEMENTATION_AND_EXECUTABLE_CONTRACT_PASS / UNIFIED_DYNAMIC_GATE_PENDING`。
+- `FINAL-F07-DYN` 的整改候选 `091538b7...c0f8e7` 已完成独立增量复核：定向 2/2、Phase 5/6/7
+  **69/69**、完整 8-suite **116/116**、0 failure/error/skip；上一轮 1 Medium 已关闭。当前为
+  `DYNAMIC_CLOSED / INDEPENDENT_INCREMENTAL_PASS`。
+- 最近完成任务：`WS-4 / D1–D6` `[x]`（首轮整改独立增量复核经严重度重新校准后为
+  `SCOPED PASS：0 High / 0 Medium`）。上一轮四类产品缺陷已按原口径关闭，正式同候选 gap 18/18、
+  D5 24/24、D6 36/36、D1–D4/D6 增量 85/85 及 62/62 checksum 成立。材料批量下载快照、disabled
+  后 handler 证明和视频五个零值逐项断言只作非阻断 Low/建议，不再作为继续整改门槛。
+- 已知后续 Medium：MinIO 服务身份、readiness、真实后端全链/全站 WCAG 证据、镜像可复现证明和真实环境/灾备
+  证据。WS-5 正式报告锁定的 2 Medium / 1 Low 已全部关闭；媒体 Cookie 动态闭环已由 F07 PASS 关闭，多实例
+  本地缓存 Low 保留到确认多实例需求后。
+- 线上边界：用户已部署的稳定版本 `dfdfb91` 冻结；本地整改期间不连接服务器、不操作线上容器、
+  镜像 tag、数据卷或数据，不部署、不切流。
+- 最近更新：2026-08-13。第一轮整改复核确认本地加密/生产护栏 **18/18**、V33 真 MySQL **3/3** 及发布合同
+  成立，但 Hosted 六-suite 门禁因缺 profile fail-closed。R2 只补 step-local `dev` profile，workflow YAML 与 diff
+  check 已通过；Hosted artifact 尚待同候选运行生成。
+- 下一步：重冻 R2 候选，触发 Hosted backend job，下载核对六份 XML 与 `test-summary.json`；随后只增量重核
+  剩余 1 Medium。独立 PASS 前不进入 WS-9，不 merge 产品主线、不 deploy 或切流。
+
 ## 审计整改工作流
 | WS | 内容 | 状态 |
 |---|---|---|
@@ -18,6 +188,28 @@
 | WS-3 | MinIO 预签名直传、独立端点与浏览器并行分片 | `[x]` **独立复核 PASS**（2026-07-24；第六轮关闭第五轮 2 Medium；1 Low 勘误不阻断；Phase 53 demo High 未计入） |
 | WS-10 | 移除默认 dev profile + profile fail-fast | `[x]` **独立复核 PASS**（2026-07-23） |
 | WS-13 | RBAC 授权天花板（防自提权守卫） | `[x]` **独立复核 PASS**（2026-07-23） |
+| FINAL-F01-DYN | F-01 ERROR 导出跨学院真实动态闭环 | `[x]` **DYNAMIC_CLOSED（独立复核）**；统一候选 `d2e3a7b1...c4105c` 的 Phase 10 15/15，候选/source/marker/checksum/teardown 证据链闭合 |
+| FINAL-F02-DYN | F-02 审计失败关闭与可信代理动态闭环 | `[x]` **DYNAMIC_CLOSED / INDEPENDENT_INCREMENTAL_PASS**；fingerprint `3cddcb74...f98d2`，Phase 13 11/11 + rendered forged-XFF 通过 |
+| FINAL-F03-DYN | F-03 陈旧聚合写交错动态闭环 | `[x]` **DYNAMIC_CLOSED（独立复核）**；统一候选 Phase 8 9/9 + Phase 9 10/10，四组双连接交错成立 |
+| FINAL-F04-DYN | F-04 XLSX 预览资源上限 | `[x]` **DYNAMIC_CLOSED（独立复核）**；`-Xmx128m` 14/14，`MaxHeapSize=134217728` |
+| FINAL-F05-DYN | F-05 敏感投影合同 | `[x]` **DYNAMIC_CLOSED（独立复核）**；Phase 3/9/10 34/34 |
+| FINAL-F06-DYN | F-06 服务端与前端 logout 合同 | `[x]` **DYNAMIC_CLOSED（独立复核）**；Phase 2 4/4 |
+| FINAL-F07-DYN | F-07 媒体 Cookie 退出失效 | `[x]` **DYNAMIC_CLOSED / INDEPENDENT_INCREMENTAL_PASS**；fingerprint `091538b7...c0f8e7`，定向 2/2、Phase 5/6/7 69/69、完整 116/116、0 open finding |
+| WS-5/T1 | HTTPS、HTTP→HTTPS、HSTS 与证书挂载合同 | `[x]` **DYNAMIC_CLOSED / INDEPENDENT_INCREMENTAL_PASS**；fingerprint `9e33d20f...a83a`，原 2 Medium + 1 Low 全部关闭 |
+| WS-5/T2 | 产品兼容 CSP 与短期 access token | `[x]` **SCOPED_DYNAMIC_PASS**；默认 access TTL 900 秒，CSP/浏览器合同由 WS-5 正式阶段复核通过 |
+| WS-5/T3 | HttpOnly refresh Cookie 与内存 access | `[x]` **SCOPED_DYNAMIC_PASS**；真实 Phase 2 4/4 与浏览器会话链由 WS-5 正式阶段复核通过 |
+| WS-5/STAGE | T1–T3 统一阶段候选 | `[x]` **INDEPENDENT_SCOPED_PASS**；T1–T3 范围内 0 open finding，不构成项目 GO |
+| WS-6/STAGE | 前端 unit、E2E、a11y 与 CI 门禁 | `[x]` **INDEPENDENT_SCOPED_PASS**；第二轮 fingerprint `f5d63378...8607` 为 0 Critical / 0 High / 0 Medium / 0 Low，multipart Medium 正式关闭；不等于项目 GO |
+| WS-7/STAGE | 容器/CI 供应链硬化 | `[x]` **INDEPENDENT_STAGE_PASS**；fingerprint `d5ea9863...9e24`，Hosted run `31507732334` 4/4，双 SPDX/身份/校验和/artifact 闭环；唯一 Low 的临时 remote 已后续清除；不等于项目 GO |
+| WS-8/STAGE | 身份证号应用层加密 + HMAC 唯一键 | `[~]` **LOCAL_REMEDIATION_R3_READY / HOSTED_WHOLE_WORKFLOW_PENDING**；R2 Hosted 六-suite 46/46 scoped PASS，最新正式结论 0C/0H/1M/1L；过期 WS-7 当前态合同已最小整改、证据清单 Low 已关闭，待新候选整体绿灯与独立阶段 PASS，WS-9 不启动 |
+| WS-4-D0 | 全站 UI 走查与样板范围冻结 | `[x]` **STATIC_BASELINE_COMPLETE / BEFORE_STATE_UNAVAILABLE_NONBLOCKING**；矩阵、规范、截图工具与两个样板范围已冻结，D1 前真实 before-state 不伪造 |
+| WS-4-D1 | 设计基线、共享组件与双样板 | `[x]` **INDEPENDENT_SCOPED_PASS**；五断点 30/30、导航与双 Drawer 5/5，纳入 D1–D6 统一候选复核 |
+| WS-4-D2 | 高频指标与列表页响应式铺开 | `[x]` **INDEPENDENT_SCOPED_PASS**；7 页五断点 55/55、Grid 实际列数 37/37 |
+| WS-4-D3 | Overlay 限宽与异步动作闭环 | `[x]` **INDEPENDENT_SCOPED_PASS**；相关页五断点 110/110、代表 Overlay 16/16、拦截写反例 2/2 |
+| WS-4-D4 | 布局、导航与公共门面收口 | `[x]` **INDEPENDENT_SCOPED_PASS**；五断点 25/25、导航/权限/首改密功能 10/10 |
+| WS-4-D5 | 非 Overlay 反馈、真实空态与最小键盘操作 | `[x]` **INDEPENDENT_SCOPED_PASS**；隔离前端状态机 24/24，真实后端联调不在本批范围 |
+| WS-4-D6 | 复合系统页与导入/视频上传流程收口 | `[x]` **INDEPENDENT_SCOPED_PASS**；6 页五断点 30/30、产品流程 6/6，候选证据与校验和已归档 |
+| WS-4-BATCH | D1–D6 集中复核退回整改 | `[x]` **INDEPENDENT_SCOPED_PASS**；原 0 High / 5 Medium 产品缺陷已关闭，复核者撤销后续 2 Medium / 1 Low 阻断定级，正式更正为 0 High / 0 Medium；报告 `docs/reviews/ws-04-d1-d6-remediation-independent-rereview-2026-08-05.md` |
 
 ## 收官后阶段复核总览（本轮新增）
 
@@ -69,7 +261,7 @@
 - [x] T-004 Flyway 接入 + 基础表 V1（已验证 migrate + 17 参数种子）
 - [x] T-005 本地依赖 docker-compose 编排已交付（第九轮最终 SHA `ea760bf` 的全新隔离栈 exact
       7/33、同 bundle 离线 verifier、Compose config 与专属资源销毁已独立复核 PASS）
-- [x] T-006 platform-file MinIO 文件服务（上传/预签名/下载验证通过）
+- [x] T-006 platform-file MinIO 文件服务（上传/受控范围读取验证通过；GET 预签名 API 已退役）
 - [x] T-007 审计切面 + 数据权限切面骨架（AuditLogAspect + DataScopeAspect）
 - [x] T-008 前端工程脚手架（Vue3+Vite+TS+Naive UI，构建通过）
 - [x] T-009 路由权限框架与按钮指令（守卫 + v-perm）
@@ -123,7 +315,7 @@
 
 ## Phase 5 · 文件 + 过程性材料 — 8/8 ✅ 已复核（Claude 2026-06-17，PASS · docs/reviews/phase-05-review.md）
 > 可编辑态守卫 backlog 已收口（material + 回填 student/training + 回归反例），Phase3/4 同类 Minor 一并清除。
-> `V11__process_material.sql` 落地 process_material 表与材料白名单参数；材料模块复用 platform-file 的 MinIO 上传/预签名/对象读取，process_material 接入 Phase 2 数据权限规则；`Phase5MaterialIT` 覆盖 AT-06、上传限制、通过后禁替换、读写数据范围、批量下载清单。同步收口 student/training/material 可编辑态守卫：仅 DRAFT/FIRST_REJECTED/SECOND_REJECTED 可写，在审/已通过/locked 拒绝。
+> `V11__process_material.sql` 落地 process_material 表与材料白名单参数；材料模块复用 platform-file 的 MinIO 上传/受控对象读取，process_material 接入 Phase 2 数据权限规则；`Phase5MaterialIT` 覆盖 AT-06、上传限制、通过后禁替换、读写数据范围、批量下载清单。同步收口 student/training/material 可编辑态守卫：仅 DRAFT/FIRST_REJECTED/SECOND_REJECTED 可写，在审/已通过/locked 拒绝。
 - [x] T-044 通用附件上传（PDF/图片）+ 大小限制（分支：`feature/phase05-T044-process-material`）
 - [x] T-045 process_material 表
 - [x] T-046 材料上传/替换/删除（含锁规则）
@@ -283,7 +475,7 @@
 
 ## 收官后 · Phase 21 / 前端重建·材料/免考/视频
 - Phase 21 / WP-F-3 `前端重建·材料/免考/视频`：**✅ 已复核（Claude 2026-06-18，PASS·一轮）**（分支：`feature/phase21-material-exemption-video`）。材料：`<object>/<iframe>` 内联 PDF/JPG/PNG 预览 + 非可览类型「打开文件」下载兜底 + 四类合格 + 初/复审 + 批量下载，按 material perm 显隐；免考：多科逐行申请(科目+依据+佐证必填) + 二级审核 + 应考科目剔除展示；视频：退回态显「重新上传」(WP-C)、指派对话框 `mode` 切按人/按组 XOR + 评审组 CRUD(WP-D)、第三专家/仲裁/确认/退回/水印播放 全按 video perm 显隐。`src/api/*`/`stores/user` 未改（沿用 WP-C/WP-D 新增 API），后端/迁移零改动。`type-check`+`build` 绿。详见 `docs/reviews/phase-21-review.md`。
-- [x] T-143 过程性材料：四类材料上传/替换/提交、初审/复审、批量下载与四类合格判定重建；`/material/preview/{id}` 返回的预签名 URL 在弹窗内联预览 PDF/JPG/PNG，非可预览文件退化为打开链接。
+- [x] T-143 过程性材料：四类材料上传/替换/提交、初审/复审、批量下载与四类合格判定重建；`/material/preview/{id}` 返回登录绑定的应用内容地址，在弹窗内联预览 PDF/JPG/PNG，非可预览文件退化为打开链接。
 - [x] T-144 免考：多科申请、每科佐证上传/替换/删除/预览、二级审核重建；应考口径弹窗展示复审通过科目剔除结果，多科记录互不影响。
 - [x] T-145 视频评审：视频分片上传/秒传/进度保留；`RETURNED`、校验失败、待上传状态显示上传/重传入口；负责人可按人或按评审组指派，评审组 CRUD 与成员维护接真实 `/video/reviewer-groups`。
 - [x] T-146 视频播放与结算动作：鉴权播放页保留动态水印；我的评审支持 9 维评分；负责人侧支持第三专家复评、学院仲裁、确认、退回（意见必填，`CONFIRMED` 不显示退回入口）。

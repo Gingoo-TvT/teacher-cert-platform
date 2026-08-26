@@ -20,6 +20,7 @@ public class Certificate extends BaseEntity {
     private String studentName;
     private String idCardType;
     private String idCardNo;
+    private String idCardHmac;
     private String educationLevel;
     private String trainingGoal;
     private String teachingSegment;

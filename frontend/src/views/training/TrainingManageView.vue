@@ -33,6 +33,12 @@ const userStore = useUserStore()
 const yearStore = useYearStore()
 
 const loading = ref(false)
+const loadError = ref('')
+const hasLoadedSuccessfully = ref(false)
+const loadedQueryKey = ref('')
+const optionsLoading = ref(false)
+const optionsError = ref('')
+const hasLoadedOptionsSuccessfully = ref(false)
 const reviewSaving = ref(false)
 const submitting = ref(false)
 const reviewVisible = ref(false)
@@ -56,6 +62,8 @@ const interviewModes = ref<DictItem[]>([])
 const conclusions = ref<DictItem[]>([])
 const drawerRef = ref<InstanceType<typeof TrainingDrawer> | null>(null)
 const detailRef = ref<InstanceType<typeof TrainingDetail> | null>(null)
+let listRequestSequence = 0
+let optionsRequestSequence = 0
 
 const statusOptions: SelectOption[] = [
   { label: '草稿', value: 'DRAFT' },
@@ -74,6 +82,24 @@ const canSecondReview = computed(() => userStore.hasPerm('info:secondReview'))
 const canViewStudents = computed(() => userStore.hasPerm('student:view'))
 const selfMode = computed(() => canSelfConfirm.value && !canEdit.value && !userStore.hasPerm('student:view'))
 const canCreate = computed(() => canEdit.value || canSelfConfirm.value)
+const listQueryKey = computed(() => JSON.stringify([
+  keyword.value,
+  assessmentYear.value,
+  statusFilter.value || '',
+  collegeFilter.value || '',
+  page.value,
+  size.value
+]))
+const listDataFresh = computed(() =>
+  hasLoadedSuccessfully.value
+  && loadedQueryKey.value === listQueryKey.value
+  && !loading.value
+  && !loadError.value
+)
+const writeBlocked = computed(() => !listDataFresh.value)
+const optionsReady = computed(() =>
+  hasLoadedOptionsSuccessfully.value && !optionsLoading.value && !optionsError.value
+)
 
 const collegeOptions = computed<SelectOption[]>(() => colleges.value.map((item) => ({ label: item.name, value: item.id })))
 
@@ -99,14 +125,14 @@ const columns: DataTableColumns<TrainingProfile> = [
           h(NButton, { size: 'small', type: 'primary', onClick: () => openDetail(row) }, { default: () => '详情' })
         ]
         if (canCreate.value) {
-          actions.push(h(NButton, { size: 'small', quaternary: true, onClick: () => openDrawer(row) }, { default: () => '编辑' }))
-          actions.push(h(NButton, { size: 'small', quaternary: true, onClick: () => submit(row) }, { default: () => '提交' }))
+          actions.push(h(NButton, { size: 'small', quaternary: true, disabled: writeBlocked.value || !optionsReady.value, onClick: () => openDrawer(row) }, { default: () => '编辑' }))
+          actions.push(h(NButton, { size: 'small', quaternary: true, disabled: writeBlocked.value || submitting.value, onClick: () => submit(row) }, { default: () => '提交' }))
         }
         if (canFirstReview.value) {
-          actions.push(h(NButton, { size: 'small', quaternary: true, onClick: () => openReview(row, 'first') }, { default: () => '初审' }))
+          actions.push(h(NButton, { size: 'small', quaternary: true, disabled: writeBlocked.value, onClick: () => openReview(row, 'first') }, { default: () => '初审' }))
         }
         if (canSecondReview.value) {
-          actions.push(h(NButton, { size: 'small', quaternary: true, onClick: () => openReview(row, 'second') }, { default: () => '复审' }))
+          actions.push(h(NButton, { size: 'small', quaternary: true, disabled: writeBlocked.value, onClick: () => openReview(row, 'second') }, { default: () => '复审' }))
         }
         return renderTableActions(actions)
       }
@@ -114,22 +140,30 @@ const columns: DataTableColumns<TrainingProfile> = [
 ]
 
 async function loadRecords() {
+  const requestSequence = ++listRequestSequence
+  const queryKey = listQueryKey.value
+  const query = {
+    keyword: keyword.value,
+    status: statusFilter.value,
+    collegeId: collegeFilter.value,
+    assessmentYear: assessmentYear.value,
+    page: page.value,
+    size: size.value
+  }
   loading.value = true
+  loadError.value = ''
   try {
-    const res = await listTrainingProfiles({
-      keyword: keyword.value,
-      status: statusFilter.value,
-      collegeId: collegeFilter.value,
-      assessmentYear: assessmentYear.value,
-      page: page.value,
-      size: size.value
-    })
+    const res = await listTrainingProfiles(query)
+    if (requestSequence !== listRequestSequence || queryKey !== listQueryKey.value) return
     records.value = res.data.records
     trainingTotal.value = res.data.total
+    hasLoadedSuccessfully.value = true
+    loadedQueryKey.value = queryKey
   } catch (error) {
-    showError(error, '专业培养列表加载失败')
+    if (requestSequence !== listRequestSequence || queryKey !== listQueryKey.value) return
+    loadError.value = showError(error, '专业培养列表加载失败')
   } finally {
-    loading.value = false
+    if (requestSequence === listRequestSequence) loading.value = false
   }
 }
 
@@ -151,36 +185,48 @@ function onPageSizeChange(nextSize: number) {
 }
 
 async function loadOptions() {
-  const [
-    collegeRes,
-    majorRes,
-    educationRes,
-    goalRes,
-    modeRes,
-    locationRes,
-    segmentRes,
-    interviewRes,
-    conclusionRes
-  ] = await Promise.all([
-    canViewStudents.value ? listColleges() : Promise.resolve(null),
-    canViewStudents.value ? listMajors({ pilotScopeFlag: 1, status: 1 }) : Promise.resolve(null),
-    listDictItems('education_level', true),
-    listDictItems('training_goal', true),
-    listDictItems('internship_org_mode', true),
-    listDictItems('internship_location', true),
-    listDictItems('teaching_segment', true),
-    listDictItems('interview_org_mode', true),
-    listDictItems('ability_test_conclusion', true)
-  ])
-  colleges.value = collegeRes?.data || []
-  majors.value = majorRes?.data || []
-  educationLevels.value = educationRes.data
-  trainingGoals.value = goalRes.data
-  internshipModes.value = modeRes.data
-  internshipLocations.value = locationRes.data
-  segments.value = segmentRes.data
-  interviewModes.value = interviewRes.data
-  conclusions.value = conclusionRes.data
+  const requestSequence = ++optionsRequestSequence
+  optionsLoading.value = true
+  optionsError.value = ''
+  try {
+    const [
+      collegeRes,
+      majorRes,
+      educationRes,
+      goalRes,
+      modeRes,
+      locationRes,
+      segmentRes,
+      interviewRes,
+      conclusionRes
+    ] = await Promise.all([
+      canViewStudents.value ? listColleges() : Promise.resolve(null),
+      canViewStudents.value ? listMajors({ pilotScopeFlag: 1, status: 1 }) : Promise.resolve(null),
+      listDictItems('education_level', true),
+      listDictItems('training_goal', true),
+      listDictItems('internship_org_mode', true),
+      listDictItems('internship_location', true),
+      listDictItems('teaching_segment', true),
+      listDictItems('interview_org_mode', true),
+      listDictItems('ability_test_conclusion', true)
+    ])
+    if (requestSequence !== optionsRequestSequence) return
+    colleges.value = collegeRes?.data || []
+    majors.value = majorRes?.data || []
+    educationLevels.value = educationRes.data
+    trainingGoals.value = goalRes.data
+    internshipModes.value = modeRes.data
+    internshipLocations.value = locationRes.data
+    segments.value = segmentRes.data
+    interviewModes.value = interviewRes.data
+    conclusions.value = conclusionRes.data
+    hasLoadedOptionsSuccessfully.value = true
+  } catch (error) {
+    if (requestSequence !== optionsRequestSequence) return
+    optionsError.value = showError(error, '培养信息选项加载失败')
+  } finally {
+    if (requestSequence === optionsRequestSequence) optionsLoading.value = false
+  }
 }
 
 function openDetail(row: TrainingProfile) {
@@ -188,10 +234,12 @@ function openDetail(row: TrainingProfile) {
 }
 
 function openDrawer(row?: TrainingProfile) {
+  if (writeBlocked.value || !optionsReady.value) return
   drawerRef.value?.open(row)
 }
 
 async function submit(row: TrainingProfile) {
+  if (writeBlocked.value || submitting.value) return
   submitting.value = true
   try {
     await submitTrainingProfile(row.id)
@@ -205,12 +253,13 @@ async function submit(row: TrainingProfile) {
 }
 
 function openReview(row: TrainingProfile, stage: 'first' | 'second') {
+  if (writeBlocked.value) return
   reviewing.value = { profile: row, stage }
   reviewVisible.value = true
 }
 
 async function saveReview(payload: ReviewPayload) {
-  if (!reviewing.value) return
+  if (!reviewing.value || writeBlocked.value) return
   if (payload.action !== 'PASS' && !payload.comment?.trim()) {
     message.error('退回或不通过必须填写原因')
     return
@@ -247,12 +296,14 @@ function collegeName(id?: string | null) {
 
 function showError(error: unknown, fallback: string) {
   const detail = error instanceof Error ? error.message : fallback
-  message.error(detail || fallback)
+  const text = detail || fallback
+  message.error(text)
+  return text
 }
 
-onMounted(async () => {
-  await loadOptions()
-  await loadRecords()
+onMounted(() => {
+  void loadOptions()
+  void loadRecords()
 })
 
 watch(
@@ -267,18 +318,23 @@ watch(
 
 <template>
   <PageContainer title="专业培养信息" description="专业培养信息维护，培养目标、学段与学科按标准联动。">
+    <n-alert v-if="optionsError" type="warning" :bordered="false" class="page-section">
+      培养信息列表已独立加载，但表单选项加载失败；新增和编辑暂不可用。{{ optionsError }}
+      <n-button text type="warning" size="small" :loading="optionsLoading" @click="loadOptions">重试加载选项</n-button>
+    </n-alert>
+
     <FilterBar :loading="loading" @submit="search" @reset="resetFilters">
       <label class="filter-field">
         <span>关键词</span>
         <n-input v-model:value="keyword" clearable placeholder="学生 / 专业 / 学科" style="width: 220px" @keyup.enter="search" />
       </label>
       <label class="filter-field">
-        <span>年度</span>
+        <span>记录年度</span>
         <n-input v-model:value="assessmentYear" placeholder="考核年度" style="width: 120px" />
       </label>
       <label class="filter-field">
         <span>学院</span>
-        <n-select v-model:value="collegeFilter" clearable filterable :options="collegeOptions" placeholder="全部学院" style="width: 200px" />
+        <n-select v-model:value="collegeFilter" clearable filterable :loading="optionsLoading" :options="collegeOptions" placeholder="全部学院" style="width: 200px" />
       </label>
       <label class="filter-field">
         <span>状态</span>
@@ -292,6 +348,7 @@ watch(
       :data="records"
       :total="trainingTotal"
       :loading="loading"
+      :error="loadError"
       remote
       :page="page"
       :page-size="size"
@@ -302,10 +359,10 @@ watch(
       @refresh="loadRecords"
     >
       <template #actions>
-        <n-button v-if="canCreate" type="primary" size="small" @click="openDrawer()">新增培养信息</n-button>
+        <n-button v-if="canCreate && records.length > 0" type="primary" size="small" :disabled="writeBlocked || !optionsReady" :loading="optionsLoading" @click="openDrawer()">新增培养信息</n-button>
       </template>
       <template v-if="canCreate" #emptyAction>
-        <n-button type="primary" @click="openDrawer()">新增培养信息</n-button>
+        <n-button type="primary" :disabled="writeBlocked || !optionsReady" :loading="optionsLoading" @click="openDrawer()">新增培养信息</n-button>
       </template>
     </DataPanel>
 

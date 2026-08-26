@@ -1,0 +1,54 @@
+{
+  "project": "teacher-cert-platform",
+  "project_root": "C:\\Users\\wenbibuhaoqwq\\Desktop\\teacher-cert-platform",
+  "timestamp": "2026-07-05T13:47:44+08:00",
+  "commit_hash": "e4f8228809d73bf376b0f5cefe2d17eed0271bcc",
+  "selected_modes": ["full"],
+  "scope": "full project",
+  "report_language": "zh-CN",
+  "output_format": "html",
+  "report_path": "C:\\Users\\wenbibuhaoqwq\\Desktop\\teacher-cert-platform\\audit-report-teacher-cert-platform-2026-07-05.html",
+  "overall_score": 5.9,
+  "overall_grade": "B",
+  "dimension_scores": {
+    "security": 5.6,
+    "stability": 6.3,
+    "performance": 7.2,
+    "testing": 4.8,
+    "maintainability": 6.2,
+    "design": 6.0,
+    "release": 5.2
+  },
+  "finding_counts_by_severity": {
+    "Critical": 0,
+    "High": 2,
+    "Medium": 6,
+    "Low": 3,
+    "Info": 0
+  },
+  "total_findings": 11,
+  "coverage_summary": {
+    "files_scanned_by_inventory": 598,
+    "scan_limit_reached": false,
+    "primary_stack": [
+      "Spring Boot 3.4",
+      "Maven multi-module",
+      "Vue 3",
+      "TypeScript",
+      "Vite",
+      "MySQL",
+      "Flyway",
+      "Redis",
+      "MinIO",
+      "Docker",
+      "GitHub Actions"
+    ],
+    "not_assessed": ["ai-safety runtime surface"]
+  },
+  "verification": {
+    "report_lint": "OK",
+    "frontend_type_check": "passed in audit run",
+    "frontend_build": "passed in audit run with large chunk warnings",
+    "backend_mvn_verify": "failed in platform-boot Failsafe: Phase2SecurityIT and Phase7VideoReviewIT assertion failures"
+  }
+}

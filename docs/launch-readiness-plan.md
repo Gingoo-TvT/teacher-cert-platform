@@ -278,6 +278,126 @@
 
 > **合并状态（截至 2026-07-04）**：Phase 37a–39、40、41、41.2、42.1–42.4、43.1–43.4、44a–44f 的**全部特性分支均已 ff-merge 入 main**（`git remote -v` 空、本地私有仓库、从未 push）。main 为线性历史，`git log` 即证。下列个别条目正文/结尾仍保留的「未合并入 main / 未 checkout main / 未 merge / 待人工复核」等字样，是各相**撰写当时**的分支瞬时状态历史留痕，现均已合并——以本 banner 为准。
 
+### WS-4 / D0–D6（静态基线、响应式铺开与本地动态门禁，进行中）
+- 🟦 **静态走查完成**：覆盖 74 个 Vue 文件、21 个认证业务页、23 个 Drawer、22 个 Modal；问题按
+  多余按钮、对齐、间距、状态、布局、响应式和文案分类，逐视图整改矩阵见
+  `docs/ui-optimization-spec.md`。D1 列表样板为 `StudentManageView`，复杂 Drawer 样板为
+  `TrainingManageView + TrainingDrawer`。
+- 🟦 **可重复工具完成**：`frontend/scripts/ui-routes.json` 固定 6 角色、20 个认证路由、2 个公共
+  路由和 5 个断点；`ui-shots.mjs` 按实际权限逐页截图并自动检查页面水平溢出与 Console
+  warning/error，账号口令只从环境变量读取。`node --check`、JSON 解析、dry-run、前端 lint、
+  type-check、build 均 PASS。
+- 🟦 **重复入口口径已确认并应用**：六个空列表在空态只保留中央主 CTA、有记录时恢复表头入口；
+  账号权限顶层改名“刷新全部”；参数审计备份、数据字典删除页头重复入口；通知筛选动作改名“查询”。
+  权限条件、处理函数和业务流程未改。
+- 🟦 **D1 静态实现与双样板完成**：共享核心间距/字号/圆角/语义色、三档 Overlay、表格
+  loading/empty/error、审核提交防重和状态元数据已收口；`StudentManage` 与
+  `TrainingManage + TrainingDrawer` 完成容器响应式样板。前端 lint/type-check/build、截图脚本
+  语法、dry-run 和 diff check 均 PASS。
+- 🟦 **本地运行态已通过，独立复核后置**：经用户明确允许，专属一次性 Docker 项目启动当前候选；
+  三角色 × 双样板 × 五断点 30/30，移动导航与 Student/Training Drawer 手机/桌面打开及空保存校验
+  5/5。首轮截图发现的 375px 固定侧栏和校验 rejection 泄漏均已修复并复验。D1 改动前未生成真实
+  `d0-before`，不得把新工作树截图冒充前置证据；只归档当前 `d1-after` / `report.json`。当前状态为
+  `D1_LOCAL_RUNTIME_GATE_PASS / INDEPENDENT_REVIEW_PENDING`，不宣称 WS-4 / D1 PASS；线上冻结版本
+  `dfdfb91` 未访问、未修改。
+- 🟦 **D2 高频 Grid 已铺开**：Dashboard、材料、免考、测试结果、证书管理/签发、统计及两个学生
+  子面板改为内容容器响应式；五断点页面 55/55、实际 Grid 列数 37/37，本地门禁通过。
+- 🟦 **D3 Overlay 与异步动作已收口**：业务、视频和系统域 Drawer/Modal 统一 viewport 限宽与手机
+  单列，写动作补校验前防重、loading、表单禁用和关闭锁；角色权限加载失败不可保存，迟到只读查询
+  只接受最后选择。公共登录、学生与系统管理员相关页五断点 110/110，8 个代表 Overlay 手机/桌面
+  16/16，测试导入与材料上传拦截反例 2/2；全部为本地候选证据，独立复核按 UI 批次后置。
+- 🟦 **D4 布局、导航与公共门面已收口**：受控菜单展开、路由面包屑、内容宽度与移动首帧完成；Dashboard 按真实
+  权限组合布局，登录/403/404 反馈统一。首次改密后清理已撤销会话并以新密码重登；Nginx 保留非标准入口端口，修复
+  真实浏览器同源 POST 误判 CORS。五断点 25/25、导航/权限/首改密功能 10/10；状态仅为
+  `D4_LOCAL_RUNTIME_GATE_PASS / BATCH_INDEPENDENT_REVIEW_DEFERRED`，不宣称 WS-4 独立 PASS。
+- 🟦 **D5 非 Overlay 反馈与真实空态已收口**：核心业务页区分首载失败、陈旧数据刷新失败和真实空数据；
+  选项加载失败时不开放不可完成的写流程，菜单分组、视频任务和认证字段补最小键盘/名称语义。隔离前端以
+  API 拦截确定性执行 24/24 状态机与键盘检查；该证据不冒充真实后端联调。状态仅为
+  `D5_LOCAL_RUNTIME_GATE_PASS / BATCH_INDEPENDENT_REVIEW_DEFERRED`，完整 a11y 门禁留给 WS-6。
+- 🟦 **D6 复合页与上传流程已收口**：字典、区划、学科、组织专业按内容容器响应，导入与视频步骤在手机纵向
+  展示；组件内 latest-request、查询键和写守卫阻止迟到响应、陈旧结果及双提交。六页五断点 30/30、组织
+  依赖恢复、导入互斥/失败重试与视频手机 Drawer 6/6；前端 lint/type-check/build、diff check 通过。
+  状态仅为 `D6_LOCAL_RUNTIME_GATE_PASS / BATCH_INDEPENDENT_REVIEW_DEFERRED`，D1–D6 等待统一独立复核。
+- 🟦 **D1–D6 集中复核退回整改已完成本地门禁**：3 个 Medium 收敛为列表请求时序、陈旧态写屏障及视频
+  任务/管理错误态和评分防重，已在 9 页以局部 query-key/request sequence/freshness guard 最小关闭。
+  修后只读复查 0 High / 0 Medium；当前构建 D6 原回归 36/36、受影响与复合页五断点 75/75、原触发条件
+  10/10。状态为 `LOCAL_BATCH_REMEDIATION_GATE_PASS / INDEPENDENT_REVIEW_PENDING`，不自行标记 WS-4 PASS。
+- 🟦 **独立批量复核 5 Medium 后续整改已完成本地门禁**：材料/统计加入 latest-request 与 loaded query
+  snapshot；培养/免考级联选项绑定 pending/error/loaded-key 与保存；视频首次失败隐藏伪零值/占位；冷启动
+  `loadMe()` 后重检首次改密。当前构建 gap 18/18、D5 24/24、D6 36/36、D1–D4/D6 增量 85/85，
+  lint/type-check/build 与三个合同均 PASS。当前仅为 `LOCAL_REMEDIATION_GATE_PASS /
+  INDEPENDENT_REREVIEW_PENDING`；新 manifest 独立增量复核 PASS 前不改写 WS-4 结论。
+
+### WS-5 / T1–T3（独立范围化 PASS；已放行 WS-6）
+- ✅ **正式阶段结论**：原候选 fingerprint `c15d8ace...b124ce` 的
+  `CHANGES_REQUESTED（0 High / 2 Medium / 1 Low）` 保留为历史；整改候选 fingerprint
+  `9e33d20f...a83a` 已获 `INDEPENDENT_INCREMENTAL_PASS（0 open finding）`。T1 记为
+  `DYNAMIC_CLOSED`，T2/T3 保持 `SCOPED_DYNAMIC_PASS`，WS-5 记为 `INDEPENDENT_SCOPED_PASS`。
+- ↺ **T1 Medium #1 本地整改**：生产 backend 删除宿主 8080；MinIO API/console 只绑定 `127.0.0.1`，
+  保留同机 TLS gateway upstream 和受控运维入口；开发 Compose 完全不变，不新增可能影响 SigV4 的路径代理。
+- ↺ **T1 Medium #2 本地整改**：`FRONTEND_HTTPS_PORT` 同时进入 frontend 容器和 301 authority；默认 443 与
+  非默认 18443 均有精确渲染合同，非默认部署不再跳到错误端口。
+- ↺ **T1 Low 本地整改**：README 已写证书域名/期限/密钥匹配、`nginx -t`、reload/recreate、外部
+  serial/fingerprint/notAfter 核验、30 天到期提醒和失败回退的最小运行手册。
+- ☑ **当前本地门禁**：WS-5 edge 合同 PASS；生产 Compose 展开后公网 binding 仅 frontend 80/443，MinIO
+  9000/9001 的 `host_ip` 均为 `127.0.0.1`，backend 无 binding；开发 MinIO 端口保持 9000/9001。
+- ✅ **增量复核**：正式报告位于
+  `C:\Users\wenbibuhaoqwq\Documents\脚本\ws05-remediation-independent-evidence-20260811\independent-review-report.md`
+  （SHA-256 `6D5C960E...A6324`），原 2 Medium / 1 Low 全部关闭。该范围化 PASS 放行 WS-6，但仍不授权
+  merge/push/deploy/cutover，也不构成项目级发布 GO。
+
+### WS-6（前端自动化门禁，独立范围化 PASS）
+- ↺ **首轮整改复核**：候选 fingerprint `cf3776b6...b0fb0` 为
+  `CHANGES_REQUESTED（0 High / 1 Medium / 0 Low）`；401 新 Authorization 与 tests/config 静态门禁两个 Low
+  均已关闭。multipart Medium 为 `PARTIAL / OPEN`：完整 part header 被整体小写，`name="FILE"` 可假绿。
+  正式报告为 `C:\Users\wenbibuhaoqwq\Documents\脚本\ws06-remediation-independent-evidence-20260811\independent-review-report.md`
+  （SHA-256 `4E7F90BA...10F5`）。
+- ☑ **第二轮整改范围**：只保留 header 名/参数键的大小写兼容，捕获值精确比较 `file` / `students.xlsx`；
+  Chromium 用浏览器原生 FormData 发送 `FILE`，同一解析器读取真实 boundary/header/body 后必须拒绝。
+  增量 lint、tests/config type-check 与 E2E 5/5 全绿，测试端口无残留；两个已关闭 Low 不重开。
+- **证据边界**：E2E 使用构建产物和严格 API mock，证明登录/会话、首登改密、RBAC/脱敏、导入预校验、
+  视频评分等前端行为，不冒充真实后端/数据库联调或全站 WCAG 审计。不做全仓格式化、bundle budget 或测试平台重构。
+- ✅ **第二轮独立复核**：fingerprint `f5d63378...8607` 为
+  `INDEPENDENT_INCREMENTAL_PASS（0 Critical / 0 High / 0 Medium / 0 Low）`；原 multipart Medium 正式关闭，
+  两个 Low 不重开。报告位于
+  `C:\Users\wenbibuhaoqwq\Documents\脚本\ws06-remediation-r2-independent-evidence-20260811\independent-review-report.md`
+  （SHA-256 `EC6FF4F9...AC053`）。WS-6 为 `INDEPENDENT_SCOPED_PASS`，不等于项目发布 GO。
+
+### WS-7（容器/CI 供应链硬化，独立阶段 PASS）
+- ☑ **实现**：后端/前端运行容器非 root；Dockerfile/生产与 CI 镜像 digest、GitHub Actions commit SHA 固定；
+  CI 只有在后端、前端和既有 runner 合同全部通过后才构建最终镜像，并配置输出不可变身份、双 SPDX SBOM
+  与校验和。
+- ☑ **本地证据**：供应链静态合同、Compose 渲染、双镜像 build、backend UID `10001` / probe 目录可写、
+  frontend UID `101` / 临时证书 `nginx -t` 与 diff check 均通过；前端 `.dockerignore` 阻止宿主
+  `node_modules` 覆盖容器内 `npm ci`。
+- ✅ **正式结论/边界**：fingerprint `d5ea9863...9e24` 已取得
+  `INDEPENDENT_STAGE_PASS（0 Critical / 0 High / 0 Medium / 1 Low）`；正式报告
+  `ws07-hosted-ci-independent-rereview-20260812-d5ea9863/review.md`（SHA-256 `60dd2733...35c8b`）核验 Hosted run
+  `31507732334` 的 4/4 jobs、双 SPDX、镜像身份、校验和与 artifact。唯一 Low（临时 evidence remote）已后续清除。
+  WS-7 只放行 WS-8，不引入制品签名平台，不运行依赖/镜像扫描或攻击性测试，不构成 merge/push/deploy/cutover
+  或项目 GO。
+
+### WS-8（身份证件号应用层加密 + HMAC 唯一键，正式退回后整改候选待重核）
+- ☑ **实现**：V33 把 `student` / `certificate` 的证件号扩为应用层 AES-GCM 密文，并用普通
+  `id_card_hmac` 列承担等值查询和活跃学生唯一约束；Spring `AFTER_MIGRATE` 回填 Student/Certificate、导入
+  预览/筛选范围/错误明细/前后快照，重入不二次加密，伪造 `v1:` 密文失败关闭。业务写端同步维护密文和 HMAC，
+  逻辑删除清空唯一键；普通投影/导出继续脱敏，既有授权和审计保护的敏感导出保持可用。
+- ☑ **本地证据**：隔离 MySQL/Redis/MinIO 聚焦 8-suite **97/97**；排除必须由正式 fresh-target 流程提供
+  attestation 的 `Phase00ScaffoldIT` 后完整 Failsafe **32 suites / 220 tests**；Surefire
+  **52 suites / 364 tests**，全部 0 failure/error/skip。前端 lint、双 type-check、Vitest 16/16、4 项合同与
+  production build，Compose config 和 diff check 均通过。逻辑备份/恢复验证密文、HMAC、密钥一致性及备份
+  Base64 literal 不含已知证件号。
+- ❌ **R2 Hosted 正式重核仍退回**：fingerprint `09ee0c39...42ba` 的 run `31661893931` 已使原 profile Medium
+  关闭，六-suite **46/46**、0 failure/error/skip 仅构成 WS-8 scoped PASS；最新结论为
+  `CHANGES_REQUESTED（0 Critical / 0 High / 1 Medium / 1 Low）`。唯一 Medium 是过期 WS-7 当前态合同令整条
+  workflow 红灯，V33 静态合同和最终镜像/SBOM 被跳过；Low 是证据根清单漏一项。
+- ⏳ **当前状态/边界**：R3 只把 WS-7 合同改为有界历史 PASS/identity/artifact/非 GO 验证并保留篡改反例；
+  外部证据根清单已补为 17/17，Low 关闭。当前为
+  `LOCAL_REMEDIATION_R3_READY / HOSTED_WHOLE_WORKFLOW_PENDING`；R3 manifest 固定为
+  `C:\Users\wenbibuhaoqwq\Documents\脚本\teacher-cert-ws8-whole-workflow-remediation-r3-candidate-2026-08-13.json`。
+  待整体绿灯 Hosted workflow 和独立阶段 PASS；此前不领取 WS-9、不 merge 产品主线、deploy/cutover，项目继续
+  `CHANGES_REQUESTED / NO-GO`。
+
 ### Phase 45（本地/dev 启动崩溃修复 = 用户报告「点开是 500」的根因，Phase 45 —— 分支 `feature/phase45-dev-startup-jwt`，单 commit，已 ff-merge 入 main，mvn verify 114/114 绿 + 活体不带 JWT_SECRET 起栈成功）
 - ✅ **根因**：base `application.yml` 为 `secret: ${JWT_SECRET:}`（空默认、全 profile；prod 正确取舍——密钥不硬编码进包）但 dev 无覆盖 → 未注入 `JWT_SECRET` 时 `JwtService.init` 抛 `BizException("JWT密钥未配置")` → 后端启动失败、未起在 :8080 → 前端 Vite dev 把 `/api/*` 代理到空端口 → 浏览器 500。**与本会话已合并的分页/44f 无关**（活体逐一验证 7 端点均 200 code=0，含 `/api/audit/log` 4.2 万行真分页、`/api/system/user` total=17）。
 - ✅ **修法**：① `application-dev.yml` 加 `platform.security.jwt.secret: ${JWT_SECRET:<dev 默认>}`（dev 专用、明确标注勿用于生产），dev「直接起栈」开箱即用。② `JwtService` 的 base64 回退 `catch` 补 `io.jsonwebtoken.io.DecodingException`（jjwt 对非 base64 串抛此异常、非 `IllegalArgumentException` 子类，原未捕获 → 任何可读口令型 `JWT_SECRET` 都崩溃启动）——现 `JWT_SECRET` 接受任意 ≥32 字节串。

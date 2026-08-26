@@ -38,9 +38,14 @@ function open(row?: College) {
 }
 
 async function saveCollege() {
-  await collegeFormRef.value?.validate()
+  if (saving.value) return
   saving.value = true
   try {
+    try {
+      await collegeFormRef.value?.validate()
+    } catch {
+      return
+    }
     const payload: CollegePayload = {
       code: collegeForm.code.trim(),
       name: collegeForm.name.trim(),
@@ -72,11 +77,17 @@ defineExpose({ open })
 </script>
 
 <template>
-  <n-drawer v-model:show="visible" :width="560" placement="right">
-    <n-drawer-content :title="editingCollegeId ? '编辑学院' : '新增学院'">
-      <n-form ref="collegeFormRef" :model="collegeForm" :rules="collegeRules" label-placement="top">
+  <n-drawer
+    v-model:show="visible"
+    width="min(var(--overlay-medium), var(--overlay-drawer-max))"
+    placement="right"
+    :mask-closable="!saving"
+    :close-on-esc="!saving"
+  >
+    <n-drawer-content :title="editingCollegeId ? '编辑学院' : '新增学院'" :closable="!saving">
+      <n-form ref="collegeFormRef" :model="collegeForm" :rules="collegeRules" label-placement="top" :disabled="saving">
         <div class="form-section-title">基本信息</div>
-        <n-grid :cols="2" :x-gap="12">
+        <n-grid cols="1 480:2" responsive="self" item-responsive :x-gap="12">
           <n-form-item-gi label="学院编码" path="code">
             <n-input v-model:value="collegeForm.code" maxlength="64" show-count />
           </n-form-item-gi>
@@ -93,7 +104,7 @@ defineExpose({ open })
       </n-form>
       <template #footer>
         <n-space justify="end">
-          <n-button @click="visible = false">取消</n-button>
+          <n-button :disabled="saving" @click="visible = false">取消</n-button>
           <n-button type="primary" :loading="saving" @click="saveCollege">保存</n-button>
         </n-space>
       </template>

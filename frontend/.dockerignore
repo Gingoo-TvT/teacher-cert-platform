@@ -1,0 +1,10 @@
+# 保持前端镜像只使用容器内 npm ci 的依赖与当前源码。
+node_modules
+dist
+target
+test-results
+playwright-report
+*.log
+.env
+.env.local
+.env.*.local

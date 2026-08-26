@@ -37,6 +37,7 @@ const roles = ref<Role[]>([])
 const permissions = ref<Permission[]>([])
 const colleges = ref<College[]>([])
 const majors = ref<Major[]>([])
+const resettingUserId = ref<string | null>(null)
 
 const userDrawerRef = ref<InstanceType<typeof UserDrawer> | null>(null)
 const roleDrawerRef = ref<InstanceType<typeof RoleDrawer> | null>(null)
@@ -98,7 +99,12 @@ const userColumns: DataTableColumns<User> = [
               h(NButton, { size: 'small', quaternary: true, onClick: () => userDrawerRef.value?.open(row) }, { default: () => '编辑' }),
               h(NButton, { size: 'small', quaternary: true, onClick: () => userScopeDrawerRef.value?.open(row) }, { default: () => '范围' }),
               h(NPopconfirm, { onPositiveClick: () => resetPassword(row) }, {
-                trigger: () => h(NButton, { size: 'small', quaternary: true }, { default: () => '重置密码' }),
+                trigger: () => h(NButton, {
+                  size: 'small',
+                  quaternary: true,
+                  loading: resettingUserId.value === row.id,
+                  disabled: resettingUserId.value !== null
+                }, { default: () => '重置密码' }),
                 default: () => '重置后用户需首次改密。'
               }),
               h(NPopconfirm, { onPositiveClick: () => removeUser(row) }, {
@@ -237,6 +243,8 @@ async function refreshAll() {
 }
 
 async function resetPassword(row: User) {
+  if (resettingUserId.value !== null) return
+  resettingUserId.value = row.id
   try {
     const response = await resetUserPassword(row.id)
     if (response.data) {
@@ -245,8 +253,8 @@ async function resetPassword(row: User) {
         title: '学生临时口令',
         content: () => h(NSpace, { vertical: true, size: 12 }, () => [
           h('span', '口令仅在本次重置后显示，请通过受控渠道交给学生。'),
-          h(NSpace, { wrap: false, align: 'center' }, () => [
-            h(NInput, { value: temporaryPassword, readonly: true, style: { width: '260px' } }),
+          h(NSpace, { wrap: true, align: 'center', style: { width: '100%' } }, () => [
+            h(NInput, { value: temporaryPassword, readonly: true, style: { flex: '1 1 220px', minWidth: 0 } }),
             h(NButton, {
               secondary: true,
               onClick: async () => {
@@ -273,6 +281,8 @@ async function resetPassword(row: User) {
     await loadUsers()
   } catch (error) {
     showError(error, '密码重置失败')
+  } finally {
+    resettingUserId.value = null
   }
 }
 
@@ -345,7 +355,7 @@ onMounted(refreshAll)
 <template>
   <PageContainer title="账号权限" description="账号、角色、权限与数据范围管理。">
     <template #actions>
-      <n-button v-if="hasVisibleSection" secondary @click="refreshAll">刷新</n-button>
+      <n-button v-if="hasVisibleSection" secondary @click="refreshAll">刷新全部</n-button>
     </template>
 
     <n-empty v-if="!hasVisibleSection" description="当前账号没有可访问的账号权限分区" class="page-section" />

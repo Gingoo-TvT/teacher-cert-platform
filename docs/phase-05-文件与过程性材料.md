@@ -13,7 +13,8 @@
 
 ## 3. 文件规则
 - 类型白名单 PDF/JPG/JPEG/PNG；单附件大小 `file.maxSize.material`（默认 50MB，可配）。
-- 在线预览：PDF 与图片经预签名鉴权 URL 预览，不强制下载。
+- 在线预览：PDF 与图片经登录绑定的应用鉴权代理预览，不强制下载；复制内容地址后仍须有效会话。
+- 数据范围外的定向预览/内容读取按“不可见即不存在”返回业务码 404，避免泄露材料是否存在；无有效会话返回 401。
 - 替换规则：审核**通过前**可直接替换/删除；**通过后**必须先退回再替换。
 
 ## 4. 接口清单
@@ -22,7 +23,7 @@
 | POST | `/api/material/upload` | `material:upload` | 学生上传（校验类型/大小） |
 | DELETE | `/api/material/{id}` | `material:upload` | 通过前删除 |
 | PUT | `/api/material/{id}/replace` | `material:upload` | 替换（通过后需先退回） |
-| GET | `/api/material/preview/{id}` | `material:view`/`upload` | 预览预签名 |
+| GET | `/api/material/preview/{id}` | `material:view`/`upload` | 签发登录绑定的应用预览地址 |
 | POST | `/api/material/{id}/first-review` | `material:firstReview` | 初审 通过/退回/不通过 |
 | POST | `/api/material/{id}/second-review` | `material:secondReview` | 复审 通过/退回/不通过 |
 | GET | `/api/material/process-status/{studentId}?year=` | `material:view` | 四类聚合状态 |
@@ -39,7 +40,8 @@
 
 ## 7. 验收清单（AT-06）
 - [x] 非白名单类型/超大小附件 → 拒传并提示。
-- [x] PDF 与图片可在线预览，预览 URL 鉴权且限时。
+- [ ] PDF 与图片可在线预览，内容地址每次读取均鉴权且会话 Cookie 限时。
+  **代码候选已完成；当前应用取流的真实 HTTP/MinIO/浏览器动态证据待补。**
 - [x] 审核通过前可替换；通过后直接替换被拒（须先退回）。
 - [x] 初/复审三种结论可用；退回与不通过必填原因；保留历史版本与留痕。
 - [x] **四类材料全部复审通过 → 过程性考核状态"合格"；缺任一类或任一类不通过 → 不能"合格"**（AT-06）。
@@ -52,6 +54,7 @@
 - T-MAT-4（反例）：某类复审"不通过" → 聚合非"合格"。
 - T-MAT-5：材料复审通过后尝试替换 → 拒；退回后可替换。
 - T-MAT-6：批量下载 zip 内含 Excel 清单且字段完整。
+- T-MAT-7（反例）：B 账号持自身媒体 Cookie 定向读取 A 材料 → 业务码 404；换号清 Cookie、A 退出后旧 Cookie → 401，三组断言互不遮蔽。
 
 ## 9. DoD
 四类材料上传/预览/替换/两级审核/聚合合格/批量下载可用；AT-06 自测（含反例）通过。

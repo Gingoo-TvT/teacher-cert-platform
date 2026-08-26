@@ -13,6 +13,7 @@ import cn.edu.gpnu.platform.business.training.entity.TrainingProfile;
 import cn.edu.gpnu.platform.business.training.mapper.TrainingProfileMapper;
 import cn.edu.gpnu.platform.business.video.entity.VideoReview;
 import cn.edu.gpnu.platform.business.video.mapper.VideoReviewMapper;
+import cn.edu.gpnu.platform.security.service.IdCardProtectionService;
 import cn.edu.gpnu.platform.system.entity.SysUser;
 import cn.edu.gpnu.platform.system.mapper.SysUserMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -82,6 +83,9 @@ class Phase11StatsIT {
 
     @Autowired
     private StudentMapper studentMapper;
+
+    @Autowired
+    private IdCardProtectionService idCardProtectionService;
 
     @Autowired
     private ProcessMaterialMapper materialMapper;
@@ -296,8 +300,10 @@ class Phase11StatsIT {
         String className = "Phase11异常班";
         long studentId = seedStudent("P11BAD", COLLEGE_A, className);
         Student student = studentMapper.selectById(studentId);
+        String invalidIdCardNo = "bad-id";
         student.setIdCardType("resident_id_card");
-        student.setIdCardNo("bad-id");
+        student.setIdCardNo(idCardProtectionService.encrypt(invalidIdCardNo));
+        student.setIdCardHmac(idCardProtectionService.hmac(invalidIdCardNo));
         student.setBirthDate("2000/12/31");
         studentMapper.updateById(student);
 
@@ -331,12 +337,14 @@ class Phase11StatsIT {
     }
 
     private long seedStudent(String studentNo, long collegeId, String className) {
+        String idCardNo = uniqueTravelPermit();
         Student student = new Student();
         student.setStudentNo(studentNo);
         student.setName("统计学生" + studentNo);
         student.setGender("female");
         student.setIdCardType("hm_travel_permit");
-        student.setIdCardNo(uniqueTravelPermit());
+        student.setIdCardNo(idCardProtectionService.encrypt(idCardNo));
+        student.setIdCardHmac(idCardProtectionService.hmac(idCardNo));
         student.setBirthDate("2000/12/31");
         student.setIdentityType("normal_student");
         student.setSourceProvince("440000");
@@ -374,6 +382,7 @@ class Phase11StatsIT {
     }
 
     private void insertCertificate(long studentId, String studentNo, long collegeId, String certNo, String status) {
+        String idCardNo = uniqueTravelPermit();
         Certificate certificate = new Certificate();
         certificate.setStudentId(studentId);
         certificate.setCollegeId(collegeId);
@@ -382,7 +391,8 @@ class Phase11StatsIT {
         certificate.setStudentNo(studentNo);
         certificate.setStudentName("统计学生" + studentNo);
         certificate.setIdCardType("hm_travel_permit");
-        certificate.setIdCardNo(uniqueTravelPermit());
+        certificate.setIdCardNo(idCardProtectionService.encrypt(idCardNo));
+        certificate.setIdCardHmac(idCardProtectionService.hmac(idCardNo));
         certificate.setEducationLevel("bachelor");
         certificate.setTrainingGoal("senior_middle_school_teacher");
         certificate.setTeachingSegment("senior_middle_school");

@@ -1,0 +1,744 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>teacher-cert-platform 审计报告</title>
+<style>
+  :root {
+    --sidebar-bg: #1a1f2e;
+    --sidebar-hover: #242a3d;
+    --sidebar-active: #2d3555;
+    --bg: #f0f3f7;
+    --card-bg: #ffffff;
+    --border: #e6eaef;
+    --text: #1e2233;
+    --text-secondary: #6b7394;
+    --accent: #3370ff;
+    --accent-light: #e8f0ff;
+    --success: #34c759;
+    --warning: #ff9500;
+    --danger: #ff3b30;
+    --info: #5ac8fa;
+    --badge-critical: #ff3b30;
+    --badge-high: #ff9500;
+    --badge-medium: #3370ff;
+    --badge-low: #8e8e93;
+    --badge-info: #5ac8fa;
+    --bar-bg: #e8eaed;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.8;
+    display: flex;
+    min-height: 100vh;
+    font-size: 15px;
+  }
+  .sidebar { width: 240px; background: var(--sidebar-bg); color: #fff; flex-shrink: 0; display: flex; flex-direction: column; position: sticky; top: 0; height: 100vh; overflow-y: auto; }
+  .sidebar-header { padding: 20px 20px 16px; border-bottom: 1px solid rgba(255,255,255,.06); }
+  .sidebar-header h1 { font-size: 18px; font-weight: 700; letter-spacing: .5px; }
+  .sidebar-header .sub { font-size: 12px; color: rgba(255,255,255,.4); margin-top: 4px; }
+  .sidebar-nav { padding: 8px 0; flex: 1; }
+  .sidebar-nav a { display: flex; align-items: center; gap: 12px; padding: 14px 20px; color: rgba(255,255,255,.6); text-decoration: none; font-size: 14px; transition: all .15s; border-left: 3px solid transparent; }
+  .sidebar-nav a:hover { background: var(--sidebar-hover); color: #fff; }
+  .sidebar-nav a.active { background: var(--sidebar-active); color: #fff; border-left-color: var(--accent); }
+  .sidebar-nav a .icon { width: 18px; text-align: center; font-size: 14px; }
+  .sidebar-footer { padding: 12px 20px; border-top: 1px solid rgba(255,255,255,.06); font-size: 11px; color: rgba(255,255,255,.3); }
+  .main { flex: 1; min-width: 0; padding: 32px 40px 80px; }
+  .page-header { margin-bottom: 32px; }
+  .page-header h2 { font-size: 26px; font-weight: 700; }
+  .page-header .meta { font-size: 14px; color: var(--text-secondary); margin-top: 6px; display: flex; gap: 20px; flex-wrap: wrap; }
+  .page-header .meta span { display: flex; align-items: center; gap: 4px; }
+  .card { background: var(--card-bg); border-radius: 10px; border: 1px solid var(--border); margin-bottom: 20px; overflow: hidden; }
+  .card-header { display: flex; align-items: center; justify-content: space-between; padding: 18px 24px; border-bottom: 1px solid var(--border); font-weight: 600; font-size: 15px; }
+  .card-body { padding: 24px; }
+  .score-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+  .score-item { display: flex; flex-direction: column; gap: 8px; padding: 18px 20px; background: #f8fafc; border-radius: 8px; border: 1px solid var(--border); }
+  .score-item .label { font-size: 13px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: .4px; }
+  .score-item .bar-row { display: flex; align-items: center; gap: 12px; }
+  .score-item .bar-track { flex: 1; height: 10px; background: var(--bar-bg); border-radius: 5px; overflow: hidden; }
+  .score-item .bar-fill { height: 100%; border-radius: 5px; transition: width .6s ease; }
+  .score-item .value { font-size: 22px; font-weight: 700; min-width: 52px; text-align: right; }
+  .score-item .grade { font-size: 15px; font-weight: 700; min-width: 22px; text-align: center; }
+  .bar-fill.s { background: linear-gradient(90deg, #34c759, #30d158); }
+  .bar-fill.a { background: linear-gradient(90deg, #3370ff, #5e8cff); }
+  .bar-fill.b { background: linear-gradient(90deg, #ff9500, #ffb340); }
+  .bar-fill.c { background: linear-gradient(90deg, #ff3b30, #ff6b61); }
+  .bar-fill.d { background: linear-gradient(90deg, #ff6b61, #ff9f91); }
+  .bar-fill.f { background: linear-gradient(90deg, #9b1d1a, #d63031); }
+  .grade-s { color: #34c759; } .grade-a { color: #3370ff; }
+  .grade-b { color: #ff9500; } .grade-c { color: #ff3b30; }
+  .grade-d { color: #ff6b61; } .grade-f { color: #9b1d1a; }
+  .overall-row { grid-column: 1 / -1; background: linear-gradient(135deg, #1a1f2e, #2d3555); border-color: transparent; }
+  .overall-row .label { color: rgba(255,255,255,.6); }
+  .overall-row .value { color: #fff; }
+  .overall-row .grade { color: #34c759; }
+  .overall-row .bar-fill { background: linear-gradient(90deg, #34c759, #30d158); }
+  .stats-row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
+  .stat-card { flex: 1; min-width: 140px; padding: 20px 24px; background: var(--card-bg); border-radius: 10px; border: 1px solid var(--border); text-align: center; }
+  .stat-card .num { font-size: 32px; font-weight: 700; line-height: 1.3; }
+  .stat-card .desc { font-size: 13px; color: var(--text-secondary); margin-top: 4px; }
+  .finding { border-left: 4px solid var(--border); margin-bottom: 20px; padding: 20px 24px; border-radius: 0 10px 10px 0; background: #fafbfc; border: 1px solid var(--border); border-left-width: 4px; }
+  .finding.severity-critical { border-left-color: var(--badge-critical); }
+  .finding.severity-high { border-left-color: var(--badge-high); }
+  .finding.severity-medium { border-left-color: var(--badge-medium); }
+  .finding.severity-low { border-left-color: var(--badge-low); }
+  .finding.severity-info { border-left-color: var(--badge-info); }
+  .finding-header { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+  .finding-header h4 { font-size: 16px; font-weight: 600; flex: 1; }
+  .badge { display: inline-block; padding: 3px 12px; border-radius: 12px; font-size: 12px; font-weight: 600; line-height: 1.6; }
+  .badge-critical { background: #ffeae9; color: var(--badge-critical); }
+  .badge-high { background: #fff3e0; color: var(--badge-high); }
+  .badge-medium { background: var(--accent-light); color: var(--badge-medium); }
+  .badge-low { background: #f2f2f5; color: var(--badge-low); }
+  .badge-info { background: #e4f5ff; color: #007aff; }
+  .badge-confirmed { background: #e8ffe8; color: #248a3d; }
+  .badge-suspected { background: #fff8e1; color: #b8860b; }
+  .badge-s { background: #e8ffe8; color: #248a3d; }
+  .badge-a { background: var(--accent-light); color: var(--accent); }
+  .badge-b { background: #fff3e0; color: var(--warning); }
+  .badge-c { background: #ffeae9; color: var(--danger); }
+  .finding-meta { display: flex; gap: 16px; flex-wrap: wrap; font-size: 13px; color: var(--text-secondary); margin-bottom: 12px; }
+  .finding-meta span { display: flex; align-items: center; gap: 4px; }
+  .finding .evidence { margin: 12px 0; padding: 14px 18px; background: #f0f2f5; border-radius: 8px; font-family: "SF Mono","Fira Code","Consolas",monospace; font-size: 13px; line-height: 1.8; overflow-x: auto; white-space: pre-wrap; word-break: break-all; }
+  .finding .problem { font-size: 14px; margin: 12px 0; color: var(--text); line-height: 1.8; }
+  .finding .fix-box { margin-top: 12px; padding: 14px 18px; background: #f0f7ff; border-radius: 8px; border: 1px solid #d6e4ff; font-size: 13px; }
+  .finding .fix-box code { display: block; margin-top: 6px; padding: 12px 16px; background: #1e2233; color: #cdd6f4; border-radius: 6px; font-family: "SF Mono","Fira Code","Consolas",monospace; font-size: 13px; line-height: 1.7; white-space: pre-wrap; word-break: break-all; }
+  .fix-label { font-weight: 600; font-size: 11px; color: var(--accent); text-transform: uppercase; letter-spacing: .3px; }
+  .section-title { font-size: 20px; font-weight: 700; margin: 36px 0 20px; padding-bottom: 10px; border-bottom: 2px solid var(--border); display: flex; align-items: center; gap: 8px; }
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th { text-align: left; padding: 12px 16px; font-weight: 600; color: var(--text-secondary); font-size: 12px; text-transform: uppercase; letter-spacing: .4px; border-bottom: 2px solid var(--border); background: #f8fafc; }
+  td { padding: 12px 16px; border-bottom: 1px solid var(--border); }
+  tr:last-child td { border-bottom: none; }
+  .check-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 6px; }
+  .check-item { display: flex; align-items: center; gap: 10px; padding: 8px 12px; font-size: 14px; line-height: 1.6; }
+  .check-item .check { color: var(--success); font-weight: 700; }
+  .check-item .cross { color: var(--danger); font-weight: 700; }
+  .win-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+  .win-card { padding: 16px; background: linear-gradient(135deg, #f0f7ff, #e8f0ff); border-radius: 8px; border: 1px solid #d6e4ff; }
+  .win-card .win-title { font-weight: 600; font-size: 13px; margin-bottom: 4px; }
+  .win-card .win-meta { font-size: 11px; color: var(--text-secondary); }
+  .small { font-size: 13px; color: var(--text-secondary); }
+  .code-block { margin: 8px 0; padding: 14px 18px; background: #1e2233; color: #cdd6f4; border-radius: 6px; font-family: "SF Mono","Fira Code","Consolas",monospace; font-size: 13px; overflow-x: auto; white-space: pre; line-height: 1.7; }
+  .hl { color: #f7768e; font-weight: 600; } .cm { color: #565f89; }
+  .kw { color: #bb9af7; } .fn { color: #7aa2f7; }
+  .ty { color: #ff9e64; } .op { color: #89ddff; }
+  .str { color: #9ece6a; } .nu { color: #ff9e64; }
+  @media (max-width: 768px) { .sidebar { display: none; } .main { padding: 16px; } .score-grid { grid-template-columns: 1fr; } .stats-row { flex-direction: column; } .check-list { grid-template-columns: 1fr; } .win-grid { grid-template-columns: 1fr; } }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #c1c7d0; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #a8adb8; }
+</style>
+</head>
+<body>
+
+<nav class="sidebar">
+  <div class="sidebar-header">
+    <h1>teacher-cert-platform</h1>
+    <div class="sub">全量审计 · 2026-07-05</div>
+  </div>
+  <div class="sidebar-nav">
+    <a href="#summary"><span class="icon">📊</span> 摘要</a>
+    <a href="#executive-summary"><span class="icon">📝</span> 总体评估</a>
+    <a href="#coverage"><span class="icon">🧭</span> 覆盖矩阵</a>
+    <a href="#findings"><span class="icon">🔍</span> 详细发现</a>
+    <a href="#architecture"><span class="icon">🏗</span> 架构</a>
+    <a href="#security"><span class="icon">🔒</span> 安全</a>
+    <a href="#stability"><span class="icon">⚡</span> 稳定性</a>
+    <a href="#performance"><span class="icon">🚀</span> 性能</a>
+    <a href="#testing"><span class="icon">🧪</span> 测试</a>
+    <a href="#maintainability"><span class="icon">📐</span> 可维护性</a>
+    <a href="#design"><span class="icon">📋</span> 设计原则</a>
+    <a href="#release"><span class="icon">🚢</span> 发布</a>
+    <a href="#documentation"><span class="icon">📚</span> 文档</a>
+    <a href="#configuration"><span class="icon">⚙️</span> 配置</a>
+    <a href="#observability"><span class="icon">🩺</span> 可观测性</a>
+    <a href="#data-integrity"><span class="icon">🧱</span> 数据完整性</a>
+    <a href="#privacy"><span class="icon">🛡</span> 隐私</a>
+    <a href="#accessibility"><span class="icon">⌨️</span> 可访问性</a>
+    <a href="#supply-chain"><span class="icon">🔗</span> 供应链</a>
+    <a href="#cost"><span class="icon">💸</span> 成本</a>
+    <a href="#ai-safety"><span class="icon">🤖</span> AI 安全</a>
+    <a href="#fallback"><span class="icon">🧯</span> Fallback</a>
+    <a href="#testing-authenticity"><span class="icon">🧪</span> 测试真实性</a>
+    <a href="#type-safety"><span class="icon">🔠</span> 类型安全</a>
+    <a href="#frontend-state"><span class="icon">🧩</span> 前端状态</a>
+    <a href="#backend-api"><span class="icon">🌐</span> 后端 API</a>
+    <a href="#dependency-weight"><span class="icon">📦</span> 依赖重量</a>
+    <a href="#code-consistency"><span class="icon">🧱</span> 一致性</a>
+    <a href="#comment-coverage"><span class="icon">💬</span> 注释覆盖</a>
+    <a href="#principles"><span class="icon">📋</span> 原则</a>
+    <a href="#fix-order"><span class="icon">🎯</span> 修复顺序</a>
+  </div>
+  <div class="sidebar-footer">Fuck My Shit Mountain v1.0</div>
+</nav>
+
+<div class="main">
+  <div class="page-header" id="summary">
+    <h2>teacher-cert-platform 全量审计报告</h2>
+    <div class="meta">
+      <span>📅 2026-07-05</span>
+      <span>🔍 full</span>
+      <span>🛠 Codex / fuck-my-shit-mountain</span>
+      <span>🔖 e4f8228809d73bf376b0f5cefe2d17eed0271bcc</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">📊 评分面板</div>
+    <div class="card-body">
+      <div class="score-grid">
+        <div class="score-item">
+          <div class="label">Security</div>
+          <div class="bar-row">
+            <div class="bar-track"><div class="bar-fill b" style="width:56%"></div></div>
+            <span class="value grade-b">5.6</span>
+            <span class="grade grade-b">B</span>
+          </div>
+          <div class="small">默认/可预测初始口令、localStorage token 与明文 PII 拉低分数；JWT 校验和 RBAC 边界有实证。</div>
+        </div>
+        <div class="score-item">
+          <div class="label">Stability</div>
+          <div class="bar-row">
+            <div class="bar-track"><div class="bar-fill b" style="width:63%"></div></div>
+            <span class="value grade-b">6.3</span>
+            <span class="grade grade-b">B</span>
+          </div>
+          <div class="small">异常处理、事务和清理任务有基础，但当前后端验证失败，健康检查也只覆盖存活。</div>
+        </div>
+        <div class="score-item">
+          <div class="label">Performance</div>
+          <div class="bar-row">
+            <div class="bar-track"><div class="bar-fill a" style="width:72%"></div></div>
+            <span class="value grade-a">7.2</span>
+            <span class="grade grade-a">A</span>
+          </div>
+          <div class="small">后端分页/批量化已有改造痕迹；前端 Naive UI 与 ECharts 产物块超过 1 MB。</div>
+        </div>
+        <div class="score-item">
+          <div class="label">Testing</div>
+          <div class="bar-row">
+            <div class="bar-track"><div class="bar-fill c" style="width:48%"></div></div>
+            <span class="value grade-c">4.8</span>
+            <span class="grade grade-c">C</span>
+          </div>
+          <div class="small">后端有真实 SpringBoot IT，但当前 mvn verify 失败；前端没有 test/lint/a11y gate。</div>
+        </div>
+        <div class="score-item">
+          <div class="label">Maintainability</div>
+          <div class="bar-row">
+            <div class="bar-track"><div class="bar-fill b" style="width:62%"></div></div>
+            <span class="value grade-b">6.2</span>
+            <span class="grade grade-b">B</span>
+          </div>
+          <div class="small">模块边界清楚，但 ExchangeServiceImpl 和 VideoReviewServiceImpl 已形成多职责大类。</div>
+        </div>
+        <div class="score-item">
+          <div class="label">Design</div>
+          <div class="bar-row">
+            <div class="bar-track"><div class="bar-fill b" style="width:60%"></div></div>
+            <span class="value grade-b">6.0</span>
+            <span class="grade grade-b">B</span>
+          </div>
+          <div class="small">权限、数据范围和事务设计有一致性；SRP、文件大小和配置 fail-safe 仍需收敛。</div>
+        </div>
+        <div class="score-item">
+          <div class="label">Release</div>
+          <div class="bar-row">
+            <div class="bar-track"><div class="bar-fill b" style="width:52%"></div></div>
+            <span class="value grade-b">5.2</span>
+            <span class="grade grade-b">B</span>
+          </div>
+          <div class="small">CI/Docker/生产配置存在，但验证不绿、容器供应链和运行用户硬化不足。</div>
+        </div>
+        <div class="score-item overall-row">
+          <div class="label">Overall</div>
+          <div class="bar-row">
+            <div class="bar-track" style="background:rgba(255,255,255,.12)"><div class="bar-fill" style="width:59%;background:linear-gradient(90deg,#34c759,#30d158)"></div></div>
+            <span class="value" style="color:#fff">5.9</span>
+            <span class="grade" style="color:#34c759">B</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h3 class="section-title" id="executive-summary">📝 总体评估</h3>
+  <div class="card">
+    <div class="card-header">📋 总体评估</div>
+    <div class="card-body">
+      <p><strong>项目概况：</strong>teacher-cert-platform 是一个教师资格认证业务平台，后端为 Spring Boot 3.4 多模块 Maven 工程，包含 common/security/system/business/exchange/statistics/file/boot 等模块；前端为 Vue 3 + TypeScript + Vite + Naive UI + ECharts；持久化依赖 MySQL、Flyway、Redis、MinIO，并有 Docker 与 GitHub Actions 交付配置。</p>
+      <p style="margin-top:12px"><strong>项目地图：</strong>请求入口主要在 platform-boot controller，认证授权在 platform-security 的 JWT filter、AuthService、PermissionService 与数据范围切面，核心业务在 platform-business，交换导入导出在 platform-exchange，文件对象在 platform-file，统计与系统审计/备份在 platform-statistics 和 platform-system。主要数据流为 HTTP API → RBAC/数据范围 → service 事务 → mapper/DB/MinIO → VO/文件导出。</p>
+      <p style="margin-top:12px"><strong>主要风险：</strong>最需要先处理的是公开固定初始口令、可预测学生初始口令、浏览器 token 存储，以及当前后端 mvn verify 不通过。它们分别影响账号接管窗口、隐私边界和发布门禁可信度。</p>
+      <p style="margin-top:12px"><strong>亮点：</strong>生产配置显式关闭接口文档，JWT 密钥缺失或过短会启动失败，JWT filter 会校验 token 类型、撤销状态和用户启用状态，敏感证件号接口有权限与审计保护，数据库层增加了活跃证书和学生证件号唯一约束，后端集成测试覆盖了不少真实 HTTP/RBAC 流程。</p>
+      <p style="margin-top:12px"><strong>优先修复：</strong>先清除默认/可预测口令与后端测试失败，再补前端测试和 release hardening；随后拆分两个巨型服务类，并为隐私字段引入加密/摘要键策略。</p>
+      <p style="margin-top:12px"><strong>总评：</strong>Overall 5.9 / B。项目不是失控状态，已有较多工程化控制，但距离稳定公开发布还差几项会直接影响账号安全、验证可信度和上线可控性的修复。</p>
+    </div>
+  </div>
+
+  <h3 class="section-title" id="coverage">🧭 覆盖矩阵</h3>
+  <div class="card">
+    <div class="card-body" style="padding:0">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>维度</th><th style="width:120px">覆盖</th><th>已检查证据</th><th>排除/限制</th></tr></thead>
+          <tbody>
+            <tr><td>Architecture</td><td><span class="badge badge-confirmed">High</span></td><td>pom 多模块、controller/service/mapper 分层、核心服务和依赖方向。</td><td>未做完整依赖图自动分析。</td></tr>
+            <tr><td>Security</td><td><span class="badge badge-confirmed">High</span></td><td>SecurityConfig、JwtAuthenticationFilter、AuthService、RBAC seed、前端 token、敏感导出。</td><td>未进行动态渗透测试或依赖漏洞在线扫描。</td></tr>
+            <tr><td>Stability</td><td><span class="badge badge-suspected">Medium</span></td><td>GlobalExceptionHandler、事务注解、Failsafe 报告、健康检查、调度任务。</td><td>未做故障注入、压力或长稳运行。</td></tr>
+            <tr><td>Performance</td><td><span class="badge badge-suspected">Medium</span></td><td>前端 dist 产物、分页/批量化代码、导出/上传路径抽样。</td><td>未做真实浏览器 Lighthouse 或后端 profiling。</td></tr>
+            <tr><td>Testing</td><td><span class="badge badge-confirmed">High</span></td><td>mvn verify 报告、platform-boot IT、frontend package scripts、CI。</td><td>未运行浏览器 E2E。</td></tr>
+            <tr><td>Maintainability</td><td><span class="badge badge-confirmed">High</span></td><td>全库文件 inventory、Java/Vue 行数、巨型服务方法列表。</td><td>未对每个方法做复杂度工具统计。</td></tr>
+            <tr><td>Design</td><td><span class="badge badge-suspected">Medium</span></td><td>SRP/文件大小、配置 fail-safe、权限边界和数据范围模式。</td><td>原则检查以高风险模块为主。</td></tr>
+            <tr><td>Release</td><td><span class="badge badge-confirmed">High</span></td><td>Dockerfile、frontend Dockerfile、CI workflow、prod/dev profile。</td><td>未构建镜像并扫描镜像 CVE。</td></tr>
+            <tr><td>Documentation</td><td><span class="badge badge-suspected">Medium</span></td><td>README、docs/launch-readiness-plan.md、配置注释。</td><td>71 个 Markdown 未逐字审查。</td></tr>
+            <tr><td>Configuration</td><td><span class="badge badge-confirmed">High</span></td><td>application.yml/dev/prod、Docker/compose 线索、sys_param seed。</td><td>未验证真实生产环境变量。</td></tr>
+            <tr><td>Observability</td><td><span class="badge badge-suspected">Medium</span></td><td>HealthController、AuditLogAspect、日志和备份/清理调度。</td><td>未接入运行时日志平台或指标后端检查。</td></tr>
+            <tr><td>Data-Integrity</td><td><span class="badge badge-confirmed">High</span></td><td>Flyway V1-V26、唯一键、DuplicateKeyException、事务边界。</td><td>未做并发压测。</td></tr>
+            <tr><td>Privacy</td><td><span class="badge badge-confirmed">High</span></td><td>学生证件号存储、plainIdCard、SensitiveMasker、导出权限。</td><td>未评估外部合规制度和数据保留政策。</td></tr>
+            <tr><td>Accessibility</td><td><span class="badge badge-low">Low</span></td><td>前端组件、脚本和测试配置。</td><td>未运行浏览器、键盘导航或 axe 检查。</td></tr>
+            <tr><td>Supply-Chain</td><td><span class="badge badge-suspected">Medium</span></td><td>package-lock、Dockerfile、GitHub Actions、base images。</td><td>未联网跑 npm audit/trivy/osv。</td></tr>
+            <tr><td>Cost</td><td><span class="badge badge-suspected">Medium</span></td><td>大文件上传限制、MinIO 生命周期、备份、前端 bundle。</td><td>缺少生产流量、存储和成本指标。</td></tr>
+            <tr><td>AI-Safety</td><td><span class="badge badge-low">Not assessed</span></td><td>搜索 OpenAI/LLM/prompt/RAG/model 等运行时代码无命中。</td><td>项目运行面未发现 AI/LLM 功能。</td></tr>
+            <tr><td>Fallback</td><td><span class="badge badge-suspected">Medium</span></td><td>catch/ignored/默认值搜索，异常处理抽样。</td><td>未逐个证明每个 fallback 的业务影响。</td></tr>
+            <tr><td>Testing-Authenticity</td><td><span class="badge badge-confirmed">High</span></td><td>SpringBoot RANDOM_PORT、TestRestTemplate、Failsafe 报告。</td><td>未覆盖前端，因为没有前端测试。</td></tr>
+            <tr><td>Type-Safety</td><td><span class="badge badge-suspected">Medium</span></td><td>TypeScript type-check 脚本、DTO @Valid、Java 枚举/VO 抽样。</td><td>未运行额外 Java 静态分析器。</td></tr>
+            <tr><td>Frontend-State</td><td><span class="badge badge-suspected">Medium</span></td><td>Pinia stores、router、主要 Vue 组件行数和 localStorage 状态。</td><td>未做交互式浏览器验证。</td></tr>
+            <tr><td>Backend-API</td><td><span class="badge badge-confirmed">High</span></td><td>Controller @PreAuthorize/@DataScope/@Valid、Result、GlobalExceptionHandler。</td><td>未自动生成 OpenAPI contract diff。</td></tr>
+            <tr><td>Dependency-Weight</td><td><span class="badge badge-suspected">Medium</span></td><td>frontend package.json、dist/assets、Docker/npm 构建。</td><td>未联网查 unused/duplicate package。</td></tr>
+            <tr><td>Code-Consistency</td><td><span class="badge badge-suspected">Medium</span></td><td>controller/service/mapper 命名、异常和 Result 模式抽样。</td><td>未运行 formatter/linter。</td></tr>
+            <tr><td>Comment-Coverage</td><td><span class="badge badge-suspected">Medium</span></td><td>迁移注释、服务类注释、README/docs 抽样。</td><td>存在终端编码显示限制，报告按文件路径和行为引用。</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="stats-row">
+    <div class="stat-card"><div class="num">11</div><div class="desc">总发现</div></div>
+    <div class="stat-card"><div class="num" style="color:var(--badge-critical)">0</div><div class="desc">Critical</div></div>
+    <div class="stat-card"><div class="num" style="color:var(--badge-high)">2</div><div class="desc">High</div></div>
+    <div class="stat-card"><div class="num" style="color:var(--badge-medium)">6</div><div class="desc">Medium</div></div>
+    <div class="stat-card"><div class="num" style="color:var(--badge-low)">3</div><div class="desc">Low</div></div>
+    <div class="stat-card"><div class="num" style="color:var(--badge-info)">0</div><div class="desc">Info</div></div>
+  </div>
+
+  <h3 class="section-title" id="top-risks">⚠️ Top Risks</h3>
+  <div class="card">
+    <div class="card-body" style="padding:0">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th style="width:60px">#</th><th>发现</th><th style="width:100px">严重程度</th><th style="width:110px">类别</th></tr></thead>
+          <tbody>
+            <tr><td>1</td><td>生产 bootstrap admin 与 STAFF 重置使用公开固定初始口令</td><td><span class="badge badge-high">High</span></td><td>Security</td></tr>
+            <tr><td>2</td><td>当前后端 mvn verify 失败，发布门禁不可信</td><td><span class="badge badge-high">High</span></td><td>Testing</td></tr>
+            <tr><td>3</td><td>浏览器 token 存入 localStorage 且生产 nginx 未配置 CSP</td><td><span class="badge badge-medium">Medium</span></td><td>Security</td></tr>
+            <tr><td>4</td><td>学生账号初始密码由证件号后六位推导</td><td><span class="badge badge-medium">Medium</span></td><td>Privacy</td></tr>
+            <tr><td>5</td><td>身份证号明文持久化并参与数据库唯一键</td><td><span class="badge badge-medium">Medium</span></td><td>Privacy</td></tr>
+            <tr><td>6</td><td>前端缺少行为测试、lint 和可访问性 gate</td><td><span class="badge badge-medium">Medium</span></td><td>Testing</td></tr>
+            <tr><td>7</td><td>ExchangeServiceImpl 与 VideoReviewServiceImpl 多职责巨型类</td><td><span class="badge badge-medium">Medium</span></td><td>Maintainability</td></tr>
+            <tr><td>8</td><td>容器和 CI 供应链硬化不足</td><td><span class="badge badge-medium">Medium</span></td><td>Release</td></tr>
+            <tr><td>9</td><td>默认 active profile 为 dev，直接 jar 启动会加载开发配置</td><td><span class="badge badge-low">Low</span></td><td>Configuration</td></tr>
+            <tr><td>10</td><td>健康检查只返回静态 UP，缺少依赖就绪与指标</td><td><span class="badge badge-low">Low</span></td><td>Observability</td></tr>
+            <tr><td>11</td><td>Naive UI 和 ECharts vendor chunk 超过 1 MB</td><td><span class="badge badge-low">Low</span></td><td>Performance</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <h3 class="section-title" id="findings">🔍 详细发现</h3>
+
+  <div class="finding severity-high">
+    <div class="finding-header">
+      <h4>1. 生产 bootstrap admin 与 STAFF 重置使用公开固定初始口令</h4>
+      <span class="badge badge-high">High</span>
+      <span class="badge badge-confirmed">Confirmed</span>
+      <span class="badge badge-confirmed">Confidence High</span>
+    </div>
+    <div class="finding-meta"><span>📁 Security / Configuration / Release</span><span>📍 V8__rbac_seed.sql, SecurityAdminServiceImpl.java</span><span>🎯 初始账号与重置密码</span></div>
+    <div class="problem">
+      <strong>问题：</strong>Flyway V8 会创建启用状态的 admin，并赋予 SYS_ADMIN；生产清理迁移删除 test_* 但保留 admin。管理员创建 STAFF 和重置密码时也使用同一个配置项的默认口令。must_change_pwd 会限制大多数 API，但 change-pwd 端点必须允许访问，因此第一个拿到公开默认口令的人可以抢先改密接管账号。<br>
+      <strong>为什么重要：</strong>这是实际账号接管窗口，不是单纯配置整洁问题。<br>
+      <strong>现实场景：</strong>新环境部署完成、admin 还未改密时，外部人员或内部低权限人员按 README/测试种子推断初始口令登录 admin，立刻调用改密接口并获得系统管理员入口。
+    </div>
+    <div class="evidence">platform-boot/src/main/resources/db/migration/V8__rbac_seed.sql:7 固定 rbac_seed_password_hash
+platform-boot/src/main/resources/db/migration/V8__rbac_seed.sql:243-246 插入 admin，status=ENABLED，must_change_pwd=1
+platform-boot/src/main/resources/db/migration/V8__rbac_seed.sql:270-274 admin 绑定 SYS_ADMIN
+platform-boot/src/main/resources/db/migration/V26__remove_test_seed_from_prod.sql:21-29 删除 test_*，明确保留 admin
+platform-boot/src/main/resources/db/testseed/R__testseed.sql:88-100 注释说明测试账号复用同一默认哈希
+README.md:62 文档公开测试账号初始口令
+platform-security/src/main/java/cn/edu/gpnu/platform/security/service/SecurityAdminServiceImpl.java:65-66 默认 initial-password
+platform-security/src/main/java/cn/edu/gpnu/platform/security/service/SecurityAdminServiceImpl.java:99-110 createUser 使用默认初始口令
+platform-security/src/main/java/cn/edu/gpnu/platform/security/service/SecurityAdminServiceImpl.java:138-148 resetPassword 使用默认初始口令并启用账号
+platform-security/src/main/java/cn/edu/gpnu/platform/security/filter/JwtAuthenticationFilter.java:70-107 mustChangePwd 阻断大多数 API，但允许 change-pwd/logout/me</div>
+    <div class="fix-box"><div class="fix-label">Minimal fix / Better long-term fix</div><code>最小修复：生产迁移不要创建可登录的固定 admin，或要求 ADMIN_INITIAL_PASSWORD_HASH / 一次性 bootstrap secret 缺失时启动失败；SecurityAdminServiceImpl 的初始口令配置也应在生产强制显式注入，不允许默认值。
+长期修复：改为一次性邀请/激活令牌，首次使用后失效；现有部署轮换 admin 与近期重置账号口令，并审计登录记录。</code></div>
+    <div class="fix-box" style="margin-top:6px;background:#fff8e1;border-color:#ffe082"><strong>⏱ 估计工作量：</strong>1-2 天 &nbsp;·&nbsp; <strong>回归测试：</strong>生产 profile 未配置 bootstrap secret 时应启动失败；新建/重置 STAFF 后不能使用公开默认口令登录；admin 首次口令只能通过一次性 secret 生效。</div>
+  </div>
+
+  <div class="finding severity-high">
+    <div class="finding-header">
+      <h4>2. 当前后端 mvn verify 失败，发布门禁不可信</h4>
+      <span class="badge badge-high">High</span>
+      <span class="badge badge-confirmed">Confirmed</span>
+      <span class="badge badge-confirmed">Confidence High</span>
+    </div>
+    <div class="finding-meta"><span>📁 Testing / Release / Stability</span><span>📍 platform-boot/target/failsafe-reports</span><span>🎯 集成测试隔离</span></div>
+    <div class="problem">
+      <strong>问题：</strong>完整 Maven verify 在 platform-boot Failsafe 阶段失败，两个断言都表现为“期望的作用域数量翻倍”。这说明当前工作区无法产出可信的后端 release gate，且高度疑似共享 dev schema 或测试数据清理不充分。<br>
+      <strong>为什么重要：</strong>如果验证套件依赖数据库既有状态，CI 绿灯和本地红灯都不能证明业务不回归。<br>
+      <strong>现实场景：</strong>评审任务分页或学院数据范围出现回归时，污染过的库可能让测试误报或漏报，发布前无法判断失败来自代码还是环境状态。
+    </div>
+    <div class="evidence">platform-boot/target/failsafe-reports/cn.edu.gpnu.platform.boot.Phase2SecurityIT.txt:4-10 Tests run: 3, Failures: 1；expected 1 but was 2
+platform-boot/src/test/java/cn/edu/gpnu/platform/boot/Phase2SecurityIT.java:141-145 期望 clerk 数据范围只返回 1 条且不含学院 B
+platform-boot/target/failsafe-reports/cn.edu.gpnu.platform.boot.Phase7VideoReviewIT.txt:4-10 Tests run: 16, Failures: 1；expected 3L but was 6L
+platform-boot/src/test/java/cn/edu/gpnu/platform/boot/Phase7VideoReviewIT.java:590-608 创建 3 个 reviewerA 任务后断言 total=3、第二页 records=1
+platform-boot/src/main/resources/application-dev.yml:14-17 dev/test 额外加载 db/testseed，默认走共享 teacher_cert 风格配置</div>
+    <div class="fix-box"><div class="fix-label">Minimal fix / Better long-term fix</div><code>最小修复：每个 IT 使用唯一业务前缀和明确 cleanup；失败的 Phase2/Phase7 先改为按本测试创建的唯一标识查询。
+长期修复：CI 和本地 verify 使用每次独立 schema 或 Testcontainers MySQL/Redis/MinIO；所有 IT 在 setup/teardown 中清理自己的 fixture。</code></div>
+    <div class="fix-box" style="margin-top:6px;background:#fff8e1;border-color:#ffe082"><strong>⏱ 估计工作量：</strong>1-2 天 &nbsp;·&nbsp; <strong>回归测试：</strong>在已有脏数据的 dev 库和全新库上连续两次运行 mvn -B -ntp verify，均应通过且 Phase2/Phase7 计数稳定。</div>
+  </div>
+
+  <div class="finding severity-medium">
+    <div class="finding-header"><h4>3. 浏览器 token 存入 localStorage 且生产 nginx 未配置 CSP</h4><span class="badge badge-medium">Medium</span><span class="badge badge-confirmed">Confirmed</span><span class="badge badge-confirmed">Confidence High</span></div>
+    <div class="finding-meta"><span>📁 Security / Privacy / Frontend-State</span><span>📍 frontend/src/stores/user.ts, frontend/nginx.conf</span><span>🎯 会话令牌存储</span></div>
+    <div class="problem"><strong>问题：</strong>accessToken 和 refreshToken 持久化在 localStorage，请求拦截器读取后放入 Bearer header；生产 nginx 只有 XFO、nosniff、Referrer-Policy，没有 CSP。代码未发现 v-html，但一旦发生 XSS、依赖注入或浏览器扩展污染，刷新令牌可被脚本直接读取。<br><strong>为什么重要：</strong>refresh token 泄露会把一次 XSS 扩大为持续会话接管。<br><strong>现实场景：</strong>某个前端依赖或富文本输入引入脚本执行，攻击脚本读取 localStorage 并将 refreshToken 发往外部，随后在用户离线时继续刷新会话。</div>
+    <div class="evidence">frontend/src/stores/user.ts:6-20 从 localStorage 读取并写入 accessToken/refreshToken
+frontend/src/stores/user.ts:65-70 logout 时清理 localStorage
+frontend/src/api/request.ts:20-23 读取 localStorage token 并设置 Authorization: Bearer
+frontend/nginx.conf:29-31 配置 X-Frame-Options、X-Content-Type-Options、Referrer-Policy
+rg v-html/innerHTML/new Function/eval 未发现直接使用，但 CSP 缺失仍减少了一层防护</div>
+    <div class="fix-box"><div class="fix-label">Minimal fix / Better long-term fix</div><code>最小修复：增加严格 CSP，例如 default-src 'self'; script-src 'self'; object-src 'none'; base-uri 'self'；缩短 access token TTL。
+长期修复：refresh token 改为 HttpOnly + Secure + SameSite cookie 或 BFF session；前端只在内存持有短期 access token。</code></div>
+    <div class="fix-box" style="margin-top:6px;background:#fff8e1;border-color:#ffe082"><strong>⏱ 估计工作量：</strong>1-2 天 &nbsp;·&nbsp; <strong>回归测试：</strong>新增 Playwright 测试验证登录/刷新仍可用，并用测试页面注入脚本确认无法读取 refresh token；检查响应包含 CSP。</div>
+  </div>
+
+  <div class="finding severity-medium">
+    <div class="finding-header"><h4>4. 学生账号初始密码由证件号后六位推导</h4><span class="badge badge-medium">Medium</span><span class="badge badge-confirmed">Confirmed</span><span class="badge badge-confirmed">Confidence High</span></div>
+    <div class="finding-meta"><span>📁 Security / Privacy</span><span>📍 StudentServiceImpl.java, V1__base.sql</span><span>🎯 学生自动开户</span></div>
+    <div class="problem"><strong>问题：</strong>系统默认导入即开通学生账号，初始密码规则为证件号后六位。证件号后六位在教育场景中常被多个角色接触，且 roster 泄露或纸质材料可让攻击者抢先登录。<br><strong>为什么重要：</strong>must_change_pwd 降低了登录后的操作面，但不能阻止抢先登录者先完成改密。<br><strong>现实场景：</strong>导入学生后，学院内流转的名单包含证件号或后六位，非本人先登录学生账号并改密，随后查看或修改个人材料。</div>
+    <div class="evidence">platform-boot/src/main/resources/db/migration/V1__base.sql:78 student.autoCreateAccount=true
+platform-boot/src/main/resources/db/migration/V1__base.sql:79 student.defaultPwd=idcard6
+platform-business/src/main/java/cn/edu/gpnu/platform/business/student/service/impl/StudentServiceImpl.java:356-385 ensureStudentAccount 自动创建 STUDENT 用户并设置 mustChangePwd=1
+platform-business/src/main/java/cn/edu/gpnu/platform/business/student/service/impl/StudentServiceImpl.java:388-397 initialPassword 取证件号后六位</div>
+    <div class="fix-box"><div class="fix-label">Minimal fix / Better long-term fix</div><code>最小修复：默认关闭 autoCreateAccount，或改为随机一次性初始口令并通过受控渠道发放。
+长期修复：学生账号采用短信/邮箱/统一身份认证绑定或一次性激活链接，不再从 PII 派生认证因子。</code></div>
+    <div class="fix-box" style="margin-top:6px;background:#fff8e1;border-color:#ffe082"><strong>⏱ 估计工作量：</strong>1 天 &nbsp;·&nbsp; <strong>回归测试：</strong>新导入学生不应能使用证件号后六位登录；一次性激活凭证使用后失效并强制改密。</div>
+  </div>
+
+  <div class="finding severity-medium">
+    <div class="finding-header"><h4>5. 身份证号明文持久化并参与数据库唯一键</h4><span class="badge badge-medium">Medium</span><span class="badge badge-confirmed">Confirmed</span><span class="badge badge-confirmed">Confidence High</span></div>
+    <div class="finding-meta"><span>📁 Privacy / Data-Integrity</span><span>📍 V24__unique_active_cert_and_student_idcard.sql, StudentServiceImpl.java</span><span>🎯 PII 存储与导出</span></div>
+    <div class="problem"><strong>问题：</strong>迁移注释明确 id_card_no 为 18 位明文存储，并直接用于生成列唯一键。服务层默认脱敏展示，plainIdCard 有权限与审计保护，这是正向控制；但数据库、备份和 DBA 侧仍持有完整证件号。<br><strong>为什么重要：</strong>身份证号属于高敏 PII，明文存储扩大了数据库泄露、备份泄露和误导出的影响面。<br><strong>现实场景：</strong>备份桶或只读数据库账号泄露时，攻击者无需应用权限即可批量获取完整证件号。</div>
+    <div class="evidence">platform-boot/src/main/resources/db/migration/V24__unique_active_cert_and_student_idcard.sql:24 注释说明 id_card_no 明文存储且无加密
+platform-boot/src/main/resources/db/migration/V24__unique_active_cert_and_student_idcard.sql:34-39 生成列 idcard_key 直接取 id_card_no 并建唯一索引
+platform-business/src/main/java/cn/edu/gpnu/platform/business/student/service/impl/StudentServiceImpl.java:260-262 plainIdCard 返回完整证件号
+platform-business/src/main/java/cn/edu/gpnu/platform/business/student/service/impl/StudentServiceImpl.java:407-415 toVO 根据 plain 参数返回明文或脱敏
+platform-boot/src/main/java/cn/edu/gpnu/platform/boot/controller/StudentController.java:133-139 plainIdCard 需要 exchange:export:sensitive 并记录审计</div>
+    <div class="fix-box"><div class="fix-label">Minimal fix / Better long-term fix</div><code>最小修复：限制数据库和备份访问面，敏感导出审批/留痕，并对备份桶单独加密和最小权限。
+长期修复：id_card_no 字段做应用层加密；唯一键改为 HMAC-SHA256(id_card_no, pepper) 派生列；解密只在受审计的敏感接口发生。</code></div>
+    <div class="fix-box" style="margin-top:6px;background:#fff8e1;border-color:#ffe082"><strong>⏱ 估计工作量：</strong>3-5 天 &nbsp;·&nbsp; <strong>回归测试：</strong>相同证件号仍触发唯一约束；普通列表只返回脱敏值；无敏感权限用户无法获取明文；备份抽样不出现可读证件号。</div>
+  </div>
+
+  <div class="finding severity-medium">
+    <div class="finding-header"><h4>6. 前端缺少行为测试、lint 和可访问性 gate</h4><span class="badge badge-medium">Medium</span><span class="badge badge-confirmed">Confirmed</span><span class="badge badge-confirmed">Confidence High</span></div>
+    <div class="finding-meta"><span>📁 Testing / Accessibility / Frontend-State</span><span>📍 frontend/package.json, .github/workflows/ci.yml</span><span>🎯 前端验证链路</span></div>
+    <div class="problem"><strong>问题：</strong>前端 package scripts 只有 dev/build/preview/type-check，未配置 test、lint、E2E 或 axe；源码下未发现 *.test.* 或 *.spec.*。CI 前端 job 只运行 npm ci 和 npm run build，连 type-check 都没有进入 CI。<br><strong>为什么重要：</strong>登录、RBAC 菜单、导入导出、上传、表单校验和可访问性都只能靠手工验证。<br><strong>现实场景：</strong>一次路由权限或表单状态重构导致低权限用户看到错误入口，build 仍然成功，直到验收或线上用户反馈才发现。</div>
+    <div class="evidence">frontend/package.json:6-10 scripts 为 dev/build/preview/type-check
+Get-ChildItem -Recurse frontend/src -Include *.test.*,*.spec.* 无结果
+.github/workflows/ci.yml:50-60 前端 job 执行 npm ci 与 npm run build，未执行 type-check/test/lint/a11y</div>
+    <div class="fix-box"><div class="fix-label">Minimal fix / Better long-term fix</div><code>最小修复：CI 增加 npm run type-check；新增 Vitest 覆盖 store/request/router 权限逻辑。
+长期修复：增加 Playwright 端到端 smoke：登录、首次改密、RBAC 菜单、导入预校验、视频任务、敏感字段权限；接入 axe 或等价可访问性检查。</code></div>
+    <div class="fix-box" style="margin-top:6px;background:#fff8e1;border-color:#ffe082"><strong>⏱ 估计工作量：</strong>2-4 天 &nbsp;·&nbsp; <strong>回归测试：</strong>CI PR 必须执行 type-check、unit test 和 3-5 条关键 E2E；失败时阻断合并。</div>
+  </div>
+
+  <div class="finding severity-medium">
+    <div class="finding-header"><h4>7. ExchangeServiceImpl 与 VideoReviewServiceImpl 多职责巨型类</h4><span class="badge badge-medium">Medium</span><span class="badge badge-confirmed">Confirmed</span><span class="badge badge-confirmed">Confidence High</span></div>
+    <div class="finding-meta"><span>📁 Maintainability / Design</span><span>📍 ExchangeServiceImpl.java, VideoReviewServiceImpl.java</span><span>🎯 SRP / 文件大小</span></div>
+    <div class="problem"><strong>问题：</strong>ExchangeServiceImpl 约 1547 行，承担模板、预校验、导入事务、回滚、导出、附件、字典、校验和 JSON snapshot；VideoReviewServiceImpl 约 1420 行，承担分片上传、合并、审核分配、评分、复评/仲裁、播放和任务转换。它们超过原则 1.2 的 1000 行阈值，并违反 SRP 1.1。<br><strong>为什么重要：</strong>高频业务规则集中在巨型类里，后续修复容易出现隐式耦合、冲突和漏测。<br><strong>现实场景：</strong>修改导出字段时误改导入校验或 rollback snapshot；修改视频上传合并时影响评审结算。</div>
+    <div class="evidence">ExchangeServiceImpl.java:105 class 定义；147-401 公开入口覆盖 template/prevalidate/errorReport/confirmImport/rollback/batches/export/exportAttachments
+ExchangeServiceImpl.java:510-693 多段导入校验；823-862 rollback；920-1082 多类导出行构造；1104-1139 字典下拉
+VideoReviewServiceImpl.java:127-223 上传初始化/分片/合并；339-523 分配/评分/复评/仲裁/播放；1129-1242 VO 转换
+行数统计：ExchangeServiceImpl 1547 行，VideoReviewServiceImpl 1420 行，StatsServiceImpl 720 行</div>
+    <div class="fix-box"><div class="fix-label">Minimal fix / Better long-term fix</div><code>最小修复：先抽纯函数/无状态 helper：ExchangeImportValidator、ExchangeExportRowBuilder、ExchangeRollbackService、VideoUploadComposer、VideoReviewSettlement。
+长期修复：按用例拆 application service，controller 依赖更窄接口；为每个拆出的服务建立 focused unit test 和现有 IT 回归。</code></div>
+    <div class="fix-box" style="margin-top:6px;background:#fff8e1;border-color:#ffe082"><strong>⏱ 估计工作量：</strong>3-6 天 &nbsp;·&nbsp; <strong>回归测试：</strong>拆分前后 Phase7/Phase10/导出行字段快照和视频结算 IT 全部通过；新增 helper 单测覆盖校验分支。</div>
+  </div>
+
+  <div class="finding severity-medium">
+    <div class="finding-header"><h4>8. 容器和 CI 供应链硬化不足</h4><span class="badge badge-medium">Medium</span><span class="badge badge-confirmed">Confirmed</span><span class="badge badge-confirmed">Confidence High</span></div>
+    <div class="finding-meta"><span>📁 Release / Supply-Chain</span><span>📍 Dockerfile, frontend/Dockerfile, .github/workflows/ci.yml</span><span>🎯 构建与运行镜像</span></div>
+    <div class="problem"><strong>问题：</strong>后端和前端 Dockerfile 使用 tag-pinned base images，未 digest pin；runtime 未创建非 root 用户；后端镜像构建阶段使用 -DskipTests package。GitHub Actions 使用 tag 版本而非 SHA pin，CI 服务镜像也只 pin major/minor tag。<br><strong>为什么重要：</strong>供应链漂移和容器默认 root 会放大发布不可复现和容器逃逸后的影响。<br><strong>现实场景：</strong>同一个 tag 在不同时间解析到不同基础镜像，构建出的镜像包含不同 OS 包；容器内进程被利用后拥有 root 权限写入容器文件系统。</div>
+    <div class="evidence">Dockerfile:3 使用 maven:3.9-eclipse-temurin-17
+Dockerfile:18 mvn -B -ntp -DskipTests package
+Dockerfile:20 使用 eclipse-temurin:17-jre-jammy，未见 USER
+frontend/Dockerfile:3 使用 node:20-alpine，10 使用 nginx:1.27-alpine，未见 USER
+.github/workflows/ci.yml:35-36,50-51 使用 actions/checkout@v4、setup-java@v4、setup-node@v4
+.github/workflows/ci.yml:14,26 使用 mysql:8.0、redis:7</div>
+    <div class="fix-box"><div class="fix-label">Minimal fix / Better long-term fix</div><code>最小修复：runtime 镜像创建非 root 用户；CI 先 mvn verify/npm test 通过后再构建镜像；actions 和 base images pin 到 SHA/digest。
+长期修复：生成 SBOM，接入 Trivy/OSV/Grype，镜像签名并在部署侧验证 provenance。</code></div>
+    <div class="fix-box" style="margin-top:6px;background:#fff8e1;border-color:#ffe082"><strong>⏱ 估计工作量：</strong>1-2 天 &nbsp;·&nbsp; <strong>回归测试：</strong>docker run 后进程 UID 非 0；CI 扫描和 SBOM 生成通过；digest bump 需要显式 PR。</div>
+  </div>
+
+  <div class="finding severity-low">
+    <div class="finding-header"><h4>9. 默认 active profile 为 dev，直接 jar 启动会加载开发配置</h4><span class="badge badge-low">Low</span><span class="badge badge-confirmed">Confirmed</span><span class="badge badge-confirmed">Confidence High</span></div>
+    <div class="finding-meta"><span>📁 Configuration / Release</span><span>📍 application.yml, application-dev.yml</span><span>🎯 环境分离</span></div>
+    <div class="problem"><strong>问题：</strong>application.yml 默认 active=dev；dev profile 指向本地 MySQL、加载 db/testseed，并包含本地对象存储和 JWT 开发默认。docker-compose 生产路径会覆盖为 prod，但直接运行 jar 或手工服务配置遗漏时会落入 dev。<br><strong>为什么重要：</strong>默认开发 profile 会把测试数据、开发凭证和非生产 Flyway location 带入误启动环境。<br><strong>现实场景：</strong>运维手工执行 java -jar 验证服务，未传 SPRING_PROFILES_ACTIVE，服务连接本地/共享 dev DB 并加载测试种子。</div>
+    <div class="evidence">platform-boot/src/main/resources/application.yml:7-8 spring.profiles.active=dev
+platform-boot/src/main/resources/application-dev.yml:3-17 dev datasource 和 Flyway locations 包含 db/testseed
+platform-boot/src/main/resources/application-dev.yml:33-47 dev MinIO/JWT 默认
+platform-boot/src/main/resources/application-prod.yml:14-32 prod 使用环境变量并只加载 db/migration</div>
+    <div class="fix-box"><div class="fix-label">Minimal fix / Better long-term fix</div><code>最小修复：删除 application.yml 中的 active=dev；本地开发脚本显式传 SPRING_PROFILES_ACTIVE=dev。
+长期修复：启动时校验 profile，非 dev 环境发现 testseed/dev credential/default secret 直接失败。</code></div>
+    <div class="fix-box" style="margin-top:6px;background:#fff8e1;border-color:#ffe082"><strong>⏱ 估计工作量：</strong>0.5 天 &nbsp;·&nbsp; <strong>回归测试：</strong>无 profile 启动应失败并提示显式选择；dev 脚本仍能启动；prod 容器只加载 db/migration。</div>
+  </div>
+
+  <div class="finding severity-low">
+    <div class="finding-header"><h4>10. 健康检查只返回静态 UP，缺少依赖就绪与指标</h4><span class="badge badge-low">Low</span><span class="badge badge-confirmed">Confirmed</span><span class="badge badge-suspected">Confidence Medium</span></div>
+    <div class="finding-meta"><span>📁 Observability / Stability</span><span>📍 HealthController.java, pom.xml</span><span>🎯 运行期可诊断性</span></div>
+    <div class="problem"><strong>问题：</strong>/api/health 只返回静态 status/app；pom 中未发现 actuator/micrometer/prometheus/tracing 依赖。系统有审计日志和业务日志，但缺少 DB/Redis/MinIO readiness、指标和追踪。<br><strong>为什么重要：</strong>容器编排和告警只能知道进程还在，无法判断依赖不可用、连接池耗尽或错误率上升。<br><strong>现实场景：</strong>Redis 或 MinIO 不可达时，健康检查仍返回 UP，流量继续进入异常实例。</div>
+    <div class="evidence">platform-boot/src/main/java/cn/edu/gpnu/platform/boot/controller/HealthController.java:21-26 返回静态 status=UP 和 app
+rg actuator/micrometer/prometheus/opentelemetry/tracing pom.xml 与各模块 pom 无命中
+platform-boot/src/main/java/cn/edu/gpnu/platform/boot/aspect/AuditLogAspect.java 提供业务审计，但不是运行指标</div>
+    <div class="fix-box"><div class="fix-label">Minimal fix / Better long-term fix</div><code>最小修复：拆分 liveness 与 readiness；readiness 检查 MySQL、Redis、MinIO 基础连通和关键迁移状态。
+长期修复：接入 Actuator/Micrometer/Prometheus，暴露 HTTP latency、错误率、DB pool、Redis、MinIO 上传失败、任务队列/调度结果等指标。</code></div>
+    <div class="fix-box" style="margin-top:6px;background:#fff8e1;border-color:#ffe082"><strong>⏱ 估计工作量：</strong>1-2 天 &nbsp;·&nbsp; <strong>回归测试：</strong>模拟 Redis/MinIO 不可达，liveness 仍可 UP，readiness 必须 DOWN；Prometheus scrape 有关键指标。</div>
+  </div>
+
+  <div class="finding severity-low">
+    <div class="finding-header"><h4>11. Naive UI 和 ECharts vendor chunk 超过 1 MB</h4><span class="badge badge-low">Low</span><span class="badge badge-confirmed">Confirmed</span><span class="badge badge-confirmed">Confidence High</span></div>
+    <div class="finding-meta"><span>📁 Performance / Dependency-Weight</span><span>📍 frontend/dist/assets, frontend/package.json</span><span>🎯 前端首屏资源</span></div>
+    <div class="problem"><strong>问题：</strong>构建产物中 naive vendor 约 1.34 MB，echarts vendor 约 1.04 MB；Vite 构建也提示 chunk 超过阈值。对于内网后台这不一定阻断发布，但会增加首次加载、解析和缓存失效成本。<br><strong>为什么重要：</strong>统计/仪表盘依赖不应拖累登录后所有用户的基础工作流。<br><strong>现实场景：</strong>移动网络或远程 VPN 用户首次进入系统时等待大块 JS 下载和解析，即使不访问统计页面也支付成本。</div>
+    <div class="evidence">frontend/package.json:12-19 依赖 naive-ui、echarts、pinia、vue-router
+frontend/dist/assets/naive-B5xfF3N-.js 1,341,551 bytes
+frontend/dist/assets/echarts-Bb6yjXMn.js 1,035,579 bytes
+npm run build 通过但 Vite 输出 chunk size warning</div>
+    <div class="fix-box"><div class="fix-label">Minimal fix / Better long-term fix</div><code>最小修复：设置 bundle budget；统计/图表页 route-level lazy load；ECharts 改按需注册图表和组件。
+长期修复：按真实使用路径拆 vendor chunk，定期用 rollup visualizer 或等价工具审核依赖体积。</code></div>
+    <div class="fix-box" style="margin-top:6px;background:#fff8e1;border-color:#ffe082"><strong>⏱ 估计工作量：</strong>1 天 &nbsp;·&nbsp; <strong>回归测试：</strong>构建后 naive/echarts 不进入登录和普通管理首屏关键路径；CI 中超过预算时失败。</div>
+  </div>
+
+  <h3 class="section-title" id="architecture">🏗 架构与模块边界</h3>
+  <div class="card"><div class="card-header">🧭 覆盖说明</div><div class="card-body"><p><strong>Coverage:</strong> High</p><p><strong>Inspected evidence:</strong> pom 多模块、platform-boot controller、platform-security、platform-business/exchange/system/file/statistics。</p><p><strong>Exclusions / limits:</strong> 未生成完整依赖图。</p></div></div>
+  <div class="card"><div class="card-header">已确认 <span style="font-weight:400;font-size:13px;color:var(--text-secondary)">· 1 个发现</span></div><div class="card-body" style="padding:0"><div class="table-wrap"><table><thead><tr><th>发现</th><th style="width:100px">严重程度</th><th style="width:100px">状态</th></tr></thead><tbody><tr><td>ExchangeServiceImpl 与 VideoReviewServiceImpl 多职责巨型类</td><td><span class="badge badge-medium">Medium</span></td><td><span class="badge badge-confirmed">Confirmed</span></td></tr></tbody></table></div></div></div>
+  <div class="card"><div class="card-header">✅ 已验证架构控制</div><div class="card-body"><div class="check-list"><div class="check-item"><span class="check">✓</span> 后端按 common/security/system/business/exchange/statistics/file/boot 拆分模块。</div><div class="check-item"><span class="check">✓</span> controller 基本保持在 boot 层，业务规则集中在 service 层。</div><div class="check-item"><span class="check">✓</span> Flyway 迁移集中在 platform-boot resources/db/migration。</div></div></div></div>
+
+  <h3 class="section-title" id="security">🔒 安全</h3>
+  <div class="card"><div class="card-header">🧭 覆盖说明</div><div class="card-body"><p><strong>Coverage:</strong> High</p><p><strong>Inspected evidence:</strong> SecurityConfig、JWT filter、AuthService、RBAC seed、token store、敏感接口。</p><p><strong>Exclusions / limits:</strong> 未做动态攻击测试。</p></div></div>
+  <div class="card"><div class="card-header">已确认 <span style="font-weight:400;font-size:13px;color:var(--text-secondary)">· 4 个发现</span></div><div class="card-body" style="padding:0"><div class="table-wrap"><table><thead><tr><th>发现</th><th style="width:100px">严重程度</th><th style="width:100px">状态</th></tr></thead><tbody><tr><td>生产 bootstrap admin 与 STAFF 重置使用公开固定初始口令</td><td><span class="badge badge-high">High</span></td><td><span class="badge badge-confirmed">Confirmed</span></td></tr><tr><td>浏览器 token 存入 localStorage 且未配置 CSP</td><td><span class="badge badge-medium">Medium</span></td><td><span class="badge badge-confirmed">Confirmed</span></td></tr><tr><td>学生初始密码由证件号后六位推导</td><td><span class="badge badge-medium">Medium</span></td><td><span class="badge badge-confirmed">Confirmed</span></td></tr><tr><td>容器和 CI 供应链硬化不足</td><td><span class="badge badge-medium">Medium</span></td><td><span class="badge badge-confirmed">Confirmed</span></td></tr></tbody></table></div></div></div>
+  <div class="card"><div class="card-header">✅ 已验证安全控制</div><div class="card-body"><div class="check-list"><div class="check-item"><span class="check">✓</span> JWT 密钥缺失或少于 32 字节会启动失败。</div><div class="check-item"><span class="check">✓</span> JWT filter 校验 typ、撤销状态和用户启用状态。</div><div class="check-item"><span class="check">✓</span> method security 与 @PreAuthorize 在主要 controller 上广泛使用。</div><div class="check-item"><span class="check">✓</span> 改密/登出会撤销旧 token。</div></div></div></div>
+
+  <h3 class="section-title" id="stability">⚡ 稳定性与错误处理</h3>
+  <div class="card"><div class="card-header">🧭 覆盖说明</div><div class="card-body"><p><strong>Coverage:</strong> Medium</p><p><strong>Inspected evidence:</strong> GlobalExceptionHandler、Failsafe 报告、健康检查、MinIO/FileService、调度任务。</p><p><strong>Exclusions / limits:</strong> 未做故障注入或长稳压测。</p></div></div>
+  <div class="card"><div class="card-header">已确认 <span style="font-weight:400;font-size:13px;color:var(--text-secondary)">· 2 个发现</span></div><div class="card-body" style="padding:0"><div class="table-wrap"><table><thead><tr><th>发现</th><th style="width:100px">严重程度</th><th style="width:100px">状态</th></tr></thead><tbody><tr><td>当前后端 mvn verify 失败</td><td><span class="badge badge-high">High</span></td><td><span class="badge badge-confirmed">Confirmed</span></td></tr><tr><td>健康检查只返回静态 UP</td><td><span class="badge badge-low">Low</span></td><td><span class="badge badge-confirmed">Confirmed</span></td></tr></tbody></table></div></div></div>
+  <div class="card"><div class="card-header">✅ 已验证稳健性</div><div class="card-body"><div class="check-list"><div class="check-item"><span class="check">✓</span> 未知异常返回 HTTP 500，而不是伪 200。</div><div class="check-item"><span class="check">✓</span> 数据完整性异常有统一业务提示。</div><div class="check-item"><span class="check">✓</span> 多个写路径使用 @Transactional(rollbackFor = Exception.class)。</div></div></div></div>
+
+  <h3 class="section-title" id="performance">🚀 性能与可扩展性</h3>
+  <div class="card"><div class="card-header">🧭 覆盖说明</div><div class="card-body"><p><strong>Coverage:</strong> Medium</p><p><strong>Inspected evidence:</strong> dist/assets、导出/分页路径、docs 性能改造记录。</p><p><strong>Exclusions / limits:</strong> 未做 profiling、Lighthouse 或压测。</p></div></div>
+  <div class="card"><div class="card-header">已确认 <span style="font-weight:400;font-size:13px;color:var(--text-secondary)">· 1 个发现</span></div><div class="card-body" style="padding:0"><div class="table-wrap"><table><thead><tr><th>发现</th><th style="width:100px">严重程度</th><th style="width:100px">状态</th></tr></thead><tbody><tr><td>Naive UI 和 ECharts vendor chunk 超过 1 MB</td><td><span class="badge badge-low">Low</span></td><td><span class="badge badge-confirmed">Confirmed</span></td></tr></tbody></table></div></div></div>
+  <div class="card"><div class="card-header">✅ 已验证性能控制</div><div class="card-body"><div class="check-list"><div class="check-item"><span class="check">✓</span> 多个列表路径使用 PageQuery / selectPage 真分页。</div><div class="check-item"><span class="check">✓</span> V24 通过数据库唯一约束减少并发重复数据。</div><div class="check-item"><span class="check">✓</span> MinIO 未完成分片有生命周期清理设计。</div></div></div></div>
+
+  <h3 class="section-title" id="testing">🧪 测试质量</h3>
+  <div class="card"><div class="card-header">🧭 覆盖说明</div><div class="card-body"><p><strong>Coverage:</strong> High</p><p><strong>Inspected evidence:</strong> 20 个后端 IT 文件、Failsafe 报告、frontend/package.json、CI。</p><p><strong>Exclusions / limits:</strong> 未新增或修改测试。</p></div></div>
+  <div class="card"><div class="card-header">已确认 <span style="font-weight:400;font-size:13px;color:var(--text-secondary)">· 2 个发现</span></div><div class="card-body" style="padding:0"><div class="table-wrap"><table><thead><tr><th>发现</th><th style="width:100px">严重程度</th><th style="width:100px">状态</th></tr></thead><tbody><tr><td>当前后端 mvn verify 失败</td><td><span class="badge badge-high">High</span></td><td><span class="badge badge-confirmed">Confirmed</span></td></tr><tr><td>前端缺少行为测试、lint 和可访问性 gate</td><td><span class="badge badge-medium">Medium</span></td><td><span class="badge badge-confirmed">Confirmed</span></td></tr></tbody></table></div></div></div>
+  <div class="card"><div class="card-header">✅ 已验证测试基础</div><div class="card-body"><div class="check-list"><div class="check-item"><span class="check">✓</span> 后端 IT 使用 @SpringBootTest RANDOM_PORT 和 TestRestTemplate，覆盖真实 HTTP。</div><div class="check-item"><span class="check">✓</span> Failsafe 报告可定位失败测试、断言和源码行。</div><div class="check-item"><span class="check">✓</span> frontend type-check 脚本存在并可作为 CI gate 补上。</div></div></div></div>
+
+  <h3 class="section-title" id="maintainability">📐 可维护性</h3>
+  <div class="card"><div class="card-header">🧭 覆盖说明</div><div class="card-body"><p><strong>Coverage:</strong> High</p><p><strong>Inspected evidence:</strong> 文件行数、核心 service 方法列表、Controller/API 模式。</p><p><strong>Exclusions / limits:</strong> 未运行 PMD/Checkstyle/ESLint。</p></div></div>
+  <div class="card"><div class="card-header">已确认 <span style="font-weight:400;font-size:13px;color:var(--text-secondary)">· 2 个发现</span></div><div class="card-body" style="padding:0"><div class="table-wrap"><table><thead><tr><th>发现</th><th style="width:100px">严重程度</th><th style="width:100px">状态</th></tr></thead><tbody><tr><td>多职责巨型服务类</td><td><span class="badge badge-medium">Medium</span></td><td><span class="badge badge-confirmed">Confirmed</span></td></tr><tr><td>前端缺少测试/lint gate</td><td><span class="badge badge-medium">Medium</span></td><td><span class="badge badge-confirmed">Confirmed</span></td></tr></tbody></table></div></div></div>
+  <div class="card"><div class="card-header">✅ 已验证可维护性基础</div><div class="card-body"><div class="check-list"><div class="check-item"><span class="check">✓</span> DTO/VO/entity/mapper/service/controller 命名整体一致。</div><div class="check-item"><span class="check">✓</span> README 和 launch-readiness-plan 记录了大量历史风险与修复。</div><div class="check-item"><span class="check">✓</span> 迁移文件注释解释了关键数据约束的取舍。</div></div></div></div>
+
+  <h3 class="section-title" id="design">📋 设计原则合规</h3>
+  <div class="card"><div class="card-header">🧭 覆盖说明</div><div class="card-body"><p><strong>Coverage:</strong> Medium</p><p><strong>Inspected evidence:</strong> SRP、文件大小、配置默认、CQS/Fail-fast 抽样。</p><p><strong>Exclusions / limits:</strong> 没有对全库每个函数做复杂度评分。</p></div></div>
+  <div class="card"><div class="card-header">已确认 <span style="font-weight:400;font-size:13px;color:var(--text-secondary)">· 3 个发现</span></div><div class="card-body" style="padding:0"><div class="table-wrap"><table><thead><tr><th>发现</th><th style="width:100px">严重程度</th><th style="width:100px">状态</th></tr></thead><tbody><tr><td>SRP/文件大小违反</td><td><span class="badge badge-medium">Medium</span></td><td><span class="badge badge-confirmed">Confirmed</span></td></tr><tr><td>默认口令违反配置优先与 fail-fast</td><td><span class="badge badge-high">High</span></td><td><span class="badge badge-confirmed">Confirmed</span></td></tr><tr><td>默认 dev profile 降低环境分离</td><td><span class="badge badge-low">Low</span></td><td><span class="badge badge-confirmed">Confirmed</span></td></tr></tbody></table></div></div></div>
+  <div class="card"><div class="card-header">✅ 已验证设计优点</div><div class="card-body"><div class="check-list"><div class="check-item"><span class="check">✓</span> JWT 密钥采用 fail-fast。</div><div class="check-item"><span class="check">✓</span> 权限检查和数据范围被抽到注解/切面层。</div><div class="check-item"><span class="check">✓</span> 数据完整性关键约束下沉到数据库。</div></div></div></div>
+
+  <h3 class="section-title" id="release">🚢 发布与部署</h3>
+  <div class="card"><div class="card-header">🧭 覆盖说明</div><div class="card-body"><p><strong>Coverage:</strong> High</p><p><strong>Inspected evidence:</strong> Dockerfile、frontend/Dockerfile、CI、prod/dev 配置、Failsafe 报告。</p><p><strong>Exclusions / limits:</strong> 未构建并扫描最终镜像。</p></div></div>
+  <div class="card"><div class="card-header">已确认 <span style="font-weight:400;font-size:13px;color:var(--text-secondary)">· 4 个发现</span></div><div class="card-body" style="padding:0"><div class="table-wrap"><table><thead><tr><th>发现</th><th style="width:100px">严重程度</th><th style="width:100px">状态</th></tr></thead><tbody><tr><td>mvn verify 失败</td><td><span class="badge badge-high">High</span></td><td><span class="badge badge-confirmed">Confirmed</span></td></tr><tr><td>容器和 CI 供应链硬化不足</td><td><span class="badge badge-medium">Medium</span></td><td><span class="badge badge-confirmed">Confirmed</span></td></tr><tr><td>默认 active profile 为 dev</td><td><span class="badge badge-low">Low</span></td><td><span class="badge badge-confirmed">Confirmed</span></td></tr><tr><td>健康检查缺少 readiness</td><td><span class="badge badge-low">Low</span></td><td><span class="badge badge-confirmed">Confirmed</span></td></tr></tbody></table></div></div></div>
+  <div class="card"><div class="card-header">✅ 已验证发布基础</div><div class="card-body"><div class="check-list"><div class="check-item"><span class="check">✓</span> GitHub Actions 分后端和前端 job。</div><div class="check-item"><span class="check">✓</span> prod profile 关闭 springdoc/knife4j。</div><div class="check-item"><span class="check">✓</span> 前后端都有 Dockerfile 和健康检查入口。</div></div></div></div>
+
+  <h3 class="section-title" id="documentation">📚 文档准确性</h3>
+  <div class="card"><div class="card-header">🧭 覆盖说明</div><div class="card-body"><p><strong>Coverage:</strong> Medium</p><p><strong>Inspected evidence:</strong> README、docs/launch-readiness-plan.md、迁移注释、配置注释。</p><p><strong>Exclusions / limits:</strong> 未逐字审查全部 Markdown。</p></div></div>
+  <div class="card"><div class="card-header">已确认 <span style="font-weight:400;font-size:13px;color:var(--text-secondary)">· 1 个发现</span></div><div class="card-body" style="padding:0"><div class="table-wrap"><table><thead><tr><th>发现</th><th style="width:100px">严重程度</th><th style="width:100px">状态</th></tr></thead><tbody><tr><td>README 暴露测试初始口令，且生产 admin 复用相同哈希形成风险链</td><td><span class="badge badge-high">High</span></td><td><span class="badge badge-confirmed">Confirmed</span></td></tr></tbody></table></div></div></div>
+  <div class="card"><div class="card-header">✅ 已验证文档基础</div><div class="card-body"><div class="check-list"><div class="check-item"><span class="check">✓</span> README 记录本地依赖、启动和种子账号信息。</div><div class="check-item"><span class="check">✓</span> launch-readiness-plan 保留历史风险、修复和验证记录。</div><div class="check-item"><span class="check">✓</span> 迁移文件对高风险约束有清晰注释。</div></div></div></div>
+
+  <h3 class="section-title" id="configuration">⚙️ 配置安全</h3>
+  <div class="card"><div class="card-header">🧭 覆盖说明</div><div class="card-body"><p><strong>Coverage:</strong> High</p><p><strong>Inspected evidence:</strong> application.yml/dev/prod、SecurityProperties、MinIO/JWT、sys_param。</p><p><strong>Exclusions / limits:</strong> 未查看真实生产 secret manager。</p></div></div>
+  <div class="card"><div class="card-header">已确认 <span style="font-weight:400;font-size:13px;color:var(--text-secondary)">· 3 个发现</span></div><div class="card-body" style="padding:0"><div class="table-wrap"><table><thead><tr><th>发现</th><th style="width:100px">严重程度</th><th style="width:100px">状态</th></tr></thead><tbody><tr><td>默认初始口令</td><td><span class="badge badge-high">High</span></td><td><span class="badge badge-confirmed">Confirmed</span></td></tr><tr><td>学生证件号后六位初始密码</td><td><span class="badge badge-medium">Medium</span></td><td><span class="badge badge-confirmed">Confirmed</span></td></tr><tr><td>默认 active profile 为 dev</td><td><span class="badge badge-low">Low</span></td><td><span class="badge badge-confirmed">Confirmed</span></td></tr></tbody></table></div></div></div>
+  <div class="card"><div class="card-header">✅ 已验证配置控制</div><div class="card-body"><div class="check-list"><div class="check-item"><span class="check">✓</span> prod profile 使用环境变量配置 DB/Redis/JWT。</div><div class="check-item"><span class="check">✓</span> base JWT secret 空默认会由 JwtService fail-fast。</div><div class="check-item"><span class="check">✓</span> prod Flyway locations 不包含 db/testseed。</div></div></div></div>
+
+  <h3 class="section-title" id="observability">🩺 可观测性</h3>
+  <div class="card"><div class="card-header">🧭 覆盖说明</div><div class="card-body"><p><strong>Coverage:</strong> Medium</p><p><strong>Inspected evidence:</strong> HealthController、AuditLogAspect、SystemAuditController、Backup/Cleanup schedule。</p><p><strong>Exclusions / limits:</strong> 未检查生产日志平台、APM、告警规则。</p></div></div>
+  <div class="card"><div class="card-header">已确认 <span style="font-weight:400;font-size:13px;color:var(--text-secondary)">· 1 个发现</span></div><div class="card-body" style="padding:0"><div class="table-wrap"><table><thead><tr><th>发现</th><th style="width:100px">严重程度</th><th style="width:100px">状态</th></tr></thead><tbody><tr><td>健康检查只返回静态 UP，缺少依赖就绪与指标</td><td><span class="badge badge-low">Low</span></td><td><span class="badge badge-confirmed">Confirmed</span></td></tr></tbody></table></div></div></div>
+  <div class="card"><div class="card-header">✅ 已验证可观测基础</div><div class="card-body"><div class="check-list"><div class="check-item"><span class="check">✓</span> @AuditLog 对关键操作写 audit_log。</div><div class="check-item"><span class="check">✓</span> GlobalExceptionHandler 记录业务和系统异常。</div><div class="check-item"><span class="check">✓</span> 清理和备份调度有日志记录。</div></div></div></div>
+
+  <h3 class="section-title" id="data-integrity">🧱 数据完整性</h3>
+  <div class="card"><div class="card-header">🧭 覆盖说明</div><div class="card-body"><p><strong>Coverage:</strong> High</p><p><strong>Inspected evidence:</strong> Flyway V1-V26、唯一键、事务、DuplicateKeyException、证书/学生约束。</p><p><strong>Exclusions / limits:</strong> 未做并发压测。</p></div></div>
+  <div class="card"><div class="card-header">已确认 <span style="font-weight:400;font-size:13px;color:var(--text-secondary)">· 2 个发现</span></div><div class="card-body" style="padding:0"><div class="table-wrap"><table><thead><tr><th>发现</th><th style="width:100px">严重程度</th><th style="width:100px">状态</th></tr></thead><tbody><tr><td>mvn verify 失败揭示测试数据隔离问题</td><td><span class="badge badge-high">High</span></td><td><span class="badge badge-confirmed">Confirmed</span></td></tr><tr><td>身份证号明文参与唯一键</td><td><span class="badge badge-medium">Medium</span></td><td><span class="badge badge-confirmed">Confirmed</span></td></tr></tbody></table></div></div></div>
+  <div class="card"><div class="card-header">✅ 已验证数据完整性控制</div><div class="card-body"><div class="check-list"><div class="check-item"><span class="check">✓</span> V24 为活跃证书和未删学生证件号建立唯一约束。</div><div class="check-item"><span class="check">✓</span> 多处 DuplicateKeyException 被转成业务错误。</div><div class="check-item"><span class="check">✓</span> Flyway 迁移注释包含上线前存量违约检查思路。</div></div></div></div>
+
+  <h3 class="section-title" id="privacy">🛡 隐私与数据治理</h3>
+  <div class="card"><div class="card-header">🧭 覆盖说明</div><div class="card-body"><p><strong>Coverage:</strong> High</p><p><strong>Inspected evidence:</strong> StudentServiceImpl、StudentController、V24、ExchangeServiceImpl、SensitiveMasker。</p><p><strong>Exclusions / limits:</strong> 未审查组织级隐私制度。</p></div></div>
+  <div class="card"><div class="card-header">已确认 <span style="font-weight:400;font-size:13px;color:var(--text-secondary)">· 3 个发现</span></div><div class="card-body" style="padding:0"><div class="table-wrap"><table><thead><tr><th>发现</th><th style="width:100px">严重程度</th><th style="width:100px">状态</th></tr></thead><tbody><tr><td>学生初始密码由证件号推导</td><td><span class="badge badge-medium">Medium</span></td><td><span class="badge badge-confirmed">Confirmed</span></td></tr><tr><td>身份证号明文持久化</td><td><span class="badge badge-medium">Medium</span></td><td><span class="badge badge-confirmed">Confirmed</span></td></tr><tr><td>localStorage refresh token 扩大 XSS 后果</td><td><span class="badge badge-medium">Medium</span></td><td><span class="badge badge-confirmed">Confirmed</span></td></tr></tbody></table></div></div></div>
+  <div class="card"><div class="card-header">✅ 已验证隐私控制</div><div class="card-body"><div class="check-list"><div class="check-item"><span class="check">✓</span> StudentVO 默认使用 SensitiveMasker 脱敏证件号。</div><div class="check-item"><span class="check">✓</span> plainIdCard 端点要求 exchange:export:sensitive 权限并记录审计。</div><div class="check-item"><span class="check">✓</span> 导出路径按权限控制敏感字段。</div></div></div></div>
+
+  <h3 class="section-title" id="accessibility">⌨️ 可访问性与 UX 正确性</h3>
+  <div class="card"><div class="card-header">🧭 覆盖说明</div><div class="card-body"><p><strong>Coverage:</strong> Low</p><p><strong>Inspected evidence:</strong> Vue 组件、package scripts、CI。</p><p><strong>Exclusions / limits:</strong> 未运行浏览器、键盘导航、屏幕阅读器或 axe。</p></div></div>
+  <div class="card"><div class="card-header">已确认 <span style="font-weight:400;font-size:13px;color:var(--text-secondary)">· 1 个发现</span></div><div class="card-body" style="padding:0"><div class="table-wrap"><table><thead><tr><th>发现</th><th style="width:100px">严重程度</th><th style="width:100px">状态</th></tr></thead><tbody><tr><td>前端缺少可访问性 gate</td><td><span class="badge badge-medium">Medium</span></td><td><span class="badge badge-confirmed">Confirmed</span></td></tr></tbody></table></div></div></div>
+  <div class="card"><div class="card-header">✅ 已验证 UX 基础</div><div class="card-body"><div class="check-list"><div class="check-item"><span class="check">✓</span> Naive UI 提供基础表单、表格、模态和反馈组件。</div><div class="check-item"><span class="check">✓</span> 路由按权限 meta 管理入口展示。</div></div></div></div>
+
+  <h3 class="section-title" id="supply-chain">🔗 供应链与可复现性</h3>
+  <div class="card"><div class="card-header">🧭 覆盖说明</div><div class="card-body"><p><strong>Coverage:</strong> Medium</p><p><strong>Inspected evidence:</strong> package-lock、Dockerfile、CI Actions、base image tags。</p><p><strong>Exclusions / limits:</strong> 网络受限，未跑 vuln scanner。</p></div></div>
+  <div class="card"><div class="card-header">已确认 <span style="font-weight:400;font-size:13px;color:var(--text-secondary)">· 1 个发现</span></div><div class="card-body" style="padding:0"><div class="table-wrap"><table><thead><tr><th>发现</th><th style="width:100px">严重程度</th><th style="width:100px">状态</th></tr></thead><tbody><tr><td>容器和 CI 供应链硬化不足</td><td><span class="badge badge-medium">Medium</span></td><td><span class="badge badge-confirmed">Confirmed</span></td></tr></tbody></table></div></div></div>
+  <div class="card"><div class="card-header">✅ 已验证供应链基础</div><div class="card-body"><div class="check-list"><div class="check-item"><span class="check">✓</span> 前端有 package-lock，可复现 npm ci。</div><div class="check-item"><span class="check">✓</span> Maven 依赖由多模块 pom 管理。</div><div class="check-item"><span class="check">✓</span> CI 使用官方 setup-java/setup-node 并启用缓存。</div></div></div></div>
+
+  <h3 class="section-title" id="cost">💸 成本与资源经济性</h3>
+  <div class="card"><div class="card-header">🧭 覆盖说明</div><div class="card-body"><p><strong>Coverage:</strong> Medium</p><p><strong>Inspected evidence:</strong> 上传限制、MinIO 生命周期、备份、前端 bundle。</p><p><strong>Exclusions / limits:</strong> 没有生产流量和存储账单。</p></div></div>
+  <div class="card"><div class="card-header">已确认 <span style="font-weight:400;font-size:13px;color:var(--text-secondary)">· 1 个发现</span></div><div class="card-body" style="padding:0"><div class="table-wrap"><table><thead><tr><th>发现</th><th style="width:100px">严重程度</th><th style="width:100px">状态</th></tr></thead><tbody><tr><td>大型前端 vendor chunk 增加传输和解析成本</td><td><span class="badge badge-low">Low</span></td><td><span class="badge badge-confirmed">Confirmed</span></td></tr></tbody></table></div></div></div>
+  <div class="card"><div class="card-header">✅ 已验证成本控制</div><div class="card-body"><div class="check-list"><div class="check-item"><span class="check">✓</span> MinIO 未完成分片有 abort 生命周期规则。</div><div class="check-item"><span class="check">✓</span> audit_log 和 notification 有保留期清理任务。</div><div class="check-item"><span class="check">✓</span> 大文件代理超时和上传大小有显式配置。</div></div></div></div>
+
+  <h3 class="section-title" id="ai-safety">🤖 AI / LLM 安全</h3>
+  <div class="card"><div class="card-header">🧭 覆盖说明</div><div class="card-body"><p><strong>Coverage:</strong> Not assessed</p><p><strong>Inspected evidence:</strong> 搜索 OpenAI、LLM、prompt、RAG、embedding、vector、model 等运行时代码无命中。</p><p><strong>Exclusions / limits:</strong> 项目运行面未发现 AI/LLM 功能；仓库内 .claude 资料不属于应用 runtime。</p></div></div>
+  <div class="card"><div class="card-header">✅ 不适用</div><div class="card-body"><div class="check-list"><div class="check-item"><span class="check">✓</span> 未发现模型调用、RAG 检索、工具调用授权或 prompt 模板。</div></div></div></div>
+
+  <h3 class="section-title" id="fallback">🧯 Fallback / 防御性代码</h3>
+  <div class="card"><div class="card-header">🧭 覆盖说明</div><div class="card-body"><p><strong>Coverage:</strong> Medium</p><p><strong>Inspected evidence:</strong> catch/ignored 搜索、JwtService、MinioConfig、FileMaintenanceService、GlobalExceptionHandler。</p><p><strong>Exclusions / limits:</strong> 未逐个验证所有 fallback 业务语义。</p></div></div>
+  <div class="card"><div class="card-header">✅ 无新增顶层发现</div><div class="card-body"><div class="check-list"><div class="check-item"><span class="check">✓</span> JWT secret 非 Base64 时回退到 UTF-8 后仍检查长度，是可解释 fallback。</div><div class="check-item"><span class="check">✓</span> MinIO 生命周期设置失败记录 warn，不中断调度线程，符合维护任务容错。</div><div class="check-item"><span class="cross">×</span> 默认 dev profile 和默认口令属于不安全 fallback，已在配置/安全发现中记录。</div></div></div></div>
+
+  <h3 class="section-title" id="testing-authenticity">🧪 测试真实性</h3>
+  <div class="card"><div class="card-header">🧭 覆盖说明</div><div class="card-body"><p><strong>Coverage:</strong> High</p><p><strong>Inspected evidence:</strong> @SpringBootTest RANDOM_PORT、TestRestTemplate、Failsafe XML/TXT。</p><p><strong>Exclusions / limits:</strong> 前端无测试可评估真实性。</p></div></div>
+  <div class="card"><div class="card-header">已确认 <span style="font-weight:400;font-size:13px;color:var(--text-secondary)">· 2 个发现</span></div><div class="card-body" style="padding:0"><div class="table-wrap"><table><thead><tr><th>发现</th><th style="width:100px">严重程度</th><th style="width:100px">状态</th></tr></thead><tbody><tr><td>后端验证失败且疑似依赖共享状态</td><td><span class="badge badge-high">High</span></td><td><span class="badge badge-confirmed">Confirmed</span></td></tr><tr><td>前端无测试</td><td><span class="badge badge-medium">Medium</span></td><td><span class="badge badge-confirmed">Confirmed</span></td></tr></tbody></table></div></div></div>
+  <div class="card"><div class="card-header">✅ 已验证真实性基础</div><div class="card-body"><div class="check-list"><div class="check-item"><span class="check">✓</span> 后端测试不是纯 mock，覆盖真实 HTTP 请求和 Spring 上下文。</div><div class="check-item"><span class="check">✓</span> 失败断言直接对应 RBAC/分页业务行为。</div></div></div></div>
+
+  <h3 class="section-title" id="type-safety">🔠 类型安全</h3>
+  <div class="card"><div class="card-header">🧭 覆盖说明</div><div class="card-body"><p><strong>Coverage:</strong> Medium</p><p><strong>Inspected evidence:</strong> TypeScript scripts、DTO @Valid、枚举 support、Result/PageResult。</p><p><strong>Exclusions / limits:</strong> 未跑额外静态分析。</p></div></div>
+  <div class="card"><div class="card-header">✅ 无新增顶层发现</div><div class="card-body"><div class="check-list"><div class="check-item"><span class="check">✓</span> frontend 提供 vue-tsc --noEmit 脚本。</div><div class="check-item"><span class="check">✓</span> Java 请求体大量使用 @Valid DTO。</div><div class="check-item"><span class="cross">×</span> CI 尚未执行前端 type-check，已计入测试发现。</div></div></div></div>
+
+  <h3 class="section-title" id="frontend-state">🧩 前端状态</h3>
+  <div class="card"><div class="card-header">🧭 覆盖说明</div><div class="card-body"><p><strong>Coverage:</strong> Medium</p><p><strong>Inspected evidence:</strong> Pinia user/year stores、request interceptor、router、主要 Vue 组件行数。</p><p><strong>Exclusions / limits:</strong> 未进行浏览器交互验证。</p></div></div>
+  <div class="card"><div class="card-header">已确认 <span style="font-weight:400;font-size:13px;color:var(--text-secondary)">· 2 个发现</span></div><div class="card-body" style="padding:0"><div class="table-wrap"><table><thead><tr><th>发现</th><th style="width:100px">严重程度</th><th style="width:100px">状态</th></tr></thead><tbody><tr><td>localStorage token 存储</td><td><span class="badge badge-medium">Medium</span></td><td><span class="badge badge-confirmed">Confirmed</span></td></tr><tr><td>前端缺少行为测试</td><td><span class="badge badge-medium">Medium</span></td><td><span class="badge badge-confirmed">Confirmed</span></td></tr></tbody></table></div></div></div>
+  <div class="card"><div class="card-header">✅ 已验证前端状态基础</div><div class="card-body"><div class="check-list"><div class="check-item"><span class="check">✓</span> 用户态集中在 Pinia user store。</div><div class="check-item"><span class="check">✓</span> 路由组件使用 lazy import。</div><div class="check-item"><span class="check">✓</span> logout 清理本地 token 和用户状态。</div></div></div></div>
+
+  <h3 class="section-title" id="backend-api">🌐 后端 API</h3>
+  <div class="card"><div class="card-header">🧭 覆盖说明</div><div class="card-body"><p><strong>Coverage:</strong> High</p><p><strong>Inspected evidence:</strong> controller @PreAuthorize/@DataScope/@AuditLog/@Valid、GlobalExceptionHandler、Result。</p><p><strong>Exclusions / limits:</strong> 未做 OpenAPI contract 测试。</p></div></div>
+  <div class="card"><div class="card-header">已确认 <span style="font-weight:400;font-size:13px;color:var(--text-secondary)">· 2 个发现</span></div><div class="card-body" style="padding:0"><div class="table-wrap"><table><thead><tr><th>发现</th><th style="width:100px">严重程度</th><th style="width:100px">状态</th></tr></thead><tbody><tr><td>敏感 plainIdCard 返回明文，需持续保持权限和审计边界</td><td><span class="badge badge-medium">Medium</span></td><td><span class="badge badge-confirmed">Confirmed</span></td></tr><tr><td>测试失败覆盖到 RBAC 数据范围与分页 API</td><td><span class="badge badge-high">High</span></td><td><span class="badge badge-confirmed">Confirmed</span></td></tr></tbody></table></div></div></div>
+  <div class="card"><div class="card-header">✅ 已验证 API 控制</div><div class="card-body"><div class="check-list"><div class="check-item"><span class="check">✓</span> 关键写操作多有 @AuditLog。</div><div class="check-item"><span class="check">✓</span> 数据范围注解覆盖学生、材料、导出、系统安全等接口。</div><div class="check-item"><span class="check">✓</span> 全局异常处理区分 403、404、405、500。</div></div></div></div>
+
+  <h3 class="section-title" id="dependency-weight">📦 依赖重量</h3>
+  <div class="card"><div class="card-header">🧭 覆盖说明</div><div class="card-body"><p><strong>Coverage:</strong> Medium</p><p><strong>Inspected evidence:</strong> frontend/package.json、dist/assets、Dockerfile。</p><p><strong>Exclusions / limits:</strong> 未使用 bundle visualizer 或 dependency analyzer。</p></div></div>
+  <div class="card"><div class="card-header">已确认 <span style="font-weight:400;font-size:13px;color:var(--text-secondary)">· 1 个发现</span></div><div class="card-body" style="padding:0"><div class="table-wrap"><table><thead><tr><th>发现</th><th style="width:100px">严重程度</th><th style="width:100px">状态</th></tr></thead><tbody><tr><td>Naive UI 和 ECharts chunk 过大</td><td><span class="badge badge-low">Low</span></td><td><span class="badge badge-confirmed">Confirmed</span></td></tr></tbody></table></div></div></div>
+  <div class="card"><div class="card-header">✅ 已验证依赖基础</div><div class="card-body"><div class="check-list"><div class="check-item"><span class="check">✓</span> 前端依赖清单较集中，无大型框架并存。</div><div class="check-item"><span class="check">✓</span> Vite 构建会输出 chunk size warning。</div></div></div></div>
+
+  <h3 class="section-title" id="code-consistency">🧱 代码一致性</h3>
+  <div class="card"><div class="card-header">🧭 覆盖说明</div><div class="card-body"><p><strong>Coverage:</strong> Medium</p><p><strong>Inspected evidence:</strong> Controller/Service/Mapper/DTO/VO 命名、Result 结构、异常模式。</p><p><strong>Exclusions / limits:</strong> 未运行 formatter/lint。</p></div></div>
+  <div class="card"><div class="card-header">✅ 无新增顶层发现</div><div class="card-body"><div class="check-list"><div class="check-item"><span class="check">✓</span> 后端包结构和类命名较一致。</div><div class="check-item"><span class="check">✓</span> API 响应统一使用 Result/PageResult。</div><div class="check-item"><span class="cross">×</span> 前端没有 lint gate，已计入测试发现。</div></div></div></div>
+
+  <h3 class="section-title" id="comment-coverage">💬 注释覆盖</h3>
+  <div class="card"><div class="card-header">🧭 覆盖说明</div><div class="card-body"><p><strong>Coverage:</strong> Medium</p><p><strong>Inspected evidence:</strong> 迁移文件、核心配置、服务类注释、README/docs。</p><p><strong>Exclusions / limits:</strong> 未逐条校验所有注释是否随代码更新。</p></div></div>
+  <div class="card"><div class="card-header">✅ 无新增顶层发现</div><div class="card-body"><div class="check-list"><div class="check-item"><span class="check">✓</span> V24 等迁移文件说明了并发问题、唯一键方案和上线前检查。</div><div class="check-item"><span class="check">✓</span> application-dev/prod 注释解释了 testseed 与 production migration 分离。</div><div class="check-item"><span class="check">✓</span> 大量历史修复记录可追溯，但后续应避免文档与实现分离。</div></div></div></div>
+
+  <h3 class="section-title" id="principles">📋 工程原则</h3>
+  <div class="card">
+    <div class="card-header">原则违反</div>
+    <div class="card-body" style="padding:0">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>原则</th><th>数量</th><th style="width:100px">严重程度</th><th>区域</th></tr></thead>
+          <tbody>
+            <tr><td>1.1 Single Responsibility</td><td>2</td><td><span class="badge badge-medium">Medium</span></td><td>ExchangeServiceImpl, VideoReviewServiceImpl</td></tr>
+            <tr><td>1.2 File Size Limit</td><td>2</td><td><span class="badge badge-medium">Medium</span></td><td>两个服务类超过 1000 行</td></tr>
+            <tr><td>9.1 Configuration Over Hardcoding</td><td>2</td><td><span class="badge badge-high">High</span></td><td>默认初始口令、学生初始密码规则</td></tr>
+            <tr><td>9.2 Fail on Missing Configuration</td><td>1</td><td><span class="badge badge-low">Low</span></td><td>默认 active profile=dev</td></tr>
+            <tr><td>4.6 Least Privilege</td><td>1</td><td><span class="badge badge-medium">Medium</span></td><td>浏览器可读 refresh token 扩大权限暴露面</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="card"><div class="card-header">✅ 已遵循原则</div><div class="card-body"><div class="check-list"><div class="check-item"><span class="check">✓</span> Fail-fast：JWT secret 缺失/过短会启动失败。</div><div class="check-item"><span class="check">✓</span> Least privilege：plainIdCard 和敏感导出有权限码与审计。</div><div class="check-item"><span class="check">✓</span> Data integrity：关键业务唯一性下沉到数据库约束。</div><div class="check-item"><span class="check">✓</span> Layering：controller/service/mapper 分层整体清晰。</div></div></div></div>
+
+  <h3 class="section-title" id="fix-order">🎯 推荐修复顺序</h3>
+  <div class="card">
+    <div class="card-header"><span>⚡ 立即处理</span><span class="badge badge-high">High urgency</span></div>
+    <div class="card-body" style="padding:0">
+      <div class="table-wrap"><table><thead><tr><th>#</th><th>修复</th><th>工作量</th><th>风险降低</th></tr></thead><tbody>
+        <tr><td>1</td><td>移除生产可登录固定 admin；STAFF 初始/重置口令改为显式 secret 或一次性激活</td><td>1-2 天</td><td>关闭系统管理员接管窗口</td></tr>
+        <tr><td>2</td><td>修复 Phase2/Phase7 测试隔离并让 mvn verify 重新变绿</td><td>1-2 天</td><td>恢复发布门禁可信度</td></tr>
+        <tr><td>3</td><td>学生初始密码改为随机一次性凭证或关闭自动开户</td><td>1 天</td><td>降低 PII 派生密码导致的抢登风险</td></tr>
+      </tbody></table></div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-header"><span>📅 计划处理</span><span class="badge badge-medium">Medium urgency</span></div>
+    <div class="card-body" style="padding:0">
+      <div class="table-wrap"><table><thead><tr><th>#</th><th>修复</th><th>工作量</th></tr></thead><tbody>
+        <tr><td>4</td><td>token 存储迁移到 HttpOnly cookie/BFF，并添加 CSP</td><td>1-2 天</td></tr>
+        <tr><td>5</td><td>新增前端 type-check/test/lint/a11y/E2E CI gate</td><td>2-4 天</td></tr>
+        <tr><td>6</td><td>Docker/CI pin digest/SHA，runtime 非 root，生成 SBOM</td><td>1-2 天</td></tr>
+        <tr><td>7</td><td>身份证号加密 + HMAC 唯一键迁移方案</td><td>3-5 天</td></tr>
+        <tr><td>8</td><td>拆分 ExchangeServiceImpl 与 VideoReviewServiceImpl</td><td>3-6 天</td></tr>
+      </tbody></table></div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-header"><span>🧹 后续收敛</span><span class="badge badge-low">Lower urgency</span></div>
+    <div class="card-body" style="padding:0">
+      <div class="table-wrap"><table><thead><tr><th>#</th><th>修复</th><th>工作量</th></tr></thead><tbody>
+        <tr><td>9</td><td>删除默认 active=dev，开发脚本显式选择 dev profile</td><td>0.5 天</td></tr>
+        <tr><td>10</td><td>健康检查拆分 liveness/readiness，并接入 Micrometer 指标</td><td>1-2 天</td></tr>
+        <tr><td>11</td><td>拆 ECharts/Naive UI 关键路径并设置 bundle budget</td><td>1 天</td></tr>
+      </tbody></table></div>
+    </div>
+  </div>
+
+  <h3 class="section-title" id="quick-wins">⚡ Quick Wins</h3>
+  <div class="win-grid">
+    <div class="win-card"><div class="win-title">CI 增加 npm run type-check</div><div class="win-meta">0.5 天 · 立刻补上前端类型门禁</div></div>
+    <div class="win-card"><div class="win-title">删除 application.yml 默认 active=dev</div><div class="win-meta">0.5 天 · 减少误启动风险</div></div>
+    <div class="win-card"><div class="win-title">nginx 增加 CSP 基线</div><div class="win-meta">0.5-1 天 · 降低 XSS 后果</div></div>
+    <div class="win-card"><div class="win-title">Docker runtime 非 root</div><div class="win-meta">0.5 天 · 容器最小权限</div></div>
+    <div class="win-card"><div class="win-title">Phase2/Phase7 fixture 加唯一前缀</div><div class="win-meta">1 天 · 快速恢复测试稳定性</div></div>
+    <div class="win-card"><div class="win-title">添加 bundle size budget</div><div class="win-meta">0.5 天 · 防止依赖继续膨胀</div></div>
+  </div>
+
+  <div style="text-align:center;padding:40px 0 20px;color:var(--text-secondary);font-size:12px">
+    Generated by fuck-my-shit-mountain skill · full audit · 2026-07-05 · report lint required and executed separately
+  </div>
+</div>
+
+<script>
+  const sections = document.querySelectorAll('[id]');
+  const navLinks = document.querySelectorAll('.sidebar-nav a');
+
+  const observer = new IntersectionObserver((entries) => {
+    let activeId = null;
+    entries.forEach(entry => {
+      if (entry.isIntersecting) activeId = entry.target.id;
+    });
+    if (activeId) {
+      navLinks.forEach(a => {
+        a.classList.toggle('active', a.getAttribute('href') === '#' + activeId);
+      });
+    }
+  }, { rootMargin: '-10% 0px -60% 0px' });
+
+  sections.forEach(s => observer.observe(s));
+
+  navLinks.forEach(a => {
+    a.addEventListener('click', function(e) {
+      e.preventDefault();
+      const target = document.querySelector(this.getAttribute('href'));
+      if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  });
+</script>
+
+</body>
+</html>

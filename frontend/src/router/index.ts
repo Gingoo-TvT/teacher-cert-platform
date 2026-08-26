@@ -1,12 +1,13 @@
-import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
+import { createRouter, createWebHistory, type RouteLocationNormalized, type RouteRecordRaw } from 'vue-router'
 import { useUserStore } from '@/stores/user'
+import { SessionChangedError } from '@/stores/sessionEpoch'
 
 const routes: RouteRecordRaw[] = [
   {
     path: '/login',
     name: 'login',
     component: () => import('@/views/LoginView.vue'),
-    meta: { public: true }
+    meta: { public: true, title: '登录' }
   },
   {
     path: '/',
@@ -131,6 +132,12 @@ const routes: RouteRecordRaw[] = [
         name: 'noticeCenter',
         component: () => import('@/views/notice/NoticeCenterView.vue'),
         meta: { title: '通知中心', perms: ['notice:view'] }
+      },
+      {
+        path: 'forbidden',
+        name: 'forbidden',
+        component: () => import('@/views/error/Forbidden.vue'),
+        meta: { title: '无权访问' }
       }
     ]
   },
@@ -138,7 +145,7 @@ const routes: RouteRecordRaw[] = [
     path: '/:pathMatch(.*)*',
     name: 'notFound',
     component: () => import('@/views/error/NotFound.vue'),
-    meta: { public: true }
+    meta: { public: true, title: '页面不存在' }
   }
 ]
 
@@ -147,32 +154,55 @@ const router = createRouter({
   routes
 })
 
-router.beforeEach(async (to) => {
+export async function authGuard(to: RouteLocationNormalized) {
   const userStore = useUserStore()
   if (to.meta.public) {
-    if (to.name === 'login' && userStore.token) return { name: 'dashboard' }
+    if (to.name === 'login' && !userStore.token) {
+      await userStore.restoreSession()
+    }
+    if (to.name === 'login' && userStore.token) {
+      if (userStore.mustChangePwd) {
+        userStore.clearSession()
+        return true
+      }
+      return { name: 'dashboard' }
+    }
     return true
   }
   if (!userStore.token) {
+    const restored = await userStore.restoreSession()
+    if (!restored) {
+      return { name: 'login', query: { redirect: to.fullPath } }
+    }
+  }
+  if (userStore.mustChangePwd) {
     return { name: 'login', query: { redirect: to.fullPath } }
   }
   if (!userStore.initialized) {
     try {
       await userStore.loadMe()
-    } catch {
-      userStore.logout()
+      if (userStore.mustChangePwd) {
+        return { name: 'login', query: { redirect: to.fullPath } }
+      }
+    } catch (error) {
+      if (error instanceof SessionChangedError) {
+        return userStore.token ? true : { name: 'login', query: { redirect: to.fullPath } }
+      }
+      userStore.clearSession()
       return { name: 'login', query: { redirect: to.fullPath } }
     }
   }
   const perms = to.meta.perms as string[] | undefined
   if (perms?.length && !userStore.hasAnyPerm(perms)) {
-    return { name: 'dashboard' }
+    return { name: 'forbidden', replace: true }
   }
   return true
-})
+}
+
+router.beforeEach(authGuard)
 
 router.afterEach((to) => {
-  const title = String(to.meta.title || '登录')
+  const title = String(to.meta.title || '平台')
   document.title = `${title} · 师范生考核与证书管理平台`
 })
 

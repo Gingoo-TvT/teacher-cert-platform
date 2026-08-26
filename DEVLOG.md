@@ -15,6 +15,1132 @@
 
 ---
 
+## [2026-08-13] WS08-R3 过期 WS-7 当前态合同整改
+- 做了什么：接受 R2 Hosted 独立重核正式
+  `CHANGES_REQUESTED（0 Critical / 0 High / 1 Medium / 1 Low）`。run `31661893931` 已证明 WS-8 六-suite
+  46/46、0 failure/error/skip，关闭原 profile Medium，但旧 WS-7 合同仍要求全局当前阶段停在 WS-7，使 Phase 41
+  runner job 失败并跳过 WS-8 V33 静态合同及最终镜像/SBOM。现只把该治理断言改为有界的 WS-7 历史
+  fingerprint/run/verdict/双 SPDX/镜像身份/校验和/artifact/非 GO 合同。
+- 关键决策与理由：保留所有非 root、digest、Actions SHA、needs、双 SBOM、镜像身份与 fail-closed 产品合同；旧
+  WS-7 submission 仍精确锁定当时 `CHANGES_REQUESTED（0C/0H/2M/1L）` 生命周期。当前/未来阶段状态不再被旧
+  WS-7 快照冻结，并以内存篡改反例锁定 identity、artifact 和非 GO 边界。
+- 问题与解决：R2 外部证据包根 `SHA256SUMS` 漏列嵌套清单；已追加该唯一项并完成声明集合与实际文件集合双向
+  17/17、逐项哈希 17/17，根清单新 SHA-256 为 `9a70e6be...7e178`，无需重跑旧 Hosted。
+- 与规格的偏差/疑问：无产品、业务、数据协议或部署功能变化；R2 46/46 仅记 scoped PASS。当前为
+  `LOCAL_REMEDIATION_R3_READY / HOSTED_WHOLE_WORKFLOW_PENDING`，不自行签发阶段 PASS，不进入 WS-9。
+- 测试：WS-7 供应链静态合同 PASS；WS-8/V33 发布合同 PASS；`git diff --check` PASS。整体 Hosted 绿灯在新
+  manifest/carrier 上执行并归档。
+- 下一步：冻结 `teacher-cert-ws8-whole-workflow-remediation-r3-candidate-2026-08-13.json`，触发新 Draft PR；要求
+  Phase 41 runner、backend、frontend、WS-8 六-suite、V33 静态合同和最终镜像/SBOM全部成功，再交独立阶段重核。
+
+## [2026-08-13] WS08-R2 Hosted selector profile 单项整改
+- 做了什么：接受第一轮整改 fingerprint `dd8940dd...c9184` 的正式
+  `CHANGES_REQUESTED（0 Critical / 0 High / 1 Medium / 0 Low）`。唯一 Medium 是 WS-8 Hosted selector 未激活
+  `dev`，使 Phase 3/10 被 `RuntimeProfileGuard` 在 Spring 上下文前 fail-closed，六-suite 验收 artifact 无法形成。
+  现仅在该 CI step 局部增加 `SPRING_PROFILES_ACTIVE: dev`。
+- 关键决策与理由：profile 不提升到 workflow/backend job 全局，也不改测试 `@ActiveProfiles`，避免改变 Phase 0
+  exact gate 或产品运行语义；不重开已关闭的 V33 发布合同、secret 独立和 HMAC collision 范围。
+- 问题与解决：本地工作树没有 remote/upstream，但 GCM 保留已授权 GitHub 账号；沿用既有私有 evidence repo，
+  通过新 carrier 分支 + Draft PR 触发 `pull_request`，不写 main/develop、不覆盖 WS-7 证据、不 merge/deploy。
+- 与规格的偏差/疑问：无生产代码、业务/API、权限或数据协议变化。状态为
+  `LOCAL_REMEDIATION_R2_READY / HOSTED_CI_EVIDENCE_PENDING`，不自行签发 PASS，不进入 WS-9。
+- 测试：workflow YAML 解析与该文件 diff check PASS；新 manifest/Hosted run/artifact 在本条后按同候选冻结和核验。
+- 下一步：冻结 `teacher-cert-ws8-hosted-profile-remediation-candidate-2026-08-13.json`，取得六份 fresh XML、0
+  failure/error/skip 与绑定 SHA/run-attempt 的 artifact，再交独立增量重核唯一 Medium。
+
+## [2026-08-13] WS08-R1 正式退回 1 High / 2 Medium 最小整改
+- 做了什么：接受首个 fingerprint `f4434bb8...c3f0df` 的正式
+  `CHANGES_REQUESTED（0 Critical / 1 High / 2 Medium / 0 Low）`。新增 Phase 14 唯一权威 V33 停机切换合同，
+  固定停写、停尽旧节点、V32 恢复点、单节点 V33+callback、全量同版本新节点、只读验收、放流顺序；从
+  V33-capable 进程开始迁移起禁止旧 binary 回滚/混部。生产启动护栏新增 AES key、HMAC pepper、JWT secret
+  trim 后两两独立校验，服务构造器另拒绝 key/pepper 复用，错误不输出 secret 值。CI 在 Phase 0 exact gate 后
+  新增 WS-8 2 Surefire + 4 Failsafe selector、精确 XML/0 skip evidence，并新增规范化 HMAC 冲突前置真库反例。
+- 关键决策与理由：只关闭正式 1 High / 2 Medium；不引入双读双写、零停机迁移、KMS、在线轮换、新测试平台或
+  攻击性检查。V33 DDL 先于 `AFTER_MIGRATE` callback 落地，因此不可逆边界必须定义为“V33-capable 进程开始
+  migrate”，不能误写成 callback 成功后。
+- 问题与解决：CI 后置 selector 需要清空已写入 `GITHUB_ENV` 的 Phase 0 fresh-target 候选标识，并复用前一步 dev
+  profile 写入 v1 测试数据所用 key/pepper，否则会重复 fresh attestation 或因错误密钥失败；现已显式锁定。V33
+  回填失败后的版本断言首次错误使用字符串 `MAX(version)` 得到 `9`，改为按 `installed_rank DESC` 取最新成功版本。
+- 与规格的偏差/疑问：无业务/API/权限点变化。原正式报告与 f4434 候选继续保留为退回历史；当前只为
+  `LOCAL_REMEDIATION_READY / INDEPENDENT_REREVIEW_PENDING`，不自行签发 PASS，不进入 WS-9。
+- 测试：全 reactor Checkstyle/编译通过；`IdCardProtectionServiceTest` **7/7**、`RuntimeProfileGuardTest` **11/11**；
+  临时隔离 MySQL 8.4 上 `V33IdCardProtectionMigrationIT` **3/3**，合计本轮定向 **21/21**、0 skip；WS-8/V33
+  静态发布合同、workflow YAML 解析、Python 语法与 scoped `git diff --check` 通过。临时容器
+  `728c628d...af9cc6` 已按 ID 停止并自动删除，`127.0.0.1:33308` 无残留监听；未触碰既有用户容器。
+- 下一步：只对仓库外 `teacher-cert-ws8-remediation-candidate-2026-08-13.json` 增量重核原 1 High / 2 Medium；
+  独立 PASS 前不 merge/push/deploy/cutover，项目继续 **CHANGES_REQUESTED / NO-GO**。
+
+## [2026-08-12] WS08-STAGE 身份证件号应用层保护本地阶段候选完成
+- 做了什么：新增 V33，把 Student/Certificate 的证件号从可读存储迁为随机 IV 的 AES-GCM 密文，并以
+  HMAC-SHA256 普通列承担等值查询与活跃学生唯一约束；Spring `AFTER_MIGRATE` 幂等回填 Student、Certificate、
+  Exchange 预览/筛选范围/错误明细/前后快照。业务写读、逻辑删除、回滚、统计、普通/敏感导出、demo 初始化与
+  备份恢复链同步适配；生产缺失、示例或非法加密 key/HMAC pepper 时在迁移前失败关闭。
+- 关键决策与理由：保留上位规格冻结的 `plainIdCard` 和 `exchange:export:sensitive` 授权+审计能力，只禁止普通
+  投影和静态存储明文；Student 与 Certificate 使用独立随机密文但相同规范化 HMAC。V33 仅做结构，应用 callback
+  持有密钥完成可重入数据转换；不修改旧 V24，不引入 KMS/在线轮换/WS-9 重构或攻击性检查，保持最小功能闭环。
+- 问题与解决：真实回归先后识别并排除了测试账号/MinIO 环境误接、跨临时密钥复用旧测试卷的 fail-closed、旧
+  Cookie helper 只读首个 `Set-Cookie` 以及港澳证件规范化大小写的测试写死值；本任务自有隔离卷经精确 down -v
+  重建，生产容器和数据卷未触碰。导出 `scope_json.keyword` 与历史同字段也改为密文，防止完整证件筛选词回流明文。
+- 与规格的偏差/疑问：无。正式 `Phase00ScaffoldIT` 要求 fresh-target pre-attestation，当前脏工作树不能伪造，故
+  完整回归明确排除该 1 条并保留为独立复核环境门禁；这不改写既有 Phase 0 PASS，也不把本地结果外推为项目 GO。
+- 测试：聚焦 WS-8/邻接 IT **8 suites / 97 tests PASS**；完整 Failsafe（排除上述正式 Phase 00 attestation）
+  **32 suites / 220 tests PASS**；Surefire **52 suites / 364 tests PASS**，均 0 failure/error/skip。前端 lint、应用/
+  tests-config 双 type-check、Vitest **16/16**、4 项合同、production build；Compose config 与 `git diff --check`
+  全部 PASS。测试栈仅绑定 127.0.0.1，完成后精确销毁且无 task-owned Java/Node 进程。
+- 下一步：以仓库外 `teacher-cert-ws8-stage-candidate-2026-08-12.json` 冻结完整候选，状态仅为
+  `LOCAL_STAGE_CANDIDATE_READY / INDEPENDENT_REVIEW_PENDING`；由用户做一次阶段级独立复核。PASS 前不进入
+  WS-9，不 merge、push、deploy 或切流，项目继续 **CHANGES_REQUESTED / NO-GO**。
+
+## [2026-08-12] GOV-065 WS-7 独立阶段 PASS，领取 WS-8
+- 做了什么：复算 `ws07-hosted-ci-independent-rereview-20260812-d5ea9863` 证据包及 `SHA256SUMS`，确认候选
+  `d5ea9863...9e24` 正式为 `INDEPENDENT_STAGE_PASS（0C/0H/0M/1L）`；同步当前治理入口并创建
+  `feature/ws08-idcard-encryption`。
+- 关键决策与理由：Hosted run `31507732334` 的双 SPDX、镜像身份、校验和与 artifact 已闭环；唯一 Low 是临时
+  `ws7-evidence` remote，复核后已清除且旧候选 verify 仍 PASS。WS-7 绿灯只放行 WS-8，不外推项目 GO。
+- 问题与解决：保留所有 WS-7 退回条目作为历史，不把后续治理/WS-8 字节冒充 d5ea9863 已复核候选；当前大工作树
+  原样保留，无 stage、merge、push、deploy 或切流。
+- 与规格的偏差/疑问：无；WS-8 按审计 #5 与 Phase 3/10/14 既有合同实施，功能优先，不扩到 WS-9 或攻击性检查。
+- 测试：本条仅核对 WS-7 正式证据、remote 清理与分支身份；WS-8 门禁在阶段候选冻结前统一记录。
+- 下一步：完成 WS-8 加密/HMAC/迁移/导入与备份回归，冻结候选后一次性交用户独立阶段复核。
+
+## [2026-08-11] GOV-064 WS-7 候选身份与状态措辞二次退回整改
+- 做了什么：核对最新继续复核报告
+  `C:\Users\wenbibuhaoqwq\Documents\脚本\ws07-continuation-independent-review-20260811-5753c930\review.md`
+  （SHA-256 `3ed3182f44b41b8d940d63daed2086866c547335e0359193fe61e51bdb7c1969`），接受正式
+  `CHANGES_REQUESTED（0 Critical / 0 High / 2 Medium / 1 Low）`；同步 HANDOFF、PROGRESS、CURRENT plan、
+  launch/Phase 14/README 与 WS-7 submission，并补活动状态 PASS/CHANGES_REQUESTED 互斥合同。
+- 关键决策与理由：上一轮三个 Low 只记为 `3/3 CLOSED / PARTIAL_REMEDIATION_VERIFIED`，不再使用任何 WS-7
+  PASS verdict。95e98763 manifest 与复核时 observed 5753c930 均不作为当前 Hosted 候选；新仓库外 manifest
+  固定为 `teacher-cert-ws7-continuation-remediation-r2-candidate-2026-08-11.json`，完整 fingerprint 以该文件为准，
+  capture 后不回写仓库文件，避免候选身份自引用漂移。
+- 问题与解决：上一报告已发布纠正版 SHA-256 `f9d7d623...e3c49`，旧 `8ecdad33...c6261` 明确 superseded；
+  活动入口改引纠正版与最新退回报告。Hosted CI 仍无 remote/run/artifact，保持开放，不用本地证据替代。
+- 与规格的偏差/疑问：无业务、Flyway、容器实现或发布变更。本轮只修证据生命周期与回归合同；不运行扫描、
+  不启动服务，不推进 WS-8，不 merge、push、deploy 或切流。
+- 测试：`python -B scripts/test_ws7_supply_chain_contract.py` PASS；`git diff --check` PASS。未重跑未变化的双镜像
+  build/UID/nginx 门禁；新 manifest 的 capture/verify 结果以仓库外文件与本轮交接为准。
+- 下一步：由用户独立复核新 manifest 的治理 delta、前后 verify、identity/checksum；随后经授权触发同候选
+  GitHub Hosted CI，下载并验证双 SPDX、`image-identities.txt`、`SHA256SUMS` 与 artifact，方可关闭剩余 Medium。
+
+## [2026-08-11] GOV-063 WS-7 整改 Low 独立关闭，阶段继续等待 Hosted CI
+- 做了什么：核对整改 fingerprint
+  `95e9876379589b8ce4a80432e3a11848028f6abcd46e52241f6a052c034ba444`、HEAD `aa3509a`、167/138 的正式报告
+  `C:\Users\wenbibuhaoqwq\Documents\脚本\ws07-remediation-independent-rereview-20260811-95e98763\review.md`
+  （SHA-256 `8ecdad332b5fd83be2953cd93fbaf964e6eb006ad553941a6e361378f76c6261`）及 SHA256SUMS。L01/L02/L03
+  **3/3 CLOSED**，0 新增 finding；同步 HANDOFF、PROGRESS、CURRENT plan、Phase 14 与发布状态入口。
+- 关键决策与理由：严格区分“Low 整改增量 `INDEPENDENT_INCREMENTAL_PASS`”与“WS-7 阶段 PASS”。唯一 Medium
+  仍要求同候选 GitHub Hosted CI 双 SPDX、镜像身份、校验和与 artifact；本地或等价 runner 不替代。
+- 问题与解决：当前无 remote、无 `gh`、无 Hosted run/artifact，因此没有抢跑 push/PR 或虚报外部证据；WS-7
+  保持 `CHANGES_REQUESTED / HOSTED_CI_EVIDENCE_PENDING（0 Critical / 0 High / 1 Medium / 0 Low open）`。
+- 与规格的偏差/疑问：无业务、代码、Flyway 或部署变更。本条只是 95e98763 复核后的治理元数据，不把后续文档
+  字节变化冒充已由该 manifest 覆盖。项目继续 **CHANGES_REQUESTED / NO-GO**，WS-8 不启动。
+- 测试：只读复算 `review.md` 与 `candidate-manifest.json` SHA-256 均匹配 SHA256SUMS；治理同步后重跑 WS-7
+  供应链合同与 `git diff --check` 均 PASS。未重跑未受影响的镜像、stub、workflow、Compose 或业务门禁；其
+  95e98763 前后 manifest verify 与动态结果以正式报告为准。
+- 下一步：取得用户指定 GitHub repo/base branch 与 allowlist stage/commit/push/PR 授权，或接收用户触发的 Hosted
+  run/artifact；下载后复算双 SPDX、身份与 SHA256SUMS，再对唯一 Medium 做增量重核。不 merge/deploy/cutover。
+
+## [2026-08-11] WS07-R1 首轮独立复核退回与 3 Low 最小整改
+- 做了什么：核对已冻结 fingerprint
+  `b8055c66ff1472955a0ad2556175ed0cbc747d0c48434820d290fa7fbbda223b` 的正式报告
+  `C:\Users\wenbibuhaoqwq\Documents\脚本\ws07-stage-independent-review-20260811-b8055c66\review.md`
+  （SHA-256 `8f211ce9021f310a23a7476f57ae340bac89285a9bb288c08acdb494702383d8`），接受
+  `CHANGES_REQUESTED / INDEPENDENT_REVIEW_PENDING（0 Critical / 0 High / 1 Medium / 3 Low）`。镜像 ID 改为
+  独立取值、64 位 SHA-256 格式校验后再写制品；新增 inspect 失败 exit 17 且不产出身份文件的 stub 回归；同步
+  当前治理入口，并把证书 GID 改为必须替换的宿主专用组占位符，要求核对宿主组名/GID/成员。
+- 关键决策与理由：保持 Phase 14 的 GitHub Hosted CI 硬门禁，不用文案、本地或等价 runner 冒充双 SPDX、身份、
+  校验和与 artifact 的真实证据；不扩展到扫描、签名、provenance、registry 或新制品平台。
+- 问题与解决：当前仓库没有 remote，本机没有 `gh`，无法在未获目标仓库、base branch、stage/commit/push/PR
+  授权时触发 Hosted CI。因此只关闭开发者可控的 3 Low，把唯一 Medium 明确保留为外部授权门禁；WS-8 不启动。
+- 与规格的偏差/疑问：无业务、Flyway、API 或 Docker runtime 变化。正式项目状态继续
+  **CHANGES_REQUESTED / NO-GO**，不 merge、push、deploy 或切流。
+- 测试：WS-7 静态合同 PASS；image inspect 失败传播 stub PASS（exit 17、无身份文件）；测试 GID `21001`
+  覆盖下 production Compose config PASS；两份 workflow YAML 解析 PASS；`git diff --check` PASS。未重跑未受
+  影响的双镜像 build，也未运行 Hosted CI、扫描或攻击性检查。
+- 下一步：整改候选已归档为
+  `C:\Users\wenbibuhaoqwq\Documents\脚本\teacher-cert-ws7-remediation-candidate-2026-08-11.json`。用户提供目标
+  GitHub repo/base branch 并授权 allowlist stage/commit/push/PR，或亲自触发并回传同一 run artifact 后，才进行
+  Hosted 证据核验与独立重核；当前为 `LOCAL_REMEDIATION_READY / HOSTED_CI_EVIDENCE_PENDING`。
+
+## [2026-08-11] WS07-STAGE 容器/CI 供应链硬化本地阶段候选
+- 做了什么：完成后端/前端 runtime 非 root（`10001:10001` / `101:101`），四个 Dockerfile `FROM`、生产
+  MySQL/Redis/MinIO、CI service/CLI 与 Phase 41 手工 MySQL 镜像按 digest 固定；两份 workflow 的所有 action
+  按 40 位 commit SHA 固定。新增最终 `container-images` job，只在 runner/backend/frontend 门禁全绿后构建
+  `sha-${GITHUB_SHA}` 双镜像、核验 UID 非 0，并配置生成双 SPDX JSON、镜像身份和 `SHA256SUMS` artifact。
+- 关键决策与理由：保留现有 GitHub Actions 与 Docker Compose，不引入 registry、签名/provenance 或漏洞扫描平台。
+  前端改用容器内部 8080/8443，宿主仍映射既有 80/HTTPS；证书只通过专用补充组给 UID 101 最小只读权限。
+  新增 `frontend/.dockerignore`，避免宿主 `node_modules` 在 `COPY . .` 时覆盖容器内 `npm ci`。
+- 问题与解决：一次性 `nginx -t` 首先暴露 `/run/nginx.pid` 对非 root 不可写，补 `/run` 所有权后真实配置
+  校验成功；旧 root `video-probe-temp` 会遮蔽镜像层 chown，README/Phase 14 明确停旧 backend/worker、保留卷并
+  一次性迁移为 `10001:10001`。后端首轮 build 因 Maven Central 连接超时失败，保持同 Dockerfile 重试后成功，
+  未使用绕过镜像或改源。静态合同同时收紧 `- uses:`、完整 digest、真实 job/step 与双 SBOM 映射，关闭注释假绿。
+- 与规格的偏差/疑问：无业务/Flyway/API 变化。hosted CI 尚未实际运行，因此不声称远端 SBOM artifact 已生成；
+  本阶段未运行依赖/镜像扫描、攻击性测试或故障破坏，也未操作现有生产样容器、命名卷或端口。
+- 测试：`test_ws7_supply_chain_contract.py` PASS；WS-5 CSP 合同 PASS；两份 workflow YAML 解析 PASS；Phase 41
+  shell `bash -n` PASS；生产 Compose config PASS；backend/frontend 镜像 build PASS（后端全模块 Checkstyle/
+  compile/testCompile + skip-tests package，前端 Vite 4977 modules）；默认 UID `10001` / `101`，probe 目录可写；
+  临时证书、补充组与孤立 DNS 映射下非 root `nginx -t` PASS；`git diff --check` PASS。未运行 hosted CI 或后端
+  真实依赖 `mvn verify`，不得把 Docker package 冒充完整 IT。
+- 下一步：冻结 `C:\Users\wenbibuhaoqwq\Documents\脚本\teacher-cert-ws7-stage-candidate-2026-08-11.json`，
+  以 `LOCAL_STAGE_CANDIDATE_READY / INDEPENDENT_REVIEW_PENDING` 交用户做一次阶段级独立复核；PASS 前不进入
+  WS-8，不 merge/push/deploy/cutover，项目继续 **CHANGES_REQUESTED / NO-GO**。
+
+## [2026-08-11] GOV-062 WS-6 独立范围化 PASS，领取 WS-7
+- 做了什么：核对 WS-6 第二轮 fingerprint `f5d63378ebabff9e80f1e79adb29b215b7147423cb6e00ca5410fe15bb688607`
+  的正式报告 `C:\Users\wenbibuhaoqwq\Documents\脚本\ws06-remediation-r2-independent-evidence-20260811\independent-review-report.md`
+  （SHA-256 `EC6FF4F9012CCBC3CC2BF505202F5F262A325F9F0035D839FA8AF9D25E6AC053`），结论为
+  `INDEPENDENT_INCREMENTAL_PASS（0 Critical / 0 High / 0 Medium / 0 Low）`。原 multipart Medium 正式关闭，
+  两个 Low 不重开；WS-6 记为 `INDEPENDENT_SCOPED_PASS`。
+- 关键决策与理由：完整重读根目录 `AGENTS.md` 后，按统一队列创建 `feature/ws07-supply-chain` 并领取 WS-7。
+  只做非 root、基础镜像 digest / Actions SHA、验证后镜像构建与 SBOM/校验，避免提前引入签名平台或复杂发布架构。
+- 问题与解决：WS-6 PASS 只绑定 f5d63378 manifest；后续治理与 WS-7 内容必然形成新候选，绝不挪用旧绿灯。
+- 与规格的偏差/疑问：无业务规格变化。依赖/镜像扫描会访问网络/registry，继续由用户在授权环境执行；本阶段
+  不运行扫描、攻击载荷或其它 cyber 动作。项目继续 **CHANGES_REQUESTED / NO-GO**。
+- 测试：本条仅核对正式报告、SHA256SUMS 与 manifest 绑定；WS-7 自测在实现完成后统一记录。
+- 下一步：完成 WS-7 最小供应链闭环并在较大阶段末交用户独立复核，不 merge/push/deploy/cutover。
+
+## [2026-08-11] WS06-R2 multipart 参数大小写 Medium 最小整改
+- 做了什么：核对首轮整改候选 fingerprint `cf3776b6e9b3bbd9ba2ca7633fce45b000ca30b72ebe7c66d13886a60c2b0fb0`
+  的正式报告 `C:\Users\wenbibuhaoqwq\Documents\脚本\ws06-remediation-independent-evidence-20260811\independent-review-report.md`
+  （SHA-256 `4E7F90BA...10F5`），接受 `CHANGES_REQUESTED（0 High / 1 Medium / 0 Low）`。两个原 Low 保持
+  CLOSED；只修 multipart Medium：不再小写整个 part header，捕获 `name` / `filename` 原值并精确比较。
+- 关键决策与理由：header 名和 Content-Disposition 参数键按协议大小写不敏感定位，但值严格要求
+  `name === "file"`、`filename === "students.xlsx"`；不引入 multipart parser、后端服务或新依赖。
+- 问题与解决：仅手拼 `FILE` 字符串仍可能弱化逃逸证据，因此在原导入 E2E 中用 Chromium 原生 FormData
+  实际发送 `name="FILE"`，捕获浏览器生成的 Content-Type/boundary/header/body，并要求同一解析器抛出
+  `unexpected multipart field name: FILE`；正常 UI 上传继续验证 file、文件名、XLSX MIME 与 fixture 原字节。
+- 与规格的偏差/疑问：无业务规格变化，不重开两个已关闭 Low，不做 Docker、真实后端、数据库、全栈或 cyber
+  动作。当前只为 `LOCAL_REMEDIATION_READY / INDEPENDENT_REREVIEW_PENDING`，项目继续 **CHANGES_REQUESTED / NO-GO**。
+- 测试：扩面 ESLint PASS；tests/config `tsc --noEmit -p tsconfig.tests.json` PASS；Playwright Chromium
+  **5/5 PASS**；结束后 `127.0.0.1:18106` 监听为 0。
+- 下一步：以仓库外 `teacher-cert-ws6-remediation-r2-candidate-2026-08-11.json` 冻结当前身份，只交用户增量
+  重核剩余 1 Medium；PASS 前不进入 WS-7，不 merge/push/deploy/cutover。
+
+## [2026-08-11] WS06-R1 独立退回 1 Medium / 2 Low 最小整改
+- 做了什么：核对 fingerprint `3146a0c476097f7be4458bd6846b4899d370475cbee7e34f478500aea3fa45c7`
+  的正式报告 `C:\Users\wenbibuhaoqwq\Documents\脚本\ws06-stage-independent-evidence-20260811\independent-review-report.md`
+  （SHA-256 `C242899A...00D0`），接受 `CHANGES_REQUESTED（0 High / 1 Medium / 2 Low）`。仅整改原三项：
+  导入 E2E 锁 multipart file part；401 unit 锁刷新后 Authorization；tests/config 纳入 lint/type-check/CI。
+- 关键决策与理由：multipart 从浏览器实际 Content-Type 解析动态/quoted boundary，只把 part header 作为
+  latin1 文本检查，fixture 内容保持 Buffer 原字节比较；不引入 multipart parser。app 与 tests/config 使用
+  隔离 tsconfig，避免 Node globals 污染浏览器源码；不升级 ESLint 规则或格式化全仓。
+- 问题与解决：tests/config 类型检查首次暴露 `Directive` 联合类型未窄化及浏览器 timer 在 Node 类型程序中的
+  返回类型差异；前者只在测试侧增加 object directive 窄化，后者将现有 timer 类型显式绑定
+  `window.setTimeout`，均无运行时行为变化。CI 已新增 `type-check:tests`，`@types/node` 锁 Node 20 major；
+  另补真实 Pinia `restoreSession()` 成功链，确认 refresh 后 token、身份、角色与权限确实写回 store。
+- 与规格的偏差/疑问：无业务规格变化、无新框架、无真实栈或 cyber 操作。原候选动态全绿事实保留；当前只为
+  `LOCAL_REMEDIATION_READY / INDEPENDENT_REREVIEW_PENDING`，项目继续 **CHANGES_REQUESTED / NO-GO**。
+- 测试：`npm ci` PASS；扩面 ESLint PASS；app `vue-tsc --noEmit` 与 tests/config
+  `tsc --noEmit -p tsconfig.tests.json` PASS；Vitest 4 files / 16 tests、4 项既有合同、Vite production build、
+  Playwright Chromium 5/5（含 scoped axe）均 PASS。build 仅保留既有大 chunk warning。
+- 下一步：完成 diff check 与新 manifest 冻结，只交用户增量复核原 1 Medium / 2 Low；PASS 前不进入 WS-7。
+
+## [2026-08-11] WS06-STAGE 前端自动化门禁本地阶段候选完成
+- 做了什么：在 `feature/ws06-frontend-gates` 接入 Vitest/jsdom 与 Playwright Chromium。新增 user store、Axios
+  401 单飞刷新、router 权限和 `v-perm` 单测；新增登录与刷新、首登改密、RBAC/脱敏、导入预校验、视频评分
+  5 条产品冒烟，并在登录、改密弹窗和代表业务稳定态执行 axe `critical/serious` 阻断。CI 现按
+  lint/type-check/unit/既有合同/build/Chromium E2E 顺序执行，失败上传 Playwright trace/screenshot。
+- 关键决策与理由：E2E 直接服务 production build，并用严格 API mock 验证前端产品行为，避免在 frontend job
+  伪装复用另一个 CI job 的后端服务；现有 `ui-shots.mjs` 全站人工审计器保持不动。为功能优先且避免大面积
+  无收益 diff，本阶段不做全仓 Prettier、bundle 拆分、覆盖率配额或新测试平台。
+- 问题与解决：axe 首轮定位到首改密 Modal 缺可访问名称、DataPanel 计数文本对比度不足及表单标签颜色偏浅，
+  分别补 `aria-label`、使用既有更深品牌色并收紧标签文字色；等待 Modal 动画稳定后再扫描，避免过渡态假失败。
+  Naive UI 装饰性 `.n-icon` 仅在限定扫描容器中精确排除并写明边界，没有全局关闭规则。收尾内部审查还发现
+  CI 漏跑第 4 个既有合同、导入冒烟只断言默认策略；现已补齐 CI 接线，并在 UI 实际选择 `OVERWRITE` 后断言
+  展示与请求 payload，同时把登录 username/password/captchaId/captchaCode 四字段完整锁定，最终 E2E 仍为 5/5。
+- 与规格的偏差/疑问：无业务规格变化。E2E 不冒充真实后端/数据库联调，也不宣称全站 WCAG；WS-6 当前仅为
+  `LOCAL_STAGE_CANDIDATE_READY / INDEPENDENT_REVIEW_PENDING`。项目继续 **CHANGES_REQUESTED / NO-GO**。
+- 测试：Vitest **4 files / 15 tests PASS**；Playwright **5/5 PASS**；ESLint、`vue-tsc --noEmit`、4 个既有
+  前端合同、Vite production build 与 `git diff --check` 均 PASS。build 仅保留既有 Naive UI/ECharts 大 chunk
+  warning，bundle budget 按计划留 WS-12。
+- 下一步：冻结当前完整 WS-6 候选并交用户一次性独立阶段复核；PASS 前不进入 WS-7，不 merge/push/deploy/cutover。
+
+## [2026-08-11] GOV-061 WS-5 独立范围化 PASS，领取 WS-6 前端门禁
+- 做了什么：核对 WS-5/T1 整改候选 fingerprint `9e33d20f...a83a` 的正式报告
+  `C:\Users\wenbibuhaoqwq\Documents\脚本\ws05-remediation-independent-evidence-20260811\independent-review-report.md`
+  （SHA-256 `6D5C960E...A6324`），结论为 `INDEPENDENT_INCREMENTAL_PASS（0 open finding）`；原
+  2 Medium / 1 Low 全部关闭。T1 记为 `DYNAMIC_CLOSED`，T2/T3 保持 `SCOPED_DYNAMIC_PASS`，WS-5 记为
+  `INDEPENDENT_SCOPED_PASS`。已切换到 `feature/ws06-frontend-gates` 并登记 WS-6 进行中。
+- 关键决策与理由：按用户要求，以较大阶段为单位独立复核；WS-6 中间切片只做开发侧验证，整批完成后再冻结候选。
+  WS-6 坚持最小产品范围：Vitest 会话/请求/路由权限单测、3–5 条 Playwright 主路径冒烟、axe 基线和 CI 阻断，
+  不扩到全仓格式化、bundle budget 或新测试平台。
+- 问题与解决：旧 WS-5 manifest 在复核后的治理文档变更后按设计 verify 不再通过；保留旧 manifest 与正式报告作为
+  已复核候选证据，WS-6 完工后另行 capture 新候选，绝不挪用旧 fingerprint。
+- 与规格的偏差/疑问：无业务规格变化。WS-5 PASS 只放行下一整改工作流，不授权 merge/push/deploy/cutover，
+  项目继续 **CHANGES_REQUESTED / NO-GO**。
+- 测试：本条仅为正式证据核对与治理切换；WS-6 动态门禁将在实现后统一记录。
+- 下一步：完成 WS-6 自动化门禁、运行自然退出型回归并冻结阶段候选，由用户独立复核。
+
+## [2026-08-11] WS05-T1-R1 阶段复核 2 Medium / 1 Low 最小整改
+- 做了什么：核对 fingerprint `c15d8ace...b124ce` 的正式 WS-5 阶段报告
+  `C:\Users\wenbibuhaoqwq\Documents\脚本\ws05-stage-independent-evidence-20260811\independent-review-report.md`
+  （SHA-256 `D34D828D...F70207`），接受 `CHANGES_REQUESTED（0 High / 2 Medium / 1 Low）`。T2/T3 保持
+  `SCOPED_DYNAMIC_PASS`；只整改 T1：生产 backend 取消宿主 8080，MinIO API/console 收窄到
+  `127.0.0.1`；HTTP 301 注入并使用同一 `FRONTEND_HTTPS_PORT`；README 补证书续期/校验/reload/到期提醒手册。
+- 关键决策与理由：不新建第二套网关或 `/minio` 路径代理，避免扩大部署架构并影响预签名 host/path 合同；
+  MinIO 回环 API 仍可供同机 TLS gateway 使用，console 仅本机或既有受控运维入口可达。开发 Compose 完全不动。
+  默认 443 在 Location 中显式写 `:443`，URI 等价，并以最低复杂度保证 18443 等非默认端口正确。
+- 问题与解决：原 Compose 展开中 backend 8080、MinIO 9000/9001 的 `host_ip` 为空；整改后公网 binding 精确
+  只有 frontend 80/443，MinIO 两项均为 `127.0.0.1`，backend 无宿主 binding。原 Nginx 模板和 frontend
+  environment 两段都遗漏 HTTPS 端口；现已同时补齐，并由 443/18443 精确渲染合同锁定。
+- 与规格的偏差/疑问：无业务规格变化。证书手册只复用 OpenSSL、Docker Compose 和现有告警，不引入新平台。
+  当前仅为 `LOCAL_REMEDIATION_READY / INDEPENDENT_REREVIEW_PENDING`，不自行把 2 Medium / 1 Low 标为关闭；
+  项目继续 **CHANGES_REQUESTED / NO-GO**，未 merge/push/deploy/cutover。
+- 测试：`test:csp-contract`（现为 WS-5 edge contract）PASS；生产 Compose JSON 端口合同 PASS，开发 MinIO
+  9000/9001 保持；前端 lint、type-check、production build PASS（仅既有大 chunk warning）；`git diff --check`
+  在代码/主文档整改后 PASS。未启动容器、Nginx、数据库、网络或浏览器。
+- 下一步：完成治理状态一致性与最终 diff check，捕获新整改 manifest；只交用户增量复核原三项 finding。
+
+## [2026-08-11] WS05-STAGE T1–T3 本地阶段候选完成
+- 做了什么：在 `feature/ws05-tls-csp` 连续完成 WS-5 三个功能切片。T1 启用生产 HTTPS/HSTS/301 与证书
+  只读挂载；T2 增加产品兼容 CSP，并把默认 access TTL 收紧为 900 秒；T3 将 refresh token 从 JSON/
+  `localStorage`/请求体迁到 host-only、HttpOnly、prod Secure、SameSite=Strict、窄 Path Cookie，前端 access
+  只驻 Pinia 内存，同时保留页面恢复、401 单飞刷新、logout/改密清理和跨标签页会话失效。
+- 关键决策与理由：按用户“较大阶段再独立复核”的要求，不在 T1/T2 小切片分别停止，而以完整 WS-5 为复核
+  单位。T3 只完成正式规格要求的 Cookie 通道迁移和现有会话语义保持，不新增 jti、refresh 一次性消费状态库
+  或设备级会话模型；既有 `sessionGeneration` 继续保证 logout/改密/重置后旧 access/refresh 立即失效。
+- 问题与解决：旧 CSP 提示的 `object-src 'none'` 会直接破坏现有材料/免考 PDF 的 `<object>/<iframe>` 预览，
+  已按真实产品链校准为同源 `object-src/frame-src 'self'`；MinIO 只承担预签名 `fetch PUT`，故只进入精确
+  `connect-src`。T3 后 Phase 2 原请求体/响应体 refresh helper 确定性失配，已改为显式抓取/回传 Cookie，
+  并断言 JSON 不再公开 refresh token。跨标签页失效事件原只清内存但停留旧页面，已最小补为清理后 replace
+  到登录页，并用两个独立 epoch guard 固定迟到 refresh 不得恢复状态。access TTL 收紧后，首登改密若停留
+  超过 15 分钟会因 `change-pwd` 旧配置跳过 401 refresh 而卡在不可关闭弹窗；现已让该请求复用一次单飞
+  refresh+重试，成功后仍按既有流程清 Cookie 并要求重新登录。
+- 与规格的偏差/疑问：原子任务提示要求 T1 自签运行和 T3 配 WS-6 E2E，但用户明确本轮不运行 Docker、网络、
+  浏览器或真实依赖，并要求独立复核由本人在大阶段末执行；因此本地只完成自然退出门禁，正式证书 HTTPS/CSP
+  浏览器链、Phase 2 真实 MySQL/Redis Cookie 链和跨标签页浏览器行为统一列入 WS-5 阶段复核。项目继续
+  **CHANGES_REQUESTED / NO-GO**，未 merge/push/deploy/cutover。
+- 测试：`AuthControllerLogoutTest` **7/7** + `RefreshTokenCookieServiceTest` **2/2**，合计 **9/9**；
+  `test:csp-contract`、`test:auth-logout-contract`、frontend lint/type-check/production build 均 PASS；
+  `ui-shots.mjs` 与 `test-ws4-gap-gate.mjs` 语法检查 PASS；后端 9 模块 offline package BUILD SUCCESS、
+  Checkstyle 0；`git diff --check` PASS。`Phase2SecurityIT` 已 test-compile，但未在本会话运行真实 MySQL/Redis 门禁。
+- 下一步：冻结新的 WS-5 候选身份，然后交由用户一次性独立复核；通过前阶段保持
+  `LOCAL_STAGE_CANDIDATE_READY / INDEPENDENT_REVIEW_PENDING`，不启动 WS-6。
+
+## [2026-08-11] WS05-T1-001 TLS/HSTS 配置候选完成
+- 做了什么：启用生产 Nginx 443、TLS 1.2/1.3、HTTP 业务请求 301 与一年期 HSTS；Compose 发布 443，
+  将宿主机证书目录只读挂载到固定证书路径，并增加正式域名/证书目录环境合同。同步 `.env.example`、README、
+  Phase 14、整改计划与 launch-readiness 状态，MinIO 浏览器公网端点示例改为 HTTPS。
+- 关键决策与理由：范围严格限 WS-5/T1。HTTP 只保留容器内部 `/healthz`，使健康检查不依赖生产证书信任链；
+  所有业务路径按配置的正式域名跳转，避免使用未经信任的请求 Host。证书私钥只读挂载且不入仓库。
+- 问题与解决：当前没有学校正式域名/证书，且用户要求不运行 Docker/网络验证，因此没有伪造运行态证据；
+  以静态合同和前端构建证明配置接线与现有产品构建不回归，正式证书运行态留独立复核。
+- 与规格的偏差/疑问：未执行原计划建议的自签证书内网演练，也未扩到 T2 CSP、T3 HttpOnly refresh 或 WS-6；
+  这是遵循用户“功能优先、不过度设计、独立复核由用户执行”的明确边界。项目仍为 **CHANGES_REQUESTED / NO-GO**。
+- 测试：TLS/Compose/env 静态合同 15/15 PASS；`npm --prefix frontend run type-check` PASS；
+  `npm --prefix frontend run build` PASS（仅既有大 chunk warning）；`git diff --check` PASS。未启动 Docker/Nginx、
+  未读取/生成证书、未执行数据库、网络、浏览器或 cyber/攻击性验证。
+- 下一步：交由用户独立复核 WS-5/T1；正式域名/受信任证书运行态通过前保持
+  `LOCAL_CANDIDATE_READY / INDEPENDENT_REVIEW_PENDING`，不启动 T2/T3/WS-6，不 merge/push/deploy/cutover。
+
+## [2026-08-11] GOV-060 FINAL-F07 独立增量 PASS 与 WS-5/T1 启动
+- 做了什么：核对用户完成的 F07 正式证据包，确认 fingerprint
+  `091538b744b42019886655fb30136f582b34bba5e513512531f65bd6bdc0f8e7`、HEAD `aa3509a` 的正式结论为
+  `INDEPENDENT_INCREMENTAL_PASS（0 open finding）/ DYNAMIC_CLOSED`；同步 HANDOFF、PROGRESS 与统一计划，
+  并创建 `feature/ws05-tls-csp` 领取下一队列项 WS-5/T1。
+- 关键决策与理由：F07 的定向 2/2、Phase 5/6/7 69/69、完整 116/116、Surefire 352/352 与 F04 低堆
+  14/14 均绑定同一已冻结候选，足以关闭上一轮 1 Medium。该报告明确只是 scoped PASS，因此不把项目改判 GO。
+  下一项按队列只做 T1 的 HTTPS/HSTS 配置合同，不同时引入 refresh HttpOnly、CSP、WS-6 或新安全架构。
+- 问题与解决：活动治理文件仍停留在 F07 待复跑，已按正式报告校准；原 `091538b7` manifest 必须保留为已复核
+  历史对象，治理更新后不重捕获并冒充 116/116 候选。当前大量未提交工作树原样保留，未整文件覆盖。
+- 与规格的偏差/疑问：无业务规格变化。WS-5 依赖学校域名/证书，当前只交付环境驱动的配置与部署合同；真实
+  证书、HTTPS 活体与独立裁定留给用户环境。项目继续 **CHANGES_REQUESTED / NO-GO**。
+- 测试：复核报告记录定向 2/2、F07 69/69、完整 116/116、Surefire 352/352、F04 14/14，证据包 checksum
+  闭合。该记录引用用户独立证据，不是本会话重跑；本会话未执行 Docker、数据库、网络或浏览器。
+- 下一步：实现 WS-5/T1 的 Nginx 443/HSTS/301、Compose 443 与证书挂载、`.env.example`/部署文档；执行自然
+  退出的静态配置检查、前端 type-check/build 与 diff check 后置待复核。
+
+## [2026-08-10] GOV-059 FINAL-F07 独立复核退回项最小整改
+- 做了什么：依据统一候选 `d2e3a7b1...c4105c` 的独立增量动态复核结论，只整改 F07 的 1 个 Medium。
+  Phase 5/6 两条媒体 Cookie IT 将跨账号读取预期从业务码 403 校准为 404，并用 JUnit `assertAll` 把 Range、
+  跨账号、换号清 Cookie、logout 后旧 Cookie 401 分成四组独立执行；同步 Phase 5/6 规格中的 404/401 合同。
+  正式报告位于 `C:\Users\wenbibuhaoqwq\Documents\脚本\final-f01-f07-independent-evidence-d2e3a7b1\independent-review-report.md`。
+- 关键决策与理由：材料与免考内容端点先经 `@DataScope` 过滤，跨账号资源在查询层不可见，现有行为自然返回
+  “不存在”业务码 404。该策略已拒绝内容读取并隐藏资源存在性；为强求 403 而绕过范围查询会增加产品改动与
+  泄露风险。因此不改 controller/service，不引入新架构，也不为了报告展示把 116 个 testcase 扩成 120 个。
+- 问题与解决：旧测试在 403/404 断言处提前终止，导致换号与 logout 两段没有执行。`assertAll` 保留原两个
+  testcase 数量，同时保证任一组断言失败后其余组仍执行；各组自行准备账号状态，避免依赖前一组副作用。
+- 与规格的偏差/疑问：无新增业务功能、权限点、数据库迁移或生产配置。统一独立复核已关闭 F01、F03–F06；
+  F07 新候选仍须用户复跑并裁定，项目继续 **CHANGES_REQUESTED / NO-GO**。未 merge、push、deploy 或切流。
+- 测试：`mvn -B -ntp -o -pl platform-boot -am -DskipTests test-compile` BUILD SUCCESS，9 模块 SUCCESS、
+  Checkstyle 0；`git diff --check` PASS。未执行 Docker、数据库、网络、浏览器或攻击性验证。
+- 下一步：本轮收口已由仓库外 `teacher-cert-final-f07-remediation-candidate-2026-08-10.json` capture/verify
+  绑定并停止修改；由用户先跑 Phase 5/6 两条定向用例，再跑 Phase 5/6/7 69/69 与完整 8-suite 116/116，
+  完成独立裁定。
+
+## [2026-08-06] GOV-058 FINAL 开发者候选边界确认与交付收口
+- 做了什么：按用户最新指令明确角色边界——功能需求优先、禁止 overengineering、禁止 cyber/攻击性语句，
+  独立复核由用户本人执行；Codex 只完成当前 FINAL 候选的实现、自测、打包和同源交接，不自行签发独立 PASS。
+  为避免刚收口的候选再次漂移，本轮不提前开启 WS-5/WS-6 或其它新架构/安全工作包。
+- 关键决策与理由：当前唯一 P0 缺口是同一候选的动态证据与独立裁定，而不是新增产品功能。继续扩展 TLS、
+  HttpOnly session、测试框架或供应链会扩大 diff、使 F-01/F-03～F-07 重新失去同源性，且违反功能优先与最小
+  改动原则。因此只补开发者交付门禁，到外部 manifest capture/verify 稳定即停止。
+- 问题与解决：历史动态绿灯绑定旧 fingerprint，不能贴到当前工作树；活动文档继续将其标为历史执行者证据。
+  manifest 工具自测产生的 `scripts/__pycache__/*.pyc` 原本会被误计为非忽略候选输入，已只增加标准
+  `__pycache__/`/`*.py[cod]` ignore 规则，不删除本机文件。用户复核所需的 Phase 2/3/5/6/7/8/9/10、栈内
+  verify、target/checksum/teardown 由用户在专用隔离环境执行。
+- 与规格的偏差/疑问：无业务规则、权限点、产品代码、数据库迁移或生产配置变化。线上稳定版本 `dfdfb91`
+  继续冻结；不 merge、push、deploy 或切流。Codex 不执行 Docker、数据库、网络、浏览器、扫描、恶意载荷、
+  fuzz、故障破坏、压力或攻击性并发。
+- 测试：后端 9 模块 offline `-DskipTests package` BUILD SUCCESS、Checkstyle 0；候选 manifest 工具自测
+  **6/6 PASS**；`git diff --check` PASS。此前同一开发者候选已有 Surefire **352/352**、F-04 低堆
+  **14/14**、前端 logout contract/lint/type-check/build PASS。
+- 下一步：在仓库外 capture 并立即 verify 当前完整 dirty-worktree manifest；不再修改候选，然后把精确指纹与
+  用户独立复核门禁清单交付给用户。
+
+## [2026-08-06] GOV-057 FINAL F04–F07 统一冻结前本地复核准备收口
+- 做了什么：在不触碰线上与不启动常驻服务的边界内，补齐 F-05 普通证书列表/详情脱敏及跨学院 403，F-06
+  logout 后旧 access `/api/auth/me` 401 与前端远端失败仍清本地会话的可执行合同，F-07 三类原生媒体内容的
+  Range、换号、跨账号、logout 反例；共享媒体 Cookie 的 `Max-Age` 现受 JWT 剩余寿命硬截断。F-04 在当前
+  工作树重新执行 128 MiB 资源门禁，并同步 `HANDOFF.md`、`PROGRESS.md` 与统一执行计划。
+- 关键决策与理由：先完成所有仍会改变候选的最小代码/测试工作，再只冻结一次统一候选；否则为 F-01 提前补的
+  manifest 与动态证据会立刻被 F-05～F-07 改动作废。历史 fingerprint 的真实绿灯保留作执行者证据，但不
+  挪贴到当前已漂移工作树，也不把离线合同自称独立动态 PASS。
+- 问题与解决：证书列表测试原先假设共享库只返回一条记录，已改为按目标证书号定位，避免与其它 fixture
+  串扰。媒体 Cookie 原固定上限可能超过 access token 剩余寿命，改为取请求期限、3600 秒上限与 JWT 剩余
+  秒数三者最小值；refresh、过期和非法 token 均不签 Cookie。前端退出用共享 `finally` 流程保证清理恰好执行。
+- 与规格的偏差/疑问：无业务规则、权限点、数据库迁移或线上配置变化。Phase 3/5/6/7/8/9/10 当前候选的
+  MySQL/Redis/MinIO 动态门禁未在本机会话执行，F-01 证据 finding 也未关闭；项目继续
+  **CHANGES_REQUESTED / NO-GO**，不授权 merge、push、deploy 或切流。
+- 测试：全仓 Maven offline Surefire **50 suites / 352 tests**、0 failure/error/skip；9 模块 test-compile 与
+  Checkstyle 0；聚焦 `MediaAccessCookieServiceTest + SensitiveProjectionTest + ExchangeExportGuardTest`
+  **18/18**；`ExchangeImportResourceBudgetTest` 在 `-Xmx128m` 下 **14/14**，dumpstream 确认
+  `MaxHeapSize=134217728`；前端 logout contract、lint、type-check、production build 与 `git diff --check`
+  全部 PASS（build 仅既有大 chunk warning）。
+- 下一步：停止继续制造候选漂移；由获授权隔离环境在一个统一 manifest 上执行 F-01、F-03～F-07 精确门禁，
+  留存栈内前后 verify、可重建源码、target marker、checksum 与 teardown 零清单，再交批量独立增量复核。
+
+## [2026-08-06] GOV-056 FINAL-F01-DYN 独立增量复核与当前队列校准
+- 做了什么：接管并核对 `HANDOFF.md`、执行规范、统一计划、Phase 10 规格、原 F-01 finding、两轮候选证据与
+  当前 dirty worktree；产出 `docs/reviews/final-f01-dynamic-independent-rereview-2026-08-06.md` 及机器可读
+  `.claude/audits/audit-teacher-cert-platform-2026-08-06-final-f01-dynamic-metadata.json`。同步修正活动治理文档中
+  仍把 WS-4 写成复核退回/当前任务的旧状态，并保留原记录为历史。
+- 关键决策与理由：F-01 产品实现已经按 exact import batch、operator owner/all-school 与敏感投影关闭原跨学院
+  High，现有真实 HTTP/MySQL/Excel 反例设计也能捕获原失败；但正式 PASS 必须证明“manifest 候选 = 容器实际
+  执行源码”。旧包缺 `/workspace` 前后 verify、可重建 patch/bundle、target marker 与 teardown 原始记录，不能
+  用当前已漂移工作树替旧候选补签，因此结论为 **CHANGES_REQUESTED / EVIDENCE_PENDING**，不要求继续改 F-01
+  产品代码。
+- 问题与解决：当前工作树从历史成功门禁 fingerprint `48a6c264...5929` 漂移到本轮观察值
+  `7409c46f...0647a`。保留旧证据为执行者门禁，不将它提升为独立 PASS；下一轮改用单一新冻结候选重建完整
+  证据链。F03–F07 复核准备检查同时确认其本地绿灯均不足以直接签发正式 PASS，并在统一计划记录精确缺口。
+- 与规格的偏差/疑问：无业务规则、API、权限点、数据库、生产配置或产品代码变化；只新增复核报告、元数据与
+  治理状态。项目级最终全量审计继续 **CHANGES_REQUESTED / NO-GO**，线上 `dfdfb91` 未连接、未修改。
+- 测试：独立复算旧包 9/9 SHA-256 closure、Phase 10 15/15、Phase 48 2/2、Failsafe 17/17、Surefire
+  349/349；当前工作树 `candidate_source_manifest.py` 自测 6/6、F-01 聚焦单测 13/13、全仓 Maven offline
+  Surefire 349/349；审计报告 lint PASS。未启动常驻服务，未执行 Docker、数据库、网络或浏览器门禁。
+- 下一步：由获授权隔离环境在统一新冻结候选上完成 F-01 栈内同源与真实门禁闭环；本地按 F04 → F05 → F03
+  → F06 → F07 补复核准备缺口。任何 scoped 结论均不授权 merge、push、deploy 或切流。
+
+## [2026-08-06] GOV-055 WS-4 / D1–D6 独立结论严重度更正 — scoped PASS
+- 做了什么：按独立复核者的正式更正，将 fingerprint `745e9986...d4d9` 的 WS-4 / D1–D6 结论由
+  `CHANGES_REQUESTED（0 High / 2 Medium / 1 Low）` 校准为 **scoped PASS（0 High / 0 Medium）**；在原
+  报告顶部增加 superseding correction，并同步 `HANDOFF.md`、`PROGRESS.md` 与当前执行计划。
+- 关键决策与理由：不把缺少明确产品契约的批量下载 UX 解释、disabled 后的近似 mutation-test 证明、五个
+  零值逐项断言提升为阻断项。三者最多保留为非阻断 Low/建议，避免为证据形式继续增加产品复杂度。
+- 问题与解决：更正到达时三项追加整改尚未落盘；当前工作树指纹仍为复核文档加入后的
+  `ebb6ddd29b2845e90f2b5cd792e88219bf6afef9fe629b79e47008eef91316f0`，未产生额外产品代码漂移。
+- 与规格的偏差/疑问：无业务规则、API、权限点、生产配置、产品代码或测试代码变化。原报告正文保留历史
+  判定轨迹，但其阻断严重度和 Request changes 已由顶部更正明确撤销。
+- 测试：本条只校正治理记录，不重跑产品门禁；`745e9986...d4d9` 原有 62/62 checksum、gap 18/18、D5
+  24/24、D6 36/36、D1–D4/D6 增量 85/85 证据继续作为本次 scoped PASS 的候选绑定依据。
+- 下一步：按用户要求，本任务结束后停下。等待用户指定下一项；不 merge、push、deploy、切流或触碰线上
+  稳定版本 `dfdfb91`。
+
+## [2026-08-05] GOV-054 WS-4 / D1–D6 首轮整改独立增量复核退回
+- 做了什么：冻结并独立验证写报告前的唯一正式候选 fingerprint `745e9986...d4d9`（HEAD `aa3509a`，
+  154 tracked / 110 non-ignored untracked）；复算外部 manifest 与证据副本逐字节一致、62/62 checksum、
+  三段同指纹 verify 及 gap 18/18、D5 24/24、D6 36/36、增量 85/85 报告。逐项复核上一轮 5 Medium，
+  产出 `docs/reviews/ws-04-d1-d6-remediation-independent-rereview-2026-08-05.md`，正式结论为
+  **CHANGES_REQUESTED（0 High / 2 Medium / 1 Low）**。
+- 关键决策与理由：原四类产品缺陷均按原口径关闭；不因门禁全绿直接放行。材料批量下载仍绕过 loaded query
+  snapshot，记 1 Medium；四个 disabled `force:true` 反例不会进入 handler，不能证明函数级 guard，记
+  1 testing-authenticity Medium；视频真实零值只检查标题与空态，记 1 Low。整改只需复用既有局部模式。
+- 问题与解决：旧 `65a07cd5...b136` 与过渡 `a63eba41...e8148` 均排除在正式验收范围外；只有
+  `745e9986...d4d9` 可作为本轮冻结对象。归档浏览器门禁只作为经校验的候选证据，不冒充本轮独立执行。
+- 与规格的偏差/疑问：未修改任何产品、测试或配置；未扩展到真实后端、WS-5/WS-6 或历史截图重建。结论不
+  授权 merge、push、deploy 或切流，线上稳定版本 `dfdfb91` 未访问、未修改。
+- 测试：独立 frontend lint、type-check、production build、video-auth/logout/dashboard 三个合同、manifest
+  工具 6/6、gap gate 语法检查、candidate verifier 和 `git diff --check` 均 PASS。按用户安全边界未执行
+  浏览器、网络、Docker、数据库、Redis、MinIO、服务、漏洞扫描或任何可能属于 cyber 的动作。
+- 下一步：只修正式报告的 2 Medium / 1 Low，并在新唯一 manifest 下重交独立增量复核；此前 WS-4 保持
+  复核退回。
+
+## [2026-08-05] WS-4 / D1–D6 独立复核 5 Medium 最小整改
+- 做了什么：材料管理与统计报表补 request sequence、current/loaded query-key 和已加载导出快照，迟到旧响应
+  不再覆盖新筛选；培养与免考 Drawer 将级联选项的 loading/error/loaded-key 绑定到控件与保存；视频任务/
+  管理首载失败隐藏伪 0 与伪占位；路由在冷启动 `loadMe()` 返回后重新检查 `mustChangePwd`，目标业务页不挂载。
+- 关键决策与理由：沿用页面内已有 freshness 模式，只增加局部序号、查询键和函数/UI 双层门禁，不引入全局
+  状态机、请求框架、后端接口或新基础设施。可靠旧数据继续只读显示，当前查询或依赖未成功时关闭写操作。
+- 问题与解决：浏览器 gate 初版存在固定 180ms 等待、错误文案定位及移除原生 `disabled` 不能穿透 Naive
+  UI 组件状态等证据问题；已改为精确等待旧 HTTP 响应结束和两帧渲染、收窄 method/endpoint、验证真实禁用
+  状态及无写请求，并等待移动 Drawer 动画结束后检查完整 viewport 边界。
+- 与规格的偏差/疑问：未修改 API、权限点、业务口径或后端状态机；API 均由 Playwright 本地拦截，因此只证明
+  当前构建的前端状态机，不冒充真实数据库/对象存储联调。线上稳定版本 `dfdfb91` 未连接、未重启、未修改。
+- 测试：前端 lint、type-check、production build、logout/dashboard/video-auth 三个合同 PASS；同一当前构建
+  完整重跑 gap **18/18**、D5 **24/24**、D6 **36/36**、D1–D4/D6 增量 **85/85**，无断点拼接。
+- 下一步：新最终候选 manifest、正式同候选复跑与校验和均已归档；停止开发并交独立增量复核。独立 PASS
+  前 WS-4 仍为复核退回，不 merge、push、deploy 或切流。
+
+## [2026-08-05] GOV-053 WS-4 / D1–D6 统一候选独立批量复核退回
+- 做了什么：冻结并独立验证写报告前的完整工作树 fingerprint `65a07cd566da...b136`（HEAD `aa3509a`，
+  153 tracked / 106 non-ignored untracked），复算正式证据包 43/43 SHA-256、36/36 D6 与 85/85 增量
+  报告及门禁控制流；按 incremental + testing-authenticity 逐行复核 WS-4 状态面和直接调用方，产出
+  `docs/reviews/ws-04-d1-d6-batch-independent-review-2026-08-05.md`。正式结论为
+  **CHANGES_REQUESTED（0 High / 5 Medium / 0 Low）**。
+- 关键决策与理由：证据闭包与候选绑定本身 scoped PASS，不把旧 D1–D5 不同指纹报告算作最终候选动态证明。
+  已确认学生、证书和视频主列表的聚焦 latest-request/陈旧写屏障成立；但材料/统计查询、培养/免考依赖
+  freshness、视频首错伪零值、冷启动首次改密和最终 gate 覆盖仍须最小关闭。整改继续使用页面内现有模式，
+  不引入全局状态机或新基础设施。
+- 问题与解决：75 个最终响应式用例只断言标题和 document 级横向溢出，无法发现本轮真实缺口；旧阶段门禁
+  又分别绑定旧 fingerprint。将其记录为 1 个 testing-authenticity Medium，并要求新候选只补“旧独有断言 +
+  本轮四类反例”的 gap gate，不要求重建所有历史截图或伪造 D1 前置证据。
+- 与规格的偏差/疑问：UI-009 非学生直达本人页仍按既有“待产品口径确认”处理，不升级为本轮 finding；
+  WS-5/WS-6、真实后端/生产联调、TLS/session/a11y 均未扩入本轮。该结论不改变项目总体
+  **CHANGES_REQUESTED / NO-GO**，也不授权 merge、push、deploy 或切流。
+- 测试：独立执行 frontend lint、type-check、production build、logout/dashboard 两个合同、manifest 工具
+  6/6、`git diff --check`，全部 PASS；manifest 外部 verify 仍为同一 fingerprint，证据 43/43 hash 匹配。
+  按用户安全边界未执行浏览器、网络、Docker、数据库、Redis、MinIO、服务、漏洞扫描或任何 cyber 动作；
+  整改方 browser 结果只作为已核真实性的 API 拦截证据。
+- 下一步：只修正式报告的 5 个 Medium 并重交独立增量复核；新报告 PASS 前 WS-4 保持复核退回，线上稳定
+  版本 `dfdfb91` 继续冻结。
+
+## [2026-08-05] WS-4 / D1–D6 集中复核退回修复与统一候选收口
+- 做了什么：集中只读复核确认 3 个产品状态一致性 Medium：多个主列表可能被迟到请求覆盖、刷新失败后陈旧数据仍可写、视频任务/管理页首错与评分防重不完整。以页面内 query-key、request sequence 和函数级 freshness guard 最小修复学生、培养、证书管理/签发、测试结果、免考、通知及视频任务/管理 9 个页面。
+- 关键决策与理由：保留上次成功数据供读取，但筛选或分页尚未成功刷新、正在刷新或刷新失败时一律阻断依赖最新状态的写操作；不引入全局状态机、请求框架或后端改造。视频评分在首个 await 前设置互斥，列表只接纳最后一次请求。
+- 问题与解决：D5 旧反例只检查陈旧态“编辑”，遗漏“新增学生”，本轮补齐按钮与函数双层守卫。浏览器预跑中出现的视频 Tab、toast 同文案和 loading 后按钮名称变化均为测试定位问题，改为权限单一的测试角色、alert 作用域和稳定 DOM 定位器，未调整产品语义。
+- 与规格的偏差/疑问：没有修改 API、权限点、数据口径或后端状态机；没有连接真实后端。该结论仅为本地候选门禁，不自行宣称 WS-4 独立 PASS，不授权 merge、push、deploy 或切流。
+- 测试：修后只读复查 **0 High / 0 Medium**；前端 lint、type-check、production build 与 `git diff --check` PASS；当前构建上的 D6 原回归 **36/36 PASS**，受影响与复合页面五断点 **75/75**，请求乱序、陈旧写屏障、首错重试和视频评分双提交聚焦反例 **10/10 PASS**。最终统一指纹门禁与校验和归档随本条之后的证据步骤完成。
+- 下一步：停止继续开发；将统一候选证据交独立复核。线上稳定版本 `dfdfb91` 继续冻结。
+
+## [2026-08-05] WS-4 / D6 复合系统页与上传流程产品收口
+- 做了什么：将字典、行政区划、任教学科、组织与专业四个复合页改为按内容容器响应式；导入中心与学生视频上传在手机使用纵向步骤和不越界的上传操作区。补齐各数据源的首载错误、陈旧结果、真实空态和依赖重试，保留可靠旧数据但阻断依赖最新状态的写操作。
+- 关键决策与理由：只在页面内增加查询键与 latest-request 序号，不引入全局请求框架或新状态机。导入预校验失败后旧结果只读；批次翻页、视频年度、字典类型、学科筛选和区划导航均只接纳最新请求。API、权限点、导入/上传协议及后端状态机不变。
+- 问题与解决：两组只读复查发现 5 个 Medium 与 3 个 Low，集中在迟到响应覆盖、禁用状态可由最近学科标签绕过、忙时刷新丢失及首次加载空白；均以组件内最小守卫关闭。浏览器预跑另外发现自动化定位器把 Naive UI 的标签、loading 文本及 Drawer 入场动画误当产品故障，改为稳定组件选择器、loading class 和动画稳定后几何检查，未为测试修改产品语义。
+- 与规格的偏差/疑问：未处理 `UI-009` 非学生直达本人页口径、完整 WCAG/a11y、文件改名、主题动画、WS-5 会话/TLS 或后端流程；这些均不属于 D6。D1 改动前没有真实 `d0-before`，继续不伪造前置截图。
+- 测试：前端 lint、type-check、production build、`git diff --check` 通过；隔离静态前端 + Playwright API 拦截覆盖 6 页 × 5 断点及 6 个产品流程检查，最终重跑 **36/36 PASS**。该运行不连接真实后端，不能冒充数据库/对象存储联调或独立复核。
+- 下一步：D6 最终候选证据已归档于仓库 `target` 下的独立目录；WS-4 保持进行中，D1–D6 交由批量独立复核后再判定。
+
+## [2026-08-05] WS-4 / D5 非 Overlay 反馈、真实空态与最小键盘操作闭环
+- 做了什么：统一学生、培养、材料、免考、测试结果、证书、视频、通知、统计和 Dashboard 的首载失败、
+  陈旧数据刷新失败与真实空数据反馈。首载失败不再显示伪造的“0 条/0 项/尚未上传”，刷新失败保留旧数据并
+  阻断基于陈旧状态的新增、编辑、审核、导出或上传；字典、学科等选项独立加载，选项未知或失败时不开放
+  无法完成的写流程。菜单分组、视频任务行和登录/首改密关键字段补最小键盘与可访问名称。
+- 关键决策与理由：继续复用现有 `n-alert`、`n-result`、`EmptyState` 和局部 loading/error 状态，不引入全局
+  状态机、表单框架或完整 WCAG 改造。错误态只在有可靠旧数据时保留内容；没有成功加载过的数据不按空数据
+  处理，从产品语义上避免误导用户。
+- 问题与解决：聚焦复核发现本人信息刷新失败会隐藏旧表单、本人证书首次失败会显示空证书、部分首载失败仍
+  展示 0 统计，以及材料/免考选项失败仍可进入写流程；均按原触发条件最小修复并纳入浏览器回归。
+- 与规格的偏差/疑问：未改 API、权限、数据口径或业务状态机。浏览器门禁运行在专属一次性前端容器，API
+  由 Playwright 拦截以确定性驱动状态分支，因此只证明当前构建产物的 UI 状态机，不冒充真实后端/数据库证据。
+  完整 a11y 自动门禁和上传拖拽键盘体验留给 WS-6，不在 D5 扩张。
+- 测试：前端 lint、type-check、build、既有 logout/dashboard 合同与 `git diff --check` PASS；D5 浏览器
+  初始错误、重试、陈旧数据保留、写入阻断、真实空态和最小键盘操作 **24/24 PASS**。状态为
+  `D5_LOCAL_RUNTIME_GATE_PASS / BATCH_INDEPENDENT_REVIEW_DEFERRED`。
+- 下一步：固化同一候选指纹、归档 D5 截图/报告并销毁一次性容器；随后进入 D6 剩余复合布局与上传流程的
+  最小产品收口。线上稳定版本 `dfdfb91` 及五个线上容器全程只读保护，未连接业务端点、未修改。
+
+## [2026-08-04] WS-4 / D4 布局、导航与公共门面闭环
+- 做了什么：将 `MainLayout` 的菜单展开状态改为受控模式，保留用户手动收起状态并在跨组/同组程序化
+  跳转时重新展开当前组；增加非可点击路由面包屑、1480px 内容上限和移动端首帧尺寸初始化。
+  Dashboard 按实际权限组合布局，无统计权限角色显示“可办理事项”而不伪造 0 统计；登录、404和新增的 403
+  页统一为 Naive UI 产品门面，补安全内部 redirect 与明确的返回工作台动作。
+- 关键决策与理由：复用现有 `n-layout`/`n-menu`/`n-breadcrumb`/`n-result` 和 `ChartBox`，不新建布局框架或大型抽象。
+  无权路由进入显式 403 页，不再静默跳回 Dashboard；首次改密成功后服务端会立即撤销旧令牌，前端因此清理
+  已撤销会话并要求用新密码重新登录，不用失效令牌继续请求 `/me`。
+- 问题与解决：真实浏览器首次执行登录 POST 时暴露 Nginx 使用 `$host` 丢失非 80/443 入口端口，导致后端将
+  同源请求误判为 `Invalid CORS request`。最小修改为 `Host $http_host`，保留浏览器看到的端口；修复后首次改密、
+  旧会话清理和新密码重新登录全程通过前端 Nginx 入口。
+- 与规格的偏差/疑问：未改业务 API、权限点、数据口径或状态机。本轮仅记
+  `D4_LOCAL_RUNTIME_GATE_PASS / BATCH_INDEPENDENT_REVIEW_DEFERRED`，不构成 WS-4 独立 PASS，不授权 merge、push、deploy 或切流。
+- 测试：前端 lint、type-check、build 和 `git diff --check` PASS；公共登录/404 与学生、评审教师、系统管理员
+  Dashboard 五断点 **25/25 PASS**；布局宽度、受控菜单、移动 Drawer、无统计角色、403 反馈和首改密重登录
+  **10/10 PASS**。页面水平溢出、Console error 和未捕获异常均为 0，关键手机/桌面截图已人工抽查。
+- 下一步：进入 WS-4 / D5 非 Overlay 反馈、空态与可访问性收口；D1–D4 继续按用户确认的节奏集中独立复核。
+  线上稳定版本 `dfdfb91` 及五个线上容器全程未连接、未修改。
+
+## [2026-08-03] WS-4 / D3 Overlay 响应式与异步动作闭环
+- 做了什么：按 D1 的 Naive UI 样板将业务域、视频域和系统域剩余 Drawer/Modal 收敛到
+  420/560/720px 三档 viewport 限宽；表单 Grid 按内容容器在手机改单列。为登录/强制改密、学生与
+  培养样板、材料/免考/测试/证书/视频及 12 个系统 Drawer 的写动作补首个 await 前防重、loading、
+  表单禁用和提交期间 X/遮罩/Esc 锁定；材料/视频上传保留显式取消会话语义。角色权限仅在权限加载
+  成功后允许保存，避免加载失败把空权限写回；测试科目/有效性查询用请求代次保证最后一次选择生效。
+- 关键决策与理由：只复用现有 Overlay token、Naive UI Form/Grid 和局部 busy 状态，不引入表单
+  Schema、全局请求队列或大一统 Drawer。只读详情同样受 viewport 约束，培养详情在 768px 以下改单列；
+  所有接口、权限、路由和业务状态机保持不变。
+- 问题与解决：只给父 `n-form` 设置 disabled 时，带显式 Boolean `disabled=false` 的 StudentSelect、
+  SubjectSelect、RegionCascader 及个别输入会覆盖父状态，已在实际写入态显式合并 busy 条件。只读复核
+  还发现登录/两个样板 Drawer 把 busy 放在异步校验之后、角色权限加载失败仍可保存，以及连续点两行时
+  迟到查询覆盖新选择，均按原触发条件最小修复。
+- 与规格的偏差/疑问：本相不重做信息架构、页面门面或错误/空态体系；这些仍按 D4/D5 处理。D3 只记
+  `D3_LOCAL_RUNTIME_GATE_PASS / BATCH_INDEPENDENT_REVIEW_DEFERRED`，不扩大为 WS-4 独立 PASS，
+  不授权 merge、push、deploy 或切流。
+- 测试：前端 lint、type-check、build、`git diff --check` PASS；公共登录、学生与系统管理员覆盖 D3
+  相关页面五断点 **110/110 PASS**；8 个代表 Overlay 的手机/桌面打开态 **16/16 PASS**；测试结果
+  导入和材料上传两个请求拦截反例 **2/2 PASS**，均确认同步双击只产生 1 个请求、等待中不可由
+  Esc/X 关闭、控件禁用且完成/失败后状态恢复，拦截请求未转发到后端。Console warning/error、未捕获
+  异常、页面或 Overlay 横向溢出均为 0。
+- 下一步：进入 WS-4 / D4 布局、导航与门面收口；D1–D3 与后续 UI 改动继续按约定集中独立复核。
+  线上稳定版本 `dfdfb91` 全程未连接、未修改。
+
+## [2026-08-03] WS-4 / D2 高频指标与卡片 Grid 响应式闭环
+- 做了什么：将 Dashboard、材料、免考、测试结果、证书管理、证书签发、统计报表 7 个高频页面，
+  以及学生材料/学生证书两个子面板的固定数字 Grid 改为 `responsive="self"` 的显式响应式列；补齐
+  垂直间距。未调整接口、权限、业务列、筛选逻辑或 Overlay 流程。
+- 关键决策与理由：断点按内容容器而非屏幕宽度计算，避免 248px 侧栏和页面/卡片 padding 导致
+  平板错误套用桌面列数；保留现有 `PageContainer`、`FilterBar`、`DataPanel` 和 Naive UI Grid，
+  不新建抽象。4 卡片采用 1/2/4 列，证书 5 卡片采用 1/2/3/5 列，签发 3 卡片采用 1/2/3 列。
+- 问题与解决：只改 7 个顶层视图会遗漏学生模式内部的 `MaterialSelfPanel` 固定 4 列和
+  `CertificateSelfPanel` 固定 2 列，静态复核后同批补齐。DOM 门禁首轮唯一失败来自测试把 768px
+  视口中的快捷入口预期为 2 列；其真实容器扣除侧栏与卡片内边距后为 432px，按 `440:2` 合同正确
+  保持 1 列，修正临时断言后全绿，产品代码无需为测试迁就。
+- 与规格的偏差/疑问：固定宽 Modal/Drawer、审核 loading、防重复提交和主从复合页明确留到 D3
+  及后续批次；当前只记 `D2_LOCAL_RUNTIME_GATE_PASS / BATCH_INDEPENDENT_REVIEW_DEFERRED`，不构成
+  WS-4 独立 PASS，也不授权 merge、push、deploy 或切流。
+- 测试：前端 lint、type-check、build、`git diff --check` PASS（仅既有 naive/echarts 大 chunk
+  warning）；学生与教务处管理员 7 页 × 5 断点共 **55/55 PASS**，0 页面级横向溢出、0 Console
+  issue、0 未捕获异常、0 权限矩阵漂移；计算列数断言 **37/37 PASS**。代表性截图人工抽查通过。
+- 下一步：固化最终候选 manifest，按同一指纹复跑五断点与列数门禁并销毁一次性 Docker 项目；
+  随后进入 D3 Overlay 限宽与异步动作闭环，独立复核继续按 UI 批次后置。
+
+## [2026-08-02] WS-4 / D1 隔离候选五断点与 Drawer 动态闭环
+- 做了什么：经用户明确允许，使用独立 Docker 项目启动当前候选，执行学生、学院教务员、教务处
+  管理员三角色下 `StudentManage` / `TrainingManage` 的 phone、tablet portrait、tablet landscape、
+  laptop、desktop 五断点截图；补手机导航打开/选路以及 Student/Training Drawer 手机/桌面打开和
+  空保存校验。没有连接或修改线上稳定版本 `dfdfb91`。
+- 关键决策与理由：只修复样张已经证明的产品问题，不扩大为导航重构。720px 以下取消固定侧栏，
+  改用 Naive UI 遮罩 Drawer；保留 768px 平板现有侧栏。移除顶栏重复路由标题，保留内容区 H1；
+  Student 操作列扩至 220px，FilterBar 单列断点收至 720px。截图脚本新增手机固定侧栏守卫，避免
+  “无页面横溢但内容只剩 129px”的假绿。
+- 问题与解决：首轮自动门禁 30/30，但人工截图确认 375px 下 248px 侧栏使主区不可用；修复后同矩阵
+  30/30。Drawer 空保存补测又发现 `validate()` rejection 位于 `try` 外，字段虽报错却同时产生未处理
+  页面异常；Student/Training 两处均改为校验失败正常返回，复验无 Console/Page error。
+- 与规格的偏差/疑问：D1 改动前没有真实 `d0-before`，仍不伪造前置截图。当前只记
+  `D1_LOCAL_RUNTIME_GATE_PASS / INDEPENDENT_REVIEW_PENDING`；按功能优先口径进入 D2–D6，UI 独立
+  复核集中后置，不授权 merge、push、deploy 或切流。
+- 测试：`npm --prefix frontend run lint`、`type-check`、`build` PASS（仅既有 naive/echarts chunk
+  warning）；三角色五断点 **30/30 PASS**；移动导航与双 Drawer **5/5 PASS**；人工抽查 phone、tablet
+  portrait、desktop 和校验错误态无遮挡或越界。
+- 下一步：完成最终候选指纹 capture/verify 和隔离资源销毁后，进入 WS-4 / D2–D6 全站铺开；批次
+  完成后统一独立复核。
+
+## [2026-08-02] WS-4 / D1 设计基线与双样板静态实现
+- 做了什么：按用户确认口径清理 10 组重复入口；在现有 Naive UI 内收口核心间距、字号、圆角、
+  语义色和 420/560/720px Overlay 三档，修复 `FilterBar` 双重间距，给 `DataPanel` 补统一
+  loading/empty/可重试错误态与移动端分页兜底，并让 `StatusTag` 文案和色调统一从
+  `STATUS_META` 派生。`StudentManage + StudentDrawer` 完成列表/远程分页/详情与编辑 Drawer 样板；
+  `TrainingManage + TrainingDrawer` 完成 13 字段、4 分区复杂 Drawer 的容器响应式样板。
+- 关键决策与理由：沿用冷白底、青绿色主色和现有共享组件，只用 Naive UI Grid/Drawer/Modal，
+  不引入第二套组件或大一统表单架构；手机表单以 Drawer 自身宽度降为单列，表格仍只在容器内横滚。
+  加载时锁定筛选重置与审核关闭/重复提交，保留 Naive UI 原生焦点陷阱和键盘语义。低对比辅助文本
+  由 `#9ca3af` 收敛到 `#6b7280`，装饰性动效不增加并补 `prefers-reduced-motion`。
+- 问题与解决：D0 时没有在当前候选改动前生成真实 `d0-before`；本轮不重建或伪造前置截图，后续只
+  允许归档准确绑定候选的 `d1-after` / `report.json`。空列表重复 CTA 只根据与 DataPanel 空态一致的
+  当前数据数组判断；有数据时表头入口恢复，权限条件和处理函数不变。
+- 与规格的偏差/疑问：本轮仅完成源码静态实现与本地前端门禁；五断点实渲染、三角色关键入口点查和
+  独立复核均未执行，因此状态为 `D1_STATIC_IMPLEMENTATION_COMPLETE /
+  LOCAL_FRONTEND_GATES_PASS / RUNTIME_SCREENSHOTS_AND_INDEPENDENT_REVIEW_PENDING`，不构成 WS-4 / D1
+  PASS，也不授权 merge、push、deploy 或切流。线上稳定版本 `dfdfb91` 未访问、未修改。
+- 测试：`npm --prefix frontend run lint` PASS；`type-check` PASS；`build` PASS（仅既有
+  naive/echarts 大 chunk warning）；`node --check frontend/scripts/ui-shots.mjs`、
+  `npm --prefix frontend run ui:audit -- --dry-run`、`git diff --check` 均 PASS。未启动常驻服务、
+  未运行 Docker、未访问线上。
+- 下一步：由外部人工终端启动当前候选 demo，执行两个样板的五断点 `d1-after` 截图与
+  `report.json`，至少抽查学生/学院/管理员三类角色的关键入口；再做批量独立复核，随后才决定是否
+  进入 D2–D6 全站铺开。
+
+## [2026-08-02] WS-4 / D0 全站 UI 静态基线与五断点工具
+- 做了什么：只读盘点 74 个 Vue 文件、21 个认证业务页、23 个 Drawer、22 个 Modal，建立
+  `docs/ui-optimization-spec.md` 的问题分类、逐视图整改矩阵和 D1 样板范围；新增
+  `frontend/scripts/ui-routes.json`（6 角色、20 认证路由、2 公共路由、5 断点）与
+  `frontend/scripts/ui-shots.mjs`（逐页截图、页面级横向溢出和 Console warning/error 检查）。
+- 关键决策与理由：沿用现有 Naive UI、主题和 `PageContainer` / `FilterBar` / `DataPanel`，不重建
+  组件体系；D1 样板选择 `StudentManageView` 与 `TrainingManageView + TrainingDrawer`，先闭环一个
+  典型列表和一个复杂 Drawer。Playwright 固定为仍匹配项目 Node >=18 基线的 1.54.2；登录口令只从
+  环境变量读取，每角色 storage state 只在内存中使用。
+- 问题与解决：`npm --prefix frontend run` 会把当前目录切到 `frontend`，脚本最初会把相对输出错误
+  落到 `frontend/docs`；现已统一以仓库根解析 `--out` / `--config`。只读复核另发现异步页面可能在
+  数据返回前截图、权限缺失路由会被动态过滤后静默跳过；现以 `networkidle + render frame` 等待页面，
+  并把实际权限与角色预期路由双向比对，缺失或多出都失败关闭。输出目录非空也直接拒绝，避免旧 PASS
+  混入。主要静态问题为手机固定侧栏、固定列 Grid、22 个固定宽 Drawer、10 个固定宽 Modal及部分
+  异步 Modal 缺 loading 防重。
+- 与规格的偏差/疑问：按 AGENTS 的常驻服务红线，Codex 未启动当前候选前后端；线上 `dfdfb91` 也不
+  作为错误候选的截图来源。因此 `docs/ui-audit/d0-before` 五断点实渲染仍为
+  `RUNTIME_SCREENSHOTS_PENDING`，未伪造截图或 `report.json`。10 组可能重复按钮已列入规范，删除前
+  等待用户确认。
+- 测试：`node --check`、路由 JSON 解析、`ui:audit --dry-run` PASS；前端 lint、type-check、build
+  全部 PASS。Playwright CLI 1.54.2 可解析；未下载浏览器、未启动服务、未访问线上。
+- 下一步：用户确认“空态双 CTA”和“重复刷新”口径；外部终端启动当前候选 demo 环境后执行五断点
+  基线。随后进入 D1，仅改共享响应式能力及两个样板，不批量铺开。
+
+## [2026-08-02] FINAL-F03–F07 本地真实门禁闭环并转入 WS-4
+- 做了什么：在不触碰线上稳定版 `dfdfb91` 的前提下，用一次性 MySQL 8.4 / Redis 7.4 / MinIO
+  依赖栈连续执行产品功能门禁。F-03 `Phase8TestResultIT` 9/9 + `Phase9CertificateIT` 10/10；
+  F-04 `-Xmx128m` 下 `ExchangeImportResourceBudgetTest` 14/14；F-05 `Phase3StudentIT` 9/9；
+  F-06 `Phase2SecurityIT` 4/4 且前端 logout contract PASS。
+- 关键决策与理由：按用户决定把独立增量复核集中后置，不再阻塞产品功能开发；上述结果只登记为
+  `LOCAL_REAL_GATE_PASS` / `LOCAL_RESOURCE_GATE_PASS`，不扩张为独立 PASS、merge 或发布授权。
+- 问题与解决：F-07 首轮在媒体 Cookie Range 206 成功后，`/api/auth/logout` 收到连接 EOF。
+  服务端日志证明 `StreamingResponseBody` 完成后的 ASYNC 再分派被 `anyRequest().authenticated()`
+  二次拒绝，并在响应已提交后关闭连接。`SecurityConfig` 仅放行容器内部
+  `DispatcherType.ASYNC`；初始 REQUEST 仍完整经过媒体 Cookie/JWT、`@PreAuthorize` 与
+  `@DataScope`。同一聚焦方法修后 1/1 PASS，完整到达 `206 → logout 成功 → 旧媒体 Cookie 401`，
+  报告中 post-commit/ASYNC/EOF 错误均不再出现。
+- 与规格的偏差/疑问：无业务规格变化；未通过测试侧 `Connection: close` 或重试掩盖服务端错误，
+  未引入新会话架构。独立复核仍须在 merge、发布或切流前统一补齐。
+- 测试：F-03 19/19、F-04 14/14、F-05 9/9、F-06 4/4、F-07 聚焦 1/1 均 PASS；相关
+  Maven verify 同步执行 Surefire 349/349。前端 `test:auth-logout-contract` PASS；
+  `git diff --check` PASS。一次性 `f03gate` 容器/网络已销毁；线上五个 `dfdfb91` 容器仍 healthy。
+- 下一步：进入 `WS-4 / D0`，只盘点全站 UI、冻结两个代表页及验收口径；多余按钮先列清单供用户
+  确认，不在 D0 批量删入口或改业务 API/权限语义。
+
+## [2026-08-02] FINAL-F03-DYN 首轮真实门禁退回与第二轮最小整改
+- 做了什么：登记 F-03 首轮独立隔离门禁。候选 fingerprint
+  `2756786973cf7f51704c7774676306d0ce3d25ed4a7ba52097a1de51ca140977`（HEAD `aa3509a1...`，
+  85 tracked / 102 untracked）在 capture 与门禁后 verify 中保持一致；Surefire 349/349、Phase 9
+  10/10，但 Phase 8 仅 7/9，Failsafe 合计 17/19，正式结论为 **CHANGES_REQUESTED**。
+- 关键决策与理由：证书两种提交顺序及两组不同 MySQL `CONNECTION_ID()` 已取得有效动态证据；能力
+  两条用例均在 fixture 首次导入时失败，不能把“执行了测试名”误记为进入并发屏障，更不能关闭 F-03。
+- 问题与解决：两条新增 `assessmentYear` 分别为 21/20 字符，违反 DTO `@Size(max=16)`，在
+  `arm()` 前即被 Bean Validation 以 HTTP 400 拒绝。仅缩短为 `P8-RACE-CFM` 与
+  `P8-RACE-IMP`（均 11 字符）；不修改 DTO、生产代码或并发门禁结构。全文件其余 `P8-*` 年度值
+  最长 14 字符，无同类问题。
+- 与规格的偏差/疑问：无业务规格变化。当前只到
+  `SECOND_ROUND_REMEDIATION_READY / DYNAMIC_EVIDENCE_PENDING`，F-03 整体仍未关闭，项目继续
+  **CHANGES_REQUESTED / NO-GO**。
+- 测试：首轮外部证据保留于 `C:\evidence\f03\`；一次性栈已销毁、线上 `dfdfb91` 未触碰。修后
+  `mvn -B -ntp -o -pl platform-boot -am -DskipTests test-compile` 9 模块 BUILD SUCCESS、
+  Checkstyle 0，`git diff --check` PASS；Codex 未执行真实 MySQL/Docker/网络门禁。
+- 下一步：在新完整候选上重跑同一 exact gate，要求 Phase 8 9/9、Phase 9 10/10、Failsafe 19/19、
+  Surefire 349/349，四个命名用例与四组不同 `CONNECTION_ID()` 全部存在，且门禁前后 fingerprint
+  一致。
+
+## [2026-08-02] FINAL-F03-DYN 陈旧聚合写确定性交错门禁候选
+- 做了什么：完成 F-03 六类目标聚合的生产路径复核，确认 certificate、student、training、material、
+  exemption、ability 均已由陈旧全实体覆盖收口为状态 CAS + 列级 patch；未再改生产代码。只在
+  `Phase9CertificateIT` 与 `Phase8TestResultIT` 各新增两条常驻反例，覆盖证书更正/签发和能力结果
+  重导入/确认的两种提交顺序。
+- 关键决策与理由：复用一个 test-only MyBatis `StatementHandler.update` 屏障。迟到事务必须先到达
+  真实 UPDATE 边界，另一事务再由 `TransactionSynchronization.afterCompletion(COMMITTED)` 证明
+  已真实提交，最后才放行迟到写；两条事务同时记录并比对 MySQL `CONNECTION_ID()`，不以 sleep、
+  调度延迟或 Mockito 影响行数冒充并发证据。未引入全局 version 字段、生产 hook 或并发新架构。
+- 问题与解决：屏障按表及 SET 列特征区分四种 mutation，对未命中 SQL、未到达 contender、非事务
+  连接、非 1 行先提交或非 COMMIT 均失败关闭，并保留 observed SQL 便于真实门禁诊断。测试断言以
+  提交后的数据库事实为准，不把签发接口返回的事务开头快照扩张成新规格。
+- 与规格的偏差/疑问：无。当前仅为 `REMEDIATION_READY / DYNAMIC_EVIDENCE_PENDING`；同状态的两个
+  内容编辑仍是更宽的 last-write-wins 合同，不属于原 F-03，本轮不扩项。项目仍为
+  **CHANGES_REQUESTED / NO-GO**。
+- 测试：`mvn -B -ntp -o -pl platform-boot -am -DskipTests test-compile` 9 模块 BUILD SUCCESS、
+  Checkstyle 0；`git diff --check` PASS。按用户安全边界未执行 Docker、真实 MySQL/Redis/MinIO、
+  HTTP、网络或线上命令。
+- 下一步：由用户或独立隔离环境在同一完整候选上执行 `Phase8TestResultIT` +
+  `Phase9CertificateIT`，预期精确 19/19，并逐名确认新增四条交错用例、两组不同
+  `CONNECTION_ID()` 与两种最终数据库事实；门禁前后均验证候选 fingerprint。
+
+## [2026-08-02] FINAL-F02-DYN 独立真实基础设施门禁 PASS
+- 做了什么：接收并登记 F-02 四层独立真实门禁。完整候选 HEAD `aa3509a1...`、fingerprint
+  `3cddcb748e43d94c9c944b80b50ee0586a773a83686711200a291eab9c9f98d2`，含 83 个 tracked
+  changed 与 101 个 untracked 文件；capture 与门禁后 verify 均 PASS，测试期间候选未漂移。
+- 关键决策与理由：按原 finding 分别要求真实 MySQL 同事务失败关闭和实际 rendered 代理链，未用
+  Mockito/源码检查替代动态结论；同时只关闭 F-02，不把 scoped PASS 扩张成项目发布 GO。
+- 问题与解决：真实 Maven 门禁 Surefire 349/349、`Phase13SystemAuditIT` 11/11、BUILD SUCCESS。
+  专用 `f02audit` 栈仅发布 frontend `:8090`，后端挂载当前候选 jar；客户端伪造 XFF
+  `203.0.113.66` 与 X-Real-IP `203.0.113.77` 后，Nginx 所见 `$remote_addr` 和持久化
+  `audit_log.ip` 均为 `172.31.99.1`，证明入口覆盖与后端可信代理收窄同时生效。
+- 与规格的偏差/疑问：无。F-02 独立结论为
+  **DYNAMIC_CLOSED / INDEPENDENT_INCREMENTAL_PASS**；F-01 尚无独立增量结论，项目最终
+  全量审计仍为 **CHANGES_REQUESTED / NO-GO**，本证据不授权 merge、push 或 deploy。
+- 测试：证据保留于仓库外 `C:\evidence\f02\`；manifest capture/verify 各 exit 0，Maven exit 0；
+  `f02audit` 及 Gate 2 的全部专用容器、网络、卷已移除，无残留。线上 `dfdfb91` 五服务保持
+  healthy 且未触碰。
+- 下一步：按原审计顺序进入 `FINAL-F03-DYN`，优先为 certificate 与 ability 的陈旧内容写/状态迁移
+  增加确定性两提交顺序真实 MySQL 反例；Codex 不执行真实依赖或网络门禁。
+
+## [2026-08-02] FINAL-F02-DYN 审计失败关闭与可信代理门禁
+- 做了什么：按最终审计立即修复顺序领取 F-02，在既有 `Phase13SystemAuditIT` 常驻两条最小真实
+  上下文反例。第一条对默认 `@AuditLog` 的系统参数更新，在业务写完成后仅让本次审计记录抛错，
+  断言 HTTP 500、`sys_param` 真实 MySQL 整行回滚且没有成功样式审计；第二条从真实 HTTP 请求
+  发送伪造及超长 XFF/X-Real-IP，断言未配置可信代理时落库 IP 仍为 `127.0.0.1` 且不超过 45 字符。
+- 关键决策与理由：复用 Phase 13 现有 HTTP/真实 MySQL fixture 与仓库既有 `@MockitoSpyBean`
+  故障注入方式，不建 Trigger、不要求 DDL、不改生产逻辑，也不引入异步队列或审计新架构。现有
+  `AuditLogServiceImplTest` 已证明 mapper 异常不被吞，本轮只补通用切面的真实事务边界。
+- 问题与解决：初稿把通用异常响应误写为 HTTP 200；复核 `GlobalExceptionHandler` 后纠正为确定性的
+  500，否则真实 Failsafe 会红。首次聚焦 Maven 调用因 PowerShell 未给 Surefire 属性加引号，在
+  聚合 POM 解析为无效生命周期且未执行测试；按同一参数加引号重跑后正常通过，不计产品失败。
+- 与规格的偏差/疑问：无。后端不可信直连与审计失败回滚已有常驻候选测试；实际 rendered
+  Nginx/Compose 代理链仍须从 frontend 入口验证客户端自带 XFF 被覆盖，本轮不以源码或 Mock
+  证据冒充运行结果。
+- 测试：`mvn -B -ntp -o -pl platform-boot -am -DskipTests test-compile` 9 模块 BUILD SUCCESS、
+  Checkstyle 0；`AuditIpTest` 7/7、`AuditLogServiceImplTest` 3/3、`AuditLogAspectTest` 4/4，合计
+  14/14 PASS；`git diff --check` PASS。按用户安全边界未执行 Docker、真实数据库/Redis/MinIO、
+  HTTP/网络或浏览器门禁。
+- 下一步：由用户或独立隔离环境在新完整候选上执行 Phase 13 11/11 与 rendered Nginx/Compose
+  代理链门禁，并在前后验证候选指纹；通过后提交 F-02 独立增量复核。项目继续
+  **CHANGES_REQUESTED / NO-GO**，线上稳定版 `dfdfb91` 不触碰。
+
+## [2026-08-02] FINAL-F01-DYN 第二轮真实门禁执行者证据
+- 做了什么：接收并登记同一完整候选上的第二轮真实门禁结果。候选 fingerprint 为
+  `48a6c264d80824082d9fde1b5c1aaa5f26a6845605bf71cdbbbef88069ba5929`（HEAD `aa3509a`，
+  manifest 82 tracked / 101 untracked）；主机入栈前、栈内及两项门禁后的 capture/verify 均一致。
+- 关键决策与理由：本轮证据只用于按原失败条件关闭上一轮锁定 SQL Blocker，不与 R7 的
+  `0f9f...bf6d` Phase 2 / Phase 41 证据混绑，也不在后续整改仍会改变候选时重复冻结。
+- 问题与解决：`Phase10ExchangeIT` 15/15 与 `Phase48CertImportGuardIT` 2/2 全部通过，Failsafe
+  17/17、Surefire 349/349、BUILD SUCCESS；首轮五个失败逐个转绿，日志中非法
+  `near 'LIMIT 1'` 为 0。其余 7 次“确认导入行执行失败”均对应测试主动构造的数据库异常、
+  跨学院拒绝、证书绑定冲突或作废证书守卫，没有新的 SQL 失败。
+- 与规格的偏差/疑问：无。F-01 当前仅为
+  `EXECUTOR_GATE_PASS / INDEPENDENT_REVIEW_PENDING`；执行者门禁不等同独立复核或项目发布 GO。
+- 测试：外部证据目录 `Desktop\teacher-cert-evidence\phase10-phase48-2026-07-29` 的
+  `SHA256SUMS` 9/9；一次性栈、scratch schema 与凭据均已清理，线上五个稳定版容器未触碰，
+  门禁后主机 manifest verify 仍 PASS。
+- 下一步：提交本次同候选证据做 F-01 独立增量复核，同时领取统一矩阵下一项；剩余整改收敛后再
+  做一次最终冻结。项目继续 **CHANGES_REQUESTED / NO-GO**，不 merge、push、部署或切流。
+
+## [2026-07-29] FINAL-F01-DYN ERROR 导出跨学院真实门禁
+- 做了什么：领取最终审计 F-01 动态闭环；R7 冻结对象不再修改。在现有
+  `Phase10ExchangeIT` 增加 1 个常驻真实应用上下文用例，使用真实 MySQL fixture + HTTP 导出，
+  覆盖学院 A/B 双 owner、双向越权拒绝、校级任一指定批次、缺失 batch fail-closed，以及证件号/
+  出生日期错误值的脱敏与敏感明文权限。
+- 关键决策与理由：复用现有 `Phase10ExchangeIT`，补真实 HTTP/事务/MySQL 双 owner 反例，不新建
+  平行门禁、不改生产逻辑；生产修复保持 exact batch + school scope / non-school owner-only。
+  为避免扩张夹具，只在用例窗口内把既有学院审核员主学院切换为 B，并在 `finally` 恢复。
+- 问题与解决：现有 `ExchangeExportGuardTest` 仅为 Mockito 证据，不能关闭真实双 owner MySQL
+  缺口；新增用例按 batch id 查询生成的 Excel 必须恰有 1 行，从结果层同时钉死“不能回退全表”
+  与“不能混入另一 owner”。首轮真实门禁 fingerprint `5749abd8...18e1` 前后验证一致，
+  Phase 10 15 个测试完整执行但 5 失败 / 10 通过；日志中 12 次导入失败均由候选新增的
+  `LIMIT 1 FOR UPDATE` 经 MyBatis-Plus 重排成非法 `FOR UPDATE LIMIT 1` 引起，不能把其余
+  “预期业务拒绝”用例的绿灯视为有效。四个受唯一键约束的查询已直接去掉 LIMIT；证书
+  student-year 允许多条 VOIDED/REISSUED 历史，改为一次锁定完整集合，优先唯一活跃记录，仅有
+  历史时返回最大 id 的终态记录，继续由既有 Phase 48 守卫拒绝，未新增迁移或索引。
+- 与规格的偏差/疑问：无；AT-13 与敏感导出权限合同不变。
+- 测试：整改后 `mvn -B -ntp -o -pl platform-boot -am -DskipTests test-compile` PASS，9 模块
+  Checkstyle 0 违规；`ExchangeExportGuardTest`、`ExchangeCertificateAggregateGuardTest`、
+  `ExchangeImportFailureMessageTest` 合计 13/13 PASS；生产源码仅余 VideoReview 历史说明中的
+  `LIMIT 1 FOR UPDATE` 文本，无可执行命中；`git diff --check` PASS。按用户安全边界，Codex
+  未执行 Docker/MySQL/Redis/MinIO/HTTP/网络等真实依赖门禁。
+- 下一步：由用户或独立隔离环境对同一新候选执行 `Phase10ExchangeIT` 15/15 与
+  `Phase48CertImportGuardIT` 2/2，门禁前后验证候选指纹；通过后再提交独立增量复核，当前不得
+  关闭 F-01。
+
+## [2026-07-29] GOV-052 R7 正式冻结包独立增量复核
+- 做了什么：只复核唯一正式冻结对象
+  `final-audit-r7-freeze-raw/final-audit-r7.bundle` 及其 manifest-bound 运行证据；产出
+  `docs/reviews/final-audit-r7-freeze-raw-independent-rereview-2026-07-29.md`。原
+  `final-audit-r7-freeze/final-audit-r7.bundle` 仅作失败反例，明确排除出正式验收。
+- 关键决策与理由：从 raw bundle fresh 重建 dirty candidate，再独立 capture 并与门禁 manifest
+  逐字节比较，而不是采信 FREEZE 摘要。两份 manifest 均为 18,979 bytes、SHA-256
+  `b409d5fe...dd74`、fingerprint `0f9f2fef...bf6d`，82 tracked / 99 untracked；据此把
+  外部证据包的 capture → Phase 2 → verify → Phase 41 → verify 链传递绑定到正式 bundle。
+- 问题与解决：复核中一度只查看 bundle 内第五轮历史证据，误判新门禁未绑定；纳入仓库外
+  `final-audit-r7` 新证据并进行 fresh 重现后撤销该判断。外部 11/11 哈希、Phase 2 4/4、
+  Phase 41 1/1、完整日志/XML/TXT 与时间顺序全部成立；上轮候选绑定及日志可移植性两个 Medium
+  均关闭，本轮 0 finding。
+- 与规格的偏差/疑问：无业务规格或生产行为变化。manifest 不绑定文件模式、同安全主体恶意伪造
+  不在本阶段威胁模型内，不为此引入 ACL、签名服务或不可变存储。
+- 测试：正式 bundle SHA-256 `3c0bbce5...a121d`；bundle verify、strict fsck/pack PASS；
+  bundle-only fresh manifest 重现 PASS；证据 11/11；manifest 工具 6/6；独立 offline Surefire
+  50 suites / 349 tests；`git diff --check` PASS。旧 freeze verifier exit 1，仅计失败反例。
+- 安全边界/下一步：未执行 Docker、数据库、Redis、MinIO、网络、HTTP、浏览器、服务、扫描、
+  fuzz、stage、commit、push 或部署。R7 独立增量结论为 **PASS（0 finding）**，但最终全量审计
+  其它 OPEN/PARTIAL 项及项目 **CHANGES_REQUESTED / NO-GO** 基线不变。
+
+## [2026-07-29] GOV-051 关键运行日志可移植归档整改
+- 做了什么：只处理第六整改复核新增的证据可移植性 Medium，不改生产逻辑。将历史
+  `run3-phase2.log`、`run3-phase41.log` 分别逐字节复制为规范
+  `run3-phase2.log.txt`、`run3-phase41.log.txt`，把证据 `SHA256SUMS` 切换到新路径，并更新
+  README 说明 canonical/ignored 边界。
+- 关键决策与理由：不放宽全局 `*.log` 安全忽略规则，也不依赖容易漏掉的 force-add。沿用 Phase 53
+  已有 `.log.txt` 口径，并在 `.gitattributes` 对最终审计日志设置 `-text -diff`，保证普通 Git
+  提交可纳入且 checkout 不做换行转换。原 `.log` 不删除，只作为本机历史来源保留。
+- 问题与解决：两份源/目标文件的长度与 SHA-256 逐一相等；规范清单继续保持原两个日志摘要，只
+  改可移植路径。`.log.txt` 不命中 `.gitignore`，会被完整候选 manifest 当作 non-ignored
+  untracked 文件绑定。
+- 与规格的偏差/疑问：无业务规格或产品行为变化。当前禁止 stage/commit，因此只能达到
+  `EVIDENCE_PORTABILITY_REMEDIATION_READY / REVIEW_PENDING`；须由后续冻结 Git tree 和 fresh
+  checkout 复核后才能独立关闭该 Medium。
+- 测试：规范证据 `SHA256SUMS` **7/7 PASS**；两组 source/portable log 字节数与 SHA-256
+  逐一相同；两个 `.log.txt` 均未被 ignore，属性均为 `text: unset / diff: unset`；高信号秘密
+  扫描 5 类模式均 0 命中；候选 manifest capture/verify、6/6 离线工具反例与
+  `git diff --check` 均 PASS。
+- 安全边界/下一步：未执行 Docker、数据库、Redis、MinIO、网络、HTTP、浏览器、服务、stage、
+  commit、push 或部署，线上稳定版未触碰。候选绑定 Medium 继续
+  `DYNAMIC_EVIDENCE_PENDING`；下一步仍由用户以同一仓库外 manifest 顺序执行 Phase 2 / Phase 41
+  真实门禁并各自 verify，归档可跟踪日志后进入轻量独立复核。
+
+## [2026-07-29] GOV-050 第六整改候选独立增量复核
+- 做了什么：只复核 GOV-049 的完整候选指纹工具、历史证据 README 勘误和证据包可移植性；产出
+  `docs/reviews/final-audit-remediation-sixth-remediation-rereview-2026-07-29.md`。独立读码确认
+  source manifest 会双读 HEAD、tracked diff、untracked 路径与文件内容并失败关闭；当前快照
+  capture/verify 一致，关键 untracked `DatabaseBackupProperties.java` 已进入指纹。
+- 关键决策与理由：功能代码自上轮没有变化，不重复全量业务或 Maven 门禁；严格区分“工具静态可用”
+  与“真实门禁已由该指纹绑定”。旧 Phase 2 4/4、Phase 41 1/1 早于新工具，不能倒推为新候选证据。
+- 问题与解决：上轮 README 81/32/113 Low 已关闭；候选绑定 Medium 仍为
+  `DYNAMIC_EVIDENCE_PENDING`。新增 **1 Medium**：两份被 README/SHA256SUMS 引用的
+  `run3-*.log` 命中 `.gitignore:7` 且未受 Git 跟踪，普通提交/fresh clone 会缺失关键日志。
+- 与规格的偏差/疑问：无业务规格变化；不要求 ACL、签名服务或不可变存储。后续日志只需改为
+  可跟踪的 `.log.txt`，或明确 force-add 并核对 staged tree。
+- 测试：`python -B scripts/test_candidate_source_manifest.py -v` **6/6 PASS**；当前工作树
+  capture/verify smoke PASS（复核前观察指纹 `0e8a6bf3...dee20`，81 tracked / 95 untracked）；
+  历史证据 7/7 SHA-256、Phase 2 XML 4/4、Phase 41 XML 1/1 复算通过；`git diff --check` PASS。
+- 安全边界/下一步：未执行 Docker、数据库、Redis、MinIO、网络、HTTP、浏览器、服务、扫描、fuzz、
+  stage、commit、push 或部署。正式结论继续 **CHANGES_REQUESTED / NO-GO**；用户在本轮文档更新
+  后冻结工作树，于仓库外 capture manifest，顺序执行两个 exact gate 并各自 verify；归档
+  manifest、工具输出、可跟踪日志、XML/TXT 和闭合 SHA256SUMS 后，只做一次轻量证据复核。
+
+## [2026-07-29] GOV-049 完整候选指纹与证据计数整改
+- 做了什么：只处理第五整改独立复核新增的 1 Medium / 1 Low，不再改生产逻辑。新增
+  `scripts/candidate_source_manifest.py`，以规范 JSON 绑定完整 HEAD、固定 Git 参数生成的
+  tracked binary diff 原始字节，以及全部非忽略 untracked 普通文件的相对路径、字节数与
+  SHA-256；新增 6 个纯离线正反例。历史证据 README 将错误的“113 个 tracked 改动”修正为
+  “81 tracked + 32 untracked 状态分组 = 113 个状态项”，并明确旧包不具备完整候选字节绑定。
+- 关键决策与理由：当前工作树尚不允许 stage/commit，因此采用复核报告明确接受的替代下限：
+  清单必须写在仓库外，避免递归包含自身；捕获时对 HEAD、tracked diff、untracked 列表和文件
+  内容双读，任一漂移即失败；两项真实门禁前生成一次，之后只对同一清单复算。该口径无需引入
+  归档服务、签名、ACL 或新的门禁框架，同时确定性覆盖 untracked
+  `DatabaseBackupProperties.java`。
+- 问题与解决：首轮测试使用系统临时目录时受当前沙箱文件权限限制，4 个用例均在建立临时 Git
+  仓库前失败，没有进入产品或指纹逻辑；将测试临时目录改到已忽略的项目 `target` 后，Windows
+  Git 对象的只读清理由测试局部处理，4/4 通过。当前工作树 smoke capture/verify 得到同一指纹，
+  并确认关键配置类及清单工具自身均进入 untracked 文件清单。
+- 与规格的偏差/疑问：无业务规格变化；旧 Phase 2 4/4 与 Phase 41 1/1 仍是功能证据，但不能
+  倒推成新完整候选指纹的动态证据。
+- 测试：`python -B scripts/test_candidate_source_manifest.py -v` **6/6 PASS**；当前工作树
+  `capture` / `verify` **PASS**，HEAD `aa3509a`、81 个 tracked 改动路径、95 个精确
+  non-ignored untracked 文件在 smoke 时一致。95 是当时自动枚举值，不作为后续门禁硬编码。
+- 安全边界/下一步：未执行 Docker、数据库、Redis、MinIO、网络、HTTP、浏览器、常驻服务、部署、
+  stage、commit 或 push，线上稳定版未触碰。正式状态继续 **CHANGES_REQUESTED / NO-GO**；
+  用户须在同一隔离环境于仓库外 capture 清单，精确执行 Phase 2 / Phase 41，并在每项后 verify；
+  下一份独立报告只核完整候选身份、两个 exact gate 和 README。
+
+## [2026-07-29] GOV-048 第五整改候选独立增量复核
+- 做了什么：冻结基线 HEAD `aa3509a` 及未提交工作树；按第二轮复核遗留的两个 Medium 重放原失败
+  条件，复核密码重置结构化审计、真实 MySQL 回滚反例、Phase 41 类型化配置夹具、错误边界及
+  `final-audit-fifth-remediation-real-gates-2026-07-29` 证据包。两个原 Medium 均判定
+  `FUNCTIONALLY_CLOSED`。
+- 关键决策与理由：不重新执行已经结束的最终全量审计，也不扩大到其它 OPEN/PARTIAL 项。证据包
+  7/7 哈希、Phase 2 4/4、Phase 41 1/1、selector/suite/testcase 与编译时序均成立；但
+  `c4473e...` 只哈希 tracked diff，未覆盖直接参与编译的 untracked
+  `DatabaseBackupProperties.java`，所以不能把执行者“同一工作树”声明提升为严格字节绑定。
+- 问题与解决：新增 **1 Medium / 1 Low**。Medium 为完整候选源码未被门禁摘要覆盖；最小闭环是先
+  固化全部 intended、build-affecting 文件，再在该 SHA 上重跑两个 exact gate。Low 为 README 将
+  81 tracked + 32 untracked 的 113 个总状态项误写成 113 个 tracked 改动。
+- 与规格的偏差/疑问：无业务规格变化。Redis token 撤销仍不参与 MySQL 事务；审计失败时密码与
+  审计回滚、旧 token 可能提前失效的安全侧边界保持如实记录，不为此引入分布式事务。
+- 测试：证据 SHA256SUMS **7/7**；执行者 Phase 2 **4/4**、Phase 41 **1/1**；独立聚焦
+  Surefire **33/33**、全仓 Surefire **50 suites / 349 tests**、9/9 modules offline package、
+  Checkstyle 0、`git diff --check` 和报告 lint 均 PASS。首次聚焦 Maven 命令因 PowerShell 参数
+  未引用而在 0 测试处报 lifecycle phase 错误，正确引用后 33/33，前者不计产品失败。
+- 安全边界/下一步：Codex 未执行 Docker、数据库、Redis、MinIO、网络、HTTP、浏览器、常驻服务、
+  扫描、fuzz、凭据/权限、部署、stage、commit 或 push。正式状态继续
+  **CHANGES_REQUESTED / NO-GO**；下一轮只核不可变候选与两个 exact gate。报告：
+  `docs/reviews/final-audit-remediation-fifth-remediation-rereview-2026-07-29.md`。
+
+## [2026-07-29] AUDIT-006 Claude 真实门禁 PASS 与 MySQL 回滚反例常驻
+- 做了什么：接收 Claude 对第四整改候选的全新一次性隔离栈结果：
+  `test-phase41-backup-restore-real.sh` **PASS 1/1**，精确
+  `Phase2SecurityIT` **PASS 3/3**，另以临时 `PasswordResetAuditIT` 在当前候选重跑审计成功及
+  SQLSTATE 45000 故障注入 **PASS 2/2**。上一轮 Phase 41 错误消息断言阻断已按原失败条件关闭，
+  两个密码重置目标审计也已有仓库内真实 MySQL 证据。
+- 关键决策与理由：将尚未常驻的“审计失败导致密码更新真实 MySQL 回滚”作为第 4 个测试方法并入
+  `Phase2SecurityIT`，使用 Spring 6.2 `@MockitoSpyBean` 只令本次结构化
+  `AuditLogService.record(...)` 抛错。HTTP 请求、`SecurityAdminServiceImpl` 事务代理、
+  `sys_user` 更新与回滚仍走真实 MySQL；不把创建全局 Trigger、要求 DDL 权限且中断时可能遗留的
+  一次性专项测试复制进默认 Failsafe。
+- 问题与解决：新增反例比较调用前后 `sys_user` 全行、断言目标 `resetPassword` 审计计数不变、
+  失败响应不返回口令，并以旧口令重新登录；同时精确 verify 当前调用的是加入外层事务的
+  `record`。将来若改成 `recordRequiresNew`、吞掉异常或提交密码更新，该用例都会红。
+- 与规格的偏差/疑问：Redis token 撤销仍不参与 MySQL 事务，失败重置可能让旧 token 提前失效；
+  反例只声明并证明数据库密码与审计原子回滚，不虚报跨 Redis/MySQL 原子性。该安全侧行为本轮
+  不改产品规格。
+- 测试/证据：Claude 提供的当前候选日志为 `run2-gate-a.log`、`run2-gate-b.log`、
+  `run2-gate-c.log`：Phase 41 1/1、Phase 2 3/3、专项回滚 2/2，均 BUILD SUCCESS；三次相关
+  Surefire 均 349/349。新增常驻反例后，Codex 仅执行离线 test-compile（72 个 boot 测试源）与
+  全仓 Surefire **50 suites / 349 tests**，0 failure/error/skip；9/9 模块 offline package、
+  Checkstyle 0、`git diff --check` PASS；没有把编译通过冒充新增第 4 条真实 MySQL 动态 PASS。
+- 安全边界/下一步：Claude 报告一次性栈、镜像和卷均已销毁，线上 `dfdfb91` 未触碰；Codex 未
+  执行 Docker、网络、数据库、Redis、MinIO、HTTP、服务、部署、stage、commit 或 push。当前
+  工作树因新增回归测试形成第五整改候选，项目继续 **CHANGES_REQUESTED / NO-GO**；下一步只需
+  在隔离栈精确重跑更新后的 `Phase2SecurityIT`，应为 **4/4**。
+
+## [2026-07-29] AUDIT-005 真实门禁反馈与 Phase 41 错误边界断言收口
+- 做了什么：接收用户在全新一次性 MySQL 8.4.11 / Redis 7.4 / MinIO 隔离栈上的真实门禁结果。
+  正式 `test-phase41-backup-restore-real.sh` 两次均在最后的超限错误消息断言失败；密码重置成功审计
+  与审计失败真实 MySQL 回滚专项测试 **2/2 PASS**。据此将 `Phase41BackupIT` 的对外异常断言改为
+  产品既定通用消息“备份执行失败，请查看备份记录”，同时保留 `backup_record.error_message`
+  对目标表、1 MiB 上限和大字段不泄漏的内部诊断断言。
+- 关键决策与理由：不修改正确的产品异常收敛边界。没有把外部专项
+  `PasswordResetAuditIT` 原样加入默认 Failsafe：该版本创建全局 MySQL Trigger、要求额外 DDL
+  权限，若测试进程中止可能遗留故障注入。改为在既有 `Phase2SecurityIT` 的两个真实重置请求后
+  断言恰有两条 `resetPassword` 审计，并逐条绑定对应 `bizId/target/SUCCESS`，同时验证临时口令
+  未进入审计。
+- 问题与解决：用户的诊断 run 仅在一次性容器内临时修正该断言后 PASS，明确不作为正式门禁证据；
+  当前工作树只吸收同一处源码修正，必须重新运行正式脚本。临时专项 IT 已证明审计插入异常会使
+  `sys_user` 真实回滚，不把 Mockito 证据替代数据库证据。
+- 与规格的偏差/疑问：`tokenRevocationService.revoke(id)` 发生在审计写入和 MySQL 提交之前，
+  因此审计失败虽会回滚密码，旧 token 仍会被安全侧提前撤销，表现为“重置失败但目标用户下线”。
+  这是多撤不漏撤的安全方向，本轮不为消除该 UX 差异引入跨 Redis/MySQL 分布式事务；如后续要求
+  严格原子体验，应先在规格中明确。
+- 测试：离线 test-compile 成功（`platform-boot` 73 个测试源）、聚焦 Surefire **39/39**；
+  修改现有 Phase 2 IT 后全仓 `mvn -B -ntp -o test` 为 **50 suites / 349 tests**、0
+  failure/error/skip；9/9 模块 offline package、Checkstyle 0、`git diff --check` PASS。
+  用户提供的真实环境结果为：Phase 41 正式门禁 FAIL 2/2、诊断临时修正 PASS；密码重置专项
+  **2/2 PASS**。后两者均为执行者提供的外部证据，不冒充本机重跑。
+- 安全边界/下一步：一次性隔离栈已由执行者销毁，线上 `dfdfb91` 五个容器保持 healthy 且未触碰；
+  Codex 未执行 Docker、网络、数据库、Redis、MinIO、HTTP、服务、部署、stage、commit 或 push。
+  正式状态继续 **CHANGES_REQUESTED / NO-GO**；下一步由用户在新候选上重跑 Phase 41 正式脚本，
+  并在隔离栈精确运行更新后的 `Phase2SecurityIT`。
+
+## [2026-07-29] AUDIT-004 第二整改候选 2 Medium 最小修复
+- 做了什么：同步修复第二整改候选独立复核确认的两个 Medium。`Phase41BackupIT` 删除对已移除
+  `DatabaseBackupService.maxSqlStatementBytes` 的反射，改为注入实际生产配置
+  `DatabaseBackupProperties`，保存原值、临时收紧至 1 MiB，并在 `finally` 精确恢复；默认上限
+  常量直接复用配置类。密码重置把结构化审计下沉到既有事务化服务方法，成功时记录被重置用户
+  `bizId`、`user:<id>` target 与 `SUCCESS`，Controller 移除会产生重复空目标记录的通用注解。
+- 关键决策与理由：不扩展通用审计注解的 SpEL/参数绑定合同，也不引入事件系统。备份 IT 只使用
+  已存在的类型化配置 Bean；密码更新、token 撤销异常传播和审计写保持在现有
+  `SecurityAdminServiceImpl.resetPassword` 事务边界内，审计失败继续向外传播并触发数据库回滚。
+- 问题与解决：新增成功路径测试断言更新、撤销、结构化审计的顺序及精确目标；新增审计失败反例
+  证明异常不会被吞掉。Phase 41 当前只完成 IT 源码编译和静态旧反射清除，未把离线编译冒充真实
+  MySQL/MinIO 恢复门禁。
+- 与规格的偏差/疑问：无业务规格变化；临时口令仍只返回一次，绝不进入审计 comment/status。
+  正式状态继续 **CHANGES_REQUESTED / NO-GO**，本条不自行宣称两个 Medium 已经独立关闭。
+- 测试：聚焦 Maven 为 **39/39**（`platform-system` 2、`platform-boot` 37），并完成
+  `Phase41BackupIT` test-compile；全仓离线 Surefire **50 suites / 349 tests**，
+  0 failure/error/skip；9/9 模块 offline package、Checkstyle 0、`git diff --check` PASS。
+- 安全边界/下一步：线上稳定版 `dfdfb91` 未触碰；未执行 Docker、网络、数据库、Redis、MinIO、
+  HTTP、浏览器、服务、部署、stage、commit 或 push。下一步先做独立增量复核，再由用户或获授权
+  隔离环境执行真实 Phase 41 与 MySQL 密码更新/审计同回滚门禁。
+
+## [2026-07-29] GOV-047 最终审计第二整改候选独立增量复核
+- 做了什么：冻结 `aa3509a` 后未提交工作树的 tracked diff
+  `1fae98fa0784d89a67541f541c5801cc369f119b`，严格按上一轮 1 High / 4 Medium / 2 Low
+  重放失败条件并归档
+  `docs/reviews/final-audit-remediation-second-remediation-rereview-2026-07-29.md`。七项原问题中
+  High、logout、Phase 3、生产单一备份配置、固定错误文本和 Phase 05/07 状态达到当前候选闭环；
+  审计项仍为 `PARTIAL`。
+- 关键决策与理由：最终全量审计已经结束，本轮只评估第二整改增量；将产品代码修复、测试真实性、
+  真实依赖证据和不可变 SHA 分开判定。没有因候选自测或历史 Phase 41 PASS 自动放行当前工作树。
+- 问题与解决：确认 **2 Medium**。一是 resetPassword 成功审计仍只写通用
+  operation/operator/IP，没有被重置用户的 `bizId/target`；二是单语句上限迁入
+  `DatabaseBackupProperties` 后，`Phase41BackupIT` 仍反射
+  `DatabaseBackupService.maxSqlStatementBytes`，该字段已删除，真实门禁会确定性报错。
+- 与规格的偏差/疑问：无业务规格变更。正式结论继续
+  **CHANGES_REQUESTED / NO-GO**，不授权 merge、push、deploy 或切流；历史 Phase 41 PASS 仍是
+  当时 SHA 的有效快照，不覆盖当前候选回归。
+- 测试：独立聚焦 Surefire 在 `-Xmx128m` 下为 **34/34**（system 3、boot 31，其中真实
+  sharedStrings 14/14），0 failure/error/skip；后端 `-DskipTests package` 9/9 模块 PASS；
+  前端 lint、type-check、auth-logout-contract、build PASS；`git diff --check` PASS。首次 Maven
+  命令因 PowerShell 未引用 `-D` 参数而在 0 测试处失败，修正引用后重跑通过，不计产品失败。
+- 安全边界/下一步：未执行 Docker、数据库、Redis、MinIO、网络、HTTP、浏览器、服务、扫描、
+  fuzz、凭据或权限操作。先最小修复两项 Medium；随后固化 SHA，并由用户在授权隔离环境重跑
+  Phase 41、审计真实回滚、Phase 3 与 logout 浏览器门禁。
+
+## [2026-07-28] AUDIT-003 首轮独立增量复核退回项第二整改候选
+- 做了什么：针对独立复核确认的 1 High / 4 Medium / 2 Low 做最小整改。新增有界 JSON
+  输出流，在 Jackson 序列化过程中执行 UTF-8 字节预算，避免 sharedStrings 重复引用先放大成
+  完整 JSON；将导入预览与数据库备份统一绑定 `platform.backup.max-sql-statement-bytes`。
+  改密/重置撤销 `before=true`，使失败随业务事务回滚；导入确认和 logout 改为显式
+  `PENDING → outcome` 审计并绑定目标。前端 logout 撤销失败改为明确警告；Phase 3 普通权限
+  出生日期断言改为掩码；非业务导入异常固定返回“导入失败”并只在服务端记录原因；Phase 05/07
+  撤回尚无真实 HTTP/MinIO/浏览器证据的媒体语义勾选。
+- 关键决策与理由：不全局改变 `AuditLogAspect.before`，以免把外部写入和流式响应的“方法返回”
+  误当作真正完成；普通同库写使用原事务审计，跨事务导入与 logout 才使用显式 outcome。备份预算
+  复用 `platform-system` 的单一配置 Bean，不新增第二套配置或基础设施。
+- 问题与解决：首次聚焦测试发现新增 Mockito 断言混用了 raw value 与 matcher，修正为同一
+  matcher 规则后通过；手工构造含 `xl/sharedStrings.xml` 的 OOXML，证明 20,000 次共享长字符串
+  引用会在 1 MiB 预算处提前停止序列化，而不是完整访问所有预览对象。
+- 与规格的偏差/疑问：无业务规格变更。正式结论继续为
+  **CHANGES_REQUESTED / NO-GO**；本条不宣称 1 High / 4 Medium / 2 Low 已经独立关闭，也不授权
+  merge、push、deploy 或切流。
+- 测试：`mvn -B -ntp -o test` 为 **50 suites / 347 tests**、0 failure/error/skip；
+  聚焦 `platform-system` **2/2**、`platform-boot` **27/27**；`-Xmx128m`
+  `ExchangeImportResourceBudgetTest` **14/14**；`mvn -B -ntp -o -DskipTests package`
+  9/9 模块 PASS、Checkstyle 0；前端 lint、type-check、auth-logout-contract、
+  dashboard-latest-request、build 全部 PASS；`git diff --check` PASS。
+- 安全边界/下一步：线上稳定版 `dfdfb91` 未触碰；未连接服务器，未执行 Docker、网络、真实
+  MySQL/Redis/MinIO、HTTP/浏览器、部署、stage、commit 或 push。下一步由独立复核按本轮原反例
+  检查该候选，再补真实依赖与浏览器证据。
+
+## [2026-07-28] GOV-046 最终审计整改候选首轮独立增量复核
+- 做了什么：以最终全量审计 `dfdfb91` 的 24 项 finding 为基线，冻结并逐项复核
+  `aa3509a` 后未提交工作树；独立读码覆盖 7 High、候选申报的 6 Medium / 3 Low、剩余发布项与
+  新回归，归档
+  `docs/reviews/final-audit-remediation-independent-rereview-2026-07-28.md`。
+- 关键决策与理由：最终全量审计已经结束，本轮只做其后的独立增量复核，不重跑全量审计。
+  将“原失败条件静态移除”“动态证据完成”“不可变 SHA 正式 PASS”分开记录；未提交候选不据自测
+  改判。24 项当前矩阵为 **6 STATIC_CLOSED / 10 PARTIAL / 8 OPEN**。
+- 问题与解决：确认 **1 High / 4 Medium / 2 Low**。High 为 sharedStrings 可在解析门禁后放大，
+  而预览预算直到完整 JSON 物化后才检查；Medium 为 `before=true` 审计无 outcome/target、
+  logout 撤销失败被 UI 静默吞掉、Phase 3 明文旧断言与新脱敏合同冲突、预览与真实备份上限可分叉；
+  Low 为 Exchange 原始异常文本仍进客户端及 Phase 05/07 提前勾选动态媒体语义。
+- 与规格的偏差/疑问：无业务规格变更。原最终审计仍为
+  **CHANGES_REQUESTED / NO-GO（0 Critical / 7 High / 13 Medium / 4 Low）**；本轮结论同样
+  **CHANGES_REQUESTED / NO-GO**，不授权 merge、push、deploy 或切流。
+- 测试：独立 `mvn -B -ntp -o test` 的新鲜 XML 为 **48 suites / 339 tests**、
+  0 failure/error/skip；`mvn -B -ntp -o -DskipTests package` 9/9 模块 PASS；前端
+  lint/type-check/auth-logout-contract/dashboard-latest-request/build 与 `git diff --check`
+  PASS。两个 Node 脚本仅为 helper/源码契约，不冒充 Vue/Pinia/浏览器行为门禁。
+- 安全边界/下一步：未执行 Docker、数据库、Redis、MinIO、网络、服务、浏览器、扫描、fuzz、
+  凭据或权限操作。先关闭 1H/4M/2L 并提交 SHA，再由用户或获授权环境执行真实 MySQL/Redis/HTTP/
+  媒体/Compose 门禁。
+
+## [2026-07-28] AUDIT-002 最终审计确定性 Medium/Low 第一批本地整改候选
+- 做了什么：在 7 High 候选之上继续按正式审计原失败条件做最小闭环。删除无产品调用的通用
+  `/api/file/upload`，把 Phase 0 同名测试保持原 testcase 数改到领域材料入口；服务端上传先写
+  `UPLOADING` intent，再写唯一对象 key，READY 失败时置 FAILED 并精确补删，补删失败仍保留
+  可扫描台账；统计批次非校级统一 `operator_id` owner-only；导入预览 JSON 写入前限制 UTF-8
+  字节，并在启动期校验其 Base64 后可被备份单 SQL 表示；全量备份用 MySQL `GET_LOCK` 单飞；
+  Dashboard 用 generation guard 拒绝旧成功、旧失败和旧 finally。另将已发现的底层异常改为固定
+  客户端消息，给通知列表补键盘语义，并纠正 Phase 14 活动验收勾选漂移。
+- 关键决策与理由：只处理 6 个确定性 Medium 与 3 个 Low，不改业务规格、不引入队列、分布式
+  调度器、完整跨标签会话总线或前端测试框架。统计批次复用 Exchange 既有 all-school/owner-only
+  口径；备份锁依赖项目锁定的 MySQL，不新建任务系统；通用上传无生产调用，直接删除比扩充万能
+  `bizType` 白名单更符合领域入口合同。
+- 问题与解决：组合回归前的备份单飞测试因 MyBatis-Plus `insert` 重载导致 Mockito 断言歧义，
+  显式限定 `BackupRecord` 后通过。独立只读复核发现 Phase 0 新材料 fixture 使用 `.txt`，会被
+  领域允许类型拒绝，已最小改为 `.png`；文件反例同步覆盖“READY 转换失败且对象补删也失败”时
+  FAILED intent 仍可观测。Dashboard 产品逻辑静态正确，但现有 Node 脚本只验证 generation guard，
+  不足以关闭更宽的前端行为/a11y 自动门禁，故该 Medium 继续保留。
+- 与规格的偏差/疑问：正式基线 `dfdfb91` 的
+  **CHANGES_REQUESTED / NO-GO（0 Critical / 7 High / 13 Medium / 4 Low）** 不变；本条只记录
+  未提交候选。仍待处理 TLS/端口、refresh token、MinIO 服务账号、readiness、完整前端门禁、
+  镜像证明与真实环境/灾备证据；媒体 Cookie 还须绑定 access token 剩余寿命，多实例缓存 Low
+  等确认多实例需求后再处理。
+- 测试：离线 Surefire 全仓 **339/339**；本轮 Medium 组合 **21/21**；文件补偿 **5/5**；
+  `-Xmx128m` 导入/导出 **21/21**；9/9 模块 package；前端 lint、type-check、
+  auth-logout-contract、dashboard-latest-request、build 全部通过；四类静态反查与
+  `git diff --check` 无匹配/无错误。
+- 安全边界/下一步：线上稳定版本 `dfdfb91` 未触碰；未连接服务器、未操作线上容器、镜像 tag、
+  卷或数据，未部署、切流、执行 Docker、网络、浏览器或真实 MySQL/Redis/MinIO。下一步由用户
+  或获授权独立环境对当前完整候选补真实事务、双连接交错、Phase 0/10、媒体 Range/换号及
+  rendered Compose/Nginx 门禁；本地继续只做不依赖外部输入的最小修正。
+
+## [2026-07-28] AUDIT-001 最终全量审计 7 High 本地整改候选
+- 做了什么：在 `codex/final-audit-high-remediation` 的未提交工作树中按最终审计原失败条件收口
+  7 个 High：ERROR 导出绑定 batch owner/学院范围并默认脱敏；审计 IP 只信任固定代理且审计写失败
+  与业务事务一同失败；内容编辑改用业务键锁与列级 CAS；XLSX 改为 SAX 读取并在解析前限制压缩包、
+  展开字节、行数、单元格和错误明细；学生/错误投影默认脱敏且明文入口单独授权审计；前端退出调用
+  服务端 logout 并防同标签页迟到响应回写；视频、过程材料与免考佐证改为登录绑定的应用流式入口。
+  复查中另补了证书编号禁止跨学生/考核年度换绑、换号登录清理旧媒体 Cookie、掩码生日编辑时要求
+  重录、三类 content 资源级审计及媒体 Cookie 数值时长。
+- 关键决策与理由：只关闭可确定复现的失败条件，不引入服务拆分、消息系统或复杂跨标签状态机。
+  外部写入/流式响应采用审计 before 模式，普通数据库写保持业务与审计同事务；媒体不再向浏览器
+  返回 MinIO GET capability，但浏览器直传 PUT 合同保持不变。
+- 问题与解决：生成模板的隐藏 `_options` sheet 已加入真实 round-trip 断言；证书 OVERWRITE 曾可在
+  同学院复用已有证书号完成换绑，现于任何学生写入前固定 `studentId + assessmentYear` 聚合身份。
+  两次失败仅属于命令构造：PowerShell 未引用 Maven 属性、误用不存在的前端脚本名；修正命令后对应
+  门禁均通过，不记为产品失败。
+- 与规格的偏差/疑问：正式基线 `dfdfb91` 仍是
+  **CHANGES_REQUESTED / NO-GO（0 Critical / 7 High / 13 Medium / 4 Low）**；本条只是本地候选，
+  不改写审计结论。已知后续 Medium 包括跨标签页共享 token 的迟到 refresh、媒体 Cookie 不能延长
+  当前 access token 的剩余寿命，以及原审计其余生产/一致性/证据项；避免为其过早扩大架构。
+- 测试：离线 `mvn -B -ntp -o test` **248/248**；High 聚焦 **31/31**；`-Xmx128m` 导入/导出
+  **19/19**；`mvn -B -ntp -o -DskipTests package` 9/9 模块 BUILD SUCCESS、Checkstyle 0；
+  前端 lint/type-check/auth-logout-contract/build 全部通过；`git diff --check` 通过。
+- 安全边界/下一步：用户已部署的线上稳定版本 `dfdfb91` 全程未触碰；未连接服务器、未操作线上
+  容器/镜像 tag/卷/数据、未部署或切流，也未执行 Docker、网络、浏览器或真实 MySQL/Redis/MinIO。
+  下一步先由用户或获授权独立环境补真实事务、双连接交错、Phase 10、媒体 Range/换号、Compose/
+  rendered Nginx 门禁；本地继续按功能闭环优先处理确定性 Medium。
+
 ## [2026-07-28] GOV-045 Phase 0 / U-004 第九轮最终动态证据独立复核 — PASS
 - 做了什么：冻结最终 HEAD `ea760bf2bd6041c8fd185bd6ab887380bf920171` / tree `fd2174f5079adf6bc5a34e2f5a12f8df2c998c09`，独立核验执行者回传的 Linux 79/79、Compose/资源收尾，并对 `C:\Users\wenbibuhaoqwq\phase00-ci-evidence-r9` 运行仓库离线 verifier；另行复算 SHA256SUMS、15-file exact closure、7 份 XML/33 testcase、运行时间窗、候选 Git blobs、source snapshot、preflight/runtime target identity 与 secret scan。正式报告与摘要为 `docs/reviews/phase-00-ninth-remediation-dynamic-evidence-rereview-2026-07-28.md`、`docs/reviews/evidence/phase00-ninth-remediation-dynamic-rereview-2026-07-28/`。
 - 关键决策与理由：五项门禁全部满足，且无新 finding，故 Phase 0 / U-004 正式 **PASS**。Linux 首次定向命令的 2 errors 是无效 unittest 模块路径导致的 import error，没有加载用例；修正脚本入口后定向 2/2 和完整 79/79 均通过，不作为产品失败。Linux 原始 console log 未单独落本机，按执行者逐项回传记录为证据来源边界，不要求为此重跑。

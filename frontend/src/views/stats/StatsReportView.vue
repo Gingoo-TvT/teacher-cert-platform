@@ -19,11 +19,21 @@ interface StatsTypeOption {
   description: string
 }
 
+interface LoadedStatsQuery {
+  type: string
+  query: StatsQuery
+  key: string
+}
+
 const message = useMessage()
 const userStore = useUserStore()
 const yearStore = useYearStore()
 const loading = ref(false)
 const exporting = ref(false)
+const loadError = ref('')
+const hasLoaded = ref(false)
+const loadedQueryKey = ref('')
+const loadedQuery = ref<LoadedStatsQuery | null>(null)
 const selectedType = ref('submission')
 const report = ref<StatsReport | null>(null)
 const query = reactive<StatsQuery>({
@@ -33,6 +43,7 @@ const query = reactive<StatsQuery>({
   teachingSegment: '',
   status: ''
 })
+let reportRequestSequence = 0
 
 const statTypes: StatsTypeOption[] = [
   { label: '学院提交进度', value: 'submission', description: '按学院、专业、班级和学生状态汇总提交进度。' },
@@ -52,6 +63,13 @@ const rows = computed(() => report.value?.rows || [])
 const details = computed(() => report.value?.details || [])
 const hasDetails = computed(() => details.value.length > 0)
 const canViewStats = computed(() => userStore.hasPerm('stats:view'))
+const currentQueryKey = computed(() => serializeQuery(selectedType.value, cleanQuery()))
+const reportFresh = computed(() =>
+  hasLoaded.value
+  && loadedQueryKey.value === currentQueryKey.value
+  && !loading.value
+  && !loadError.value
+)
 const summary = computed(() => {
   const total = rows.value.reduce((sum, row) => sum + Number(row.count || 0), 0)
   const dimensions = new Set(rows.value.map((row) => row.dimensionLabel || row.dimension).filter(Boolean)).size
@@ -102,27 +120,44 @@ const detailColumns: DataTableColumns<StatsDetail> = [
 ]
 
 async function loadReport() {
+  const requestSequence = ++reportRequestSequence
   if (!canViewStats.value) {
     report.value = null
+    hasLoaded.value = false
+    loadedQueryKey.value = ''
+    loadedQuery.value = null
+    loadError.value = ''
+    loading.value = false
     return
   }
+  const requestedType = selectedType.value
+  const requestedQuery = cleanQuery()
+  const queryKey = serializeQuery(requestedType, requestedQuery)
   loading.value = true
+  loadError.value = ''
   try {
-    const res = await getStatsReport(selectedType.value, cleanQuery())
+    const res = await getStatsReport(requestedType, requestedQuery)
+    if (requestSequence !== reportRequestSequence || queryKey !== currentQueryKey.value) return
     report.value = res.data
+    hasLoaded.value = true
+    loadedQueryKey.value = queryKey
+    loadedQuery.value = { type: requestedType, query: { ...requestedQuery }, key: queryKey }
   } catch (error) {
-    showError(error, '统计加载失败')
+    if (requestSequence !== reportRequestSequence || queryKey !== currentQueryKey.value) return
+    loadError.value = showError(error, '统计加载失败')
   } finally {
-    loading.value = false
+    if (requestSequence === reportRequestSequence) loading.value = false
   }
 }
 
 async function handleExport() {
-  if (!canViewStats.value) return
+  const snapshot = loadedQuery.value
+  if (!canViewStats.value || !reportFresh.value || exporting.value || !snapshot || snapshot.key !== loadedQueryKey.value) return
+  const fileName = `${report.value?.title || statTypes.find((item) => item.value === snapshot.type)?.label || '统计报表'}.xlsx`
   exporting.value = true
   try {
-    const blob = await exportStatsReport(selectedType.value, cleanQuery())
-    saveStatsBlob(blob, `${report.value?.title || currentType.value.label}.xlsx`)
+    const blob = await exportStatsReport(snapshot.type, { ...snapshot.query })
+    saveStatsBlob(blob, fileName)
     message.success('统计报表已导出')
   } catch (error) {
     showError(error, '导出失败')
@@ -151,6 +186,20 @@ function cleanQuery(): StatsQuery {
   return { ...query }
 }
 
+function serializeQuery(type: string, value: StatsQuery) {
+  return JSON.stringify([
+    type,
+    value.assessmentYear || '',
+    value.collegeId || '',
+    value.internalMajorCode || '',
+    value.className || '',
+    value.teachingSegment || '',
+    value.teachingSubjectCode || '',
+    value.status || '',
+    value.keyword || ''
+  ])
+}
+
 function chartLabel(row: StatsRow) {
   const dimension = row.dimensionLabel || row.dimension || '-'
   const status = row.statusLabel || row.status
@@ -174,7 +223,9 @@ function renderValues(values?: Record<string, string>) {
 
 function showError(error: unknown, fallback: string) {
   const detail = error instanceof Error ? error.message : fallback
-  message.error(detail || fallback)
+  const text = detail || fallback
+  message.error(text)
+  return text
 }
 
 onMounted(() => {
@@ -195,7 +246,7 @@ watch(
     <template #actions>
       <n-space>
         <n-button v-if="canViewStats" secondary :loading="loading" @click="loadReport">刷新</n-button>
-        <n-button v-if="canViewStats" type="primary" :loading="exporting" @click="handleExport">导出 Excel</n-button>
+        <n-button v-if="canViewStats" type="primary" :loading="exporting" :disabled="!reportFresh" @click="handleExport">导出 Excel</n-button>
       </n-space>
     </template>
 
@@ -230,14 +281,14 @@ watch(
       </template>
     </FilterBar>
 
-    <n-grid v-if="canViewStats" :cols="4" :x-gap="12" responsive="screen" class="page-section">
+    <n-grid v-if="canViewStats && hasLoaded" cols="1 440:2 900:4" :x-gap="12" :y-gap="12" responsive="self" class="page-section">
       <n-gi><StatCard label="统计行数" :value="summary.rowCount" :icon="ListOutline" /></n-gi>
       <n-gi><StatCard label="汇总数量" :value="summary.total" :icon="BarChartOutline" tone="success" /></n-gi>
       <n-gi><StatCard label="维度数" :value="summary.dimensions" :icon="GridOutline" tone="info" /></n-gi>
       <n-gi><StatCard label="明细数" :value="summary.detailCount" :icon="PeopleOutline" tone="warning" /></n-gi>
     </n-grid>
 
-    <n-grid v-if="canViewStats && metrics.length" :cols="4" :x-gap="12" responsive="screen" class="page-section">
+    <n-grid v-if="canViewStats && metrics.length" cols="1 440:2 900:4" :x-gap="12" :y-gap="12" responsive="self" class="page-section">
       <n-gi v-for="metric in metrics" :key="metric.label">
         <StatCard :label="metric.label" :value="metric.value" :unit="metric.unit" />
       </n-gi>
@@ -264,6 +315,7 @@ watch(
       :data="rows"
       :total="rows.length"
       :loading="loading"
+      :error="loadError"
       empty-title="暂无统计数据"
       empty-description="当前查询条件下没有统计汇总行。"
       @refresh="loadReport"

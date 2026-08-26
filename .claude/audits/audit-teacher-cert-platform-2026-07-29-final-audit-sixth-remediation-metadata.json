@@ -1,0 +1,33 @@
+{
+  "timestamp": "2026-07-29T18:58:02+08:00",
+  "project": "teacher-cert-platform",
+  "commitHash": "aa3509a19151e2caad03014324b9b36e98bc0f05",
+  "treeHash": "e09a38d03445f224686fbba953f1ccbdbe3fd035",
+  "selectedModes": [
+    "incremental",
+    "testing-authenticity"
+  ],
+  "scope": "final-audit sixth-remediation candidate identity and evidence portability",
+  "reviewFreezeCandidateFingerprint": "0e8a6bf33c57599aabd6b4ea9bb656afa8c0597ac116210b71968efcad3dee20",
+  "reviewFreezeTrackedChangedFiles": 81,
+  "reviewFreezeUntrackedFiles": 95,
+  "overallScore": 8.1,
+  "dimensionScores": {
+    "candidateIdentityDesign": 9.0,
+    "testingAuthenticity": 6.8,
+    "evidencePortability": 5.8,
+    "documentationAccuracy": 9.2
+  },
+  "findingCounts": {
+    "critical": 0,
+    "high": 0,
+    "medium": 2,
+    "low": 0,
+    "info": 0
+  },
+  "recommendation": "CHANGES_REQUESTED",
+  "candidateStatus": "DYNAMIC_EVIDENCE_PENDING",
+  "projectReleaseStatus": "NO-GO",
+  "reportPath": "docs/reviews/final-audit-remediation-sixth-remediation-rereview-2026-07-29.md",
+  "evidenceSummaryPath": "docs/reviews/evidence/final-audit-fifth-remediation-real-gates-2026-07-29/README.md"
+}

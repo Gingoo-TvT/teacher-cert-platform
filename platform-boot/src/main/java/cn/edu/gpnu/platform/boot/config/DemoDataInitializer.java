@@ -4,6 +4,7 @@ import cn.edu.gpnu.platform.business.video.support.VideoMediaAcceptancePolicy;
 import cn.edu.gpnu.platform.business.video.support.VideoMediaInspection;
 import cn.edu.gpnu.platform.business.video.support.VideoMediaProbe;
 import cn.edu.gpnu.platform.file.config.MinioProperties;
+import cn.edu.gpnu.platform.security.service.IdCardProtectionService;
 import cn.edu.gpnu.platform.system.service.ParamService;
 import io.minio.GetObjectArgs;
 import io.minio.MinioClient;
@@ -91,6 +92,15 @@ public class DemoDataInitializer implements ApplicationRunner {
     private static final int EXPECTED_VIDEO_FRAME_COUNT = 900;
     private static final String EXPECTED_VIDEO_CODEC = "H264";
     private static final long MAX_DEMO_RESOURCE_BYTES = 16L * 1024 * 1024;
+    private static final Map<String, String> DEMO_ID_CARDS = Map.of(
+            "STUDENT_9101", "440105200001010011",
+            "STUDENT_9102", "440105200102020022",
+            "STUDENT_9103", "440105200003030033",
+            "STUDENT_9104", "440105200104040044",
+            "STUDENT_9105", "440105200005050055",
+            "STUDENT_9106", "440105200106060066",
+            "STUDENT_9107", "440105200007070077",
+            "STUDENT_9108", "440105200108080088");
     /** 本地样例资源 -> MinIO object key -> content-type（object key 与 demo-data.sql 的 file_path 一一对应）。 */
     private static final List<SampleObject> SAMPLE_OBJECTS = List.of(
             new SampleObject(
@@ -115,6 +125,7 @@ public class DemoDataInitializer implements ApplicationRunner {
     private final MinioProperties minioProperties;
     private final VideoMediaProbe videoMediaProbe;
     private final ParamService paramService;
+    private final IdCardProtectionService idCardProtectionService;
     private final PlatformTransactionManager transactionManager;
 
     @Override
@@ -342,6 +353,10 @@ public class DemoDataInitializer implements ApplicationRunner {
         addObjectTokens(values, "MATERIAL", material);
         addObjectTokens(values, "IMAGE", image);
         addObjectTokens(values, "EXEMPTION", exemption);
+        DEMO_ID_CARDS.forEach((token, plaintext) -> addIdCardTokens(values, token, plaintext));
+        addIdCardTokens(values, "CERTIFICATE_6001", DEMO_ID_CARDS.get("STUDENT_9101"));
+        addIdCardTokens(values, "CERTIFICATE_6002", DEMO_ID_CARDS.get("STUDENT_9108"));
+        addIdCardTokens(values, "CERTIFICATE_6003", DEMO_ID_CARDS.get("STUDENT_9101"));
         for (Map.Entry<String, String> entry : values.entrySet()) {
             if (!sql.contains(entry.getKey())) {
                 throw new IllegalStateException(
@@ -369,6 +384,13 @@ public class DemoDataInitializer implements ApplicationRunner {
         values.put("{{DEMO_" + prefix + "_CONTENT_TYPE}}", sqlLiteral(manifest.contentType()));
         values.put("{{DEMO_" + prefix + "_SIZE}}", Long.toString(manifest.size()));
         values.put("{{DEMO_" + prefix + "_MD5}}", sqlLiteral(manifest.md5()));
+    }
+
+    private void addIdCardTokens(Map<String, String> values, String prefix, String plaintext) {
+        values.put("{{DEMO_" + prefix + "_ID_CARD}}",
+                sqlLiteral(idCardProtectionService.encrypt(plaintext)));
+        values.put("{{DEMO_" + prefix + "_ID_CARD_HMAC}}",
+                sqlLiteral(idCardProtectionService.hmac(plaintext)));
     }
 
     private String sqlLiteral(String value) {

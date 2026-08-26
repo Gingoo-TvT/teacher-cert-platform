@@ -16,8 +16,10 @@ interface RegionTableRow extends RegionNode {
   levelName: string
 }
 
-const loading = ref(false)
+const loading = ref(true)
 const pathLoading = ref(false)
+const listError = ref('')
+const pathError = ref('')
 const regionCode = ref<string | null>(null)
 const codeInput = ref('')
 const fullName = ref('')
@@ -25,6 +27,9 @@ const pathNodes = ref<RegionNode[]>([])
 const selectedParent = ref<string | null>(null)
 const selectedNode = ref<RegionNode | null>(null)
 const currentChildren = ref<RegionNode[]>([])
+const hasPathResult = computed(() => Boolean(regionCode.value || fullName.value || pathNodes.value.length))
+let childrenRequestId = 0
+let pathRequestId = 0
 
 const parentLabel = computed(() => {
   if (!selectedParent.value) return '省级区划'
@@ -73,44 +78,61 @@ const regionDetailItems = computed(() => [
 ])
 
 async function loadChildren(parent?: string | null, sourceNode?: RegionNode | null) {
+  const requestId = ++childrenRequestId
   loading.value = true
+  listError.value = ''
   try {
     const res = await listRegionChildren(parent)
+    if (requestId !== childrenRequestId) return
     currentChildren.value = res.data
     selectedParent.value = parent || null
     selectedNode.value = sourceNode || null
   } catch (error) {
-    showError(error, '行政区划加载失败')
+    if (requestId !== childrenRequestId) return
+    listError.value = showError(error, '行政区划加载失败')
   } finally {
-    loading.value = false
+    if (requestId === childrenRequestId) loading.value = false
   }
 }
 
 async function inspectNode(row: RegionNode) {
-  await loadPath(row.code)
+  const isLatestPath = await loadPath(row.code)
+  if (!isLatestPath) return
   if (!row.leaf) await loadChildren(row.code, row)
 }
 
 async function loadPath(code = codeInput.value.trim()) {
   if (!code) {
     message.warning('请输入行政区划代码')
-    return
+    return false
   }
+  const requestId = ++pathRequestId
   pathLoading.value = true
+  pathError.value = ''
   try {
     const res = await getRegionPath(code)
+    if (requestId !== pathRequestId) return false
     regionCode.value = res.data.code
     codeInput.value = res.data.code
     fullName.value = res.data.fullName
     pathNodes.value = res.data.nodes
   } catch (error) {
-    showError(error, '行政区划路径查询失败')
+    if (requestId !== pathRequestId) return false
+    pathError.value = showError(error, '行政区划路径查询失败')
   } finally {
-    pathLoading.value = false
+    if (requestId === pathRequestId) pathLoading.value = false
   }
+  return true
+}
+
+function invalidatePathRequest() {
+  pathRequestId += 1
+  pathLoading.value = false
 }
 
 function handleCascaderChange(selection: RegionSelection | null) {
+  invalidatePathRequest()
+  pathError.value = ''
   if (!selection) {
     fullName.value = ''
     pathNodes.value = []
@@ -126,7 +148,10 @@ function rowProps(row: object) {
   const item = row as RegionTableRow
   return {
     class: item.code === regionCode.value ? 'is-selected-row' : '',
-    onClick: () => {
+    onClick: (event: MouseEvent) => {
+      if (event.target instanceof Element && event.target.closest('.table-actions')) return
+      invalidatePathRequest()
+      pathError.value = ''
       regionCode.value = item.code
       codeInput.value = item.code
       fullName.value = item.name
@@ -136,6 +161,8 @@ function rowProps(row: object) {
 }
 
 function resetPathQuery() {
+  invalidatePathRequest()
+  pathError.value = ''
   regionCode.value = null
   codeInput.value = ''
   fullName.value = ''
@@ -152,6 +179,7 @@ function levelName(level: number) {
 function showError(error: unknown, fallback: string) {
   const detail = error instanceof Error ? error.message : fallback
   message.error(detail || fallback)
+  return detail || fallback
 }
 
 onMounted(() => loadChildren())
@@ -159,23 +187,16 @@ onMounted(() => loadChildren())
 
 <template>
   <PageContainer title="行政区划" description="行政区划三级联动查询。">
-    <template #actions>
-      <n-space>
-        <n-button secondary @click="loadChildren()">回到省级</n-button>
-        <n-button secondary :disabled="!selectedNode?.parentCode" @click="loadChildren(selectedNode?.parentCode || null)">
-          返回上级
-        </n-button>
-      </n-space>
-    </template>
-
-    <div class="region-layout">
-      <div class="page-section">
+    <n-grid responsive="self" item-responsive cols="1 1080:12" :x-gap="24" :y-gap="24">
+      <n-gi span="1 1080:7" class="page-section">
         <DataPanel
           :title="parentLabel"
           :columns="columns"
           :data="tableRows"
           :total="tableRows.length"
           :loading="loading"
+          :error="listError"
+          error-title="行政区划加载失败"
           :row-props="rowProps"
           :max-height="640"
           :pagination="false"
@@ -190,9 +211,9 @@ onMounted(() => loadChildren())
             </n-button>
           </template>
         </DataPanel>
-      </div>
+      </n-gi>
 
-      <div class="page-section detail-panel">
+      <n-gi span="1 1080:5" class="page-section detail-panel">
         <FilterBar :loading="pathLoading" @submit="loadPath()" @reset="resetPathQuery">
           <label class="filter-field filter-field--wide">
             <span>级联选择</span>
@@ -208,7 +229,7 @@ onMounted(() => loadChildren())
           <template #more>
             <label class="filter-field">
               <span>代码</span>
-              <n-input-group>
+              <n-input-group style="max-width: 100%">
                 <n-input v-model:value="codeInput" clearable maxlength="6" placeholder="输入 6 位行政区划代码" />
               </n-input-group>
             </label>
@@ -216,6 +237,16 @@ onMounted(() => loadChildren())
         </FilterBar>
 
         <n-card :bordered="false" class="detail-card">
+          <n-alert
+            v-if="pathError"
+            type="error"
+            :title="hasPathResult ? '路径刷新失败' : '路径查询失败'"
+            class="path-error"
+            role="alert"
+          >
+            {{ pathError }}<template v-if="hasPathResult">。以下仍显示上次成功查询的结果。</template>
+            <n-button text type="error" size="small" :loading="pathLoading" @click="loadPath()">重试</n-button>
+          </n-alert>
           <div class="detail-head">
             <div>
               <strong>{{ fullName || '区划详情' }}</strong>
@@ -230,25 +261,18 @@ onMounted(() => loadChildren())
             </n-tag>
           </n-space>
         </n-card>
-      </div>
-    </div>
+      </n-gi>
+    </n-grid>
   </PageContainer>
 </template>
 
 <style scoped>
-.region-layout {
-  display: grid;
-  grid-template-columns: minmax(560px, 1.3fr) minmax(360px, 0.7fr);
-  gap: var(--space-6);
-  align-items: start;
-}
-
 .page-section {
   min-width: 0;
 }
 
 .detail-panel {
-  min-width: 320px;
+  min-width: 0;
 }
 
 .detail-card :deep(.n-card__content) {
@@ -256,6 +280,10 @@ onMounted(() => loadChildren())
 }
 
 .detail-head {
+  margin-bottom: var(--space-4);
+}
+
+.path-error {
   margin-bottom: var(--space-4);
 }
 
@@ -269,7 +297,9 @@ onMounted(() => loadChildren())
 }
 
 .filter-control {
-  min-width: 280px;
+  min-width: 0;
+  width: 280px;
+  max-width: 100%;
 }
 
 .path-tags {
@@ -281,9 +311,4 @@ onMounted(() => loadChildren())
   background: var(--brand-soft);
 }
 
-@media (max-width: 1080px) {
-  .region-layout {
-    grid-template-columns: 1fr;
-  }
-}
 </style>

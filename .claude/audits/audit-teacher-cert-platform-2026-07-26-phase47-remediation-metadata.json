@@ -1,0 +1,67 @@
+{
+  "timestamp": "2026-07-26T00:30:33+08:00",
+  "project": "teacher-cert-platform",
+  "reviewer": "OpenAI Codex",
+  "audit_mode": "incremental-remediation-rereview",
+  "selected_modes": [
+    "stability",
+    "testing-authenticity",
+    "release",
+    "configuration",
+    "data-integrity",
+    "concurrency"
+  ],
+  "scope": "b2f1f701da733d0afa849ed4094042d61adbf338..aa6f81c3518259c30cd7190a8c521cef61108843 with submission material through e81a485c97506eee966e6a2245e830a6cdc0b665",
+  "code_commit": "aa6f81c3518259c30cd7190a8c521cef61108843",
+  "submission_commit": "e81a485c97506eee966e6a2245e830a6cdc0b665",
+  "outcome": "CHANGES_REQUESTED",
+  "overall_score": 7.2,
+  "dimension_scores": {
+    "security": 8.8,
+    "stability": 6.8,
+    "performance": 7.8,
+    "testing": 5.8,
+    "maintainability": 8.0,
+    "design": 7.0,
+    "release": 6.2
+  },
+  "finding_counts": {
+    "critical": 0,
+    "high": 0,
+    "medium": 1,
+    "low": 1,
+    "info": 0
+  },
+  "previous_findings": {
+    "arbitrary_read_failure_overwrites_bucket_lifecycle": "closed",
+    "explicit_no_configuration_may_create_managed_rule": "open",
+    "preserve_unrelated_rules_after_successful_read": "closed",
+    "raw_server_message_logging": "closed_with_new_low"
+  },
+  "new_findings": {
+    "minio_8_5_12_no_configuration_null_contract_medium": "confirmed_blocking",
+    "collapsed_error_class_logging_low": "confirmed_non_blocking"
+  },
+  "safe_checks": [
+    "mvn -o -B -ntp -pl platform-file -am clean test: PASS 15/15",
+    "FileMaintenanceServiceTest: PASS 12/12",
+    "mvn -o -B -ntp -DskipTests package: PASS 9/9 modules",
+    "mvn -o -B -ntp -pl platform-file dependency:tree -Dincludes=io.minio:minio: PASS, 8.5.12",
+    "git diff --check b2f1f70..aa6f81c: PASS"
+  ],
+  "evidence_hashes": {
+    "minio_8_5_12_jar_sha256": "9519FF2FD284AC0FC5C22D1091F21A9C9298C9C7CAC85615DE1FF10F1710786E",
+    "independent_file_maintenance_test_xml_sha256": "94158690EDC53C2BB1F9201A2AA73BD44A5DD2A82801E9294CF2658EC75742F5",
+    "candidate_file_maintenance_service_blob": "d556f6ce6886a3eff109c14f5425a5979632f5d8",
+    "candidate_file_maintenance_test_blob": "3883f09a456c77e9b0203854d5ca0cc0e5c6d224"
+  },
+  "evidence_limitations": [
+    "No service, Docker, database, object store, network, permission change, fault injection, scan, fuzz, stress or cyber-like action was executed",
+    "No real MinIO lifecycle read or write was executed",
+    "The independent runtime gate is a unit-test and build gate; the blocking SDK contract is proven from the exact locked local jar bytecode and the production injection path",
+    "Whole-bucket read-modify-write has no CAS and remains an existing architecture boundary for the final full audit",
+    "Idempotent matching still checks only managed rule ID and days; status, filter, extra actions and duplicate IDs are existing baseline boundaries"
+  ],
+  "evidence_path": "docs/reviews/evidence/phase47-remediation-rereview-2026-07-26/minio-8.5.12-lifecycle-contract.txt",
+  "report_path": "docs/reviews/phase-47-remediation-rereview-2026-07-26.md"
+}

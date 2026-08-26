@@ -71,9 +71,14 @@ function open(row?: User) {
 }
 
 async function saveUser() {
-  await userFormRef.value?.validate()
+  if (saving.value) return
   saving.value = true
   try {
+    try {
+      await userFormRef.value?.validate()
+    } catch {
+      return
+    }
     const payload: UserPayload = {
       username: userForm.username.trim(),
       realName: userForm.realName.trim(),
@@ -115,13 +120,19 @@ defineExpose({ open })
 </script>
 
 <template>
-  <n-drawer v-model:show="visible" :width="560" placement="right">
-    <n-drawer-content :title="editingUserId ? '编辑用户' : '新增用户'">
-      <n-form ref="userFormRef" :model="userForm" :rules="userRules" label-placement="top">
+  <n-drawer
+    v-model:show="visible"
+    width="min(var(--overlay-medium), var(--overlay-drawer-max))"
+    placement="right"
+    :mask-closable="!saving"
+    :close-on-esc="!saving"
+  >
+    <n-drawer-content :title="editingUserId ? '编辑用户' : '新增用户'" :closable="!saving">
+      <n-form ref="userFormRef" :model="userForm" :rules="userRules" label-placement="top" :disabled="saving">
         <div class="form-section-title">基本信息</div>
-        <n-grid :cols="2" :x-gap="12">
+        <n-grid cols="1 480:2" responsive="self" item-responsive :x-gap="12">
           <n-form-item-gi label="用户名" path="username">
-            <n-input v-model:value="userForm.username" :disabled="editingStudent" maxlength="64" show-count />
+            <n-input v-model:value="userForm.username" :disabled="editingStudent || saving" maxlength="64" show-count />
           </n-form-item-gi>
           <n-form-item-gi label="姓名" path="realName">
             <n-input v-model:value="userForm.realName" maxlength="128" show-count />
@@ -134,7 +145,7 @@ defineExpose({ open })
           </n-form-item-gi>
         </n-grid>
         <div class="form-section-title">联系信息</div>
-        <n-grid :cols="2" :x-gap="12">
+        <n-grid cols="1 480:2" responsive="self" item-responsive :x-gap="12">
           <n-form-item-gi label="邮箱" path="email">
             <n-input v-model:value="userForm.email" maxlength="128" show-count />
           </n-form-item-gi>
@@ -143,7 +154,7 @@ defineExpose({ open })
           </n-form-item-gi>
         </n-grid>
         <div class="form-section-title">账号设置</div>
-        <n-grid :cols="2" :x-gap="12">
+        <n-grid cols="1 480:2" responsive="self" item-responsive :x-gap="12">
           <n-form-item-gi label="用户类型" path="userType">
             <n-select
               v-model:value="userForm.userType"
@@ -164,23 +175,23 @@ defineExpose({ open })
               ]"
             />
           </n-form-item-gi>
-          <n-form-item-gi label="所属学院" path="collegeId" :span="2">
+          <n-form-item-gi label="所属学院" path="collegeId" span="1 480:2">
             <n-select
               v-model:value="userForm.collegeId"
               :options="collegeOptions"
-              :disabled="editingStudent"
+              :disabled="editingStudent || saving"
               clearable
               filterable
             />
           </n-form-item-gi>
-          <n-form-item-gi label="角色" path="roleIds" :span="2">
+          <n-form-item-gi label="角色" path="roleIds" span="1 480:2">
             <n-select v-model:value="userForm.roleIds" :options="roleOptions" multiple filterable />
           </n-form-item-gi>
         </n-grid>
       </n-form>
       <template #footer>
         <n-space justify="end">
-          <n-button @click="visible = false">取消</n-button>
+          <n-button :disabled="saving" @click="visible = false">取消</n-button>
           <n-button type="primary" :loading="saving" @click="saveUser">保存</n-button>
         </n-space>
       </template>

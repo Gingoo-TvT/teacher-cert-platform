@@ -30,7 +30,7 @@ public interface ExemptionService {
 
     void deleteMaterial(Long materialId);
 
-    String previewMaterial(Long materialId);
+    Long previewMaterialFileId(Long materialId);
 
     void submit(Long id);
 

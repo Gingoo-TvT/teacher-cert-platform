@@ -5,6 +5,7 @@ import cn.edu.gpnu.platform.common.api.ResultCode;
 import cn.edu.gpnu.platform.common.context.UserContext;
 import cn.edu.gpnu.platform.common.exception.BizException;
 import cn.edu.gpnu.platform.security.service.JwtService;
+import cn.edu.gpnu.platform.security.service.MediaAccessCookieService;
 import cn.edu.gpnu.platform.security.service.TokenRevocationService;
 import cn.edu.gpnu.platform.system.service.UserSecurityService;
 import cn.edu.gpnu.platform.system.vo.UserSecurityVO;
@@ -12,6 +13,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.jsonwebtoken.Claims;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
+import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -92,10 +94,49 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private String resolveToken(HttpServletRequest request) {
         String header = request.getHeader(HttpHeaders.AUTHORIZATION);
-        if (!StringUtils.hasText(header) || !header.startsWith("Bearer ")) {
+        if (StringUtils.hasText(header) && header.startsWith("Bearer ")) {
+            return header.substring(7);
+        }
+        if (!isMediaContentRequest(request) || request.getCookies() == null) {
             return null;
         }
-        return header.substring(7);
+        for (Cookie cookie : request.getCookies()) {
+            if (MediaAccessCookieService.COOKIE_NAME.equals(cookie.getName())
+                    && StringUtils.hasText(cookie.getValue())) {
+                return cookie.getValue();
+            }
+        }
+        return null;
+    }
+
+    static boolean isMediaContentRequest(HttpServletRequest request) {
+        if (!"GET".equals(request.getMethod()) && !"HEAD".equals(request.getMethod())) {
+            return false;
+        }
+        String uri = request.getRequestURI();
+        String contextPath = request.getContextPath();
+        if (StringUtils.hasText(contextPath) && uri.startsWith(contextPath)) {
+            uri = uri.substring(contextPath.length());
+        }
+        return matchesNumericRoute(uri, "/api/video/reviews/", "/content")
+                || matchesNumericRoute(uri, "/api/material/preview/", "/content")
+                || matchesNumericRoute(uri, "/api/exemption/materials/", "/content");
+    }
+
+    private static boolean matchesNumericRoute(String uri, String prefix, String suffix) {
+        if (!uri.startsWith(prefix) || !uri.endsWith(suffix)) {
+            return false;
+        }
+        String id = uri.substring(prefix.length(), uri.length() - suffix.length());
+        if (id.isEmpty()) {
+            return false;
+        }
+        for (int i = 0; i < id.length(); i++) {
+            if (!Character.isDigit(id.charAt(i))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private void bindContext(UserSecurityVO user) {

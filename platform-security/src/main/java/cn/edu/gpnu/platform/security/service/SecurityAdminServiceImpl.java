@@ -26,6 +26,7 @@ import cn.edu.gpnu.platform.system.mapper.SysRolePermissionMapper;
 import cn.edu.gpnu.platform.system.mapper.SysUserDataScopeMapper;
 import cn.edu.gpnu.platform.system.mapper.SysUserMapper;
 import cn.edu.gpnu.platform.system.mapper.SysUserRoleMapper;
+import cn.edu.gpnu.platform.system.service.AuditLogService;
 import cn.edu.gpnu.platform.system.service.CollegeParentGuard;
 import cn.edu.gpnu.platform.system.service.DataScopeService;
 import cn.edu.gpnu.platform.system.vo.PermissionVO;
@@ -85,6 +86,7 @@ public class SecurityAdminServiceImpl implements SecurityAdminService {
     private final Environment environment;
     private final DataScopeService dataScopeService;
     private final RbacAuthorizationGuard authorizationGuard;
+    private final AuditLogService auditLogService;
 
     @Value("${platform.security.initial-password:}")
     private String initialPassword;
@@ -263,6 +265,9 @@ public class SecurityAdminServiceImpl implements SecurityAdminService {
             throw new BizException("密码重置发生并发冲突，请刷新后重试");
         }
         tokenRevocationService.revoke(id); // 重置密码后目标用户旧 token 立即失效
+        auditLogService.record(
+                "systemUser", id, "user:" + id, "resetPassword",
+                null, "SUCCESS", "管理员重置用户密码");
         return studentTemporaryPassword;
     }
 

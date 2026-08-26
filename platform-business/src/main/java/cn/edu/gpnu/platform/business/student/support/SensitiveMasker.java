@@ -25,4 +25,11 @@ public final class SensitiveMasker {
         String text = value.trim();
         return text.substring(0, 3) + "****" + text.substring(text.length() - 4);
     }
+
+    public static String birthDate(String value) {
+        if (!StringUtils.hasText(value)) {
+            return value;
+        }
+        return value.trim().replaceAll("\\d", "*");
+    }
 }

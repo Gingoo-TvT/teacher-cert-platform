@@ -28,6 +28,7 @@ function open(row: User) {
 }
 
 async function saveUserScope() {
+  if (saving.value) return
   if (!currentScopeUser.value) return
   saving.value = true
   try {
@@ -54,22 +55,28 @@ defineExpose({ open })
 </script>
 
 <template>
-  <n-drawer v-model:show="visible" :width="560" placement="right">
-    <n-drawer-content :title="currentScopeUser ? `数据范围：${currentScopeUser.realName}` : '数据范围'">
-      <n-form label-placement="top">
+  <n-drawer
+    v-model:show="visible"
+    width="min(var(--overlay-medium), var(--overlay-drawer-max))"
+    placement="right"
+    :mask-closable="!saving"
+    :close-on-esc="!saving"
+  >
+    <n-drawer-content :title="currentScopeUser ? `数据范围：${currentScopeUser.realName}` : '数据范围'" :closable="!saving">
+      <n-form label-placement="top" :disabled="saving">
         <div class="form-section-title">可查看范围</div>
-        <n-grid :cols="2" :x-gap="12">
-          <n-form-item-gi label="授权学院" :span="2">
+        <n-grid cols="1 480:2" responsive="self" item-responsive :x-gap="12">
+          <n-form-item-gi label="授权学院" span="1 480:2">
             <n-select v-model:value="scopeCollegeIds" :options="collegeOptions" multiple filterable />
           </n-form-item-gi>
-          <n-form-item-gi label="授权专业" :span="2">
+          <n-form-item-gi label="授权专业" span="1 480:2">
             <n-select v-model:value="scopeMajorIds" :options="majorOptions" multiple filterable />
           </n-form-item-gi>
         </n-grid>
       </n-form>
       <template #footer>
         <n-space justify="end">
-          <n-button @click="visible = false">取消</n-button>
+          <n-button :disabled="saving" @click="visible = false">取消</n-button>
           <n-button type="primary" :loading="saving" @click="saveUserScope">保存</n-button>
         </n-space>
       </template>

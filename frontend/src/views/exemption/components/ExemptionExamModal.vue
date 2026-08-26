@@ -7,6 +7,7 @@ import { getExamSubjects, type ExamSubject } from '@/api/exemption'
 const message = useMessage()
 
 const examVisible = ref(false)
+const loading = ref(false)
 const examSubjects = ref<ExamSubject[]>([])
 
 const examColumns: DataTableColumns<ExamSubject> = [
@@ -16,12 +17,16 @@ const examColumns: DataTableColumns<ExamSubject> = [
 ]
 
 async function open(studentId: string, assessmentYear: string, segment: string) {
+  if (loading.value) return
+  loading.value = true
   try {
     const res = await getExamSubjects(studentId, assessmentYear, segment)
     examSubjects.value = res.data
     examVisible.value = true
   } catch (error) {
     showError(error, '应考科目加载失败')
+  } finally {
+    loading.value = false
   }
 }
 
@@ -34,7 +39,12 @@ defineExpose({ open })
 </script>
 
 <template>
-  <n-modal v-model:show="examVisible" preset="card" title="应考科目口径" style="width: 680px">
-    <n-data-table :columns="examColumns" :data="examSubjects" :pagination="false" />
+  <n-modal
+    v-model:show="examVisible"
+    preset="card"
+    title="应考科目口径"
+    style="width: min(var(--overlay-wide), var(--overlay-modal-max))"
+  >
+    <n-data-table :columns="examColumns" :data="examSubjects" :pagination="false" :scroll-x="400" />
   </n-modal>
 </template>

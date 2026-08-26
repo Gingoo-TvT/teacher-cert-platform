@@ -12,7 +12,7 @@ defineProps<{
         <h1>{{ title }}</h1>
         <p v-if="description">{{ description }}</p>
       </div>
-      <div class="page-actions">
+      <div v-if="$slots.actions" class="page-actions">
         <slot name="actions" />
       </div>
     </header>
@@ -44,8 +44,8 @@ defineProps<{
 
 .page-title-block h1 {
   margin: 0;
-  font-size: 20px;
-  line-height: 28px;
+  font-size: var(--font-size-title);
+  line-height: var(--line-height-title);
   font-weight: 600;
   color: var(--text);
   letter-spacing: 0;
@@ -53,8 +53,8 @@ defineProps<{
 
 .page-title-block p {
   margin: var(--space-1) 0 0;
-  font-size: 13px;
-  line-height: 20px;
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-sm);
   color: var(--text-secondary);
 }
 
@@ -65,6 +65,10 @@ defineProps<{
   gap: var(--space-3);
   flex-wrap: wrap;
   min-height: 36px;
+}
+
+.page-actions:empty {
+  display: none;
 }
 
 .page-stats {

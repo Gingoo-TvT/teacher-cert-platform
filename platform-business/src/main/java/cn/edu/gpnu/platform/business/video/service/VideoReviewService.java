@@ -58,5 +58,7 @@ public interface VideoReviewService {
 
     VideoPlaybackVO playback(Long reviewId);
 
+    Long playbackFileId(Long reviewId);
+
     List<VideoReviewTaskVO> tasks(Long reviewId);
 }

@@ -1,6 +1,7 @@
 package cn.edu.gpnu.platform.boot;
 
 import cn.edu.gpnu.platform.PlatformApplication;
+import cn.edu.gpnu.platform.security.service.RefreshTokenCookieService;
 import cn.edu.gpnu.platform.system.entity.SysPermission;
 import cn.edu.gpnu.platform.system.entity.SysRole;
 import cn.edu.gpnu.platform.system.entity.SysUser;
@@ -10,6 +11,7 @@ import cn.edu.gpnu.platform.system.mapper.SysRolePermissionMapper;
 import cn.edu.gpnu.platform.system.mapper.SysUserDataScopeMapper;
 import cn.edu.gpnu.platform.system.mapper.SysUserMapper;
 import cn.edu.gpnu.platform.system.mapper.SysUserRoleMapper;
+import cn.edu.gpnu.platform.system.service.AuditLogService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -26,8 +28,10 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -35,6 +39,11 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
 @SpringBootTest(classes = PlatformApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @TestPropertySource(properties = {
@@ -91,6 +100,12 @@ class Phase2SecurityIT {
 
     @Autowired
     private PasswordEncoder passwordEncoder;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    @MockitoSpyBean
+    private AuditLogService auditLogService;
 
     @BeforeEach
     @AfterEach
@@ -185,6 +200,8 @@ class Phase2SecurityIT {
         assertThat(changedSysAdmin.userManagementWritable()).isTrue();
 
         // WS-2：复用既有学生夹具验证受控重置，不经通用用户管理入口创建或绑定学生。
+        Long resetAuditMarker = jdbcTemplate.queryForObject(
+                "SELECT COALESCE(MAX(id), 0) FROM audit_log", Long.class);
         LoginResult studentBeforeReset = login("test_student_b", INITIAL_PASSWORD);
         SysUser managedStudent = userMapper.selectByUsername("test_student_b");
         assertThat(managedStudent).isNotNull();
@@ -221,13 +238,27 @@ class Phase2SecurityIT {
                 HttpMethod.PUT, changedSysAdmin.accessToken(), null);
         assertThat(json(staffReset).at("/data").isNull()).isTrue();
         assertThat(json(loginRaw("test_college_clerk", studentTemporaryPassword)).at("/code").asInt()).isNotEqualTo(0);
+        List<Map<String, Object>> resetAudits = jdbcTemplate.queryForList("""
+                SELECT biz_type, biz_id, target, operation, old_status, new_status, comment
+                FROM audit_log
+                WHERE id > ? AND operation = 'resetPassword'
+                ORDER BY id
+                """, resetAuditMarker);
+        assertThat(resetAudits).hasSize(2);
+        assertResetPasswordAudit(resetAudits.get(0), managedStudent.getId());
+        assertResetPasswordAudit(resetAudits.get(1), clerkUser.getId());
+        assertThat(resetAudits.stream()
+                .flatMap(row -> row.values().stream())
+                .filter(java.util.Objects::nonNull)
+                .map(Object::toString))
+                .noneMatch(value -> value.contains(studentTemporaryPassword));
 
         Thread.sleep(2500);
         ResponseEntity<String> expiredAccess = exchange("/api/auth/me", HttpMethod.GET, changedStudent.accessToken(), null);
         assertThat(expiredAccess.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
         assertThat(json(expiredAccess).at("/code").asInt()).isEqualTo(401);
 
-        LoginResult refreshed = refresh(changedStudent.refreshToken());
+        LoginResult refreshed = refresh(changedStudent.refreshCookie());
         assertThat(refreshed.accessToken()).isNotBlank();
         assertThat(refreshed.permissions().toString()).contains("student:view");
 
@@ -235,9 +266,13 @@ class Phase2SecurityIT {
                 "/api/auth/logout", HttpMethod.POST, refreshed.accessToken(), null);
         assertThat(logout.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(json(logout).at("/code").asInt()).isEqualTo(0);
+        ResponseEntity<String> accessAfterLogout = exchange(
+                "/api/auth/me", HttpMethod.GET, refreshed.accessToken(), null);
+        assertThat(accessAfterLogout.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(json(accessAfterLogout).at("/code").asInt()).isEqualTo(401);
         ResponseEntity<String> refreshAfterLogout = rest.postForEntity(
                 url("/api/auth/refresh"),
-                Map.of("refreshToken", refreshed.refreshToken()),
+                refreshEntity(refreshed.refreshCookie(), null),
                 String.class);
         assertThat(refreshAfterLogout.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(json(refreshAfterLogout).at("/code").asInt()).isEqualTo(401);
@@ -248,6 +283,13 @@ class Phase2SecurityIT {
                 String.class);
         assertThat(invalidRefresh.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(json(invalidRefresh).at("/code").asInt()).isEqualTo(401);
+
+        ResponseEntity<String> accessTokenCookie = rest.exchange(
+                url("/api/auth/refresh"), HttpMethod.POST,
+                refreshEntity(RefreshTokenCookieService.COOKIE_NAME + "=" + changedStudent.accessToken(), null),
+                String.class);
+        assertThat(accessTokenCookie.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(json(accessTokenCookie).at("/code").asInt()).isEqualTo(401);
     }
 
     @Test
@@ -262,6 +304,78 @@ class Phase2SecurityIT {
         assertThat(locked.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(json(locked).at("/code").asInt()).isEqualTo(1000);
         assertThat(json(locked).at("/msg").asText()).contains("锁定");
+    }
+
+    @Test
+    void resetPasswordAuditFailureRollsBackMysqlUpdate() throws Exception {
+        LoginResult sysAdmin = login("test_sys_admin", INITIAL_PASSWORD);
+        changePassword(sysAdmin.accessToken(), INITIAL_PASSWORD, CHANGED_PASSWORD);
+        LoginResult changedSysAdmin = login("test_sys_admin", CHANGED_PASSWORD);
+
+        SysUser target = userMapper.selectByUsername("test_student_b");
+        assertThat(target).isNotNull();
+        Map<String, Object> before = jdbcTemplate.queryForMap(
+                "SELECT * FROM sys_user WHERE id = ?", target.getId());
+        long auditRowsBefore = countResetPasswordAudits(target.getId());
+
+        doThrow(new IllegalStateException("forced audit failure"))
+                .when(auditLogService)
+                .record(
+                        eq("systemUser"),
+                        eq(target.getId()),
+                        eq("user:" + target.getId()),
+                        eq("resetPassword"),
+                        isNull(),
+                        eq("SUCCESS"),
+                        eq("管理员重置用户密码"));
+
+        ResponseEntity<String> failed = exchange(
+                "/api/system/user/" + target.getId() + "/reset-pwd",
+                HttpMethod.PUT, changedSysAdmin.accessToken(), null);
+        JsonNode failedRoot = json(failed);
+        assertThat(failedRoot.at("/code").asInt()).isNotEqualTo(0);
+        JsonNode failedData = failedRoot.at("/data");
+        assertThat(failedData.isMissingNode()
+                || failedData.isNull()
+                || failedData.asText("").isEmpty()).isTrue();
+
+        verify(auditLogService, times(1)).record(
+                "systemUser",
+                target.getId(),
+                "user:" + target.getId(),
+                "resetPassword",
+                null,
+                "SUCCESS",
+                "管理员重置用户密码");
+        assertThat(jdbcTemplate.queryForMap(
+                "SELECT * FROM sys_user WHERE id = ?", target.getId()))
+                .as("审计写入失败时密码更新必须由真实 MySQL 回滚")
+                .isEqualTo(before);
+        assertThat(countResetPasswordAudits(target.getId())).isEqualTo(auditRowsBefore);
+
+        // Redis 撤销不参与 MySQL 事务；旧 token 可能已失效，但回滚后旧口令必须仍可重新登录。
+        LoginResult stillOldPassword = login("test_student_b", INITIAL_PASSWORD);
+        assertThat(stillOldPassword.accessToken()).isNotBlank();
+    }
+
+    private void assertResetPasswordAudit(Map<String, Object> audit, long userId) {
+        assertThat(audit)
+                .containsEntry("biz_type", "systemUser")
+                .containsEntry("target", "user:" + userId)
+                .containsEntry("operation", "resetPassword")
+                .containsEntry("old_status", null)
+                .containsEntry("new_status", "SUCCESS")
+                .containsEntry("comment", "管理员重置用户密码");
+        assertThat(((Number) audit.get("biz_id")).longValue()).isEqualTo(userId);
+    }
+
+    private long countResetPasswordAudits(long userId) {
+        Long value = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*)
+                FROM audit_log
+                WHERE operation = 'resetPassword' AND biz_id = ?
+                """, Long.class, userId);
+        return value == null ? 0L : value;
     }
 
     /**
@@ -343,9 +457,10 @@ class Phase2SecurityIT {
         JsonNode root = json(response);
         assertThat(root.at("/code").asInt()).isEqualTo(0);
         JsonNode data = root.at("/data");
+        assertThat(data.has("refreshToken")).isFalse();
         return new LoginResult(
                 data.at("/accessToken").asText(),
-                data.at("/refreshToken").asText(),
+                refreshCookie(response),
                 data.at("/mustChangePwd").asBoolean(),
                 data.at("/user/permissions").toString(),
                 data.at("/user/userManagementWritable").asBoolean()
@@ -362,17 +477,35 @@ class Phase2SecurityIT {
         ), String.class);
     }
 
-    private LoginResult refresh(String refreshToken) throws Exception {
-        ResponseEntity<String> response = rest.postForEntity(url("/api/auth/refresh"), Map.of("refreshToken", refreshToken), String.class);
+    private LoginResult refresh(String refreshCookie) throws Exception {
+        ResponseEntity<String> response = rest.exchange(
+                url("/api/auth/refresh"), HttpMethod.POST, refreshEntity(refreshCookie, null), String.class);
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        JsonNode data = json(response).at("/data");
+        JsonNode root = json(response);
+        assertThat(root.at("/code").asInt()).isEqualTo(0);
+        JsonNode data = root.at("/data");
+        assertThat(data.has("refreshToken")).isFalse();
         return new LoginResult(
                 data.at("/accessToken").asText(),
-                data.at("/refreshToken").asText(),
+                refreshCookie(response),
                 data.at("/mustChangePwd").asBoolean(),
                 data.at("/user/permissions").toString(),
                 data.at("/user/userManagementWritable").asBoolean()
         );
+    }
+
+    private HttpEntity<Object> refreshEntity(String refreshCookie, Object body) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.add(HttpHeaders.COOKIE, refreshCookie);
+        return new HttpEntity<>(body, headers);
+    }
+
+    private String refreshCookie(ResponseEntity<String> response) {
+        return response.getHeaders().getOrEmpty(HttpHeaders.SET_COOKIE).stream()
+                .map(value -> value.split(";", 2)[0])
+                .filter(value -> value.startsWith(RefreshTokenCookieService.COOKIE_NAME + "="))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("响应未下发 refresh Cookie"));
     }
 
     private void changePassword(String accessToken, String oldPassword, String newPassword) {
@@ -531,7 +664,7 @@ class Phase2SecurityIT {
         return ids;
     }
 
-    private record LoginResult(String accessToken, String refreshToken, boolean mustChangePwd, String permissions,
+    private record LoginResult(String accessToken, String refreshCookie, boolean mustChangePwd, String permissions,
                                boolean userManagementWritable) {
     }
 }

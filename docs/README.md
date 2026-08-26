@@ -18,9 +18,9 @@
 
 ## 2. 全局完成定义（Definition of Done，所有任务通用）
 一个任务/阶段"完成"必须同时满足：
-1. 编译与现有门禁通过；后端 Checkstyle 已绑定 Maven `validate`，前端 ESLint 9 已接入 CI。
-   Spotless/Prettier、渐进严格规则、Vitest/Playwright/a11y 仍由 `CURRENT-EXECUTION-PLAN.md` 的 WS-6 管理，
-   未落地项不得虚报已执行。
+1. 编译与现有门禁通过；后端 Checkstyle 已绑定 Maven `validate`；前端 ESLint、app/test-config 双 type-check、Vitest、
+   既有合同、production build、Playwright 产品冒烟与 scoped axe 已接入 CI。Spotless/Prettier、渐进严格规则
+   和 bundle budget 未纳入 WS-6 最小产品门禁，仍不得虚报已执行。
 2. 单元测试覆盖核心规则；集成测试覆盖主接口；**关键校验规则与状态流转必须有反例用例**。
 3. Swagger/Knife4j 文档同步更新，接口可在非生产 profile 的 `/doc.html` 调通；生产 profile
    必须关闭文档 API、UI 与静态资源。
@@ -28,11 +28,17 @@
 5. 关键写操作（审核/状态流转/作废/导出）落 `audit_log`。
 6. 本阶段"验收清单"逐条勾选通过；涉及的 `AT-xx` 自测记录归档。
 7. 不破坏既有阶段的回归用例。
+8. WS-7 供应链覆盖层要求 runner/backend/frontend 质量门禁成功后才构建最终双镜像，执行默认 UID 非 0
+   反例，并配置生成两份 SPDX JSON、镜像身份记录与 `SHA256SUMS`。该 artifact 合同不代表漏洞扫描、签名、
+   镜像发布或项目发布 GO；hosted CI 未实际运行时不得虚报远端产物已生成。
 
 ## 3. 测试与验收规范
 - **后端当前实现**：JUnit5 + Mockito；`*IT` 使用外部提供的真实 MySQL/Redis/MinIO（本机或 CI service），测试本身尚未使用 Testcontainers 创建隔离依赖。每次复核必须使用独立 schema/容器并记录连接端点；迁移到测试自管理容器列入统一计划。
-- **前端当前实现**：ESLint 9 + `vue-tsc --noEmit` + Vite production build 已进入 CI；
-  Vitest、Playwright、a11y 与统一格式化尚未接入，由 WS-6 建立，未落地前不得写成已执行门禁。
+- **前端当前实现**：ESLint 9 覆盖 src/tests/config，`vue-tsc --noEmit` 与独立 tests/config `tsc --noEmit` +
+  Vitest + 既有合同 + Vite production build +
+  Playwright Chromium 产品冒烟已进入 CI；axe 在登录、首登改密与代表业务稳定态阻断 `critical/serious`。
+  当前 E2E 使用严格 API mock，只证明前端产品行为，不冒充真实后端/数据库联调或全站 WCAG 审计；统一格式化
+  和 bundle budget 尚未接入。
 - **验收用例**：每条以 `given/when/then` 描述，必含**正例 + 反例 + 边界**。验收勾选项以 `- [ ]` 列出，验收时逐条置 `- [x]` 并附证据（截图/日志/测试名）。
 - **AT 验收**：14 条验收标准（plan §10）在对应 Phase 内完成首验，Phase 14 做整体复验。
 
@@ -96,7 +102,7 @@
 | `video.reviewerCount` | `2` | `int` | 评审教师数 | Phase 7 |
 | `video.durationTarget` | `900`(秒) | `int` | 视频目标时长（15 分钟） | Phase 7 |
 | `video.durationTolerance` | `60`(秒) | `int` | 时长容差 | Phase 7 |
-| `video.presign.expirySeconds` | `300`(秒) | `int` | 视频播放预签名默认有效期 | Phase 7 |
+| `video.presign.expirySeconds` | `300`(秒) | `int` | 视频播放媒体 Cookie 有效期（兼容保留参数名） | Phase 7 |
 | `video.allowedCodecs` | `H264` | `string` | 允许的视频编码，变更后既有秒传验证结果失效 | Phase 7 |
 | `video.timelineToleranceSeconds` | `2`(秒) | `int` | 容器头、样本跨度与样本累计时长的交叉核对容差 | Phase 7 |
 | `video.arbitrate.mode` | `thirdExpert` | `string` | 复评模式 | Phase 7 |

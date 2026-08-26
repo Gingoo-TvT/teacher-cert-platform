@@ -222,7 +222,7 @@ class Phase00CiGateTest(unittest.TestCase):
         for suite in self.spec["suites"]:
             self.write_suite(suite, root_directory=root_directory)
 
-    def test_spec_locks_all_required_suites_and_thirty_three_cases(self) -> None:
+    def test_spec_locks_all_required_suites_and_thirty_six_cases(self) -> None:
         counts = {
             suite["suite"]: len(suite["testcases"])
             for suite in self.spec["suites"]
@@ -234,12 +234,12 @@ class Phase00CiGateTest(unittest.TestCase):
                 "cn.edu.gpnu.platform.boot.Phase00ParameterMatrixIT": 1,
                 "cn.edu.gpnu.platform.boot.config.DataScopeSqlHandlerTest": 9,
                 "cn.edu.gpnu.platform.boot.config.DataScopeMapperChainTest": 5,
-                "cn.edu.gpnu.platform.file.service.impl.FileServiceUploadContractTest": 2,
+                "cn.edu.gpnu.platform.file.service.impl.FileServiceUploadContractTest": 5,
                 "cn.edu.gpnu.platform.boot.config.ApiDocumentationSecurityProfileTest": 2,
                 "cn.edu.gpnu.platform.boot.Phase00TargetGuardInitializerTest": 8,
             },
         )
-        self.assertEqual(sum(counts.values()), 33)
+        self.assertEqual(sum(counts.values()), 36)
         self.assertEqual(
             self.spec["targetEvidence"],
             {
@@ -1080,7 +1080,7 @@ class Phase00CiGateTest(unittest.TestCase):
     def test_exact_fresh_reports_pass(self) -> None:
         results = gate.validate_suite_reports(self.repo, self.spec, fresh_after_ns=0)
         self.assertEqual(len(results), 7)
-        self.assertEqual(sum(result["observedTests"] for result in results), 33)
+        self.assertEqual(sum(result["observedTests"] for result in results), 36)
 
     def test_missing_xml_fails(self) -> None:
         self.report_path(self.spec["suites"][0]).unlink()

@@ -3,7 +3,6 @@ import { computed, h, onMounted, ref } from 'vue'
 import {
   NButton,
   NSpace,
-  useMessage,
   type DataTableColumns,
   type SelectOption
 } from 'naive-ui'
@@ -17,10 +16,18 @@ import { renderTableActions } from '@/utils/tableActions'
 import { useUserStore } from '@/stores/user'
 import ConfigDrawer from './ConfigDrawer.vue'
 
-const message = useMessage()
 const userStore = useUserStore()
 
 const configLoading = ref(false)
+const dictionaryLoading = ref(false)
+const configError = ref('')
+const trainingGoalsError = ref('')
+const teachingSegmentsError = ref('')
+const internshipLocationsError = ref('')
+const hasLoadedConfigs = ref(false)
+const hasLoadedTrainingGoals = ref(false)
+const hasLoadedTeachingSegments = ref(false)
+const hasLoadedInternshipLocations = ref(false)
 const selectedConfigCode = ref<string | null>(null)
 const trainingGoals = ref<DictItem[]>([])
 const teachingSegments = ref<DictItem[]>([])
@@ -30,6 +37,18 @@ const configs = ref<TrainingGoalConfig[]>([])
 const configDrawer = ref<InstanceType<typeof ConfigDrawer> | null>(null)
 
 const canManageMajor = computed(() => userStore.hasPerm('major:manage'))
+const configListReady = computed(() => hasLoadedConfigs.value && !configLoading.value && !configError.value)
+const dictionaryError = computed(() =>
+  [trainingGoalsError.value, teachingSegmentsError.value, internshipLocationsError.value].filter(Boolean).join('；')
+)
+const dictionariesReady = computed(() =>
+  hasLoadedTrainingGoals.value
+  && hasLoadedTeachingSegments.value
+  && hasLoadedInternshipLocations.value
+  && !dictionaryLoading.value
+  && !dictionaryError.value
+)
+const canWriteConfig = computed(() => canManageMajor.value && configListReady.value && dictionariesReady.value)
 
 const trainingGoalOptions = computed<SelectOption[]>(() => trainingGoals.value.map((item) => ({ label: item.itemValue, value: item.itemCode })))
 const segmentOptions = computed<SelectOption[]>(() => teachingSegments.value.map((item) => ({ label: item.itemValue, value: item.itemCode })))
@@ -49,7 +68,7 @@ const configColumns = computed<DataTableColumns<TrainingGoalConfig>>(() => {
       title: '操作',
       key: 'actions',
       width: 92,
-      render: (row) => renderTableActions([h(NButton, { size: 'small', quaternary: true, onClick: () => configDrawer.value?.open(row) }, { default: () => '编辑' })])
+      render: (row) => renderTableActions([h(NButton, { size: 'small', quaternary: true, disabled: !canWriteConfig.value, onClick: () => configDrawer.value?.open(row) }, { default: () => '编辑' })])
     })
   }
   return columns
@@ -86,14 +105,42 @@ function resetConfigFilters() {
 }
 
 async function loadDictionaries() {
-  const [goals, segments, locations] = await Promise.all([
-    listDictItems('training_goal', true),
-    listDictItems('teaching_segment', true),
-    listDictItems('internship_location', true)
-  ])
-  trainingGoals.value = sortDict(goals.data)
-  teachingSegments.value = sortDict(segments.data)
-  internshipLocations.value = sortDict(locations.data)
+  dictionaryLoading.value = true
+  await Promise.all([loadTrainingGoals(), loadTeachingSegments(), loadInternshipLocations()])
+  dictionaryLoading.value = false
+}
+
+async function loadTrainingGoals() {
+  try {
+    const res = await listDictItems('training_goal', true)
+    trainingGoals.value = sortDict(res.data)
+    trainingGoalsError.value = ''
+    hasLoadedTrainingGoals.value = true
+  } catch (error) {
+    trainingGoalsError.value = `培养目标：${errorText(error, '选项加载失败')}`
+  }
+}
+
+async function loadTeachingSegments() {
+  try {
+    const res = await listDictItems('teaching_segment', true)
+    teachingSegments.value = sortDict(res.data)
+    teachingSegmentsError.value = ''
+    hasLoadedTeachingSegments.value = true
+  } catch (error) {
+    teachingSegmentsError.value = `任教学段：${errorText(error, '选项加载失败')}`
+  }
+}
+
+async function loadInternshipLocations() {
+  try {
+    const res = await listDictItems('internship_location', true)
+    internshipLocations.value = sortDict(res.data)
+    internshipLocationsError.value = ''
+    hasLoadedInternshipLocations.value = true
+  } catch (error) {
+    internshipLocationsError.value = `实习地点：${errorText(error, '选项加载失败')}`
+  }
 }
 
 async function loadConfigs() {
@@ -105,11 +152,17 @@ async function loadConfigs() {
   try {
     const res = await listTrainingGoalConfigs(selectedConfigCode.value)
     configs.value = res.data
+    configError.value = ''
+    hasLoadedConfigs.value = true
   } catch (error) {
-    showError(error, '培养目标联动配置加载失败')
+    configError.value = errorText(error, '培养目标联动配置加载失败')
   } finally {
     configLoading.value = false
   }
+}
+
+async function refresh() {
+  await Promise.all([loadDictionaries(), loadConfigs()])
 }
 
 function renderCodeTags(codes: string[], dictItems: DictItem[]) {
@@ -124,26 +177,40 @@ function sortDict(items: DictItem[]) {
   return [...items].sort((a, b) => (a.sort || 0) - (b.sort || 0) || a.itemCode.localeCompare(b.itemCode))
 }
 
-function showError(error: unknown, fallback: string) {
-  const detail = error instanceof Error ? error.message : fallback
-  message.error(detail || fallback)
+function errorText(error: unknown, fallback: string) {
+  const detail = error instanceof Error ? error.message : ''
+  return detail || fallback
 }
 
-onMounted(async () => {
-  await loadDictionaries()
-  await loadConfigs()
+onMounted(() => {
+  void refresh()
 })
 
-defineExpose({ refresh: loadConfigs })
+defineExpose({ refresh })
 </script>
 
 <template>
-  <div class="config-layout">
-    <div class="page-section">
+  <n-alert v-if="dictionaryError" type="warning" title="联动选项加载失败" class="dependency-alert" role="alert">
+    <div class="dependency-alert__content">
+      <span>{{ dictionaryError }}。配置列表仍可查看，新增和编辑暂不可用。</span>
+      <n-button size="small" secondary :loading="dictionaryLoading" @click="loadDictionaries">重试</n-button>
+    </div>
+  </n-alert>
+
+  <n-grid cols="1 1180:20" responsive="self" item-responsive :x-gap="24" :y-gap="24" class="config-layout">
+    <n-gi span="1 1180:12" class="page-section">
       <FilterBar :loading="configLoading" @submit="loadConfigs" @reset="resetConfigFilters">
         <label class="filter-field">
           <span>培养目标</span>
-          <n-select v-model:value="selectedConfigCode" :options="trainingGoalOptions" clearable placeholder="全部培养目标" style="width: 240px" />
+          <n-select
+            v-model:value="selectedConfigCode"
+            :options="trainingGoalOptions"
+            :loading="dictionaryLoading"
+            :disabled="!hasLoadedTrainingGoals || Boolean(trainingGoalsError)"
+            clearable
+            placeholder="全部培养目标"
+            class="config-filter"
+          />
         </label>
       </FilterBar>
       <DataPanel
@@ -152,6 +219,8 @@ defineExpose({ refresh: loadConfigs })
         :data="configs"
         :total="configs.length"
         :loading="configLoading"
+        :initial-loading="configLoading && !hasLoadedConfigs"
+        :error="configError || undefined"
         :row-props="configRowProps"
         :max-height="620"
         empty-title="暂无联动配置"
@@ -159,21 +228,23 @@ defineExpose({ refresh: loadConfigs })
         @refresh="loadConfigs"
       >
         <template #actions>
-          <n-button v-if="canManageMajor" type="primary" size="small" @click="configDrawer?.open()">新增/维护配置</n-button>
+          <n-button v-if="canManageMajor" type="primary" size="small" :disabled="!canWriteConfig" @click="configDrawer?.open()">新增/维护配置</n-button>
         </template>
       </DataPanel>
-    </div>
-    <n-card :bordered="false" class="detail-card">
-      <div class="detail-head">
-        <div>
-          <strong>{{ selectedConfig?.trainingGoalName || '配置详情' }}</strong>
-          <span class="muted mono">{{ selectedConfig?.trainingGoalCode || '请选择配置' }}</span>
+    </n-gi>
+    <n-gi v-if="selectedConfig || configListReady" span="1 1180:8" class="page-section">
+      <n-card :bordered="false" class="detail-card">
+        <div class="detail-head">
+          <div>
+            <strong>{{ selectedConfig?.trainingGoalName || '配置详情' }}</strong>
+            <span class="muted mono">{{ selectedConfig?.trainingGoalCode || '请选择配置' }}</span>
+          </div>
         </div>
-      </div>
-      <DetailPanel v-if="selectedConfig" :items="configDetailItems" :columns="2" />
-      <n-empty v-else description="请选择培养目标配置" />
-    </n-card>
-  </div>
+        <DetailPanel v-if="selectedConfig" :items="configDetailItems" :columns="2" />
+        <n-empty v-else :description="configs.length ? '请选择培养目标配置' : '暂无联动配置可供选择'" />
+      </n-card>
+    </n-gi>
+  </n-grid>
 
   <ConfigDrawer
     ref="configDrawer"
@@ -187,9 +258,6 @@ defineExpose({ refresh: loadConfigs })
 
 <style scoped>
 .config-layout {
-  display: grid;
-  grid-template-columns: minmax(680px, 1.2fr) minmax(360px, 0.8fr);
-  gap: var(--space-6);
   align-items: start;
 }
 
@@ -214,6 +282,22 @@ defineExpose({ refresh: loadConfigs })
   display: block;
 }
 
+.dependency-alert {
+  margin-bottom: var(--space-4);
+}
+
+.dependency-alert__content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.config-filter {
+  width: 240px;
+  max-width: 100%;
+}
+
 .pill {
   display: inline-flex;
   align-items: center;
@@ -229,9 +313,10 @@ defineExpose({ refresh: loadConfigs })
   background: var(--brand-soft);
 }
 
-@media (max-width: 1220px) {
-  .config-layout {
-    grid-template-columns: 1fr;
+@media (max-width: 720px) {
+  .dependency-alert__content {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }
 </style>

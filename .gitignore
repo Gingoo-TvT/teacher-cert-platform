@@ -54,5 +54,7 @@ mysql-data/
 redis-data/
 
 # ===== 其它 =====
+__pycache__/
+*.py[cod]
 *.tmp
 *.bak

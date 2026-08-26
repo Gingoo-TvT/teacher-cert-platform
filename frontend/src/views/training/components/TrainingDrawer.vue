@@ -44,6 +44,10 @@ const editingId = ref<string | null>(null)
 const allowedSegments = ref<string[]>([])
 const allowedLocations = ref<string[]>([])
 const selectedStudentLabel = ref<string | null>(null)
+const trainingOptionsLoading = ref(false)
+const trainingOptionsError = ref('')
+const loadedTrainingOptionsKey = ref('')
+let trainingOptionsRequestSequence = 0
 
 const form = reactive<TrainingPayload>({
   studentId: '',
@@ -95,13 +99,27 @@ const internshipLocationOptions = computed<SelectOption[]>(() =>
 )
 const interviewModeOptions = computed<SelectOption[]>(() => dictOptions(props.interviewModes))
 const conclusionOptions = computed<SelectOption[]>(() => dictOptions(props.conclusions))
+const currentTrainingOptionsKey = computed(() => trainingOptionsKey(form.trainingGoal, form.teachingSegment))
+const trainingOptionsFresh = computed(() =>
+  Boolean(form.trainingGoal)
+  && loadedTrainingOptionsKey.value === currentTrainingOptionsKey.value
+  && !trainingOptionsLoading.value
+  && !trainingOptionsError.value
+)
 
 watch(
   () => form.trainingGoal,
   async (goal) => {
     if (!goal) {
+      trainingOptionsRequestSequence += 1
       allowedSegments.value = []
       allowedLocations.value = []
+      loadedTrainingOptionsKey.value = ''
+      trainingOptionsError.value = ''
+      trainingOptionsLoading.value = false
+      form.teachingSegment = ''
+      form.teachingSubjectCode = ''
+      form.internshipLocation = ''
       return
     }
     await reloadTrainingOptions(goal, form.teachingSegment)
@@ -124,6 +142,7 @@ watch(
 )
 
 async function open(row?: TrainingProfile) {
+  if (saving.value) return
   editingId.value = row?.id || null
   resetForm(row)
   drawerVisible.value = true
@@ -131,8 +150,13 @@ async function open(row?: TrainingProfile) {
 }
 
 async function reloadTrainingOptions(goal: string, segment?: string | null) {
+  const requestSequence = ++trainingOptionsRequestSequence
+  const queryKey = trainingOptionsKey(goal, segment)
+  trainingOptionsLoading.value = true
+  trainingOptionsError.value = ''
   try {
     const res = await getTrainingOptions(goal, segment)
+    if (requestSequence !== trainingOptionsRequestSequence || queryKey !== currentTrainingOptionsKey.value) return
     allowedSegments.value = res.data.allowedSegments || []
     allowedLocations.value = res.data.allowedInternshipLocations || []
     if (!form.teachingSegment && res.data.defaultSegment) form.teachingSegment = res.data.defaultSegment
@@ -144,8 +168,13 @@ async function reloadTrainingOptions(goal: string, segment?: string | null) {
     if (form.internshipLocation && allowedLocations.value.length && !allowedLocations.value.includes(form.internshipLocation)) {
       form.internshipLocation = res.data.defaultInternshipLocation || ''
     }
+    if (queryKey === currentTrainingOptionsKey.value) loadedTrainingOptionsKey.value = queryKey
   } catch (error) {
-    showError(error, '培养目标联动选项加载失败')
+    if (requestSequence !== trainingOptionsRequestSequence || queryKey !== currentTrainingOptionsKey.value) return
+    trainingOptionsError.value = errorText(error, '培养目标联动选项加载失败')
+    message.error(trainingOptionsError.value)
+  } finally {
+    if (requestSequence === trainingOptionsRequestSequence) trainingOptionsLoading.value = false
   }
 }
 
@@ -170,12 +199,25 @@ function resetForm(row?: TrainingProfile) {
   })
   allowedSegments.value = []
   allowedLocations.value = []
+  loadedTrainingOptionsKey.value = ''
+  trainingOptionsError.value = ''
+  trainingOptionsLoading.value = false
 }
 
 async function save() {
-  await formRef.value?.validate()
+  if (saving.value) return
+  if (!trainingOptionsFresh.value) {
+    message.error(trainingOptionsError.value || '培养目标联动选项尚未加载成功，请重试后再保存')
+    return
+  }
   saving.value = true
   try {
+    try {
+      await formRef.value?.validate()
+    } catch {
+      // 表单校验失败由字段反馈承接，不应泄漏为页面未处理异常或误报保存失败。
+      return
+    }
     if (props.selfMode) await confirmTrainingProfile(form)
     else await saveTrainingProfile(form)
     message.success('已保存')
@@ -205,27 +247,44 @@ function dictOptions(items: DictItem[]): SelectOption[] {
   return items.map((item) => ({ label: item.itemValue, value: item.itemCode }))
 }
 
-function showError(error: unknown, fallback: string) {
+function trainingOptionsKey(goal: string, segment?: string | null) {
+  return JSON.stringify([goal, segment || ''])
+}
+
+function errorText(error: unknown, fallback: string) {
   const detail = error instanceof Error ? error.message : fallback
-  message.error(detail || fallback)
+  return detail || fallback
+}
+
+function showError(error: unknown, fallback: string) {
+  message.error(errorText(error, fallback))
 }
 
 defineExpose({ open })
 </script>
 
 <template>
-  <n-drawer v-model:show="drawerVisible" :width="560">
-    <n-drawer-content :title="editingId ? '编辑专业培养信息' : '新增专业培养信息'" closable>
+  <n-drawer
+    v-model:show="drawerVisible"
+    width="min(var(--overlay-wide), var(--overlay-drawer-max))"
+    :mask-closable="!saving"
+    :close-on-esc="!saving"
+  >
+    <n-drawer-content :title="editingId ? '编辑专业培养信息' : '新增专业培养信息'" :closable="!saving">
       <n-alert type="info" :bordered="false" class="page-section">
         任教学科必须先选择学段，再从学科库中选择；培养目标会限制可选学段和实习地点。
       </n-alert>
-      <n-form ref="formRef" :model="form" :rules="rules" label-placement="top">
+      <n-alert v-if="form.trainingGoal && trainingOptionsError" type="error" :bordered="false" class="page-section">
+        {{ trainingOptionsError }}
+        <n-button text type="error" size="small" :loading="trainingOptionsLoading" @click="reloadTrainingOptions(form.trainingGoal, form.teachingSegment)">重试加载联动选项</n-button>
+      </n-alert>
+      <n-form ref="formRef" :model="form" :rules="rules" label-placement="top" :disabled="saving">
         <div class="form-section-title">基本信息</div>
-        <n-grid :cols="2" :x-gap="12">
+        <n-grid cols="1 560:2" responsive="self" :x-gap="16">
           <n-form-item-gi label="学生" path="studentId">
             <StudentSelect
               v-model:value="form.studentId"
-              :disabled="selfMode"
+              :disabled="selfMode || saving"
               :selected-label="selectedStudentLabel"
               placeholder="输入学号或姓名搜索"
               @select="handleStudentSelect"
@@ -242,7 +301,7 @@ defineExpose({ open })
           </n-form-item-gi>
         </n-grid>
         <div class="form-section-title">学业信息</div>
-        <n-grid :cols="2" :x-gap="12">
+        <n-grid cols="1 560:2" responsive="self" :x-gap="16">
           <n-form-item-gi label="二级学科代码" path="secondDisciplineCode">
             <n-input v-model:value="form.secondDisciplineCode" class="mono-input" />
           </n-form-item-gi>
@@ -251,7 +310,7 @@ defineExpose({ open })
           </n-form-item-gi>
         </n-grid>
         <div class="form-section-title">培养与考核</div>
-        <n-grid :cols="2" :x-gap="12">
+        <n-grid cols="1 560:2" responsive="self" :x-gap="16">
           <n-form-item-gi label="培养目标" path="trainingGoal">
             <n-select v-model:value="form.trainingGoal" :options="trainingGoalOptions" />
           </n-form-item-gi>
@@ -259,10 +318,10 @@ defineExpose({ open })
             <n-select v-model:value="form.internshipOrgMode" :options="internshipModeOptions" />
           </n-form-item-gi>
           <n-form-item-gi label="实习地点" path="internshipLocation">
-            <n-select v-model:value="form.internshipLocation" :options="internshipLocationOptions" />
+            <n-select v-model:value="form.internshipLocation" :options="internshipLocationOptions" :loading="trainingOptionsLoading" :disabled="saving || !trainingOptionsFresh" />
           </n-form-item-gi>
           <n-form-item-gi label="任教学段" path="teachingSegment">
-            <n-select v-model:value="form.teachingSegment" :options="segmentOptions" />
+            <n-select v-model:value="form.teachingSegment" :options="segmentOptions" :loading="trainingOptionsLoading" :disabled="saving || !trainingOptionsFresh" />
           </n-form-item-gi>
           <n-form-item-gi label="面试组织方式" path="interviewOrgMode">
             <n-select v-model:value="form.interviewOrgMode" :options="interviewModeOptions" />
@@ -272,17 +331,17 @@ defineExpose({ open })
           </n-form-item-gi>
         </n-grid>
         <div class="form-section-title">任教学科</div>
-        <n-grid :cols="2" :x-gap="12">
-          <n-form-item-gi label="任教学科" path="teachingSubjectCode" :span="2">
-            <SubjectSelect v-model:value="form.teachingSubjectCode" :segment-code="form.teachingSegment" />
+        <n-grid cols="1" responsive="self">
+          <n-form-item-gi label="任教学科" path="teachingSubjectCode">
+            <SubjectSelect v-model:value="form.teachingSubjectCode" :segment-code="form.teachingSegment" :disabled="saving || !trainingOptionsFresh" />
           </n-form-item-gi>
         </n-grid>
       </n-form>
       <template #footer>
-        <n-space justify="end">
-          <n-button @click="drawerVisible = false">取消</n-button>
-          <n-button type="primary" :loading="saving" @click="save">保存</n-button>
-        </n-space>
+        <div class="training-drawer__footer">
+          <n-button :disabled="saving" @click="drawerVisible = false">取消</n-button>
+          <n-button type="primary" :loading="saving" :disabled="!trainingOptionsFresh" @click="save">保存</n-button>
+        </div>
       </template>
     </n-drawer-content>
   </n-drawer>
@@ -292,11 +351,29 @@ defineExpose({ open })
 .form-section-title {
   margin: var(--space-2) 0 var(--space-3);
   color: var(--text);
-  font-size: 14px;
+  font-size: var(--font-size-body);
   font-weight: 600;
 }
 
 .mono-input :deep(input) {
   font-family: var(--font-mono);
+}
+
+.training-drawer__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  width: 100%;
+}
+
+@media (max-width: 480px) {
+  .training-drawer__footer {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .training-drawer__footer .n-button {
+    width: 100%;
+  }
 }
 </style>

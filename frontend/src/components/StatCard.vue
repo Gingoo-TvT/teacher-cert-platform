@@ -123,8 +123,8 @@ defineProps<{
 }
 
 .stat-label {
-  font-size: 13px;
-  line-height: 20px;
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-sm);
   color: var(--text-secondary);
 }
 
@@ -143,14 +143,14 @@ defineProps<{
 
 .stat-unit {
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   font-weight: 500;
-  line-height: 20px;
+  line-height: var(--line-height-sm);
 }
 
 .stat-sub {
   margin-top: var(--space-2);
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   line-height: 18px;
   color: var(--text-muted);
 }

@@ -23,6 +23,14 @@ public final class RuntimeProfileGuard implements EnvironmentPostProcessor, Orde
             "dev-only-insecure-jwt-secret-do-not-use-in-production-0123456789";
     private static final String EXAMPLE_JWT_SECRET =
             "change-me-at-least-64-characters-change-me-at-least-64-characters";
+    private static final String DEV_ID_CARD_ENCRYPTION_KEY =
+            "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=";
+    private static final String EXAMPLE_ID_CARD_ENCRYPTION_KEY =
+            "REPLACE_WITH_BASE64_32_BYTE_KEY";
+    private static final String DEV_ID_CARD_HMAC_PEPPER =
+            "dev-only-insecure-id-card-hmac-pepper-do-not-use-in-production";
+    private static final String EXAMPLE_ID_CARD_HMAC_PEPPER =
+            "REPLACE_WITH_RANDOM_HMAC_PEPPER_AT_LEAST_32_BYTES";
 
     @Override
     public void postProcessEnvironment(ConfigurableEnvironment environment, SpringApplication application) {
@@ -63,8 +71,30 @@ public final class RuntimeProfileGuard implements EnvironmentPostProcessor, Orde
                 Set.of("minioadmin", "change-me-unique-minio-admin-user"), violations);
         rejectMissingOrKnownValue(environment, "minio.secret-key",
                 Set.of("minioadmin123", "change-me-strong-minio-admin-password"), violations);
-        rejectMissingOrKnownValue(environment, "platform.security.jwt.secret",
+        String jwtSecret = rejectMissingOrKnownValue(environment, "platform.security.jwt.secret",
                 Set.of(DEV_JWT_SECRET, EXAMPLE_JWT_SECRET), violations);
+        String idCardEncryptionKey = rejectMissingOrKnownValue(
+                environment,
+                "platform.security.id-card.encryption-key",
+                Set.of(DEV_ID_CARD_ENCRYPTION_KEY, EXAMPLE_ID_CARD_ENCRYPTION_KEY),
+                violations);
+        String idCardHmacPepper = rejectMissingOrKnownValue(
+                environment,
+                "platform.security.id-card.hmac-pepper",
+                Set.of(DEV_ID_CARD_HMAC_PEPPER, EXAMPLE_ID_CARD_HMAC_PEPPER),
+                violations);
+        rejectSameSecret(
+                "platform.security.id-card.encryption-key", idCardEncryptionKey,
+                "platform.security.id-card.hmac-pepper", idCardHmacPepper,
+                violations);
+        rejectSameSecret(
+                "platform.security.id-card.hmac-pepper", idCardHmacPepper,
+                "platform.security.jwt.secret", jwtSecret,
+                violations);
+        rejectSameSecret(
+                "platform.security.id-card.encryption-key", idCardEncryptionKey,
+                "platform.security.jwt.secret", jwtSecret,
+                violations);
         rejectMissingOrKnownValue(environment, "platform.security.initial-password",
                 Set.of("ChangeMe123!", "change-me-strong-staff-initial-password"), violations);
 
@@ -74,20 +104,34 @@ public final class RuntimeProfileGuard implements EnvironmentPostProcessor, Orde
         }
     }
 
-    private static void rejectMissingOrKnownValue(ConfigurableEnvironment environment,
-                                                  String key,
-                                                  Set<String> rejectedValues,
-                                                  List<String> violations) {
+    private static String rejectMissingOrKnownValue(ConfigurableEnvironment environment,
+                                                     String key,
+                                                     Set<String> rejectedValues,
+                                                     List<String> violations) {
         int violationCount = violations.size();
         String value = property(environment, key, violations);
         if (!StringUtils.hasText(value)) {
             if (violations.size() == violationCount) {
                 violations.add(key + " 未配置");
             }
-            return;
+            return null;
         }
-        if (rejectedValues.contains(value.trim())) {
+        String trimmedValue = value.trim();
+        if (rejectedValues.contains(trimmedValue)) {
             violations.add(key + " 仍为开发或示例值");
+        }
+        return trimmedValue;
+    }
+
+    private static void rejectSameSecret(String firstKey,
+                                         String firstValue,
+                                         String secondKey,
+                                         String secondValue,
+                                         List<String> violations) {
+        if (StringUtils.hasText(firstValue)
+                && StringUtils.hasText(secondValue)
+                && firstValue.equals(secondValue)) {
+            violations.add(firstKey + " 与 " + secondKey + " 必须使用不同值");
         }
     }
 

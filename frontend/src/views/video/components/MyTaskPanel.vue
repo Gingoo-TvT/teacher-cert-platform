@@ -26,6 +26,8 @@ const message = useMessage()
 
 const loading = ref(false)
 const saving = ref(false)
+const loadError = ref('')
+const lastSuccessfulQueryKey = ref('')
 const playerVisible = ref(false)
 const page = ref(1)
 const size = ref(20)
@@ -37,6 +39,7 @@ const selectedTaskId = ref('')
 const playbackUrl = ref('')
 const watermarkText = ref('')
 const watermarkStyle = ref({ left: '12%', top: '18%' })
+let loadSequence = 0
 
 const scoreForm = reactive({
   score: 60,
@@ -52,6 +55,14 @@ const conclusionOptions: SelectOption[] = [
 
 const selectedTask = computed(() => tasks.value.find((item) => item.id === selectedTaskId.value) || null)
 const selectedReview = computed(() => selectedTask.value ? reviewMap.value[selectedTask.value.videoReviewId] || null : null)
+const currentQueryKey = computed(() => `${page.value}:${size.value}`)
+const hasLoadedSuccessfully = computed(() => Boolean(lastSuccessfulQueryKey.value))
+const taskDataFresh = computed(() =>
+  !loading.value && !loadError.value && lastSuccessfulQueryKey.value === currentQueryKey.value
+)
+const taskDataStale = computed(() => hasLoadedSuccessfully.value && !taskDataFresh.value)
+const initialLoadFailed = computed(() => Boolean(loadError.value) && !hasLoadedSuccessfully.value)
+const scoreLocked = computed(() => saving.value || !taskDataFresh.value)
 // P1-1 真分页：tasks.value 现为「当页」而非全量，故 pendingCount/submittedCount 只反映当页计数，
 // 不再是该评审教师的全量待评分/已提交总数。后端未提供按 submitted 分组计数的聚合接口，暂不新增
 // （超出本次两端点分页改造范围），按 rollout 约定标注于此。
@@ -60,60 +71,77 @@ const submittedCount = computed(() => tasks.value.filter((item) => item.submitte
 
 onMounted(loadData)
 
-async function loadData() {
+async function loadData(options: { allowWhileSaving?: boolean } = {}) {
+  if (saving.value && !options.allowWhileSaving) return
+  const sequence = ++loadSequence
+  const queryKey = currentQueryKey.value
   loading.value = true
+  loadError.value = ''
   try {
     const [taskRes, dimensionRes] = await Promise.all([
       listMyVideoTasks(undefined, page.value, size.value),
       listDictItems('video_score_dimension', true)
     ])
-    tasks.value = taskRes.data.records
+    const nextTasks = taskRes.data.records
+    const nextDimensions = dimensionRes.data.slice(0, 9)
+    const nextReviewMap = await loadReviewDetails(nextTasks)
+    if (sequence !== loadSequence) return
+
+    tasks.value = nextTasks
     total.value = taskRes.data.total
-    dimensions.value = dimensionRes.data.slice(0, 9)
-    await loadReviewDetails()
-    if (!selectedTaskId.value || !tasks.value.some((item) => item.id === selectedTaskId.value)) {
-      selectedTaskId.value = tasks.value.find((item) => item.submitted === 0)?.id || tasks.value[0]?.id || ''
-    }
-    if (selectedTask.value) selectTask(selectedTask.value)
+    dimensions.value = nextDimensions
+    reviewMap.value = nextReviewMap
+    const nextTaskId = selectedTaskId.value && nextTasks.some((item) => item.id === selectedTaskId.value)
+      ? selectedTaskId.value
+      : nextTasks.find((item) => item.submitted === 0)?.id || nextTasks[0]?.id || ''
+    selectedTaskId.value = nextTaskId
+    const nextSelectedTask = nextTasks.find((item) => item.id === nextTaskId)
+    if (nextSelectedTask) applyTaskToForm(nextSelectedTask)
+    lastSuccessfulQueryKey.value = queryKey
   } catch (error) {
+    if (sequence !== loadSequence) return
+    loadError.value = errorText(error, '评审任务加载失败')
     showError(error, '评审任务加载失败')
   } finally {
-    loading.value = false
+    if (sequence === loadSequence) loading.value = false
   }
 }
 
 function onPageChange(next: number) {
+  if (saving.value) return
   page.value = next
   void loadData()
 }
 
 function onPageSizeChange(next: number) {
+  if (saving.value) return
   size.value = next
   page.value = 1
   void loadData()
 }
 
-async function loadReviewDetails() {
-  const ids = Array.from(new Set(tasks.value.map((item) => item.videoReviewId)))
+async function loadReviewDetails(nextTasks: VideoTask[]) {
+  const ids = Array.from(new Set(nextTasks.map((item) => item.videoReviewId)))
   const entries = await Promise.all(
     ids.map(async (id) => {
-      try {
-        const res = await getVideoReview(id)
-        return [id, res.data] as const
-      } catch {
-        return [id, null] as const
-      }
+      const res = await getVideoReview(id)
+      return [id, res.data] as const
     })
   )
   const next: Record<string, VideoReview> = {}
   for (const [id, review] of entries) {
-    if (review) next[id] = review
+    next[id] = review
   }
-  reviewMap.value = next
+  return next
 }
 
 function selectTask(task: VideoTask) {
+  if (saving.value || !taskDataFresh.value) return
   selectedTaskId.value = task.id
+  applyTaskToForm(task)
+}
+
+function applyTaskToForm(task: VideoTask) {
   scoreForm.score = Number(task.score ?? 60)
   scoreForm.conclusion = task.conclusion || 'PASS'
   scoreForm.comment = task.comment || ''
@@ -129,6 +157,11 @@ function selectTask(task: VideoTask) {
 }
 
 async function submitScore() {
+  if (saving.value) return
+  if (!taskDataFresh.value) {
+    message.warning('任务列表尚未刷新成功，请重试后再提交')
+    return
+  }
   const task = selectedTask.value
   if (!task) return
   if (task.submitted === 1) {
@@ -139,7 +172,7 @@ async function submitScore() {
   try {
     await submitVideoScore(task.id, scorePayload())
     message.success('评分已提交')
-    await loadData()
+    await loadData({ allowWhileSaving: true })
   } catch (error) {
     showError(error, '评分提交失败')
   } finally {
@@ -148,6 +181,7 @@ async function submitScore() {
 }
 
 async function openPlayer() {
+  if (saving.value || !taskDataFresh.value) return
   const task = selectedTask.value
   if (!task) return
   try {
@@ -195,8 +229,12 @@ function moveWatermark() {
 }
 
 function showError(error: unknown, fallback: string) {
-  const detail = error instanceof Error ? error.message : fallback
+  const detail = errorText(error, fallback)
   message.error(detail || fallback)
+}
+
+function errorText(error: unknown, fallback: string) {
+  return error instanceof Error ? error.message || fallback : fallback
 }
 </script>
 
@@ -206,24 +244,45 @@ function showError(error: unknown, fallback: string) {
       <template #header>
         <div class="panel-title">
           <span>任务列表</span>
-          <n-tag size="small" :bordered="false">待评分 {{ pendingCount }}</n-tag>
+          <n-tag v-if="hasLoadedSuccessfully" size="small" :bordered="false">待评分 {{ pendingCount }}</n-tag>
         </div>
       </template>
       <template #header-extra>
-        <n-button secondary size="small" :loading="loading" @click="loadData">
+        <n-button secondary size="small" :loading="loading" :disabled="saving" @click="loadData()">
           <template #icon><n-icon :component="RefreshOutline" /></template>
           刷新
         </n-button>
       </template>
 
-      <n-spin :show="loading">
-        <n-empty v-if="!tasks.length" description="暂无评审任务" />
+      <n-alert v-if="taskDataStale" type="error" :bordered="false" class="task-stale-alert" role="alert">
+        <div class="task-stale-content">
+          <span>{{ loadError
+            ? `${loadError}。以下仍显示上次成功加载的结果，暂不可提交评分。`
+            : '任务正在刷新，以下为上次成功加载的结果，暂不可提交评分。' }}</span>
+          <n-button v-if="loadError" size="small" type="error" secondary :loading="loading" :disabled="saving" @click="loadData()">重试</n-button>
+        </div>
+      </n-alert>
+      <n-result v-if="initialLoadFailed" status="error" title="评审任务加载失败" :description="loadError" role="alert">
+        <template #footer>
+          <n-button type="primary" :loading="loading" :disabled="saving" @click="loadData()">重试</n-button>
+        </template>
+      </n-result>
+      <n-spin v-else :show="loading">
+        <n-skeleton v-if="loading && !tasks.length" text :repeat="6" />
+        <n-empty v-else-if="!tasks.length" description="暂无评审任务" />
         <n-list v-else hoverable clickable class="task-list">
           <n-list-item
             v-for="task in tasks"
             :key="task.id"
             :class="{ 'task-item--active': task.id === selectedTaskId }"
+            role="button"
+            :tabindex="saving || !taskDataFresh ? -1 : 0"
+            :aria-pressed="task.id === selectedTaskId"
+            :aria-disabled="saving || !taskDataFresh"
             @click="selectTask(task)"
+            @keydown.space.prevent
+            @keyup.enter.prevent="selectTask(task)"
+            @keyup.space.prevent="selectTask(task)"
           >
             <div class="task-row">
               <div class="task-main">
@@ -244,6 +303,7 @@ function showError(error: unknown, fallback: string) {
           :page="page"
           :page-size="size"
           :item-count="total"
+          :disabled="saving || loading"
           show-size-picker
           :page-sizes="[10, 20, 50, 100]"
           @update:page="onPageChange"
@@ -252,7 +312,7 @@ function showError(error: unknown, fallback: string) {
       </n-spin>
     </n-card>
 
-    <n-card :bordered="false" class="score-card">
+    <n-card v-if="hasLoadedSuccessfully" :bordered="false" class="score-card">
       <template #header>
         <div class="panel-title">
           <n-icon :component="CreateOutline" />
@@ -262,7 +322,7 @@ function showError(error: unknown, fallback: string) {
       <template #header-extra>
         <n-space size="small">
           <n-tag size="small" :bordered="false">已提交 {{ submittedCount }}</n-tag>
-          <n-button secondary size="small" :disabled="!selectedTask" @click="openPlayer">
+          <n-button secondary size="small" :disabled="!selectedTask || scoreLocked" @click="openPlayer">
             <template #icon><n-icon :component="PlayCircleOutline" /></template>
             播放
           </n-button>
@@ -297,7 +357,14 @@ function showError(error: unknown, fallback: string) {
             <tr v-for="item in scoreForm.dimensions" :key="item.code">
               <td>{{ item.label }}</td>
               <td>
-                <n-input-number v-model:value="item.score" :min="0" :max="100" :disabled="selectedTask.submitted === 1" style="width: 140px" />
+                <n-input-number
+                  v-model:value="item.score"
+                  :min="0"
+                  :max="100"
+                  :disabled="selectedTask.submitted === 1 || scoreLocked"
+                  :input-props="{ 'aria-label': item.label + '得分' }"
+                  style="width: 140px"
+                />
               </td>
             </tr>
           </tbody>
@@ -306,10 +373,17 @@ function showError(error: unknown, fallback: string) {
         <div class="score-footer">
           <div class="score-total">
             <span>总分</span>
-            <n-input-number v-model:value="scoreForm.score" :min="0" :max="100" :disabled="selectedTask.submitted === 1" class="score-total-input" />
+            <n-input-number
+              v-model:value="scoreForm.score"
+              :min="0"
+              :max="100"
+              :disabled="selectedTask.submitted === 1 || scoreLocked"
+              :input-props="{ 'aria-label': '总分' }"
+              class="score-total-input"
+            />
           </div>
           <div class="score-fields">
-            <n-radio-group v-model:value="scoreForm.conclusion" :disabled="selectedTask.submitted === 1">
+            <n-radio-group v-model:value="scoreForm.conclusion" :disabled="selectedTask.submitted === 1 || scoreLocked" aria-label="评审结论">
               <n-radio-button v-for="item in conclusionOptions" :key="String(item.value)" :value="item.value">
                 {{ item.label }}
               </n-radio-button>
@@ -318,12 +392,13 @@ function showError(error: unknown, fallback: string) {
               v-model:value="scoreForm.comment"
               type="textarea"
               :autosize="{ minRows: 3, maxRows: 6 }"
-              :disabled="selectedTask.submitted === 1"
+              :disabled="selectedTask.submitted === 1 || scoreLocked"
+              :input-props="{ 'aria-label': '评审意见' }"
               placeholder="评审意见"
             />
             <n-space justify="end">
               <StatusTag v-if="selectedTask.submitted === 1" :text="conclusionText(selectedTask.conclusion)" />
-              <n-button v-else type="primary" :loading="saving" @click="submitScore">提交评分</n-button>
+              <n-button v-else type="primary" :loading="saving" :disabled="scoreLocked" @click="submitScore">提交评分</n-button>
             </n-space>
           </div>
         </div>
@@ -361,6 +436,17 @@ function showError(error: unknown, fallback: string) {
   min-width: 0;
 }
 
+.task-stale-alert {
+  margin-bottom: var(--space-3);
+}
+
+.task-stale-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
 .task-list {
   margin: calc(var(--space-3) * -1);
 }
@@ -368,6 +454,11 @@ function showError(error: unknown, fallback: string) {
 .task-list :deep(.n-list-item) {
   padding: var(--space-3);
   border-radius: var(--radius-control);
+}
+
+.task-list :deep(.n-list-item[role='button']:focus-visible) {
+  outline: 2px solid var(--brand);
+  outline-offset: -2px;
 }
 
 .task-list-pagination {
@@ -517,6 +608,11 @@ function showError(error: unknown, fallback: string) {
   .score-footer,
   .summary-strip {
     grid-template-columns: 1fr;
+  }
+
+  .task-stale-content {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }
 </style>

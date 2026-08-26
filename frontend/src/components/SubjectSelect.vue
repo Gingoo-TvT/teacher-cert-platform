@@ -154,6 +154,10 @@ async function handleUpdate(value: string | number | null) {
 }
 
 async function selectSubject(code: string) {
+  if (props.disabled) {
+    message.warning('任教学科数据尚未就绪，请重试加载后再选择')
+    return
+  }
   if (!props.segmentCode) {
     message.warning('请先选择任教学段')
     return
@@ -238,6 +242,7 @@ onMounted(async () => {
           v-for="item in recentSubjects"
           :key="item.subjectCode"
           checkable
+          :disabled="disabled"
           :checked="selectedCode === item.subjectCode"
           @click="selectSubject(item.subjectCode)"
         >

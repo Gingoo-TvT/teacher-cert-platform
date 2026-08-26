@@ -1,24 +1,27 @@
 import axios, { type AxiosError, type AxiosInstance, type InternalAxiosRequestConfig } from 'axios'
 import { useUserStore } from '@/stores/user'
+import { SessionChangedError } from '@/stores/sessionEpoch'
 
 declare module 'axios' {
   interface AxiosRequestConfig {
     skipAuthRefresh?: boolean
+    skipAuthHeader?: boolean
     retried?: boolean
   }
 }
 
 const request: AxiosInstance = axios.create({
   baseURL: import.meta.env.VITE_API_BASE || '/api',
-  timeout: 30000
+  timeout: 30000,
+  withCredentials: true
 })
 
 let refreshPromise: Promise<string> | null = null
 
 // 请求拦截：注入 token
 request.interceptors.request.use((config) => {
-  const token = localStorage.getItem('accessToken') || localStorage.getItem('token')
-  if (token) {
+  const token = useUserStore().token
+  if (token && !config.skipAuthHeader) {
     config.headers.Authorization = `Bearer ${token}`
   }
   return config
@@ -38,20 +41,19 @@ request.interceptors.response.use(
     const config = error.config as InternalAxiosRequestConfig | undefined
     if (response?.status === 401 && config && !config.skipAuthRefresh && !config.retried) {
       const userStore = useUserStore()
-      if (userStore.refreshToken) {
-        try {
-          config.retried = true
-          refreshPromise = refreshPromise || userStore.refreshSession()
-          const token = await refreshPromise
-          refreshPromise = null
-          config.headers.Authorization = `Bearer ${token}`
-          return request(config)
-        } catch {
-          refreshPromise = null
-          userStore.logout()
+      try {
+        config.retried = true
+        refreshPromise = refreshPromise || userStore.refreshSession()
+        const token = await refreshPromise
+        refreshPromise = null
+        config.headers.Authorization = `Bearer ${token}`
+        return request(config)
+      } catch (refreshError) {
+        refreshPromise = null
+        if (refreshError instanceof SessionChangedError) {
+          return Promise.reject(refreshError)
         }
-      } else {
-        userStore.logout()
+        userStore.clearSession()
       }
       window.location.href = '/login'
       return Promise.reject(new Error('登录已过期，请重新登录'))

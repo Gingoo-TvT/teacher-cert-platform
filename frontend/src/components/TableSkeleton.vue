@@ -9,7 +9,7 @@ withDefaults(defineProps<{
 </script>
 
 <template>
-  <div class="table-skeleton" aria-label="表格加载中">
+  <div class="table-skeleton" role="status" aria-live="polite" aria-label="表格加载中">
     <div class="table-skeleton__head">
       <n-skeleton v-for="column in columns" :key="column" text :width="column === columns ? '68%' : '82%'" />
     </div>
@@ -21,7 +21,8 @@ withDefaults(defineProps<{
 
 <style scoped>
 .table-skeleton {
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
   background: var(--surface);

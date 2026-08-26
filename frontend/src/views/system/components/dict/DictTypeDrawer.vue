@@ -61,9 +61,14 @@ function open(row?: DictType) {
 }
 
 async function save() {
-  await formRef.value?.validate()
+  if (saving.value) return
   saving.value = true
   try {
+    try {
+      await formRef.value?.validate()
+    } catch {
+      return
+    }
     const payload: DictTypePayload = {
       // 后端与 MySQL/Redis/Caffeine 统一使用小写 canonical identity；前端同步收敛，避免保存后选择键漂移。
       typeCode: form.typeCode.trim().toLowerCase(),
@@ -98,13 +103,19 @@ defineExpose({ open })
 </script>
 
 <template>
-  <n-drawer v-model:show="visible" :width="560" placement="right">
-    <n-drawer-content :title="editingId ? '编辑字典类型' : '新增字典类型'">
-      <n-form ref="formRef" :model="form" :rules="rules" label-placement="top">
+  <n-drawer
+    v-model:show="visible"
+    width="min(var(--overlay-medium), var(--overlay-drawer-max))"
+    placement="right"
+    :mask-closable="!saving"
+    :close-on-esc="!saving"
+  >
+    <n-drawer-content :title="editingId ? '编辑字典类型' : '新增字典类型'" :closable="!saving">
+      <n-form ref="formRef" :model="form" :rules="rules" label-placement="top" :disabled="saving">
         <div class="form-section-title">基本信息</div>
-        <n-grid :cols="2" :x-gap="12">
+        <n-grid cols="1 480:2" responsive="self" item-responsive :x-gap="12">
           <n-form-item-gi label="类型编码" path="typeCode">
-            <n-input v-model:value="form.typeCode" :disabled="!!editingId" maxlength="64" show-count />
+            <n-input v-model:value="form.typeCode" :disabled="!!editingId || saving" maxlength="64" show-count />
           </n-form-item-gi>
           <n-form-item-gi label="类型名称" path="typeName">
             <n-input v-model:value="form.typeName" maxlength="128" show-count />
@@ -117,15 +128,15 @@ defineExpose({ open })
           </n-form-item-gi>
         </n-grid>
         <div class="form-section-title">补充说明</div>
-        <n-grid :cols="2" :x-gap="12">
-          <n-form-item-gi label="描述" path="description" :span="2">
+        <n-grid cols="1 480:2" responsive="self" item-responsive :x-gap="12">
+          <n-form-item-gi label="描述" path="description" span="1 480:2">
             <n-input v-model:value="form.description" type="textarea" maxlength="255" show-count />
           </n-form-item-gi>
         </n-grid>
       </n-form>
       <template #footer>
         <n-space justify="end">
-          <n-button @click="visible = false">取消</n-button>
+          <n-button :disabled="saving" @click="visible = false">取消</n-button>
           <n-button type="primary" :loading="saving" @click="save">保存</n-button>
         </n-space>
       </template>

@@ -55,15 +55,22 @@ function computedOptions(): SelectOption[] {
 }
 
 function close() {
+  if (props.loading) return
   emit('update:show', false)
 }
 
 function submit() {
+  if (props.loading) return
   if (form.action !== 'PASS' && !form.comment.trim()) {
     commentMissing.value = true
     return
   }
   emit('submit', { action: form.action, comment: form.comment.trim() })
+}
+
+function updateShow(show: boolean) {
+  if (props.loading && !show) return
+  emit('update:show', show)
 }
 
 function text(value?: string | number | null) {
@@ -74,7 +81,18 @@ function text(value?: string | number | null) {
 
 <template>
   <!-- n-modal 内容 teleport 到 body，scoped class 选择器不生效；宽度必须用内联 style -->
-  <n-modal :show="show" preset="card" :title="title" class="review-dialog" :bordered="false" style="width: min(560px, calc(100vw - 32px))" @update:show="emit('update:show', $event)">
+  <n-modal
+    :show="show"
+    preset="card"
+    :title="title"
+    class="review-dialog"
+    :bordered="false"
+    :closable="!loading"
+    :close-on-esc="!loading"
+    :mask-closable="!loading"
+    style="width: min(var(--overlay-medium), var(--overlay-modal-max))"
+    @update:show="updateShow"
+  >
     <div class="review-summary">
       <div v-for="item in summary" :key="item.label" class="review-summary__item">
         <span>{{ item.label }}</span>
@@ -83,7 +101,7 @@ function text(value?: string | number | null) {
       </div>
     </div>
 
-    <n-form label-placement="top">
+    <n-form label-placement="top" :disabled="loading">
       <n-form-item label="审核结论">
         <n-radio-group v-model:value="form.action">
           <n-space>
@@ -104,7 +122,7 @@ function text(value?: string | number | null) {
 
     <template #footer>
       <n-space justify="end">
-        <n-button @click="close">取消</n-button>
+        <n-button :disabled="loading" @click="close">取消</n-button>
         <n-button type="primary" :loading="loading" @click="submit">确认</n-button>
       </n-space>
     </template>
@@ -113,13 +131,13 @@ function text(value?: string | number | null) {
 
 <style scoped>
 .review-dialog {
-  width: min(560px, calc(100vw - 32px));
+  width: min(var(--overlay-medium), var(--overlay-modal-max));
 }
 
 .review-summary {
   display: grid;
   gap: var(--space-2);
-  margin-bottom: var(--space-5);
+  margin-bottom: var(--space-4);
   padding: var(--space-4);
   border-radius: var(--radius-control);
   background: var(--surface-muted);
@@ -139,10 +157,19 @@ function text(value?: string | number | null) {
 
 .review-summary__item strong {
   min-width: 0;
-  overflow: hidden;
   color: var(--text);
   font-weight: 500;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 480px) {
+  .review-summary__item {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-1);
+  }
+
+  .review-summary__item span {
+    text-align: left;
+  }
 }
 </style>

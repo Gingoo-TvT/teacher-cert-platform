@@ -1,0 +1,208 @@
+{
+  "metadata": {
+    "project": "teacher-cert-platform",
+    "auditModes": [
+      "incremental",
+      "security",
+      "stability",
+      "performance",
+      "testing-authenticity",
+      "release",
+      "configuration",
+      "data-integrity",
+      "concurrency"
+    ],
+    "date": "2026-07-27",
+    "reviewer": "OpenAI Codex",
+    "commitHash": "9c3da0b7e6dff5faec1cc888ce99c90d5bff81b0",
+    "scope": "Phase 44 fourth remediation; baseline 69f7462, code/test/deployment candidate 228a355, material HEAD 9c3da0b",
+    "reportLanguage": "zh-CN"
+  },
+  "executiveSummary": {
+    "text": "PASS: the remaining owner-loss Medium is closed by fail-closed pending recovery, a process-local publish guard, DML-before-window ordering, and exact 16/16 real MySQL/Redis interleavings. The four previous Low failure conditions are closed. One new non-blocking Low remains because the brownfield preflight is not wired into the authoritative release runbook and wrapper-based results lack self-identifying target markers."
+  },
+  "scoreDashboard": {
+    "dimensions": [
+      {
+        "name": "Security",
+        "score": 9.0,
+        "grade": "A",
+        "justification": "No auth, permission, credential, or external-interface delta; read-only evidence boundaries are explicit.",
+        "coverageConfidence": "Medium"
+      },
+      {
+        "name": "Stability",
+        "score": 9.0,
+        "grade": "A",
+        "justification": "Owner-loss and crash recovery remain fail-closed until a bounded recovery deadline.",
+        "coverageConfidence": "High"
+      },
+      {
+        "name": "Performance",
+        "score": 8.5,
+        "grade": "A",
+        "justification": "The low-frequency write path is bounded; no multi-instance load benchmark was run.",
+        "coverageConfidence": "Medium"
+      },
+      {
+        "name": "Testing",
+        "score": 9.2,
+        "grade": "A",
+        "justification": "Exact 16/16 real dependency evidence, 53/53 independent offline tests, and source/XML/hash/time-chain checks agree.",
+        "coverageConfidence": "High"
+      },
+      {
+        "name": "Maintainability",
+        "score": 8.8,
+        "grade": "A",
+        "justification": "Publication guard, configuration validation, gate scripts, and rollout contract are separated clearly.",
+        "coverageConfidence": "High"
+      },
+      {
+        "name": "Design",
+        "score": 8.8,
+        "grade": "A",
+        "justification": "Process-local and Redis guards cover complementary failure modes; durable post-commit revision remains a long-term boundary.",
+        "coverageConfidence": "High"
+      },
+      {
+        "name": "Release",
+        "score": 8.4,
+        "grade": "A",
+        "justification": "Blocking findings are zero; authoritative preflight wiring and target provenance remain one Low.",
+        "coverageConfidence": "High"
+      }
+    ],
+    "overall": {
+      "score": 8.8,
+      "grade": "A"
+    }
+  },
+  "findingStatistics": {
+    "bySeverity": [
+      {
+        "severity": "Critical",
+        "count": 0,
+        "confirmed": 0,
+        "suspected": 0
+      },
+      {
+        "severity": "High",
+        "count": 0,
+        "confirmed": 0,
+        "suspected": 0
+      },
+      {
+        "severity": "Medium",
+        "count": 0,
+        "confirmed": 0,
+        "suspected": 0
+      },
+      {
+        "severity": "Low",
+        "count": 1,
+        "confirmed": 1,
+        "suspected": 0
+      },
+      {
+        "severity": "Info",
+        "count": 0,
+        "confirmed": 0,
+        "suspected": 0
+      }
+    ],
+    "total": {
+      "count": 1,
+      "confirmed": 1,
+      "suspected": 0
+    }
+  },
+  "projectMap": {
+    "structure": "Spring Boot multi-module backend plus Vue frontend; Phase 44 owns notification batching and reference-data cache correctness.",
+    "keyComponents": [
+      "DictServiceImpl Redis payload/version/writers protocol",
+      "DictRedisPublishGuard process-local publication gate",
+      "ReferenceCacheInvalidator transaction synchronization",
+      "EpochGuardedCache local cache publication guard",
+      "Phase44CacheCommitWindowIT real MySQL/Redis interleavings",
+      "Phase 44 gate, preflight, Compose, and rollout contracts"
+    ],
+    "riskAreas": [
+      "owner loss before transaction completion",
+      "brownfield target provenance",
+      "new/old cache protocol rollout",
+      "durable post-commit cache revision"
+    ]
+  },
+  "coverageMatrix": [
+    {
+      "dimension": "Incremental",
+      "coverage": "High",
+      "evidenceInspected": "All 11 paths in 69f7462..228a355 plus material HEAD 9c3da0b",
+      "exclusions": "Other phases were not reopened"
+    },
+    {
+      "dimension": "Testing Authenticity",
+      "coverage": "High",
+      "evidenceInspected": "16 IT source methods, XML/testcase set, hashes, full log, time chain, independent 53/53",
+      "exclusions": "Codex did not operate real dependencies"
+    },
+    {
+      "dimension": "Data Integrity",
+      "coverage": "High",
+      "evidenceInspected": "MySQL read-your-writes, Redis Lua, local guard, owner lifecycle, brownfield preflight",
+      "exclusions": "No independent fault injection or brownfield write"
+    },
+    {
+      "dimension": "Release",
+      "coverage": "High",
+      "evidenceInspected": "Git parent chain, exact gate, Compose, env, Phase 14 runbook, preflight",
+      "exclusions": "No merge, push, deployment, or rollback"
+    }
+  ],
+  "topRisks": [
+    {
+      "title": "Brownfield preflight is not authoritative and wrapper target evidence is incomplete",
+      "severity": "Low",
+      "summary": "The current target passed, but README and Phase 14 do not mandate the preflight and its PASS output lacks database, account, and server identity markers.",
+      "findingId": "P44-R4-L1"
+    }
+  ],
+  "detailedFindings": [
+    {
+      "id": "P44-R4-L1",
+      "title": "Brownfield preflight is not authoritative and wrapper target evidence is incomplete",
+      "severity": "Low",
+      "confidence": "High",
+      "category": "Release / Testing Authenticity / Configuration",
+      "status": "Confirmed",
+      "affectedArea": "Phase 44 brownfield pre-deploy gate",
+      "evidence": {
+        "file": "scripts/preflight-phase44-dict-identity.sh",
+        "lineNumbers": "11-13,59-91,168-241",
+        "functionOrModule": "CLI injection, read-only query, and PASS markers",
+        "relevantBehavior": "The script validates check results but does not emit DATABASE(), CURRENT_USER(), or server identity, and the authoritative rollout docs do not require it."
+      },
+      "failureScenario": "A future operator skips the candidate-only preflight or a wrapper connects to a different same-shaped schema and archives a green result.",
+      "userVisibleImpact": "Historical collisions or collation drift in the actual deployment schema can be missed.",
+      "minimalFix": "Wire the script into Phase 14 and README, validate target markers, archive a redacted grants and cleanup summary, and add pure-stub negative tests.",
+      "betterLongTermFix": "Generate a signed pre-deploy artifact containing candidate SHA, target instance ID, schema, redacted principal, and structured results.",
+      "regressionTestSuggestion": "Use offline stubs for correct target, wrong target, missing or duplicate markers, and nonzero client exit.",
+      "estimatedEffort": "0.5 day"
+    }
+  ],
+  "fixOrder": [
+    {
+      "priority": 1,
+      "findingId": "P44-R4-L1",
+      "reason": "It is non-blocking for this target but should be closed before stable release."
+    }
+  ],
+  "quickWins": [
+    {
+      "findingId": "P44-R4-L1",
+      "effort": "0.5 day",
+      "impact": "Makes future brownfield gates mandatory and independently attributable."
+    }
+  ]
+}

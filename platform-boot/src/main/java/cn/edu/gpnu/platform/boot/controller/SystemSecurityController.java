@@ -78,7 +78,6 @@ public class SystemSecurityController {
 
     @Operation(summary = "重置密码（学生返回一次性临时口令）")
     @PreAuthorize("@pms.has('system:user:manage')")
-    @AuditLog(bizType = "systemUser", operation = "resetPassword")
     @PutMapping("/user/{id}/reset-pwd")
     public Result<String> resetPassword(@PathVariable Long id) {
         return Result.ok(securityAdminService.resetPassword(id));

@@ -1,0 +1,73 @@
+{
+  "timestamp": "2026-07-26T13:38:15+08:00",
+  "project": "teacher-cert-platform",
+  "reviewer": "OpenAI Codex",
+  "audit_mode": "incremental-evidence-remediation-rereview",
+  "selected_modes": [
+    "security",
+    "stability",
+    "testing-authenticity",
+    "release",
+    "configuration",
+    "data-integrity",
+    "concurrency"
+  ],
+  "scope": "8d42dcc146e272d9a170b8b64837395c5758853b..34e4d51789892f6737c1e9cfaaf7b998f390fa9f, one direct evidence and governance commit with production, test, dependency, Flyway, frontend and build behavior unchanged",
+  "baseline_commit": "8d42dcc146e272d9a170b8b64837395c5758853b",
+  "code_commit": "b9abc6c2614e98cd52e271bb5882383e03b25c09",
+  "evidence_remediation_commit": "34e4d51789892f6737c1e9cfaaf7b998f390fa9f",
+  "outcome": "PASS",
+  "overall_score": 9.5,
+  "dimension_scores": {
+    "security": 9.2,
+    "stability": 10.0,
+    "performance": 10.0,
+    "testing": 8.8,
+    "maintainability": 9.7,
+    "design": 9.8,
+    "release": 9.3
+  },
+  "finding_counts": {
+    "critical": 0,
+    "high": 0,
+    "medium": 0,
+    "low": 3,
+    "info": 0
+  },
+  "closure": {
+    "ignored_dynamic_logs_medium": "closed",
+    "complete_expired_secret_values_in_tracked_evidence_low": "closed_by_original_issue_definition",
+    "packaged_video_real_probe_test_missing_low": "carried_non_blocking",
+    "credential_derived_fragment_and_non_reproducible_secret_lint_low": "confirmed_non_blocking",
+    "local_username_and_absolute_paths_in_archived_logs_low": "confirmed_non_blocking"
+  },
+  "safe_checks": [
+    "twelve archived logs match the manifest original and archive hashes, the prior independent raw inventory, the working files and Git blobs: PASS",
+    "all twelve logs and six explicit dynamic report references are tracked: PASS",
+    "target Git attributes text unset and diff unset: PASS",
+    "complete old temporary password and complete old presigned credential and signature values absent from the current Phase 53 evidence tree: PASS",
+    "mvn -o -B -ntp -pl platform-boot -am clean test: PASS 195/195",
+    "DemoDataInitializerTest: PASS 21/21",
+    "VideoMediaAcceptancePolicyTest: PASS 10/10",
+    "audit report lint for all supported selected modes: PASS",
+    "git diff --check 8d42dcc..34e4d51: PASS",
+    "8d42dcc..34e4d51 scoped production, test, dependency, Flyway, frontend and build paths: unchanged"
+  ],
+  "evidence_hashes": {
+    "report_sha256": "8007C642AC8EEA5F71A8F7FA8913E16F9CFEF4F74F4544E82FA47F62D9FD8A97",
+    "independent_evidence_sha256": "D712BC1A2481C95E0F53E70E3D47372AB414BACDFFEBD3AD96F4D9A1EDB9C122",
+    "demo_initializer_test_xml_sha256": "D5F82E555D131AEE599E53DCBD973C9C70AABAC9D4B066FD025C37B5E04AE38C",
+    "media_policy_test_xml_sha256": "BBE7B1FCF58C4B50C0C31C51F77432014EE5DA87050F89F7A02E2E4FC4BA04A4"
+  },
+  "evidence_limitations": [
+    "No network, service, Docker, database, MinIO, browser, permission change, scan, credential attempt, fault injection, fuzz or stress action was executed",
+    "The user-run dynamic environment was not recreated by the independent reviewer",
+    "The focused unit tests still stub the real media probe for the packaged demo video",
+    "The tracked scan description retains a credential-derived fragment and the zero-hit secret-lint record does not archive its command, scope, exclusions or allowlist",
+    "Eleven archived backend logs retain a local username and absolute workspace path",
+    "Object storage writes have no CAS against external exact-key writers and depend on an isolated bucket and serialized operations",
+    "The Phase 7 copied-presigned-link requirement conflicts with the current time-limited bearer URL behavior and is carried to the final full audit"
+  ],
+  "evidence_path": "docs/reviews/evidence/phase53-evidence-remediation-rereview-2026-07-26/offline-integrity-and-regression.txt",
+  "report_path": "docs/reviews/phase-53-evidence-remediation-rereview-2026-07-26.md"
+}

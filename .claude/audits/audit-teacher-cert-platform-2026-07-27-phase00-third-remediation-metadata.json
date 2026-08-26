@@ -1,0 +1,254 @@
+{
+  "metadata": {
+    "project": "teacher-cert-platform",
+    "auditModes": [
+      "incremental",
+      "testing-authenticity",
+      "release",
+      "configuration",
+      "documentation",
+      "supply-chain",
+      "security"
+    ],
+    "date": "2026-07-27",
+    "reviewer": "OpenAI Codex",
+    "baselineCommit": "5d3aa88abc7e596a5b98c402a0c4aff2894bbc3a",
+    "productCommit": "cc5786cc1c1ed1a243152bf306eca6998bbc0eee",
+    "commitHash": "30a76c8a52d053f39c1b974287434c1390e150ee",
+    "scope": "Phase 0 / U-004 third remediation and exact evidence gate",
+    "reportLanguage": "zh-CN",
+    "reportPath": "docs/reviews/phase-00-third-remediation-rereview-2026-07-27.md",
+    "evidencePath": "docs/reviews/evidence/phase00-third-remediation-rereview-2026-07-27",
+    "verdict": "CHANGES_REQUESTED"
+  },
+  "executiveSummary": {
+    "text": "All two Medium and three Low findings from the second review are closed under their original failure conditions. The immutable Git-object source binding, real target identity chain, Windows and manifest hardening, checklist split, and 32-of-32 parameter matrix are substantive. CHANGES_REQUESTED remains because evidence self-verification can leave a PASS manifest when a non-GateError I/O exception escapes. Two Low findings cover check-then-open reparse TOCTOU and unredacted MinIO response headers in identity artifacts. The final real-dependency 7-suite/33-testcase gate has not been executed."
+  },
+  "scoreDashboard": {
+    "dimensions": [
+      {
+        "name": "Incremental",
+        "score": 8.0,
+        "grade": "A",
+        "coverageConfidence": "High"
+      },
+      {
+        "name": "Testing Authenticity",
+        "score": 7.5,
+        "grade": "A",
+        "coverageConfidence": "High"
+      },
+      {
+        "name": "Release",
+        "score": 6.5,
+        "grade": "B",
+        "coverageConfidence": "High"
+      },
+      {
+        "name": "Configuration",
+        "score": 8.5,
+        "grade": "A",
+        "coverageConfidence": "High"
+      },
+      {
+        "name": "Documentation",
+        "score": 8.5,
+        "grade": "A",
+        "coverageConfidence": "High"
+      },
+      {
+        "name": "Supply Chain",
+        "score": 7.5,
+        "grade": "A",
+        "coverageConfidence": "Medium"
+      },
+      {
+        "name": "Security",
+        "score": 7.5,
+        "grade": "A",
+        "coverageConfidence": "Medium"
+      }
+    ],
+    "overall": {
+      "score": 7.7,
+      "grade": "A"
+    }
+  },
+  "findingStatistics": {
+    "bySeverity": [
+      {
+        "severity": "Critical",
+        "count": 0,
+        "confirmed": 0,
+        "suspected": 0
+      },
+      {
+        "severity": "High",
+        "count": 0,
+        "confirmed": 0,
+        "suspected": 0
+      },
+      {
+        "severity": "Medium",
+        "count": 1,
+        "confirmed": 1,
+        "suspected": 0
+      },
+      {
+        "severity": "Low",
+        "count": 2,
+        "confirmed": 2,
+        "suspected": 0
+      },
+      {
+        "severity": "Info",
+        "count": 0,
+        "confirmed": 0,
+        "suspected": 0
+      }
+    ],
+    "total": {
+      "count": 3,
+      "confirmed": 3,
+      "suspected": 0
+    }
+  },
+  "previousFindingClosure": [
+    {
+      "finding": "P00-R2-M1 candidate HEAD drift",
+      "status": "CLOSED"
+    },
+    {
+      "finding": "P00-R2-M2 target markers not bound to actual services",
+      "status": "CLOSED"
+    },
+    {
+      "finding": "P00-R2-L1 Windows containment and source/spec provenance",
+      "status": "ORIGINAL_FAILURE_CLOSED_NEW_TOCTOU_LOW"
+    },
+    {
+      "finding": "P00-R2-L2 application context checked before execution",
+      "status": "CLOSED"
+    },
+    {
+      "finding": "P00-R2-L3 parameter matrix covers 24 of 32",
+      "status": "CLOSED"
+    }
+  ],
+  "topRisks": [
+    {
+      "findingId": "P00-R3-M1",
+      "title": "Non-GateError self-verification failure can leave PASS evidence",
+      "severity": "Medium"
+    },
+    {
+      "findingId": "P00-R3-L1",
+      "title": "Evidence containment remains check-then-open",
+      "severity": "Low"
+    },
+    {
+      "findingId": "P00-R3-L2",
+      "title": "MinIO response headers bypass evidence secret validation",
+      "severity": "Low"
+    }
+  ],
+  "detailedFindings": [
+    {
+      "id": "P00-R3-M1",
+      "title": "Non-GateError self-verification failure can leave PASS evidence",
+      "severity": "Medium",
+      "confidence": "High",
+      "category": "Release / Testing Authenticity / Provenance",
+      "status": "Confirmed",
+      "affectedArea": "scripts/phase00_ci_gate.py evidence finalization",
+      "evidence": {
+        "file": "scripts/phase00_ci_gate.py",
+        "lineNumbers": "251-256,3287-3313,4220-4383,4773,5041-5048",
+        "relevantBehavior": "A PASS manifest is persisted before self-verification and only GateError triggers downgrade, while ordinary file operations can raise OSError or PermissionError."
+      },
+      "failureScenario": "A Windows file lock or concurrent deletion makes verification fail with a nonzero process exit while the already-persisted manifest remains PASS and is uploaded.",
+      "minimalFix": "Finalize PASS atomically only after complete verification; ensure every non-success path leaves no PASS manifest.",
+      "estimatedEffort": "2-4 hours"
+    },
+    {
+      "id": "P00-R3-L1",
+      "title": "Evidence containment remains check-then-open",
+      "severity": "Low",
+      "confidence": "High",
+      "category": "Security / Supply Chain / Testing Authenticity",
+      "status": "Confirmed",
+      "affectedArea": "offline evidence verifier filesystem boundary",
+      "evidence": {
+        "file": "scripts/phase00_ci_gate.py",
+        "lineNumbers": "984-1024,1766-1802,4220-4383",
+        "relevantBehavior": "Path chains are checked for reparse points and later reopened by path without a no-follow anchored handle."
+      },
+      "failureScenario": "A concurrently modified evidence parent is replaced after containment checks and before read or hashing, allowing the verifier to touch an out-of-root path before failing.",
+      "minimalFix": "Use handle-anchored no-follow reads or validate an exclusively copied staging directory.",
+      "estimatedEffort": "0.5-1 day"
+    },
+    {
+      "id": "P00-R3-L2",
+      "title": "MinIO response headers bypass evidence secret validation",
+      "severity": "Low",
+      "confidence": "High",
+      "category": "Security / Evidence Hygiene",
+      "status": "Confirmed",
+      "affectedArea": "preflight and runtime identity artifacts",
+      "evidence": {
+        "file": "scripts/phase00_ci_gate.py",
+        "lineNumbers": "1272-1275,1433-1439,3591-3601,3832-3842,4085-4090",
+        "relevantBehavior": "Arbitrary clean-text Server and deploymentId values are archived without redaction while the manifest asserts containsSecrets=false."
+      },
+      "failureScenario": "A proxy or non-standard target reflects credential-like metadata in a service header that is retained in the uploaded identity artifact.",
+      "minimalFix": "Constrain the identity format, omit or allowlist Server, and scan or redact identity artifacts before declaring them secret-free.",
+      "estimatedEffort": "1-2 hours"
+    }
+  ],
+  "independentValidation": {
+    "phase00GateUnitTests": {
+      "tests": 60,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "selfVerificationIoFailureProbe": {
+      "result": "OSError PASS ['PASS']",
+      "externalIo": false
+    },
+    "fullSurefire": {
+      "suites": 32,
+      "tests": 274,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "backendPackage": "PASS_9_OF_9_MODULES",
+    "backendCheckstyle": "PASS_0_VIOLATIONS",
+    "frontendLint": "PASS",
+    "frontendTypeCheck": "PASS",
+    "frontendBuild": "PASS_WITH_EXISTING_CHUNK_WARNINGS",
+    "diffCheck": "PASS",
+    "realDependencyExactGate": "NOT_EXECUTED",
+    "dockerComposeConfig": "NOT_EXECUTED",
+    "browserValidation": "NOT_EXECUTED"
+  },
+  "safetyBoundary": {
+    "docker": "not started or connected",
+    "databases": "not started or connected",
+    "network": "not used",
+    "services": "not started",
+    "browser": "not used",
+    "cyberActions": "not executed",
+    "destructiveActions": "not executed",
+    "gitMutations": "no stage, commit, merge, push, or deploy"
+  },
+  "nextGate": [
+    "Fix P00-R3-M1 before generating dynamic evidence.",
+    "Fix or explicitly disposition P00-R3-L1 and P00-R3-L2 in the same remediation.",
+    "Replay the offline gate tests and add self-verification I/O failure, containment race, and identity-header cases.",
+    "Run the new final SHA exact 7-suite/33-testcase gate in an authorized fresh isolated MySQL, Redis, and MinIO stack.",
+    "Provide Docker Compose config, required browser evidence, and isolated resource cleanup proof.",
+    "Perform an independent evidence-only incremental review before Phase 0 PASS."
+  ]
+}

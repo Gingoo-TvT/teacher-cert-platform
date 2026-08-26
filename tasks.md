@@ -10,7 +10,8 @@
 > 层：`Infra`=工程/部署 · `BE`=后端 · `FE`=前端 · `DB`=数据库迁移。
 > 全局完成定义（DoD）：编译与现行 lint 门禁通过 + 单元/集成测试 + Swagger 更新 + 不破坏既有用例 +
 > 关键路径有 `audit_log`。现行最小 lint 为后端 Checkstyle（Maven `validate`）与前端 ESLint；
-> Spotless/Prettier、渐进严格规则、Vitest/Playwright/a11y 由统一计划 WS-6 管理。
+> 后续 WS-6 已接入 Vitest、Playwright 产品冒烟与 scoped axe；Spotless/Prettier、渐进严格规则和 bundle budget
+> 未纳入该最小产品门禁，继续作为非阻断后续项。
 > 执行顺序：按 Phase 升序；同 Phase 内按编号；标 `∥` 者可并行。优先级：Phase 0–10、13 = P0；11、12 = P1；14(M14 预留) = P2。
 
 ---
@@ -39,10 +40,10 @@
 `docker compose up` 健康复验属于部署环境验收，不以历史运行记录冒充当前候选证据。
 
 **T-006 · [BE] platform-file MinIO 文件服务**  ← 依赖：T-004,T-005
-产出：MinIO 配置、`FileService`（上传/下载流/预签名 URL/删除，不公开通用摘要命中 API）、
+产出：MinIO 配置、`FileService`（上传/受控范围读取/删除，不公开通用摘要命中或 GET 预签名 API）、
 `file_object` CRUD、`@FileBiz` 标记业务归属。通用上传不承诺基于客户端 MD5 的全局自动秒传；
 受主体/业务/服务端验真约束的视频秒传由 T-057 单独定义。
-验收：上传返回 fileId；预签名 URL 限时可访问，过期失效。
+验收：上传返回 fileId；受控读取内容逐字节一致；浏览器读取地址未登录或退出后访问失败。
 
 **T-007 · [BE] 审计切面 + 数据权限切面骨架**  ← 依赖：T-002,T-004
 产出：`@AuditLog` AOP（落 `audit_log`：操作人/时间/前后状态/IP）、`@DataScope` AOP（注入 SQL 范围条件，按 college_id/授权专业/本人）。
@@ -50,8 +51,9 @@
 
 **T-008 · [FE] 前端工程脚手架**  ← 依赖：—  ∥
 产出：Vite+Vue3+TS+Naive UI+Pinia+Vue Router；Axios 封装（token 注入/统一错误/loading/401 刷新）；基础布局（侧栏/顶栏/面包屑/标签页）、主题、`.env`。
-验收：lint/type-check/production build 与 Axios/路由静态契约通过；真实浏览器登录、`/me`、目标路由及错误态
-在认证阶段与 WS-6/最终全量审计验证，不以历史浏览器材料冒充当前 Phase 0 证据。
+验收：lint/type-check/production build 与 Axios/路由静态契约通过；WS-6 另以构建产物 + 严格 API mock 验证
+登录/会话、目标路由及错误态的前端行为，真实后端登录联调仍由认证阶段/最终全量审计验证，不以历史浏览器
+材料冒充当前 Phase 0 证据。
 
 **T-009 · [FE] 路由权限框架与按钮指令**  ← 依赖：T-008
 产出：路由守卫（登录态/菜单权限）、动态菜单、`v-perm` 指令（按钮级权限）、403/404 页。
@@ -59,7 +61,8 @@
 
 **T-010 · [Infra] CI 与代码规范**  ← 依赖：T-001,T-008  ∥
 产出：后端 Checkstyle 最小客观缺陷规则绑定 Maven `validate`，前端 ESLint 9 接入 CI，统一 commit 规范；
-格式化统一（Spotless/Prettier）、更严格 lint、Vitest/Playwright/a11y 进入 WS-6，不在 Phase 0 冒充已完成。
+后续 WS-6 已补 Vitest/Playwright/scoped axe，格式化统一（Spotless/Prettier）与更严格 lint 未纳入最小门禁，
+不在 Phase 0 或 WS-6 冒充已完成。
 验收：`mvn verify` 自动执行 Checkstyle，`npm run lint` 通过（脚本自身固定 `--max-warnings 0`），
 CI 任一违规即失败。
 
@@ -216,7 +219,7 @@ CI 任一违规即失败。
 ## Phase 5 · 文件服务 + 过程性考核材料（M05）
 
 **T-044 · [BE] 通用附件上传（PDF/图片）+ 大小限制**  ← 依赖：T-006
-产出：受限上传接口（类型 PDF/JPG/JPEG/PNG、单附件大小参数化）、在线预览预签名（PDF/图片）。
+产出：受限上传接口（类型 PDF/JPG/JPEG/PNG、单附件大小参数化）、登录绑定的在线预览代理（PDF/图片）。
 验收：超限/非法类型被拒；预览鉴权有效。
 
 **T-045 · [DB] process_material 表**  ← 依赖：T-030
@@ -304,8 +307,8 @@ CI 任一违规即失败。
 验收：复评后产生唯一终分与结论并留痕（AT-08）。
 
 **T-064 · [BE] 视频鉴权播放 + 水印数据下发**  ← 依赖：T-057,T-025
-产出：鉴权后下发限时预签名播放地址；返回水印信息（用户名/工号/时间）。
-验收：未登录/越权无法获取播放地址。
+产出：鉴权后下发登录绑定的应用播放地址；返回水印信息（用户名/工号/时间）。
+验收：未登录/越权无法获取或直接访问播放内容，退出后旧内容地址失效。
 
 **T-065 · [FE] 视频上传页（学生端，分片进度）**  ← 依赖：T-057,T-058
 产出：分片上传、进度条、断点续传、失败重传、校验结果提示。

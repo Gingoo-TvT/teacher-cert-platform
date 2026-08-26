@@ -1,0 +1,7 @@
+3f54851a685edb9377a848bca5b6f8f5a305da512b8a59fb2f061f7bb8501f46  failsafe-reports/cn.edu.gpnu.platform.boot.Phase2SecurityIT.txt
+4f524f56495eb534703c46c043a9f2995a333618533045d07c9bac2a0130a8e3  failsafe-reports/cn.edu.gpnu.platform.boot.Phase41BackupIT.txt
+e0c771ee18c8d1143b6dae097cf32756c21852d1afa0ba39f0c991d6beb0f3c3  failsafe-reports/failsafe-summary.xml
+8576f23ae0671c8cc9fb00224bf14256f0e3fdbbfc00368b860adea01c511c01  failsafe-reports/TEST-cn.edu.gpnu.platform.boot.Phase2SecurityIT.xml
+25b814c14cbe243ad8a3afe3ab4f7ea8e0fb70e7daa262190af85a99fbea6b67  failsafe-reports/TEST-cn.edu.gpnu.platform.boot.Phase41BackupIT.xml
+0c97087f28d7a59a347126dda183fcf03078963401a097b3646fc632d4dc97f1  logs/run3-phase2.log.txt
+a28b98f172333ef8dbcb8d1a51b16ba80e274c67bce7a719abc1a125e6ed4d21  logs/run3-phase41.log.txt

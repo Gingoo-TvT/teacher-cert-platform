@@ -19,6 +19,7 @@ import cn.edu.gpnu.platform.business.video.mapper.VideoReviewTaskMapper;
 import cn.edu.gpnu.platform.exchange.model.ExchangeColumn;
 import cn.edu.gpnu.platform.exchange.model.ExchangeStandardRow;
 import cn.edu.gpnu.platform.exchange.support.ExchangeExcelHelper;
+import cn.edu.gpnu.platform.security.service.IdCardProtectionService;
 import cn.edu.gpnu.platform.system.entity.SysAuditLog;
 import cn.edu.gpnu.platform.system.entity.SysParam;
 import cn.edu.gpnu.platform.system.entity.SysUser;
@@ -125,6 +126,9 @@ class Phase14E2EIT {
     private StudentMapper studentMapper;
 
     @Autowired
+    private IdCardProtectionService idCardProtectionService;
+
+    @Autowired
     private TrainingProfileMapper trainingProfileMapper;
 
     @Autowired
@@ -206,7 +210,11 @@ class Phase14E2EIT {
                 .last("LIMIT 1"));
         assertThat(student).isNotNull();
         assertThat(student.getStudentNo()).isEqualTo(STUDENT_NO);
-        assertThat(student.getIdCardNo()).isEqualTo(importedRow.getIdCardNo());
+        assertThat(idCardProtectionService.isEncrypted(student.getIdCardNo())).isTrue();
+        assertThat(idCardProtectionService.decrypt(student.getIdCardNo()))
+                .isEqualTo(importedRow.getIdCardNo());
+        assertThat(student.getIdCardHmac())
+                .isEqualTo(idCardProtectionService.hmac(importedRow.getIdCardNo()));
         training = trainingByStudentYear(student.getId(), YEAR);
         assertThat(training.getTeachingSubjectCode()).isEqualTo(importedRow.getTeachingSubject());
         certificateMapper.delete(new LambdaQueryWrapper<Certificate>()
@@ -639,7 +647,7 @@ class Phase14E2EIT {
                 Map.entry("name", student.getName()),
                 Map.entry("gender", student.getGender()),
                 Map.entry("idCardType", student.getIdCardType()),
-                Map.entry("idCardNo", student.getIdCardNo()),
+                Map.entry("idCardNo", idCardProtectionService.decrypt(student.getIdCardNo())),
                 Map.entry("birthDate", student.getBirthDate()),
                 Map.entry("identityType", student.getIdentityType()),
                 Map.entry("sourceProvince", "440000"),

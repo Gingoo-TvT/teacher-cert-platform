@@ -14,6 +14,7 @@ import cn.edu.gpnu.platform.file.service.FileService;
 import cn.edu.gpnu.platform.file.service.MultipartObjectService;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import io.minio.MinioClient;
+import io.minio.GetObjectArgs;
 import io.minio.PutObjectArgs;
 import io.minio.RemoveObjectArgs;
 import lombok.RequiredArgsConstructor;
@@ -21,15 +22,11 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
-import software.amazon.awssdk.services.s3.model.GetObjectRequest;
-import software.amazon.awssdk.services.s3.presigner.S3Presigner;
-import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
 
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.List;
@@ -51,7 +48,6 @@ public class FileServiceImpl implements FileService {
     private static final int MAX_MULTIPART_PARTS = 10_000;
 
     private final MinioClient minioClient;
-    private final S3Presigner s3Presigner;
     private final MultipartObjectService multipartObjectService;
     private final MinioProperties props;
     private final FileObjectMapper fileObjectMapper;
@@ -61,19 +57,6 @@ public class FileServiceImpl implements FileService {
         String ext = (originalName != null && originalName.contains(".")) ? originalName.substring(originalName.lastIndexOf('.')) : "";
         String prefix = (bizType == null || bizType.isEmpty()) ? "misc" : bizType;
         String objectKey = prefix + "/" + UUID.randomUUID().toString().replace("-", "") + ext;
-        // Phase 41.3（§7.2 P1）：try-with-resources 关闭入参流，防高并发下流/底层 socket/临时文件句柄泄漏。
-        // MinIO putObject 在返回前已按声明的 size 同步读完整个 stream，故可在本方法内安全关闭，
-        // 调用方（controller/service）均不在 upload 返回后继续使用该流。
-        try (in) {
-            minioClient.putObject(PutObjectArgs.builder()
-                    .bucket(props.getBucket())
-                    .object(objectKey)
-                    .stream(in, size, -1)
-                    .contentType(contentType == null ? "application/octet-stream" : contentType)
-                    .build());
-        } catch (Exception e) {
-            throw new BizException("文件上传失败: " + e.getMessage());
-        }
         FileObject fo = new FileObject();
         fo.setOriginalName(originalName);
         fo.setStoredName(objectKey.substring(objectKey.indexOf('/') + 1));
@@ -82,11 +65,69 @@ public class FileServiceImpl implements FileService {
         fo.setSize(size);
         fo.setContentType(contentType);
         fo.setBizType(bizType);
-        fo.setStatus("READY");
+        fo.setStatus("UPLOADING");
         fo.setUploaderId(UserContext.getUserIdOrSystem());
         fo.setUploadTime(LocalDateTime.now());
-        fileObjectMapper.insert(fo);
+
+        boolean objectUploaded = false;
+        // 先登记可追踪 intent，再写对象；数据库 insert 失败时不会产生无元数据对象。
+        // 任一后续失败都保留 FAILED 元数据，且对已成功的精确 key 做 best-effort 补删。
+        try (in) {
+            if (fileObjectMapper.insert(fo) != 1) {
+                throw new IllegalStateException("文件上传 intent 未写入");
+            }
+            minioClient.putObject(PutObjectArgs.builder()
+                    .bucket(props.getBucket())
+                    .object(objectKey)
+                    .stream(in, size, -1)
+                    .contentType(contentType == null ? "application/octet-stream" : contentType)
+                    .build());
+            objectUploaded = true;
+        } catch (Exception e) {
+            markServerUploadFailed(fo.getId());
+            if (objectUploaded) {
+                bestEffortRemoveServerUpload(objectKey);
+            }
+            log.error("文件上传到对象存储失败", e);
+            throw new BizException("文件上传失败，请稍后重试");
+        }
+        try {
+            int changed = fileObjectMapper.transitionStatus(
+                    fo.getId(), "UPLOADING", "READY", LocalDateTime.now());
+            if (changed != 1) {
+                throw new IllegalStateException("文件登记状态已变化");
+            }
+        } catch (Exception e) {
+            markServerUploadFailed(fo.getId());
+            bestEffortRemoveServerUpload(objectKey);
+            log.error("文件对象已写入但 READY 登记失败 fileId={}", fo.getId(), e);
+            throw new BizException("文件登记失败，请稍后重试");
+        }
+        fo.setStatus("READY");
         return fo;
+    }
+
+    private void markServerUploadFailed(Long fileId) {
+        if (fileId == null) {
+            return;
+        }
+        try {
+            fileObjectMapper.transitionStatus(fileId, "UPLOADING", "FAILED", LocalDateTime.now());
+        } catch (Exception e) {
+            log.error("标记服务端上传失败状态失败 fileId={}", fileId, e);
+        }
+    }
+
+    private void bestEffortRemoveServerUpload(String objectKey) {
+        try {
+            minioClient.removeObject(RemoveObjectArgs.builder()
+                    .bucket(props.getBucket())
+                    .object(objectKey)
+                    .build());
+        } catch (Exception e) {
+            log.error("补删服务端上传对象失败，FAILED file_object 将保留供孤儿扫描 objectKey={}",
+                    objectKey, e);
+        }
     }
 
     @Override
@@ -290,27 +331,40 @@ public class FileServiceImpl implements FileService {
     }
 
     @Override
-    public String presignedGet(Long fileId, int expirySeconds) {
-        FileObject fo = fileObjectMapper.selectById(fileId);
-        if (fo == null) {
+    public FileObject readyFile(Long fileId) {
+        if (fileId == null) {
+            throw new BizException("文件ID不能为空");
+        }
+        FileObject file = fileObjectMapper.selectById(fileId);
+        if (file == null) {
             throw new BizException("文件不存在");
         }
-        if (StringUtils.hasText(fo.getStatus()) && !"READY".equals(fo.getStatus())) {
+        if (StringUtils.hasText(file.getStatus()) && !"READY".equals(file.getStatus())) {
             throw new BizException("文件尚未上传完成");
         }
+        if (file.getSize() == null || file.getSize() < 0) {
+            throw new BizException("文件大小不合法");
+        }
+        return file;
+    }
+
+    @Override
+    public InputStream openRange(Long fileId, long offset, long length) {
+        FileObject file = readyFile(fileId);
+        long size = file.getSize();
+        if (offset < 0 || length <= 0 || offset >= size || length > size - offset) {
+            throw new BizException("文件读取范围不合法");
+        }
         try {
-            GetObjectRequest request = GetObjectRequest.builder()
-                    .bucket(fo.getBucket())
-                    .key(fo.getObjectKey())
-                    .build();
-            return s3Presigner.presignGetObject(GetObjectPresignRequest.builder()
-                            .signatureDuration(Duration.ofSeconds(Math.max(1, Math.min(expirySeconds, 3600))))
-                            .getObjectRequest(request)
-                            .build())
-                    .url()
-                    .toString();
+            return minioClient.getObject(GetObjectArgs.builder()
+                    .bucket(file.getBucket())
+                    .object(file.getObjectKey())
+                    .offset(offset)
+                    .length(length)
+                    .build());
         } catch (Exception e) {
-            throw new BizException("生成下载链接失败: " + e.getMessage());
+            log.error("从对象存储读取文件失败 fileId={}", fileId, e);
+            throw new BizException("读取文件失败，请稍后重试");
         }
     }
 
@@ -326,7 +380,8 @@ public class FileServiceImpl implements FileService {
                     .object(fo.getObjectKey())
                     .build());
         } catch (Exception e) {
-            throw new BizException("文件删除失败: " + e.getMessage());
+            log.error("从对象存储删除文件失败 fileId={}", fileId, e);
+            throw new BizException("文件删除失败，请稍后重试");
         }
         fileObjectMapper.deleteById(fileId);
     }

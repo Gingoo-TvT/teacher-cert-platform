@@ -11,6 +11,7 @@ import cn.edu.gpnu.platform.business.student.support.StudentStatus;
 import cn.edu.gpnu.platform.business.support.ReviewNotificationHelper;
 import cn.edu.gpnu.platform.common.context.DataScopeContext;
 import cn.edu.gpnu.platform.common.exception.BizException;
+import cn.edu.gpnu.platform.security.service.IdCardProtectionService;
 import cn.edu.gpnu.platform.security.service.RbacAuthorizationGuard;
 import cn.edu.gpnu.platform.system.entity.SysRole;
 import cn.edu.gpnu.platform.system.entity.SysUser;
@@ -59,6 +60,9 @@ class StudentServiceRbacTest {
     private static final long COLLEGE_A = 3401L;
     private static final long COLLEGE_B = 3402L;
     private static final long MAJOR_A = 3501L;
+    private static final String ID_CARD_NO = "H12345678";
+    private static final String ID_CARD_CIPHER = "v1:protected-H12345678";
+    private static final String ID_CARD_HMAC = "hmac-H12345678";
 
     static {
         initTableInfo(StudentMapper.class, Student.class, "student-rbac-test");
@@ -78,6 +82,8 @@ class StudentServiceRbacTest {
     private SysUserDataScopeMapper userDataScopeMapper;
     @Mock
     private RbacAuthorizationGuard authorizationGuard;
+    @Mock
+    private IdCardProtectionService idCardProtectionService;
     @Mock
     private CollegeParentGuard collegeParentGuard;
     @Mock
@@ -108,6 +114,7 @@ class StudentServiceRbacTest {
                 userRoleMapper,
                 userDataScopeMapper,
                 authorizationGuard,
+                idCardProtectionService,
                 collegeParentGuard,
                 passwordEncoder,
                 dataScopeService,
@@ -240,6 +247,21 @@ class StudentServiceRbacTest {
     }
 
     @Test
+    void staleStudentSnapshotRejectsBeforeAccountUpdate() {
+        Student student = student(COLLEGE_A);
+        stubValidFill();
+        when(studentMapper.selectById(STUDENT_ID)).thenReturn(student);
+        when(studentMapper.update(any(Student.class), any(LambdaUpdateWrapper.class))).thenReturn(0);
+
+        assertThatThrownBy(() -> service.update(STUDENT_ID, request(COLLEGE_A)))
+                .isInstanceOf(BizException.class)
+                .hasMessage("操作冲突：学生状态已变更，请刷新后重试");
+
+        verify(userMapper, never()).update(any(LambdaUpdateWrapper.class));
+        verify(userRoleMapper, never()).upsert(anyLong(), anyLong(), anyLong(), anyLong());
+    }
+
+    @Test
     void missingStudentRoleIsAuthorizedBeforeItIsAssigned() {
         Student student = student(COLLEGE_A);
         SysUser account = studentUser(COLLEGE_A);
@@ -349,7 +371,10 @@ class StudentServiceRbacTest {
 
     private void stubValidFill() {
         when(studentMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(0L);
-        when(idCardValidator.validate("hm_travel_permit", "H12345678")).thenReturn("H12345678");
+        when(idCardValidator.validate("hm_travel_permit", ID_CARD_NO)).thenReturn(ID_CARD_NO);
+        when(idCardProtectionService.hmac(ID_CARD_NO)).thenReturn(ID_CARD_HMAC);
+        when(idCardProtectionService.encrypt(ID_CARD_NO)).thenReturn(ID_CARD_CIPHER);
+        org.mockito.Mockito.lenient().when(idCardProtectionService.decrypt(ID_CARD_CIPHER)).thenReturn(ID_CARD_NO);
         DataScopeContext.Scope scope = new DataScopeContext.Scope();
         scope.setScopeType(DataScopeContext.ScopeType.SCHOOL);
         when(dataScopeService.resolve("student:edit")).thenReturn(scope);
@@ -358,6 +383,7 @@ class StudentServiceRbacTest {
     private void stubValidUpdate(Student student, SysUser account) {
         stubValidFill();
         when(studentMapper.selectById(STUDENT_ID)).thenReturn(student);
+        when(studentMapper.update(any(Student.class), any(LambdaUpdateWrapper.class))).thenReturn(1);
         when(userMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(account);
         when(userMapper.selectByUsername(account.getUsername())).thenReturn(account);
     }
@@ -372,7 +398,7 @@ class StudentServiceRbacTest {
         request.setName("测试学生");
         request.setGender("female");
         request.setIdCardType("hm_travel_permit");
-        request.setIdCardNo("H12345678");
+        request.setIdCardNo(ID_CARD_NO);
         request.setBirthDate("2001/1/2");
         request.setIdentityType("normal_student");
         request.setCollegeId(collegeId);
@@ -388,7 +414,8 @@ class StudentServiceRbacTest {
         student.setName("测试学生");
         student.setGender("female");
         student.setIdCardType("hm_travel_permit");
-        student.setIdCardNo("H12345678");
+        student.setIdCardNo(ID_CARD_CIPHER);
+        student.setIdCardHmac(ID_CARD_HMAC);
         student.setBirthDate("2001/1/2");
         student.setIdentityType("normal_student");
         student.setCollegeId(collegeId);

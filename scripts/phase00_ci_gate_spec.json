@@ -61,7 +61,10 @@
       "report": "platform-file/target/surefire-reports/TEST-cn.edu.gpnu.platform.file.service.impl.FileServiceUploadContractTest.xml",
       "suite": "cn.edu.gpnu.platform.file.service.impl.FileServiceUploadContractTest",
       "testcases": [
+        "metadataInsertFailureCannotCreateAnUntrackedObject",
+        "objectStoreFailureDoesNotExposeSdkMessageToTheClient",
         "publicFileServiceDoesNotExposeDigestLookup",
+        "readyTransitionFailureAttemptsExactObjectCompensation",
         "sameContentUploadsUseDistinctObjectKeysAndRows"
       ]
     },

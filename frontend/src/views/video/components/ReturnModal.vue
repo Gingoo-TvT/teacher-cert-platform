@@ -11,6 +11,7 @@ const message = useMessage()
 
 const returnVisible = ref(false)
 const returning = ref<VideoReview | null>(null)
+const saving = ref(false)
 
 const returnForm = reactive({
   comment: ''
@@ -23,12 +24,14 @@ function open(row: VideoReview) {
 }
 
 async function saveReturn() {
+  if (saving.value) return
   if (!returning.value) return
   const comment = returnForm.comment.trim()
   if (!comment) {
     message.error('请填写退回意见')
     return
   }
+  saving.value = true
   try {
     await returnVideoReview(returning.value.id, comment)
     message.success('已退回，学生可重新上传')
@@ -36,6 +39,8 @@ async function saveReturn() {
     emit('saved')
   } catch (error) {
     showError(error, '退回失败')
+  } finally {
+    saving.value = false
   }
 }
 
@@ -48,15 +53,22 @@ defineExpose({ open })
 </script>
 
 <template>
-  <n-modal v-model:show="returnVisible" preset="dialog" title="退回视频">
+  <n-modal
+    v-model:show="returnVisible"
+    preset="dialog"
+    title="退回视频"
+    :closable="!saving"
+    :close-on-esc="!saving"
+    :mask-closable="!saving"
+  >
     <n-space vertical>
       <n-alert v-if="returning" type="warning" :bordered="false">
         {{ returning.studentNo }} / {{ returning.studentName }}。已确认视频不可退回；其他状态由校验规则处理。
       </n-alert>
-      <n-input v-model:value="returnForm.comment" type="textarea" placeholder="请输入退回意见，学生重传时可据此修改" />
+      <n-input v-model:value="returnForm.comment" type="textarea" placeholder="请输入退回意见，学生重传时可据此修改" :disabled="saving" />
       <n-space justify="end">
-        <n-button @click="returnVisible = false">取消</n-button>
-        <n-button type="warning" @click="saveReturn">退回</n-button>
+        <n-button :disabled="saving" @click="returnVisible = false">取消</n-button>
+        <n-button type="warning" :loading="saving" @click="saveReturn">退回</n-button>
       </n-space>
     </n-space>
   </n-modal>

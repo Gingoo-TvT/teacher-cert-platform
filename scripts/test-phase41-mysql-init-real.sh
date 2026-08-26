@@ -2,7 +2,7 @@
 # Phase 41 MySQL 8.4 真实首次初始化回环。
 #
 # 安全边界：
-# - 本脚本会创建/删除两个带专用 label 的一次性 mysql:8.4 容器及其匿名卷；
+# - 本脚本会创建/删除两个带专用 label、digest 固定的 mysql:8.4 一次性容器及其匿名卷；
 # - 只允许在 Linux CI 或获授权的隔离 Docker 环境由人工/独立复核执行；
 # - Codex 不执行本脚本；本地共享 MySQL、生产库和已有数据卷均不在目标范围。
 set -euo pipefail
@@ -104,7 +104,7 @@ run_case() {
     --label teacher-cert.phase41-init-test=true \
     --env-file "${env_file}" \
     --volume "${mounted_script}:/docker-entrypoint-initdb.d/01-app-user.sh:ro" \
-    mysql:8.4 >/dev/null
+    mysql:8.4@sha256:b3b90af2a6552ae30c266fdb7d5dd55f3afb72404bb78d37fe8a23eb857fd3fb >/dev/null
   wait_until_ready "${name}"
 
   docker logs "${name}" > "${case_dir}/container.log" 2>&1

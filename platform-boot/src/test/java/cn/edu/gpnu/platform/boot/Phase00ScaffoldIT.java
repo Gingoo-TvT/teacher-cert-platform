@@ -40,16 +40,12 @@ import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 
 import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
-import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.HexFormat;
@@ -72,8 +68,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  *   <li>§8-2 `/doc.html` 可访问、OpenAPI 文档可取（无需登录，SecurityConfig 显式放行）；</li>
  *   <li>§8-3 / T-RESP-1 统一响应三条合同：BizException → HTTP 200 + code≠0；@Valid 失败 → 字段级错误；
  *       未捕获异常 → HTTP 500 + 统一 Result 且不泄漏堆栈（P1-10 修订后的现行合同，替代原「HTTP 200」口径）；</li>
- *   <li>§8-6 / T-FILE-2 上传返回 fileId；预签名 URL 限时可访问；<b>过期后同一 URL 被 MinIO 拒绝</b>；</li>
- *   <li>§8-7 / T-AUDIT-1 `@AuditLog` 样例端点成功后写 `audit_log`，操作人/时间/IP 全部非空；</li>
+ *   <li>§8-6 / T-FILE-2 领域材料上传返回业务记录并可经受控流逐字节读取；</li>
+ *   <li>§8-7 / T-AUDIT-1 领域上传端点成功后写 `audit_log`，操作人/时间/IP 全部非空；</li>
  *   <li>通用上传退役全局摘要秒传：同内容再次上传仍生成独立 fileId/objectKey/元数据行。</li>
  * </ul>
  * §8-8 / T-DS-1 的 handler 分支由
@@ -92,6 +88,8 @@ class Phase00ScaffoldIT {
     private static final String INITIAL_PASSWORD = "ChangeMe123!";
     private static final String CHANGED_PASSWORD = "Changed123!";
     private static final String BIZ_TYPE = "phase00scaffold";
+    private static final String MATERIAL_ASSESSMENT_YEAR = "P00-AUDIT";
+    private static final String MATERIAL_CATEGORY = "morality_teacher_ethics";
     private static final int PROVISIONING_OBJECT_SCHEMA_VERSION = 2;
     private static final Path RUNTIME_IDENTITY_PATH =
             Path.of("target", "phase00-target-identity.json").toAbsolutePath().normalize();
@@ -138,10 +136,6 @@ class Phase00ScaffoldIT {
 
     @Autowired
     private Phase00TargetPreflight.TargetAttestation preContextTargetAttestation;
-
-    private final HttpClient httpClient = HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(10))
-            .build();
 
     /**
      * Phase 0 的真实依赖身份必须由同一个 Spring Context、同一个 Failsafe suite 采集，不能由 gate
@@ -309,14 +303,16 @@ class Phase00ScaffoldIT {
         assertThat(notFound.getBody()).doesNotContain("java.lang.", "at cn.edu.gpnu", "Exception");
 
         // 兜底 500 合同（T-RESP-1 的 P1-10 修订口径）：构造一个没有专用 @ExceptionHandler 的异常——
-        // multipart 请求缺失 "file" part 抛 MissingServletRequestPartException，必然落 Exception 兜底：
+        // 领域材料上传缺失 "file" part 抛 MissingServletRequestPartException，必然落 Exception 兜底：
         // HTTP 500 + 统一 Result（监控可见），响应体不得携带异常类名/堆栈帧。
         HttpHeaders headers = new HttpHeaders();
         headers.setBearerAuth(token);
         headers.setContentType(MediaType.MULTIPART_FORM_DATA);
         MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
-        body.add("bizType", BIZ_TYPE); // 刻意不带 "file" part
-        ResponseEntity<String> broken = rest.exchange(url("/api/file/upload"), HttpMethod.POST,
+        body.add("studentId", "9001");
+        body.add("assessmentYear", MATERIAL_ASSESSMENT_YEAR);
+        body.add("category", MATERIAL_CATEGORY);
+        ResponseEntity<String> broken = rest.exchange(url("/api/material/upload"), HttpMethod.POST,
                 new HttpEntity<>(body, headers), String.class);
         assertThat(broken.getStatusCode())
                 .as("无专用 handler 的异常必须落兜底并对监控可见（HTTP 500）")
@@ -329,39 +325,46 @@ class Phase00ScaffoldIT {
                 .doesNotContain("at cn.edu.gpnu", "java.lang.", "MissingServletRequestPartException");
     }
 
-    // ---------------------------------------------------------------- §8-6/§8-7 上传→审计→预签名→过期
+    // ---------------------------------------------------------------- §8-6/§8-7 上传→审计→受控流读取
 
     @Test
     @Timeout(120)
+    // 方法名由 Phase 0 exact 7/33 spec 固定；当前合同已从 GET 预签名过期改为登录绑定受控流。
     void uploadWritesAuditRowAndPresignedUrlExpiresAfterTtl() throws Exception {
         String token = readyLogin("test_sys_admin");
-        long beforeUpload = auditCount("file", "upload");
+        long beforeUpload = auditCount("material", "upload");
 
-        // §8-6 前半：上传返回 fileId（经真实带 @AuditLog 的端点，@PreAuthorize isAuthenticated）
+        // §8-6 前半：经真实领域权限、业务绑定与 @AuditLog 端点上传材料。
         HttpHeaders headers = new HttpHeaders();
         headers.setBearerAuth(token);
         headers.setContentType(MediaType.MULTIPART_FORM_DATA);
-        byte[] content = ("phase00-presign-" + System.nanoTime()).getBytes(StandardCharsets.UTF_8);
+        byte[] content = ("phase00-stream-" + System.nanoTime()).getBytes(StandardCharsets.UTF_8);
         MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
         body.add("file", new org.springframework.core.io.ByteArrayResource(content) {
             @Override
             public String getFilename() {
-                return "phase00-presign.txt";
+                return "phase00-stream.png";
             }
         });
-        body.add("bizType", BIZ_TYPE);
-        ResponseEntity<String> uploaded = rest.exchange(url("/api/file/upload"), HttpMethod.POST,
+        body.add("studentId", "9001");
+        body.add("assessmentYear", MATERIAL_ASSESSMENT_YEAR);
+        body.add("category", MATERIAL_CATEGORY);
+        ResponseEntity<String> uploaded = rest.exchange(url("/api/material/upload"), HttpMethod.POST,
                 new HttpEntity<>(body, headers), String.class);
         assertThat(uploaded.getStatusCode()).isEqualTo(HttpStatus.OK);
         JsonNode uploadRoot = json(uploaded);
         assertThat(uploadRoot.at("/code").asInt()).isZero();
-        long fileId = uploadRoot.at("/data/id").asLong();
-        assertThat(fileId).as("上传必须返回 fileId").isPositive();
+        long materialId = uploadRoot.at("/data").asLong();
+        assertThat(materialId).as("上传必须返回材料ID").isPositive();
+        Long fileId = jdbcTemplate.queryForObject(
+                "SELECT file_id FROM process_material WHERE id = ? AND deleted = 0",
+                Long.class, materialId);
+        assertThat(fileId).as("材料必须绑定 fileId").isNotNull().isPositive();
 
         // §8-7 / T-AUDIT-1：@AuditLog 成功后落 audit_log，操作人/时间/IP 非空
-        assertThat(auditCount("file", "upload")).isEqualTo(beforeUpload + 1);
+        assertThat(auditCount("material", "upload")).isEqualTo(beforeUpload + 1);
         SysAuditLog audit = auditLogMapper.selectOne(new LambdaQueryWrapper<SysAuditLog>()
-                .eq(SysAuditLog::getBizType, "file")
+                .eq(SysAuditLog::getBizType, "material")
                 .eq(SysAuditLog::getOperation, "upload")
                 .orderByDesc(SysAuditLog::getId)
                 .last("LIMIT 1"));
@@ -370,21 +373,10 @@ class Phase00ScaffoldIT {
         assertThat(audit.getOperateTime()).as("操作时间").isNotNull();
         assertThat(audit.getIp()).as("IP").isNotBlank();
 
-        // §8-6 后半 / T-FILE-2：预签名限时可访问；过期后同一 URL 被拒绝。
-        // 3 秒 TTL 使过期分支总耗时可控；正向访问在签发后立刻进行。
-        String presigned = fileService.presignedGet(fileId, 3);
-        HttpResponse<byte[]> fresh = httpClient.send(HttpRequest.newBuilder(URI.create(presigned)).GET().build(),
-                HttpResponse.BodyHandlers.ofByteArray());
-        assertThat(fresh.statusCode()).as("有效期内应可下载").isEqualTo(200);
-        assertThat(fresh.body()).as("下载内容必须逐字节一致").isEqualTo(content);
-
-        Thread.sleep(4_000); // 越过 3 秒签名有效期（MinIO 按签名内嵌的 X-Amz-Expires 判定）
-        HttpResponse<String> expired = httpClient.send(HttpRequest.newBuilder(URI.create(presigned)).GET().build(),
-                HttpResponse.BodyHandlers.ofString());
-        assertThat(expired.statusCode())
-                .as("过期后同一 URL 必须被 MinIO 拒绝（403）")
-                .isEqualTo(403);
-        assertThat(expired.body()).contains("expired");
+        // §8-6 后半 / T-FILE-2：对象只通过应用鉴权后的受控流读取，不向浏览器暴露原始对象 URL。
+        try (java.io.InputStream stream = fileService.openRange(fileId, 0, content.length)) {
+            assertThat(stream.readAllBytes()).as("受控流内容必须逐字节一致").isEqualTo(content);
+        }
     }
 
     // ---------------------------------------------------------------- T-FILE-1（R10）：通用摘要秒传已退役
@@ -482,6 +474,14 @@ class Phase00ScaffoldIT {
     }
 
     private void cleanFixture() {
+        java.util.List<Long> materialFileIds = jdbcTemplate.queryForList(
+                "SELECT file_id FROM process_material WHERE assessment_year = ?",
+                Long.class, MATERIAL_ASSESSMENT_YEAR);
+        jdbcTemplate.update("DELETE FROM process_material WHERE assessment_year = ?", MATERIAL_ASSESSMENT_YEAR);
+        for (Long fileId : materialFileIds) {
+            fileService.delete(fileId);
+            jdbcTemplate.update("DELETE FROM file_object WHERE id = ?", fileId);
+        }
         jdbcTemplate.update("DELETE FROM file_object WHERE biz_type = ?", BIZ_TYPE);
     }
 

@@ -1,0 +1,37 @@
+{
+  "timestamp": "2026-08-05T22:19:31+08:00",
+  "project": "teacher-cert-platform",
+  "commitHash": "aa3509a19151e2caad03014324b9b36e98bc0f05",
+  "candidateFingerprintSha256": "65a07cd566da1e5fb9a32243dee6d1a1db1c9517504b9a181b10cf01c461b136",
+  "selectedModes": [
+    "incremental",
+    "testing-authenticity"
+  ],
+  "scope": {
+    "name": "WS-4 / D1-D6 unified dirty-worktree candidate",
+    "trackedChangedFiles": 153,
+    "nonIgnoredUntrackedFiles": 106,
+    "frontendTrackedChangedFiles": 79,
+    "frontendUntrackedFiles": 9,
+    "runtimeBoundary": "local read-only and naturally terminating commands; no browser, network, Docker, database, Redis, MinIO, service, scanner, merge, push, or deploy"
+  },
+  "overallScore": 6.5,
+  "dimensionScores": {
+    "security": 8.0,
+    "stability": 5.8,
+    "performance": 8.0,
+    "testing": 5.5,
+    "maintainability": 6.8,
+    "design": 6.2,
+    "release": 5.4
+  },
+  "findingCounts": {
+    "critical": 0,
+    "high": 0,
+    "medium": 5,
+    "low": 0,
+    "info": 0
+  },
+  "verdict": "CHANGES_REQUESTED",
+  "reportPath": "docs/reviews/ws-04-d1-d6-batch-independent-review-2026-08-05.md"
+}

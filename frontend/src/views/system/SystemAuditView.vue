@@ -314,11 +314,7 @@ onMounted(loadVisibleSections)
 <template>
   <PageContainer title="参数审计备份" description="系统参数、审计日志与备份记录管理。">
     <template #actions>
-      <n-space>
-        <n-button v-if="canManageParam" secondary @click="loadParams">刷新参数</n-button>
-        <n-button v-if="canViewAudit" secondary @click="loadAudits">刷新审计</n-button>
-        <n-button v-if="canBackup" type="primary" @click="openBackupDrawer">记录备份演练</n-button>
-      </n-space>
+      <n-button v-if="canBackup" type="primary" @click="openBackupDrawer">记录备份演练</n-button>
     </template>
 
     <n-empty v-if="!hasVisibleSection" description="当前账号没有可访问的系统治理分区" class="page-section" />
@@ -438,11 +434,7 @@ onMounted(loadVisibleSections)
           @update:page="onBackupPageChange"
           @update:page-size="onBackupPageSizeChange"
           @refresh="loadBackups"
-        >
-          <template #actions>
-            <n-button type="primary" size="small" @click="openBackupDrawer">记录备份演练</n-button>
-          </template>
-        </DataPanel>
+        />
       </n-tab-pane>
     </n-tabs>
 

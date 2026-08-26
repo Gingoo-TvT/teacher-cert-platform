@@ -6,37 +6,37 @@ import cn.edu.gpnu.platform.system.service.AuditLogService;
 import cn.edu.gpnu.platform.common.context.UserContext;
 import cn.edu.gpnu.platform.system.support.AuditIp;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
 
 @Service
 @RequiredArgsConstructor
-@Slf4j
 public class AuditLogServiceImpl implements AuditLogService {
 
     private final SysAuditLogMapper sysAuditLogMapper;
+    private final AuditIp auditIp;
 
     @Override
     public void record(SysAuditLog entry) {
-        try {
-            if (entry == null) {
-                return;
-            }
-            if (entry.getOperateTime() == null) {
-                entry.setOperateTime(LocalDateTime.now());
-            }
-            if (entry.getOperatorId() == null) {
-                entry.setOperatorId(UserContext.getUserIdOrSystem());
-            }
-            if (!StringUtils.hasText(entry.getIp())) {
-                entry.setIp(AuditIp.clientIp());
-            }
-            sysAuditLogMapper.insert(entry);
-        } catch (Exception ex) {
-            log.warn("Audit log write failed", ex);
+        if (entry == null) {
+            throw new IllegalArgumentException("审计日志不能为空");
+        }
+        if (entry.getOperateTime() == null) {
+            entry.setOperateTime(LocalDateTime.now());
+        }
+        if (entry.getOperatorId() == null) {
+            entry.setOperatorId(UserContext.getUserIdOrSystem());
+        }
+        if (!StringUtils.hasText(entry.getIp())) {
+            entry.setIp(auditIp.clientIp());
+        }
+        int inserted = sysAuditLogMapper.insert(entry);
+        if (inserted != 1) {
+            throw new IllegalStateException("审计日志写入未成功");
         }
     }
 
@@ -52,5 +52,12 @@ public class AuditLogServiceImpl implements AuditLogService {
         entry.setNewStatus(newStatus);
         entry.setComment(comment);
         record(entry);
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.REQUIRES_NEW, rollbackFor = Exception.class)
+    public void recordRequiresNew(String bizType, Long bizId, String target, String operation,
+                                  String oldStatus, String newStatus, String comment) {
+        record(bizType, bizId, target, operation, oldStatus, newStatus, comment);
     }
 }

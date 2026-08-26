@@ -3,6 +3,7 @@ package cn.edu.gpnu.platform.boot.config;
 import cn.edu.gpnu.platform.business.video.support.VideoMediaInspection;
 import cn.edu.gpnu.platform.business.video.support.VideoMediaProbe;
 import cn.edu.gpnu.platform.file.config.MinioProperties;
+import cn.edu.gpnu.platform.security.service.IdCardProtectionService;
 import cn.edu.gpnu.platform.system.service.ParamService;
 import io.minio.GetObjectArgs;
 import io.minio.GetObjectResponse;
@@ -94,6 +95,8 @@ class DemoDataInitializerTest {
     @Mock
     private ParamService paramService;
     @Mock
+    private IdCardProtectionService idCardProtectionService;
+    @Mock
     private PlatformTransactionManager transactionManager;
 
     private DemoDataInitializer initializer;
@@ -109,6 +112,7 @@ class DemoDataInitializerTest {
                 properties,
                 videoMediaProbe,
                 paramService,
+                idCardProtectionService,
                 transactionManager);
         objectStore = new InMemoryObjectStore(minioClient);
         objectStore.install();
@@ -121,6 +125,12 @@ class DemoDataInitializerTest {
                 .thenAnswer(invocation -> invocation.getArgument(1));
         when(paramService.getString(anyString(), anyString()))
                 .thenAnswer(invocation -> invocation.getArgument(1));
+        when(idCardProtectionService.encrypt(anyString()))
+                .thenAnswer(invocation -> "v1:test-cipher-"
+                        + Integer.toUnsignedString(invocation.<String>getArgument(0).hashCode(), 16));
+        when(idCardProtectionService.hmac(anyString()))
+                .thenAnswer(invocation -> String.format("%064x",
+                        Integer.toUnsignedLong(invocation.<String>getArgument(0).hashCode())));
     }
 
     @Test
@@ -333,6 +343,8 @@ class DemoDataInitializerTest {
                         "content_hash_verified",
                         "media_validation_policy_hash",
                         "media_probe_version",
+                        "id_card_hmac",
+                        "v1:test-cipher-",
                         "uploaded_bytes = VALUES(uploaded_bytes)",
                         "duration_seconds = VALUES(duration_seconds)")
                 .doesNotContain(
@@ -345,6 +357,14 @@ class DemoDataInitializerTest {
                         "b1b2c3d4e5f60110101112131415162f",
                         "c1b2c3d4e5f60110101112131415160a",
                         "d1b2c3d4e5f60110101112131415160b",
+                        "440105200001010011",
+                        "440105200102020022",
+                        "440105200003030033",
+                        "440105200104040044",
+                        "440105200005050055",
+                        "440105200106060066",
+                        "440105200007070077",
+                        "440105200108080088",
                         "'" + LEGACY_VIDEO_KEY + "'",
                         "'" + LEGACY_MATERIAL_KEY + "'",
                         "'" + LEGACY_IMAGE_KEY + "'",

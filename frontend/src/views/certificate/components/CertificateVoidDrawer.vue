@@ -24,6 +24,7 @@ function open(row: Certificate) {
 }
 
 async function saveVoid() {
+  if (saving.value) return
   if (!selected.value || !voidForm.reason.trim()) {
     message.error('请填写作废原因')
     return
@@ -50,11 +51,19 @@ defineExpose({ open })
 </script>
 
 <template>
-  <n-modal v-model:show="voidVisible" preset="card" title="作废证书" style="width: 520px">
+  <n-modal
+    v-model:show="voidVisible"
+    preset="card"
+    title="作废证书"
+    style="width: min(var(--overlay-narrow), var(--overlay-modal-max))"
+    :closable="!saving"
+    :close-on-esc="!saving"
+    :mask-closable="!saving"
+  >
     <n-space vertical>
-      <n-input v-model:value="voidForm.reason" type="textarea" :autosize="{ minRows: 3, maxRows: 6 }" placeholder="作废原因" />
+      <n-input v-model:value="voidForm.reason" type="textarea" :autosize="{ minRows: 3, maxRows: 6 }" placeholder="作废原因" :disabled="saving" />
       <n-space justify="end">
-        <n-button @click="voidVisible = false">取消</n-button>
+        <n-button :disabled="saving" @click="voidVisible = false">取消</n-button>
         <n-button type="error" :loading="saving" @click="saveVoid">作废</n-button>
       </n-space>
     </n-space>

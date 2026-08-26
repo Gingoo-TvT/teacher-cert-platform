@@ -1,0 +1,4 @@
+-------------------------------------------------------------------------------
+Test set: cn.edu.gpnu.platform.boot.Phase2SecurityIT
+-------------------------------------------------------------------------------
+Tests run: 4, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 21.03 s -- in cn.edu.gpnu.platform.boot.Phase2SecurityIT

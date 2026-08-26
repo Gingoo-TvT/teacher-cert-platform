@@ -25,6 +25,7 @@ import cn.edu.gpnu.platform.common.exception.BizException;
 import cn.edu.gpnu.platform.exchange.entity.ImportExportBatch;
 import cn.edu.gpnu.platform.exchange.mapper.ImportExportBatchMapper;
 import cn.edu.gpnu.platform.exchange.support.ExchangeExcelHelper;
+import cn.edu.gpnu.platform.security.service.IdCardProtectionService;
 import cn.edu.gpnu.platform.statistics.dto.StatsQuery;
 import cn.edu.gpnu.platform.statistics.mapper.StatsAggregationMapper;
 import cn.edu.gpnu.platform.statistics.service.StatsService;
@@ -79,6 +80,7 @@ public class StatsServiceImpl implements StatsService {
     private final ExchangeExcelHelper excelHelper;
     private final IdCardValidator idCardValidator;
     private final BirthDateValidator birthDateValidator;
+    private final IdCardProtectionService idCardProtectionService;
     private final MajorCodeValidator majorCodeValidator;
     private final TrainingLinkValidator trainingLinkValidator;
 
@@ -410,14 +412,22 @@ public class StatsServiceImpl implements StatsService {
         }
         if (!StringUtils.hasText(student.getIdCardNo())) {
             addAnomaly(report, student, colleges, "字段缺失", "证件号码为空");
+            return;
+        }
+        String plainIdCardNo;
+        try {
+            plainIdCardNo = idCardProtectionService.decrypt(student.getIdCardNo());
+        } catch (Exception e) {
+            addAnomaly(report, student, colleges, "证件号码", "证件号码密文无法解密");
+            return;
         }
         try {
-            idCardValidator.validate(student.getIdCardType(), student.getIdCardNo());
+            idCardValidator.validate(student.getIdCardType(), plainIdCardNo);
         } catch (Exception e) {
             addAnomaly(report, student, colleges, "证件号码", e.getMessage());
         }
         try {
-            birthDateValidator.validate(student.getIdCardType(), student.getIdCardNo(), student.getBirthDate());
+            birthDateValidator.validate(student.getIdCardType(), plainIdCardNo, student.getBirthDate());
         } catch (Exception e) {
             addAnomaly(report, student, colleges, "出生日期", e.getMessage());
         }
@@ -589,15 +599,12 @@ public class StatsServiceImpl implements StatsService {
     }
 
     private boolean batchVisible(StatsScope scope, ImportExportBatch batch) {
-        if (scope.allSchool()) {
-            return true;
-        }
-        if (Objects.equals(batch.getOperatorId(), scope.userId())) {
-            return true;
-        }
-        String scopeJson = batch.getScopeJson();
-        return StringUtils.hasText(scopeJson)
-                && scope.collegeIds().stream().map(String::valueOf).anyMatch(scopeJson::contains);
+        return batchVisible(scope.allSchool(), scope.userId(), batch);
+    }
+
+    static boolean batchVisible(boolean allSchool, Long userId, ImportExportBatch batch) {
+        // 批次的规范授权事实是 operator_id；scope_json 只是可变筛选快照，不能参与身份比较。
+        return allSchool || Objects.equals(batch.getOperatorId(), userId);
     }
 
     private StatsReportVO baseReport(String type, String title, String year) {

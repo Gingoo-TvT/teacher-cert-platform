@@ -17,6 +17,7 @@ import cn.edu.gpnu.platform.system.mapper.SysRolePermissionMapper;
 import cn.edu.gpnu.platform.system.mapper.SysUserDataScopeMapper;
 import cn.edu.gpnu.platform.system.mapper.SysUserMapper;
 import cn.edu.gpnu.platform.system.mapper.SysUserRoleMapper;
+import cn.edu.gpnu.platform.system.service.AuditLogService;
 import cn.edu.gpnu.platform.system.service.CollegeParentGuard;
 import cn.edu.gpnu.platform.system.service.DataScopeService;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
@@ -40,6 +41,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.verify;
@@ -89,6 +91,8 @@ class SecurityAdminServiceImplTest {
     private DataScopeService dataScopeService;
     @Mock
     private RbacAuthorizationGuard authorizationGuard;
+    @Mock
+    private AuditLogService auditLogService;
 
     private SecurityAdminServiceImpl service;
 
@@ -108,7 +112,8 @@ class SecurityAdminServiceImplTest {
                 tokenRevocationService,
                 environment,
                 dataScopeService,
-                authorizationGuard);
+                authorizationGuard,
+                auditLogService);
         ReflectionTestUtils.setField(service, "initialPassword", "Staff-Initial-2026!");
         when(dataScopeService.resolve("system:user:manage")).thenReturn(scope(DataScopeContext.ScopeType.SCHOOL));
     }
@@ -238,6 +243,41 @@ class SecurityAdminServiceImplTest {
         InOrder order = inOrder(authorizationGuard, dataScopeService);
         order.verify(authorizationGuard).lockAuthorizationState();
         order.verify(dataScopeService).resolve("system:user:manage");
+    }
+
+    @Test
+    void resetPasswordRecordsTheTargetUserWithoutTheTemporaryPassword() {
+        when(userMapper.selectById(USER_ID)).thenReturn(studentUser());
+        when(passwordEncoder.encode(any())).thenReturn("new-password-hash");
+        when(userMapper.update(any(LambdaUpdateWrapper.class))).thenReturn(1);
+
+        String temporaryPassword = service.resetPassword(USER_ID);
+
+        assertThat(temporaryPassword).isNotBlank();
+        var order = inOrder(userMapper, tokenRevocationService, auditLogService);
+        order.verify(userMapper).update(any(LambdaUpdateWrapper.class));
+        order.verify(tokenRevocationService).revoke(USER_ID);
+        order.verify(auditLogService).record(
+                "systemUser", USER_ID, "user:" + USER_ID, "resetPassword",
+                null, "SUCCESS", "管理员重置用户密码");
+    }
+
+    @Test
+    void resetPasswordPropagatesStructuredAuditFailure() {
+        when(userMapper.selectById(USER_ID)).thenReturn(studentUser());
+        when(passwordEncoder.encode(any())).thenReturn("new-password-hash");
+        when(userMapper.update(any(LambdaUpdateWrapper.class))).thenReturn(1);
+        doThrow(new IllegalStateException("audit unavailable"))
+                .when(auditLogService)
+                .record(
+                        "systemUser", USER_ID, "user:" + USER_ID, "resetPassword",
+                        null, "SUCCESS", "管理员重置用户密码");
+
+        assertThatThrownBy(() -> service.resetPassword(USER_ID))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("audit unavailable");
+
+        verify(tokenRevocationService).revoke(USER_ID);
     }
 
     private void assertStudentBindingChangeRejected(UserSaveRequest request) {

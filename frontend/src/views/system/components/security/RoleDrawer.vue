@@ -46,9 +46,14 @@ function open(row?: Role) {
 }
 
 async function saveRole() {
-  await roleFormRef.value?.validate()
+  if (saving.value) return
   saving.value = true
   try {
+    try {
+      await roleFormRef.value?.validate()
+    } catch {
+      return
+    }
     const payload: RolePayload = {
       code: roleForm.code.trim(),
       name: roleForm.name.trim(),
@@ -85,18 +90,24 @@ defineExpose({ open })
 </script>
 
 <template>
-  <n-drawer v-model:show="visible" :width="560" placement="right">
-    <n-drawer-content :title="editingRoleId ? '编辑角色' : '新增角色'">
-      <n-form ref="roleFormRef" :model="roleForm" :rules="roleRules" label-placement="top">
+  <n-drawer
+    v-model:show="visible"
+    width="min(var(--overlay-medium), var(--overlay-drawer-max))"
+    placement="right"
+    :mask-closable="!saving"
+    :close-on-esc="!saving"
+  >
+    <n-drawer-content :title="editingRoleId ? '编辑角色' : '新增角色'" :closable="!saving">
+      <n-form ref="roleFormRef" :model="roleForm" :rules="roleRules" label-placement="top" :disabled="saving">
         <div class="form-section-title">基本信息</div>
-        <n-grid :cols="2" :x-gap="12">
+        <n-grid cols="1 480:2" responsive="self" item-responsive :x-gap="12">
           <n-form-item-gi label="角色编码" path="code">
             <n-input v-model:value="roleForm.code" maxlength="64" show-count />
           </n-form-item-gi>
           <n-form-item-gi label="角色名称" path="name">
             <n-input v-model:value="roleForm.name" maxlength="128" show-count />
           </n-form-item-gi>
-          <n-form-item-gi label="说明" path="description" :span="2">
+          <n-form-item-gi label="说明" path="description" span="1 480:2">
             <n-input v-model:value="roleForm.description" type="textarea" maxlength="255" show-count />
           </n-form-item-gi>
           <n-form-item-gi label="排序" path="sort">
@@ -109,7 +120,7 @@ defineExpose({ open })
       </n-form>
       <template #footer>
         <n-space justify="end">
-          <n-button @click="visible = false">取消</n-button>
+          <n-button :disabled="saving" @click="visible = false">取消</n-button>
           <n-button type="primary" :loading="saving" @click="saveRole">保存</n-button>
         </n-space>
       </template>

@@ -2,6 +2,7 @@ package cn.edu.gpnu.platform.security.config;
 
 import cn.edu.gpnu.platform.security.filter.JwtAuthenticationFilter;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.servlet.DispatcherType;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -35,7 +36,7 @@ import java.io.IOException;
 @EnableWebSecurity
 @EnableMethodSecurity
 @RequiredArgsConstructor
-@EnableConfigurationProperties(SecurityProperties.class)
+@EnableConfigurationProperties({SecurityProperties.class, IdCardProtectionProperties.class})
 public class SecurityConfig {
 
     private static final String[] API_DOCUMENTATION_PATHS = {
@@ -80,7 +81,9 @@ public class SecurityConfig {
                                             cn.edu.gpnu.platform.common.api.ResultCode.FORBIDDEN)));
                         }))
                 .authorizeHttpRequests(auth -> {
-                    auth.requestMatchers("/api/auth/captcha", "/api/auth/login", "/api/auth/refresh").permitAll()
+                    // StreamingResponseBody 完成时会触发 ASYNC 再分派；权限已在初始 REQUEST 分派完成校验。
+                    auth.dispatcherTypeMatchers(DispatcherType.ASYNC).permitAll()
+                            .requestMatchers("/api/auth/captcha", "/api/auth/login", "/api/auth/refresh").permitAll()
                             .requestMatchers("/api/health").permitAll();
                     if (production) {
                         auth.requestMatchers(API_DOCUMENTATION_PATHS).denyAll();

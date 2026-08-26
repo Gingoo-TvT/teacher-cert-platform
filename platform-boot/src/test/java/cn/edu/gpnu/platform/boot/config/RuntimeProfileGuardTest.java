@@ -73,20 +73,11 @@ class RuntimeProfileGuardTest {
         application.setWebApplicationType(WebApplicationType.NONE);
         application.setLogStartupInfo(false);
 
-        try (ConfigurableApplicationContext context = application.run(
-                "--spring.config.name=profile-guard-empty",
-                "--spring.profiles.active=prod",
-                "--spring.main.banner-mode=off",
-                "--spring.flyway.locations=classpath:db/migration",
-                "--spring.datasource.username=teacher_app",
-                "--spring.datasource.password=Db-Prod-Only-2026!",
-                "--spring.data.redis.password=Redis-Prod-Only-2026!",
-                "--minio.access-key=teacher-cert-minio-prod",
-                "--minio.secret-key=Minio-Prod-Only-2026!",
-                "--platform.security.jwt.secret="
-                        + "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-                "--platform.security.initial-password=Staff-Prod-Only-2026!",
-                "--platform.security.admin.initial-password-hash=" + bootstrapHash)) {
+        try (ConfigurableApplicationContext context = application.run(productionArguments(
+                bootstrapHash,
+                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+                "ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8=",
+                "prod-only-id-card-hmac-pepper-2026-keep-secret"))) {
             SysUserMapper userMapper = context.getBean(SysUserMapper.class);
             TokenRevocationService revocationService = context.getBean(TokenRevocationService.class);
 
@@ -114,6 +105,68 @@ class RuntimeProfileGuardTest {
     }
 
     @Test
+    void prodProfileRejectsMissingIdCardSecrets() {
+        MockEnvironment environment = productionEnvironment();
+        environment.setProperty("platform.security.id-card.encryption-key", "");
+        environment.setProperty("platform.security.id-card.hmac-pepper", "");
+
+        assertThatThrownBy(() -> guard.postProcessEnvironment(environment, null))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("platform.security.id-card.encryption-key 未配置")
+                .hasMessageContaining("platform.security.id-card.hmac-pepper 未配置");
+    }
+
+    @Test
+    void prodProfileRejectsReusedEncryptionKeyAndHmacPepperWithoutLeakingValue() {
+        String sharedSecret = "ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8=";
+        assertReusedSecretsRejected(
+                "platform.security.id-card.encryption-key",
+                "platform.security.id-card.hmac-pepper",
+                sharedSecret);
+    }
+
+    @Test
+    void registeredProdGuardRejectsReusedSecretsBeforeApplicationContextStarts() {
+        String sharedSecret = "ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8=";
+        String bootstrapHash = new BCryptPasswordEncoder(10).encode("Admin-Prod-Bootstrap-2026!");
+        SpringApplication application = new SpringApplication(ProductionBootstrapConfiguration.class);
+        application.setWebApplicationType(WebApplicationType.NONE);
+        application.setLogStartupInfo(false);
+
+        assertThatThrownBy(() -> {
+            try (ConfigurableApplicationContext ignored = application.run(productionArguments(
+                    bootstrapHash,
+                    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+                    sharedSecret,
+                    sharedSecret))) {
+                throw new AssertionError("复用 secret 时不应创建应用上下文");
+            }
+        })
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("platform.security.id-card.encryption-key")
+                .hasMessageContaining("platform.security.id-card.hmac-pepper")
+                .hasMessageNotContaining(sharedSecret);
+    }
+
+    @Test
+    void prodProfileRejectsReusedHmacPepperAndJwtSecretWithoutLeakingValue() {
+        String sharedSecret = "prod-only-shared-secret-value-at-least-sixty-four-characters-2026";
+        assertReusedSecretsRejected(
+                "platform.security.id-card.hmac-pepper",
+                "platform.security.jwt.secret",
+                sharedSecret);
+    }
+
+    @Test
+    void prodProfileRejectsReusedEncryptionKeyAndJwtSecretWithoutLeakingValue() {
+        String sharedSecret = "ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8=";
+        assertReusedSecretsRejected(
+                "platform.security.id-card.encryption-key",
+                "platform.security.jwt.secret",
+                sharedSecret);
+    }
+
+    @Test
     void prodProfileRejectsTestseedDemoAndKnownCredentialsTogether() {
         MockEnvironment environment = productionEnvironment();
         environment.setProperty("spring.flyway.locations", "classpath:db/migration,classpath:db/testseed");
@@ -125,6 +178,10 @@ class RuntimeProfileGuardTest {
         environment.setProperty("minio.secret-key", "minioadmin123");
         environment.setProperty("platform.security.jwt.secret",
                 "dev-only-insecure-jwt-secret-do-not-use-in-production-0123456789");
+        environment.setProperty("platform.security.id-card.encryption-key",
+                "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=");
+        environment.setProperty("platform.security.id-card.hmac-pepper",
+                "dev-only-insecure-id-card-hmac-pepper-do-not-use-in-production");
         environment.setProperty("platform.security.initial-password", "ChangeMe123!");
 
         assertThatThrownBy(() -> guard.postProcessEnvironment(environment, null))
@@ -135,6 +192,8 @@ class RuntimeProfileGuardTest {
                 .hasMessageContaining("spring.data.redis.password")
                 .hasMessageContaining("minio.secret-key")
                 .hasMessageContaining("platform.security.jwt.secret")
+                .hasMessageContaining("platform.security.id-card.encryption-key")
+                .hasMessageContaining("platform.security.id-card.hmac-pepper")
                 .hasMessageContaining("platform.security.initial-password");
     }
 
@@ -159,8 +218,46 @@ class RuntimeProfileGuardTest {
         environment.setProperty("minio.secret-key", "Minio-Prod-Only-2026!");
         environment.setProperty("platform.security.jwt.secret",
                 "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
+        environment.setProperty("platform.security.id-card.encryption-key",
+                "ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8=");
+        environment.setProperty("platform.security.id-card.hmac-pepper",
+                "prod-only-id-card-hmac-pepper-2026-keep-secret");
         environment.setProperty("platform.security.initial-password", "Staff-Prod-Only-2026!");
         return environment;
+    }
+
+    private void assertReusedSecretsRejected(String firstKey, String secondKey, String sharedSecret) {
+        MockEnvironment environment = productionEnvironment();
+        environment.setProperty(firstKey, "  " + sharedSecret + "  ");
+        environment.setProperty(secondKey, sharedSecret);
+
+        assertThatThrownBy(() -> guard.postProcessEnvironment(environment, null))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining(firstKey)
+                .hasMessageContaining(secondKey)
+                .hasMessageNotContaining(sharedSecret);
+    }
+
+    private String[] productionArguments(String bootstrapHash,
+                                         String jwtSecret,
+                                         String encryptionKey,
+                                         String hmacPepper) {
+        return new String[]{
+                "--spring.config.name=profile-guard-empty",
+                "--spring.profiles.active=prod",
+                "--spring.main.banner-mode=off",
+                "--spring.flyway.locations=classpath:db/migration",
+                "--spring.datasource.username=teacher_app",
+                "--spring.datasource.password=Db-Prod-Only-2026!",
+                "--spring.data.redis.password=Redis-Prod-Only-2026!",
+                "--minio.access-key=teacher-cert-minio-prod",
+                "--minio.secret-key=Minio-Prod-Only-2026!",
+                "--platform.security.jwt.secret=" + jwtSecret,
+                "--platform.security.id-card.encryption-key=" + encryptionKey,
+                "--platform.security.id-card.hmac-pepper=" + hmacPepper,
+                "--platform.security.initial-password=Staff-Prod-Only-2026!",
+                "--platform.security.admin.initial-password-hash=" + bootstrapHash
+        };
     }
 
     @Configuration(proxyBeanMethods = false)

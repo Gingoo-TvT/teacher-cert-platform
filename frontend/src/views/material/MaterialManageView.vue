@@ -49,6 +49,11 @@ const userStore = useUserStore()
 const yearStore = useYearStore()
 
 const loading = ref(false)
+const loadError = ref('')
+const hasLoadedSuccessfully = ref(false)
+const loadedQueryKey = ref('')
+const optionsLoading = ref(false)
+const optionsError = ref('')
 const reviewSaving = ref(false)
 const reviewVisible = ref(false)
 const statusVisible = ref(false)
@@ -66,12 +71,29 @@ const processQualified = ref(false)
 const statusRows = ref<StatusRow[]>([])
 const uploadDrawerRef = ref<InstanceType<typeof MaterialUploadDrawer> | null>(null)
 const previewModalRef = ref<InstanceType<typeof MaterialPreviewModal> | null>(null)
+let listRequestSequence = 0
 
 const canUpload = computed(() => userStore.hasPerm('material:upload'))
 const canFirstReview = computed(() => userStore.hasPerm('material:firstReview'))
 const canSecondReview = computed(() => userStore.hasPerm('material:secondReview'))
 const canBatchDownload = computed(() => userStore.hasPerm('material:batchDownload'))
 const selfMode = computed(() => canUpload.value && !canFirstReview.value && !canSecondReview.value)
+const optionsReady = computed(() => !optionsLoading.value && !optionsError.value)
+const listQueryKey = computed(() => JSON.stringify([
+  keyword.value,
+  statusFilter.value || '',
+  categoryFilter.value || '',
+  assessmentYear.value,
+  page.value,
+  size.value
+]))
+const dataFresh = computed(() =>
+  hasLoadedSuccessfully.value
+  && loadedQueryKey.value === listQueryKey.value
+  && !loadError.value
+  && !loading.value
+  && optionsReady.value
+)
 
 const statusOptions: SelectOption[] = [
   { label: '草稿', value: 'DRAFT' },
@@ -129,14 +151,14 @@ const columns: DataTableColumns<ProcessMaterial> = [
           )
         ]
         if (canUpload.value) {
-          actions.push(h(NButton, { size: 'small', quaternary: true, onClick: () => openReplace(row) }, { default: () => '替换' }))
-          actions.push(h(NButton, { size: 'small', quaternary: true, onClick: () => submit(row) }, { default: () => '提交' }))
+          actions.push(h(NButton, { size: 'small', quaternary: true, disabled: !dataFresh.value, onClick: () => openReplace(row) }, { default: () => '替换' }))
+          actions.push(h(NButton, { size: 'small', quaternary: true, disabled: !dataFresh.value, onClick: () => submit(row) }, { default: () => '提交' }))
         }
         if (canFirstReview.value) {
-          actions.push(h(NButton, { size: 'small', quaternary: true, onClick: () => openReview(row, 'first') }, { default: () => '初审' }))
+          actions.push(h(NButton, { size: 'small', quaternary: true, disabled: !dataFresh.value, onClick: () => openReview(row, 'first') }, { default: () => '初审' }))
         }
         if (canSecondReview.value) {
-          actions.push(h(NButton, { size: 'small', quaternary: true, onClick: () => openReview(row, 'second') }, { default: () => '复审' }))
+          actions.push(h(NButton, { size: 'small', quaternary: true, disabled: !dataFresh.value, onClick: () => openReview(row, 'second') }, { default: () => '复审' }))
         }
         if (canUpload.value) {
           actions.push(
@@ -144,7 +166,7 @@ const columns: DataTableColumns<ProcessMaterial> = [
               NPopconfirm,
               { onPositiveClick: () => remove(row) },
               {
-                trigger: () => h(NButton, { size: 'small', quaternary: true, type: 'error' }, { default: () => '删除' }),
+                trigger: () => h(NButton, { size: 'small', quaternary: true, type: 'error', disabled: !dataFresh.value }, { default: () => '删除' }),
                 default: () => '确认删除该材料？'
               }
             )
@@ -164,22 +186,31 @@ const statusColumns: DataTableColumns<StatusRow> = [
 ]
 
 async function loadRecords() {
+  const requestSequence = ++listRequestSequence
+  const queryKey = listQueryKey.value
+  const query = {
+    keyword: keyword.value,
+    status: statusFilter.value,
+    category: categoryFilter.value,
+    assessmentYear: assessmentYear.value,
+    page: page.value,
+    size: size.value
+  }
   loading.value = true
+  loadError.value = ''
   try {
-    const res = await listMaterials({
-      keyword: keyword.value,
-      status: statusFilter.value,
-      category: categoryFilter.value,
-      assessmentYear: assessmentYear.value,
-      page: page.value,
-      size: size.value
-    })
+    const res = await listMaterials(query)
+    if (requestSequence !== listRequestSequence || queryKey !== listQueryKey.value) return
     records.value = res.data.records
     materialTotal.value = res.data.total
+    hasLoadedSuccessfully.value = true
+    loadedQueryKey.value = queryKey
   } catch (error) {
-    showError(error, '材料列表加载失败')
+    if (requestSequence !== listRequestSequence || queryKey !== listQueryKey.value) return
+    loadError.value = errorMessage(error, '材料列表加载失败')
+    message.error(loadError.value)
   } finally {
-    loading.value = false
+    if (requestSequence === listRequestSequence) loading.value = false
   }
 }
 
@@ -201,15 +232,26 @@ function onPageSizeChange(nextSize: number) {
 }
 
 async function loadOptions() {
-  const categoryRes = await listDictItems('material_category', true)
-  categories.value = categoryRes.data
+  optionsLoading.value = true
+  optionsError.value = ''
+  try {
+    const categoryRes = await listDictItems('material_category', true)
+    categories.value = categoryRes.data
+  } catch (error) {
+    optionsError.value = errorMessage(error, '材料类别加载失败')
+    message.error(optionsError.value)
+  } finally {
+    optionsLoading.value = false
+  }
 }
 
 function openUpload(category?: string) {
+  if (!dataFresh.value) return
   uploadDrawerRef.value?.open(undefined, category)
 }
 
 function openReplace(row: ProcessMaterial) {
+  if (!dataFresh.value) return
   uploadDrawerRef.value?.open(row)
 }
 
@@ -218,6 +260,7 @@ function openPreview(row: ProcessMaterial) {
 }
 
 async function submit(row: ProcessMaterial) {
+  if (!dataFresh.value) return
   try {
     await submitMaterial(row.id)
     message.success('已提交')
@@ -228,6 +271,7 @@ async function submit(row: ProcessMaterial) {
 }
 
 async function remove(row: ProcessMaterial) {
+  if (!dataFresh.value) return
   try {
     await deleteMaterial(row.id)
     message.success('已删除')
@@ -238,12 +282,13 @@ async function remove(row: ProcessMaterial) {
 }
 
 function openReview(row: ProcessMaterial, stage: 'first' | 'second') {
+  if (!dataFresh.value) return
   reviewing.value = { material: row, stage }
   reviewVisible.value = true
 }
 
 async function saveReview(payload: ReviewPayload) {
-  if (!reviewing.value) return
+  if (!reviewing.value || !dataFresh.value) return
   if (payload.action !== 'PASS' && !payload.comment?.trim()) {
     message.error('退回或不通过必须填写原因')
     return
@@ -316,8 +361,11 @@ function dictLabel(items: DictItem[], code?: string | null) {
 }
 
 function showError(error: unknown, fallback: string) {
-  const detail = error instanceof Error ? error.message : fallback
-  message.error(detail || fallback)
+  message.error(errorMessage(error, fallback))
+}
+
+function errorMessage(error: unknown, fallback: string) {
+  return error instanceof Error && error.message ? error.message : fallback
 }
 
 onMounted(() => {
@@ -336,7 +384,12 @@ watch(
 
 <template>
   <PageContainer title="过程性材料" description="四类过程性材料上传、提交与审核；四类均通过即合格。">
-    <n-grid :cols="4" :x-gap="12" responsive="screen" class="page-section">
+    <n-alert v-if="optionsError" type="warning" title="材料类别加载失败" :bordered="false" class="page-section" role="alert">
+      上传和依赖材料类别的操作暂不可用。{{ optionsError }}
+      <n-button text type="warning" size="small" :loading="optionsLoading" @click="loadOptions">重试加载类别</n-button>
+    </n-alert>
+
+    <n-grid v-if="hasLoadedSuccessfully" cols="1 440:2 900:4" :x-gap="12" :y-gap="12" responsive="self" class="page-section">
       <n-gi><StatCard label="材料总数" :value="materialTotal" /></n-gi>
       <n-gi><StatCard label="本页通过" :value="statusSummary.passed" tone="success" /></n-gi>
       <n-gi><StatCard label="本页待审核" :value="statusSummary.pending" tone="warning" /></n-gi>
@@ -349,6 +402,9 @@ watch(
       :records="records"
       :categories="categories"
       :loading="loading"
+      :load-error="loadError"
+      :has-loaded-successfully="hasLoadedSuccessfully"
+      :options-ready="optionsReady && dataFresh"
       @refresh="loadRecords"
       @status="showProcessStatus"
       @preview="openPreview"
@@ -383,6 +439,8 @@ watch(
         :data="records"
         :total="materialTotal"
         :loading="loading"
+        :error="loadError"
+        error-title="材料列表加载失败"
         remote
         :page="page"
         :page-size="size"
@@ -393,12 +451,12 @@ watch(
         @refresh="loadRecords"
       >
         <template #actions>
-          <n-button size="small" @click="showProcessStatus">合格判定</n-button>
+          <n-button size="small" :disabled="!dataFresh" @click="showProcessStatus">合格判定</n-button>
           <n-button v-if="canBatchDownload" size="small" @click="batchDownload">批量下载</n-button>
-          <n-button v-if="canUpload" type="primary" size="small" @click="openUpload()">上传材料</n-button>
+          <n-button v-if="canUpload && records.length > 0" type="primary" size="small" :disabled="!dataFresh" @click="openUpload()">上传材料</n-button>
         </template>
         <template v-if="canUpload" #emptyAction>
-          <n-button type="primary" @click="openUpload()">上传材料</n-button>
+          <n-button type="primary" :disabled="!dataFresh" :loading="optionsLoading" @click="openUpload()">上传材料</n-button>
         </template>
       </DataPanel>
     </template>
@@ -427,12 +485,17 @@ watch(
       @submit="saveReview"
     />
 
-    <n-modal v-model:show="statusVisible" preset="card" title="过程性考核合格判定" style="width: 680px">
+    <n-modal
+      v-model:show="statusVisible"
+      preset="card"
+      title="过程性考核合格判定"
+      style="width: min(var(--overlay-wide), var(--overlay-modal-max))"
+    >
       <n-space vertical>
         <n-alert :type="processQualified ? 'success' : 'warning'" :bordered="false">
           {{ processQualified ? '四类材料均已复审通过' : '仍有材料类别缺失或未复审通过' }}
         </n-alert>
-        <n-data-table :columns="statusColumns" :data="statusRows" :pagination="false" />
+        <n-data-table :columns="statusColumns" :data="statusRows" :pagination="false" :scroll-x="560" />
       </n-space>
     </n-modal>
   </PageContainer>
@@ -457,4 +520,5 @@ watch(
   color: var(--text-muted);
   font-size: 12px;
 }
+
 </style>

@@ -136,7 +136,7 @@ public class SystemManagementServiceImpl implements SystemManagementService {
 
     @Override
     public void rejectAuditDelete(Long id) {
-        auditLogService.record("audit", id, "auditLog/" + id, "deleteRejected",
+        auditLogService.recordRequiresNew("audit", id, "auditLog/" + id, "deleteRejected",
                 null, "REJECTED", "审计日志不可删除");
         throw new BizException(ResultCode.FORBIDDEN.getCode(), "审计日志不可删除");
     }

@@ -7,12 +7,15 @@ import cn.edu.gpnu.platform.business.student.entity.Student;
 import cn.edu.gpnu.platform.business.student.mapper.StudentMapper;
 import cn.edu.gpnu.platform.business.training.entity.TrainingProfile;
 import cn.edu.gpnu.platform.business.training.mapper.TrainingProfileMapper;
+import cn.edu.gpnu.platform.exchange.entity.ImportErrorDetail;
 import cn.edu.gpnu.platform.exchange.entity.ImportExportBatch;
+import cn.edu.gpnu.platform.exchange.mapper.ImportErrorDetailMapper;
 import cn.edu.gpnu.platform.exchange.mapper.ImportExportBatchMapper;
 import cn.edu.gpnu.platform.exchange.model.ExchangeColumn;
 import cn.edu.gpnu.platform.exchange.model.ExchangeStandardRow;
 import cn.edu.gpnu.platform.exchange.support.ExchangeExcelHelper;
 import cn.edu.gpnu.platform.exchange.support.ExchangeImportHook;
+import cn.edu.gpnu.platform.security.service.IdCardProtectionService;
 import cn.edu.gpnu.platform.system.entity.SysUser;
 import cn.edu.gpnu.platform.system.mapper.SysUserMapper;
 import cn.edu.gpnu.platform.system.mapper.SysUserRoleMapper;
@@ -124,6 +127,9 @@ class Phase10ExchangeIT {
     private StudentMapper studentMapper;
 
     @Autowired
+    private IdCardProtectionService idCardProtectionService;
+
+    @Autowired
     private TrainingProfileMapper trainingProfileMapper;
 
     @Autowired
@@ -131,6 +137,9 @@ class Phase10ExchangeIT {
 
     @Autowired
     private ImportExportBatchMapper batchMapper;
+
+    @Autowired
+    private ImportErrorDetailMapper errorDetailMapper;
 
     @Autowired
     private SqlSessionFactory sqlSessionFactory;
@@ -291,6 +300,41 @@ class Phase10ExchangeIT {
     }
 
     @Test
+    void overwriteCannotRebindExistingCertificateNumberToAnotherStudent() throws Exception {
+        LoginResult academic = readyLogin("test_academic_admin");
+        String certNo = "202610588344300166";
+        seedCertificateSnapshot("P10BINDA", COLLEGE_A, "2026", "P10BINDA", "A87654321",
+                certNo, "2029/6/30");
+        Student originalStudent = studentMapper.selectOne(new LambdaQueryWrapper<Student>()
+                .eq(Student::getStudentNo, "P10BINDA")
+                .last("LIMIT 1"));
+        Certificate originalCertificate = certificateMapper.selectOne(new LambdaQueryWrapper<Certificate>()
+                .eq(Certificate::getCertNo, certNo)
+                .last("LIMIT 1"));
+
+        ExchangeStandardRow attemptedRebind = row("P10BINDB", "2026", certNo);
+        attemptedRebind.setIdCardType("hm_travel_permit");
+        attemptedRebind.setIdCardNo("B87654321");
+        attemptedRebind.setBirthDate("2000/12/31");
+        JsonNode prevalidated = prevalidate(
+                academic.accessToken(), List.of(attemptedRebind)).at("/data");
+        long batchId = prevalidated.at("/batchId").asLong();
+
+        JsonNode imported = confirm(academic.accessToken(), batchId, "OVERWRITE").at("/data");
+
+        assertThat(imported.at("/successCount").asInt()).isZero();
+        assertThat(imported.at("/failCount").asInt()).isEqualTo(1);
+        Certificate after = certificateMapper.selectById(originalCertificate.getId());
+        assertThat(after.getStudentId()).isEqualTo(originalStudent.getId());
+        assertThat(after.getAssessmentYear()).isEqualTo("2026");
+        assertThat(after.getStudentNo()).isEqualTo("P10BINDA");
+        assertThat(studentMapper.selectCount(new LambdaQueryWrapper<Student>()
+                .eq(Student::getStudentNo, "P10BINDB"))).isZero();
+        assertThat(recordRefCount(batchId, 2)).isZero();
+        assertThat(errorDetailCount(batchId, 2)).isEqualTo(1);
+    }
+
+    @Test
     void exportAndImportRespectDataScopeAndSensitivePermission() throws Exception {
         LoginResult academic = readyLogin("test_academic_admin");
         LoginResult clerk = readyLogin("test_college_clerk");
@@ -306,10 +350,20 @@ class Phase10ExchangeIT {
             String sheet = workbook.getSheetAt(0).toString();
             DataFormatter formatter = new DataFormatter();
             List<String> values = new ArrayList<>();
+            String maskedIdCard = null;
+            String maskedBirthDate = null;
             for (int i = 1; i <= workbook.getSheetAt(0).getLastRowNum(); i++) {
-                values.add(formatter.formatCellValue(workbook.getSheetAt(0).getRow(i).getCell(3)));
+                Row dataRow = workbook.getSheetAt(0).getRow(i);
+                String studentNo = formatter.formatCellValue(dataRow.getCell(3));
+                values.add(studentNo);
+                if ("P10SCPA".equals(studentNo)) {
+                    maskedIdCard = formatter.formatCellValue(dataRow.getCell(7));
+                    maskedBirthDate = formatter.formatCellValue(dataRow.getCell(8));
+                }
             }
             assertThat(values).contains("P10SCPA").doesNotContain("P10SCPB");
+            assertThat(maskedIdCard).isNotEqualTo("A12345678").contains("*");
+            assertThat(maskedBirthDate).isEqualTo("****/**/**");
             assertThat(sheet).isNotNull();
         }
 
@@ -348,10 +402,91 @@ class Phase10ExchangeIT {
         assertThat(studentMapper.selectCount(new LambdaQueryWrapper<Student>().eq(Student::getStudentNo, "P10CROSS"))).isZero();
 
         ResponseEntity<byte[]> sensitive = download("/api/exchange/export/CERT_SUMMARY", HttpMethod.POST,
-                academic.accessToken(), Map.of("assessmentYear", "2026", "keyword", "P10SCPA"));
+                academic.accessToken(), Map.of("assessmentYear", "2026", "keyword", "A12345678"));
         assertThat(sensitive.getStatusCode()).isEqualTo(HttpStatus.OK);
         try (Workbook workbook = new XSSFWorkbook(new ByteArrayInputStream(sensitive.getBody()))) {
-            assertThat(new DataFormatter().formatCellValue(workbook.getSheetAt(0).getRow(1).getCell(2))).isEqualTo("A12345678");
+            assertThat(new DataFormatter().formatCellValue(workbook.getSheetAt(0).getRow(1).getCell(2))).isEqualTo("a12345678");
+        }
+        ImportExportBatch protectedScope = batchMapper.selectOne(new LambdaQueryWrapper<ImportExportBatch>()
+                .eq(ImportExportBatch::getType, "export")
+                .eq(ImportExportBatch::getOperatorId, userMapper.selectByUsername("test_academic_admin").getId())
+                .orderByDesc(ImportExportBatch::getId)
+                .last("LIMIT 1"));
+        String storedKeyword = objectMapper.readTree(protectedScope.getScopeJson()).path("keyword").asText();
+        assertThat(protectedScope.getScopeJson()).doesNotContain("A12345678");
+        assertThat(idCardProtectionService.isEncrypted(storedKeyword)).isTrue();
+        assertThat(idCardProtectionService.decrypt(storedKeyword)).isEqualTo("A12345678");
+        ResponseEntity<byte[]> sensitiveStandard = download("/api/exchange/export/STANDARD", HttpMethod.POST,
+                academic.accessToken(), Map.of("assessmentYear", "2026", "keyword", "P10SCPA"));
+        try (Workbook workbook = new XSSFWorkbook(new ByteArrayInputStream(sensitiveStandard.getBody()))) {
+            DataFormatter formatter = new DataFormatter();
+            assertThat(formatter.formatCellValue(workbook.getSheetAt(0).getRow(1).getCell(7)))
+                    .isEqualTo("a12345678");
+            assertThat(formatter.formatCellValue(workbook.getSheetAt(0).getRow(1).getCell(8)))
+                    .isEqualTo("2000/12/31");
+        }
+    }
+
+    @Test
+    void errorExportIsExactBatchOwnerOnlyAcrossCollegesAndMasksSensitiveValues() throws Exception {
+        SysUser collegeBUser = userMapper.selectByUsername("test_college_auditor");
+        assertThat(collegeBUser).isNotNull();
+        Long originalCollegeId = collegeBUser.getCollegeId();
+        int movedToCollegeB = userMapper.update(null, new LambdaUpdateWrapper<SysUser>()
+                .eq(SysUser::getId, collegeBUser.getId())
+                .set(SysUser::getCollegeId, COLLEGE_B));
+        assertThat(movedToCollegeB).isEqualTo(1);
+        assertThat(userMapper.selectById(collegeBUser.getId()).getCollegeId()).isEqualTo(COLLEGE_B);
+
+        try {
+            LoginResult collegeA = readyLogin("test_college_clerk");
+            LoginResult collegeB = readyLogin("test_college_auditor");
+            LoginResult school = readyLogin("test_academic_admin");
+            long operatorA = userMapper.selectByUsername("test_college_clerk").getId();
+            long operatorB = collegeBUser.getId();
+            String batchNoA = "P10F01-A-" + System.nanoTime();
+            String batchNoB = "P10F01-B-" + System.nanoTime();
+            String rawIdCard = "11010119900628002X";
+            String rawBirthDate = "1991/7/1";
+            long batchA = seedErrorBatch(batchNoA, operatorA, COLLEGE_A,
+                    "身份证件号码", rawIdCard);
+            long batchB = seedErrorBatch(batchNoB, operatorB, COLLEGE_B,
+                    "出生日期", rawBirthDate);
+
+            ErrorExportRow ownA = onlyErrorRow(download("/api/exchange/export/ERROR", HttpMethod.POST,
+                    collegeA.accessToken(), Map.of("batchId", batchA)).getBody());
+            assertThat(ownA.batchNo()).isEqualTo(batchNoA);
+            assertThat(ownA.fieldName()).isEqualTo("身份证件号码");
+            assertThat(ownA.errorValue()).isNotEqualTo(rawIdCard).contains("*");
+
+            ErrorExportRow ownB = onlyErrorRow(download("/api/exchange/export/ERROR", HttpMethod.POST,
+                    collegeB.accessToken(), Map.of("batchId", batchB)).getBody());
+            assertThat(ownB.batchNo()).isEqualTo(batchNoB);
+            assertThat(ownB.fieldName()).isEqualTo("出生日期");
+            assertThat(ownB.errorValue()).isNotEqualTo(rawBirthDate).contains("*");
+
+            assertForbiddenErrorExport(collegeA.accessToken(), batchB);
+            assertForbiddenErrorExport(collegeB.accessToken(), batchA);
+
+            ErrorExportRow schoolA = onlyErrorRow(download("/api/exchange/export/ERROR", HttpMethod.POST,
+                    school.accessToken(), Map.of("batchId", batchA)).getBody());
+            ErrorExportRow schoolB = onlyErrorRow(download("/api/exchange/export/ERROR", HttpMethod.POST,
+                    school.accessToken(), Map.of("batchId", batchB)).getBody());
+            assertThat(schoolA.batchNo()).isEqualTo(batchNoA);
+            assertThat(schoolA.errorValue()).isEqualTo(rawIdCard);
+            assertThat(schoolB.batchNo()).isEqualTo(batchNoB);
+            assertThat(schoolB.errorValue()).isEqualTo(rawBirthDate);
+
+            ResponseEntity<String> missingBatch = exchange("/api/exchange/export/ERROR", HttpMethod.POST,
+                    school.accessToken(), Map.of());
+            assertThat(missingBatch.getStatusCode()).isEqualTo(HttpStatus.OK);
+            JsonNode missingBatchRoot = json(missingBatch);
+            assertThat(missingBatchRoot.at("/code").asInt()).isNotZero();
+            assertThat(missingBatchRoot.at("/msg").asText()).contains("必须指定导入批次");
+        } finally {
+            userMapper.update(null, new LambdaUpdateWrapper<SysUser>()
+                    .eq(SysUser::getId, collegeBUser.getId())
+                    .set(SysUser::getCollegeId, originalCollegeId));
         }
     }
 
@@ -381,7 +516,8 @@ class Phase10ExchangeIT {
         Student after = studentMapper.selectById(before.getId());
         assertThat(after.getCollegeId()).isEqualTo(COLLEGE_B);
         assertThat(after.getName()).isEqualTo(before.getName());
-        assertThat(after.getIdCardNo()).isEqualTo("B98765432");
+        assertThat(after.getIdCardNo()).isEqualTo(before.getIdCardNo());
+        assertThat(after.getIdCardHmac()).isEqualTo(before.getIdCardHmac());
         Certificate certificate = certificateMapper.selectOne(new LambdaQueryWrapper<Certificate>()
                 .eq(Certificate::getStudentNo, "P10OWNB").last("LIMIT 1"));
         assertThat(certificate.getCollegeId()).isEqualTo(COLLEGE_B);
@@ -879,6 +1015,59 @@ class Phase10ExchangeIT {
         return batch.getId();
     }
 
+    private long seedErrorBatch(String batchNo, long operatorId, long collegeId,
+                                String fieldName, String errorValue) {
+        ImportExportBatch batch = new ImportExportBatch();
+        batch.setBatchNo(batchNo);
+        batch.setType("import");
+        batch.setFileName(batchNo + ".xlsx");
+        batch.setOperatorId(operatorId);
+        batch.setOperateTime(LocalDateTime.now());
+        batch.setTotal(1);
+        batch.setSuccessCount(0);
+        batch.setFailCount(1);
+        batch.setScopeJson("{\"collegeId\":" + collegeId + "}");
+        batch.setStatus("PREVALIDATED");
+        batch.setRemark("FINAL-F01-DYN");
+        batchMapper.insert(batch);
+
+        ImportErrorDetail detail = new ImportErrorDetail();
+        detail.setBatchId(batch.getId());
+        detail.setBatchNo(batchNo);
+        detail.setRowNo(2);
+        detail.setStudentNo(batchNo + "-STUDENT");
+        detail.setStudentName("F-01测试学生");
+        detail.setFieldName(fieldName);
+        detail.setErrorValue("身份证件号码".equals(fieldName)
+                ? idCardProtectionService.encrypt(errorValue) : errorValue);
+        detail.setErrorReason("F-01敏感错误值");
+        detail.setSuggestion("请更正");
+        errorDetailMapper.insert(detail);
+        return batch.getId();
+    }
+
+    private void assertForbiddenErrorExport(String token, long batchId) throws Exception {
+        ResponseEntity<String> response = exchange("/api/exchange/export/ERROR", HttpMethod.POST,
+                token, Map.of("batchId", batchId));
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode root = json(response);
+        assertThat(root.at("/code").asInt()).isEqualTo(403);
+        assertThat(root.at("/msg").asText()).contains("无权访问该批次");
+    }
+
+    private ErrorExportRow onlyErrorRow(byte[] content) throws Exception {
+        assertThat(content).isNotNull();
+        try (Workbook workbook = new XSSFWorkbook(new ByteArrayInputStream(content))) {
+            assertThat(workbook.getSheetAt(0).getLastRowNum()).isEqualTo(1);
+            Row row = workbook.getSheetAt(0).getRow(1);
+            DataFormatter formatter = new DataFormatter();
+            return new ErrorExportRow(
+                    formatter.formatCellValue(row.getCell(0)),
+                    formatter.formatCellValue(row.getCell(4)),
+                    formatter.formatCellValue(row.getCell(5)));
+        }
+    }
+
     private void assertWorkbookHeaderAndTextFormat(byte[] content) throws Exception {
         try (Workbook workbook = new XSSFWorkbook(new ByteArrayInputStream(content))) {
             Row header = workbook.getSheetAt(0).getRow(0);
@@ -951,12 +1140,14 @@ class Phase10ExchangeIT {
 
     private void seedCertificateSnapshot(String prefix, long collegeId, String year, String studentNo,
                                          String idCardNo, String certNo, String validUntil) {
+        String normalizedIdCardNo = idCardNo.toLowerCase(Locale.ROOT);
         Student student = new Student();
         student.setStudentNo(studentNo);
         student.setName(prefix + "学生");
         student.setGender("female");
         student.setIdCardType("hm_travel_permit");
-        student.setIdCardNo(idCardNo);
+        student.setIdCardNo(idCardProtectionService.encrypt(normalizedIdCardNo));
+        student.setIdCardHmac(idCardProtectionService.hmac(normalizedIdCardNo));
         student.setBirthDate("2000/12/31");
         student.setIdentityType("normal_student");
         student.setSourceFull("广东省/广州市/天河区");
@@ -997,7 +1188,8 @@ class Phase10ExchangeIT {
         certificate.setStudentNo(studentNo);
         certificate.setStudentName(student.getName());
         certificate.setIdCardType(student.getIdCardType());
-        certificate.setIdCardNo(idCardNo);
+        certificate.setIdCardNo(idCardProtectionService.encrypt(normalizedIdCardNo));
+        certificate.setIdCardHmac(idCardProtectionService.hmac(normalizedIdCardNo));
         certificate.setEducationLevel("bachelor");
         certificate.setTrainingGoal("junior_middle_school_teacher");
         certificate.setTeachingSegment("junior_middle_school");
@@ -1145,9 +1337,19 @@ class Phase10ExchangeIT {
     }
 
     private void cleanupGeneratedData() {
-        jdbcTemplate.update("DELETE FROM import_record_ref WHERE batch_no LIKE 'IMP-%' OR batch_no LIKE 'EXP-%'");
-        jdbcTemplate.update("DELETE FROM import_error_detail WHERE batch_no LIKE 'IMP-%' OR batch_no LIKE 'EXP-%'");
-        jdbcTemplate.update("DELETE FROM import_export_batch WHERE batch_no LIKE 'IMP-%' OR batch_no LIKE 'EXP-%' OR batch_no LIKE 'P10PAGE-%'");
+        jdbcTemplate.update("""
+                DELETE FROM import_record_ref
+                WHERE batch_no LIKE 'IMP-%' OR batch_no LIKE 'EXP-%' OR batch_no LIKE 'P10F01-%'
+                """);
+        jdbcTemplate.update("""
+                DELETE FROM import_error_detail
+                WHERE batch_no LIKE 'IMP-%' OR batch_no LIKE 'EXP-%' OR batch_no LIKE 'P10F01-%'
+                """);
+        jdbcTemplate.update("""
+                DELETE FROM import_export_batch
+                WHERE batch_no LIKE 'IMP-%' OR batch_no LIKE 'EXP-%'
+                   OR batch_no LIKE 'P10PAGE-%' OR batch_no LIKE 'P10F01-%'
+                """);
         jdbcTemplate.update("DELETE FROM certificate WHERE student_no LIKE 'P10%' OR student_no = '00123'");
         jdbcTemplate.update("DELETE FROM training_profile WHERE student_id IN (SELECT id FROM student WHERE student_no LIKE 'P10%' OR student_no = '00123')");
         jdbcTemplate.update("DELETE FROM student WHERE student_no LIKE 'P10%' OR student_no = '00123'");
@@ -1555,5 +1757,8 @@ class Phase10ExchangeIT {
     }
 
     private record LoginResult(String accessToken, String refreshToken, boolean mustChangePwd) {
+    }
+
+    private record ErrorExportRow(String batchNo, String fieldName, String errorValue) {
     }
 }

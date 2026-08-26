@@ -32,6 +32,13 @@ const userStore = useUserStore()
 
 const collegeLoading = ref(false)
 const majorLoading = ref(false)
+const trainingGoalsLoading = ref(false)
+const collegeError = ref('')
+const majorError = ref('')
+const trainingGoalsError = ref('')
+const hasLoadedColleges = ref(false)
+const hasLoadedMajors = ref(false)
+const hasLoadedTrainingGoals = ref(false)
 const selectedCollegeId = ref<string | null>(null)
 const selectedMajorId = ref<string | null>(null)
 const collegeKeyword = ref('')
@@ -58,7 +65,13 @@ const collegeOptions = computed<SelectOption[]>(() =>
 const trainingGoalOptions = computed<SelectOption[]>(() => trainingGoals.value.map((item) => ({ label: item.itemValue, value: item.itemCode })))
 
 const selectedCollege = computed(() => colleges.value.find((item) => item.id === selectedCollegeId.value) || null)
-const canCreateMajor = computed(() => canManageMajor.value && selectedCollege.value?.status === 1)
+const collegeListReady = computed(() => hasLoadedColleges.value && !collegeLoading.value && !collegeError.value)
+const majorListReady = computed(() => hasLoadedMajors.value && !majorLoading.value && !majorError.value)
+const trainingGoalsReady = computed(() => hasLoadedTrainingGoals.value && !trainingGoalsLoading.value && !trainingGoalsError.value)
+const canCreateCollege = computed(() => canManageCollege.value && collegeListReady.value)
+const canCreateMajor = computed(() => canManageMajor.value && collegeListReady.value && majorListReady.value && selectedCollege.value?.status === 1)
+const canEditMajor = computed(() => canManageMajor.value && collegeListReady.value && majorListReady.value)
+const canEditGoals = computed(() => canManageMajor.value && majorListReady.value && trainingGoalsReady.value)
 const selectedMajor = computed(() => majors.value.find((item) => item.id === selectedMajorId.value) || null)
 
 const collegeColumns = computed<DataTableColumns<College>>(() => {
@@ -75,12 +88,12 @@ const collegeColumns = computed<DataTableColumns<College>>(() => {
       width: 146,
       render: (row) =>
         renderTableActions([
-          h(NButton, { size: 'small', quaternary: true, onClick: () => collegeDrawer.value?.open(row) }, { default: () => '编辑' }),
+          h(NButton, { size: 'small', quaternary: true, disabled: !collegeListReady.value, onClick: () => collegeDrawer.value?.open(row) }, { default: () => '编辑' }),
           h(
             NPopconfirm,
-            { onPositiveClick: () => removeCollege(row) },
+            { disabled: !collegeListReady.value, onPositiveClick: () => removeCollege(row) },
             {
-              trigger: () => h(NButton, { size: 'small', quaternary: true, type: 'error' }, { default: () => '删除' }),
+              trigger: () => h(NButton, { size: 'small', quaternary: true, type: 'error', disabled: !collegeListReady.value }, { default: () => '删除' }),
               default: () => '删除学院会校验是否存在专业。'
             }
           )
@@ -112,13 +125,13 @@ const majorColumns = computed<DataTableColumns<Major>>(() => {
       width: 220,
       render: (row) =>
         renderTableActions([
-          h(NButton, { size: 'small', quaternary: true, onClick: () => majorDrawer.value?.open(row) }, { default: () => '编辑' }),
-          h(NButton, { size: 'small', quaternary: true, onClick: () => goalDrawer.value?.open(row) }, { default: () => '目标' }),
+          h(NButton, { size: 'small', quaternary: true, disabled: !canEditMajor.value, onClick: () => majorDrawer.value?.open(row) }, { default: () => '编辑' }),
+          h(NButton, { size: 'small', quaternary: true, disabled: !canEditGoals.value, onClick: () => goalDrawer.value?.open(row) }, { default: () => '目标' }),
           h(
             NPopconfirm,
-            { onPositiveClick: () => disableMajor(row) },
+            { disabled: !majorListReady.value, onPositiveClick: () => disableMajor(row) },
             {
-              trigger: () => h(NButton, { size: 'small', quaternary: true, type: 'warning' }, { default: () => '停用' }),
+              trigger: () => h(NButton, { size: 'small', quaternary: true, type: 'warning', disabled: !majorListReady.value }, { default: () => '停用' }),
               default: () => '确认停用该专业？停用后不再可选用（可在编辑中恢复启用），已有引用不受影响。'
             }
           )
@@ -177,7 +190,7 @@ function majorRowProps(row: object) {
 
 function resetCollegeFilters() {
   collegeKeyword.value = ''
-  void loadColleges()
+  void loadCollegeSection()
 }
 
 function resetMajorFilters() {
@@ -198,12 +211,14 @@ async function loadColleges() {
   try {
     const res = await listColleges(collegeKeyword.value, null)
     colleges.value = res.data
+    collegeError.value = ''
+    hasLoadedColleges.value = true
     if (!selectedCollegeId.value && colleges.value.length > 0) selectedCollegeId.value = colleges.value[0].id
     if (selectedCollegeId.value && !colleges.value.some((item) => item.id === selectedCollegeId.value)) {
       selectedCollegeId.value = colleges.value[0]?.id || null
     }
   } catch (error) {
-    showError(error, '学院加载失败')
+    collegeError.value = errorText(error, '学院加载失败')
   } finally {
     collegeLoading.value = false
   }
@@ -225,19 +240,37 @@ async function loadMajors() {
       keyword: majorKeyword.value
     })
     majors.value = res.data
+    majorError.value = ''
+    hasLoadedMajors.value = true
     if (selectedMajorId.value && !majors.value.some((item) => item.id === selectedMajorId.value)) selectedMajorId.value = null
   } catch (error) {
-    showError(error, '专业加载失败')
+    majorError.value = errorText(error, '专业加载失败')
   } finally {
     majorLoading.value = false
   }
 }
 
-async function refresh() {
+async function loadTrainingGoals() {
+  trainingGoalsLoading.value = true
+  try {
+    const res = await listDictItems('training_goal', true)
+    trainingGoals.value = sortDict(res.data)
+    trainingGoalsError.value = ''
+    hasLoadedTrainingGoals.value = true
+  } catch (error) {
+    trainingGoalsError.value = errorText(error, '培养目标选项加载失败')
+  } finally {
+    trainingGoalsLoading.value = false
+  }
+}
+
+async function loadCollegeSection() {
   await loadColleges()
-  const tasks: Promise<void>[] = []
-  if (canManageMajor.value) tasks.push(loadMajors())
-  await Promise.all(tasks)
+  if (canManageMajor.value) await loadMajors()
+}
+
+async function refresh() {
+  await Promise.all([loadTrainingGoals(), loadCollegeSection()])
 }
 
 function onCollegeSaved(createdId: string | null) {
@@ -251,6 +284,10 @@ function onMajorSaved(majorId: string) {
 }
 
 async function removeCollege(row: College) {
+  if (!collegeListReady.value) {
+    message.warning('学院列表尚未完成有效加载，请先重试')
+    return
+  }
   try {
     await deleteCollege(row.id)
     message.success('学院已删除')
@@ -262,6 +299,10 @@ async function removeCollege(row: College) {
 }
 
 async function disableMajor(row: Major) {
+  if (!majorListReady.value) {
+    message.warning('专业列表尚未完成有效加载，请先重试')
+    return
+  }
   try {
     // 后端 DELETE /major/{id} 现为“停用”语义（status→0），行仍在库、引用不孤儿、可恢复启用。
     await deleteMajor(row.id)
@@ -274,6 +315,10 @@ async function disableMajor(row: Major) {
 }
 
 function openCollegeDrawer() {
+  if (!canCreateCollege.value) {
+    message.warning('学院列表尚未完成有效加载，请先重试')
+    return
+  }
   collegeDrawer.value?.open()
 }
 
@@ -286,22 +331,32 @@ function showError(error: unknown, fallback: string) {
   message.error(detail || fallback)
 }
 
-onMounted(async () => {
-  const res = await listDictItems('training_goal', true)
-  trainingGoals.value = sortDict(res.data)
-  await refresh()
+function errorText(error: unknown, fallback: string) {
+  const detail = error instanceof Error ? error.message : ''
+  return detail || fallback
+}
+
+onMounted(() => {
+  void refresh()
 })
 
-defineExpose({ refresh, openCollegeDrawer })
+defineExpose({ refresh, openCollegeDrawer, canCreateCollege })
 </script>
 
 <template>
-  <div class="org-layout">
-    <div class="page-section">
-      <FilterBar :loading="collegeLoading" @submit="loadColleges" @reset="resetCollegeFilters">
+  <n-alert v-if="trainingGoalsError" type="warning" title="培养目标选项加载失败" class="dependency-alert" role="alert">
+    <div class="dependency-alert__content">
+      <span>{{ trainingGoalsError }}。学院和专业列表仍可查看，培养目标维护暂不可用。</span>
+      <n-button size="small" secondary :loading="trainingGoalsLoading" @click="loadTrainingGoals">重试</n-button>
+    </div>
+  </n-alert>
+
+  <n-grid cols="1 1180:20" responsive="self" item-responsive :x-gap="24" :y-gap="24" class="org-layout">
+    <n-gi span="1 1180:7" class="page-section">
+      <FilterBar :loading="collegeLoading" @submit="loadCollegeSection" @reset="resetCollegeFilters">
         <label class="filter-field">
           <span>学院</span>
-          <n-input v-model:value="collegeKeyword" clearable placeholder="学院编码 / 名称" style="width: 220px" @keyup.enter="loadColleges" />
+          <n-input v-model:value="collegeKeyword" clearable placeholder="学院编码 / 名称" class="control control--wide" @keyup.enter="loadCollegeSection" />
         </label>
       </FilterBar>
       <DataPanel
@@ -310,18 +365,20 @@ defineExpose({ refresh, openCollegeDrawer })
         :data="colleges"
         :total="colleges.length"
         :loading="collegeLoading"
+        :initial-loading="collegeLoading && !hasLoadedColleges"
+        :error="collegeError || undefined"
         :row-props="collegeRowProps"
         :max-height="620"
         :pagination="false"
         empty-title="暂无学院"
         empty-description="当前筛选条件下没有学院记录。"
-        @refresh="loadColleges"
+        @refresh="loadCollegeSection"
       >
         <template #actions>
-          <n-button v-if="canManageCollege" type="primary" size="small" @click="collegeDrawer?.open()">新增学院</n-button>
+          <n-button v-if="canManageCollege" type="primary" size="small" :disabled="!canCreateCollege" @click="openCollegeDrawer">新增学院</n-button>
         </template>
       </DataPanel>
-      <n-card :bordered="false" class="detail-card">
+      <n-card v-if="selectedCollege || collegeListReady" :bordered="false" class="detail-card">
         <div class="detail-head">
           <div>
             <strong>{{ selectedCollege?.name || '学院详情' }}</strong>
@@ -329,20 +386,20 @@ defineExpose({ refresh, openCollegeDrawer })
           </div>
         </div>
         <DetailPanel v-if="selectedCollege" :items="collegeDetailItems" :columns="2" />
-        <n-empty v-else description="请选择学院" />
+        <n-empty v-else :description="colleges.length ? '请选择学院' : '暂无学院可供选择'" />
       </n-card>
-    </div>
+    </n-gi>
 
-    <div class="page-section">
+    <n-gi span="1 1180:13" class="page-section">
       <n-empty v-if="!canManageMajor" description="当前账号没有专业管理权限" />
       <FilterBar v-else :loading="majorLoading" @submit="loadMajors" @reset="resetMajorFilters">
         <label class="filter-field">
           <span>专业</span>
-          <n-input v-model:value="majorKeyword" clearable placeholder="专业代码 / 名称" style="width: 220px" @keyup.enter="loadMajors" />
+          <n-input v-model:value="majorKeyword" clearable placeholder="专业代码 / 名称" class="control control--wide" @keyup.enter="loadMajors" />
         </label>
         <label class="filter-field">
           <span>年度</span>
-          <n-input v-model:value="majorYearVersion" clearable maxlength="16" placeholder="年度" style="width: 120px" />
+          <n-input v-model:value="majorYearVersion" clearable maxlength="16" placeholder="年度" class="control control--year" />
         </label>
         <label class="filter-field">
           <span>试点</span>
@@ -350,7 +407,7 @@ defineExpose({ refresh, openCollegeDrawer })
             v-model:value="pilotScopeFlag"
             clearable
             placeholder="全部"
-            style="width: 110px"
+            class="control control--compact"
             :options="[
               { label: '是', value: 1 },
               { label: '否', value: 0 }
@@ -363,7 +420,7 @@ defineExpose({ refresh, openCollegeDrawer })
             v-model:value="majorStatus"
             clearable
             placeholder="全部"
-            style="width: 110px"
+            class="control control--compact"
             :options="[
               { label: '启用', value: 1 },
               { label: '停用', value: 0 }
@@ -378,6 +435,8 @@ defineExpose({ refresh, openCollegeDrawer })
         :data="majors"
         :total="majors.length"
         :loading="majorLoading"
+        :initial-loading="majorLoading && !hasLoadedMajors"
+        :error="majorError || undefined"
         :row-props="majorRowProps"
         :max-height="620"
         empty-title="暂无专业"
@@ -388,7 +447,7 @@ defineExpose({ refresh, openCollegeDrawer })
           <n-button v-if="canManageMajor" type="primary" size="small" :disabled="!canCreateMajor" @click="majorDrawer?.open()">新增专业</n-button>
         </template>
       </DataPanel>
-      <n-card v-if="canManageMajor" :bordered="false" class="detail-card">
+      <n-card v-if="canManageMajor && (selectedMajor || majorListReady)" :bordered="false" class="detail-card">
         <div class="detail-head">
           <div>
             <strong>{{ selectedMajor?.internalMajorName || '专业详情' }}</strong>
@@ -396,10 +455,10 @@ defineExpose({ refresh, openCollegeDrawer })
           </div>
         </div>
         <DetailPanel v-if="selectedMajor" :items="majorDetailItems" :columns="2" />
-        <n-empty v-else description="请选择专业" />
+        <n-empty v-else :description="majors.length ? '请选择专业' : '暂无专业可供选择'" />
       </n-card>
-    </div>
-  </div>
+    </n-gi>
+  </n-grid>
 
   <CollegeDrawer ref="collegeDrawer" @saved="onCollegeSaved" />
   <MajorDrawer
@@ -421,9 +480,6 @@ defineExpose({ refresh, openCollegeDrawer })
 
 <style scoped>
 .org-layout {
-  display: grid;
-  grid-template-columns: minmax(360px, 0.7fr) minmax(720px, 1.3fr);
-  gap: var(--space-6);
   align-items: start;
 }
 
@@ -448,6 +504,33 @@ defineExpose({ refresh, openCollegeDrawer })
   display: block;
 }
 
+.dependency-alert {
+  margin-bottom: var(--space-4);
+}
+
+.dependency-alert__content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.control {
+  max-width: 100%;
+}
+
+.control--wide {
+  width: 220px;
+}
+
+.control--year {
+  width: 120px;
+}
+
+.control--compact {
+  width: 110px;
+}
+
 .pill {
   display: inline-flex;
   align-items: center;
@@ -463,9 +546,10 @@ defineExpose({ refresh, openCollegeDrawer })
   background: var(--brand-soft);
 }
 
-@media (max-width: 1220px) {
-  .org-layout {
-    grid-template-columns: 1fr;
+@media (max-width: 720px) {
+  .dependency-alert__content {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }
 </style>

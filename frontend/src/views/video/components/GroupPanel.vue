@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { h, onMounted, reactive, ref } from 'vue'
+import { computed, h, onMounted, reactive, ref } from 'vue'
 import { NButton, NPopconfirm, useMessage, type DataTableColumns, type SelectOption } from 'naive-ui'
 import DataPanel from '@/components/DataPanel.vue'
 import StatusTag from '@/components/StatusTag.vue'
@@ -27,6 +27,10 @@ const groups = ref<ReviewerGroup[]>([])
 const reviewers = ref<ReviewerCandidate[]>([])
 const editingGroup = ref<ReviewerGroup | null>(null)
 const memberGroup = ref<ReviewerGroup | null>(null)
+const groupSaving = ref(false)
+const memberSaving = ref(false)
+const removingMemberId = ref('')
+const memberBusy = computed(() => memberSaving.value || Boolean(removingMemberId.value))
 
 const groupForm = reactive<ReviewerGroupPayload>({
   name: '',
@@ -106,10 +110,12 @@ function openGroup(row?: ReviewerGroup) {
 }
 
 async function saveGroup() {
+  if (groupSaving.value) return
   if (!groupForm.name.trim()) {
     message.error('请输入评审组名称')
     return
   }
+  groupSaving.value = true
   try {
     if (editingGroup.value) await updateReviewerGroup(editingGroup.value.id, groupForm)
     else await createReviewerGroup(groupForm)
@@ -118,6 +124,8 @@ async function saveGroup() {
     await loadGroups()
   } catch (error) {
     showError(error, '评审组保存失败')
+  } finally {
+    groupSaving.value = false
   }
 }
 
@@ -138,10 +146,12 @@ function openMember(row: ReviewerGroup) {
 }
 
 async function addMember() {
+  if (memberBusy.value) return
   if (!memberGroup.value || !memberForm.reviewerUserId) {
     message.error('请选择评审教师')
     return
   }
+  memberSaving.value = true
   try {
     await addReviewerGroupMember(memberGroup.value.id, memberForm.reviewerUserId)
     message.success('成员已添加')
@@ -150,11 +160,15 @@ async function addMember() {
     memberGroup.value = groups.value.find((item) => item.id === memberGroup.value?.id) || memberGroup.value
   } catch (error) {
     showError(error, '成员添加失败')
+  } finally {
+    memberSaving.value = false
   }
 }
 
 async function removeMember(memberId: string) {
+  if (memberBusy.value) return
   if (!memberGroup.value) return
+  removingMemberId.value = memberId
   try {
     await removeReviewerGroupMember(memberGroup.value.id, memberId)
     message.success('成员已移除')
@@ -162,6 +176,8 @@ async function removeMember(memberId: string) {
     memberGroup.value = groups.value.find((item) => item.id === memberGroup.value?.id) || memberGroup.value
   } catch (error) {
     showError(error, '成员移除失败')
+  } finally {
+    removingMemberId.value = ''
   }
 }
 
@@ -184,41 +200,64 @@ function showError(error: unknown, fallback: string) {
       @refresh="loadAll"
     >
       <template #actions>
-        <n-button type="primary" size="small" @click="openGroup()">新增评审组</n-button>
+        <n-button v-if="groups.length > 0" type="primary" size="small" @click="openGroup()">新增评审组</n-button>
       </template>
       <template #emptyAction>
         <n-button type="primary" @click="openGroup()">新增评审组</n-button>
       </template>
     </DataPanel>
 
-    <n-modal v-model:show="groupVisible" preset="dialog" :title="editingGroup ? '编辑评审组' : '新增评审组'">
+    <n-modal
+      v-model:show="groupVisible"
+      preset="dialog"
+      :title="editingGroup ? '编辑评审组' : '新增评审组'"
+      :closable="!groupSaving"
+      :close-on-esc="!groupSaving"
+      :mask-closable="!groupSaving"
+    >
       <n-space vertical>
-        <n-input v-model:value="groupForm.name" placeholder="组名" />
+        <n-input v-model:value="groupForm.name" placeholder="组名" :disabled="groupSaving" />
         <n-select
           v-model:value="groupForm.status"
           :options="[
             { label: '启用', value: 'ENABLED' },
             { label: '停用', value: 'DISABLED' }
           ]"
+          :disabled="groupSaving"
         />
         <n-space justify="end">
-          <n-button @click="groupVisible = false">取消</n-button>
-          <n-button type="primary" @click="saveGroup">保存</n-button>
+          <n-button :disabled="groupSaving" @click="groupVisible = false">取消</n-button>
+          <n-button type="primary" :loading="groupSaving" @click="saveGroup">保存</n-button>
         </n-space>
       </n-space>
     </n-modal>
 
-    <n-modal v-model:show="memberVisible" preset="card" :title="memberGroup ? `成员管理：${memberGroup.name}` : '成员管理'" style="width: 680px">
+    <n-modal
+      v-model:show="memberVisible"
+      preset="card"
+      :title="memberGroup ? `成员管理：${memberGroup.name}` : '成员管理'"
+      style="width: min(var(--overlay-wide), var(--overlay-modal-max))"
+      :closable="!memberBusy"
+      :close-on-esc="!memberBusy"
+      :mask-closable="!memberBusy"
+    >
       <n-space vertical>
-        <n-space>
-          <n-select v-model:value="memberForm.reviewerUserId" filterable :options="reviewerOptions" placeholder="本院评审教师" style="width: 320px" />
-          <n-button type="primary" @click="addMember">添加</n-button>
-        </n-space>
+        <div class="member-controls">
+          <n-select v-model:value="memberForm.reviewerUserId" filterable :options="reviewerOptions" placeholder="本院评审教师" :disabled="memberBusy" />
+          <n-button type="primary" :loading="memberSaving" :disabled="Boolean(removingMemberId)" @click="addMember">添加</n-button>
+        </div>
         <n-list bordered>
           <n-list-item v-for="member in memberGroup?.members || []" :key="member.id">
             <n-space justify="space-between" align="center" style="width: 100%">
               <span>{{ member.reviewerName || member.workNo || member.reviewerUserId }}</span>
-              <n-button size="small" quaternary type="error" @click="removeMember(member.id)">移除</n-button>
+              <n-button
+                size="small"
+                quaternary
+                type="error"
+                :loading="removingMemberId === member.id"
+                :disabled="memberBusy && removingMemberId !== member.id"
+                @click="removeMember(member.id)"
+              >移除</n-button>
             </n-space>
           </n-list-item>
         </n-list>
@@ -226,3 +265,17 @@ function showError(error: unknown, fallback: string) {
     </n-modal>
   </section>
 </template>
+
+<style scoped>
+.member-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-2);
+}
+
+@media (max-width: 480px) {
+  .member-controls {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+</style>

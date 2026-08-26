@@ -1,0 +1,35 @@
+{
+  "timestamp": "2026-07-23T18:36:25+08:00",
+  "commit_hash": "32da73561fdd15d1c30f28fb7dbc9b207935384c",
+  "selected_modes": [
+    "incremental",
+    "security",
+    "stability",
+    "performance",
+    "testing-authenticity",
+    "release",
+    "configuration",
+    "data-integrity",
+    "concurrency"
+  ],
+  "scope": "ca400f1..32da735",
+  "outcome": "CHANGES_REQUESTED",
+  "overall_score": 6.0,
+  "dimension_scores": {
+    "security": 7.0,
+    "stability": 4.5,
+    "performance": 5.5,
+    "testing": 6.5,
+    "maintainability": 8.0,
+    "design": 5.5,
+    "release": 5.0
+  },
+  "finding_counts": {
+    "critical": 0,
+    "high": 3,
+    "medium": 3,
+    "low": 0,
+    "info": 0
+  },
+  "report_path": "docs/reviews/ws-03-second-remediation-rereview-2026-07-23.md"
+}

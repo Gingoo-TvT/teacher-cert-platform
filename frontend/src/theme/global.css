@@ -9,7 +9,7 @@
 
   --text: #1f2937;
   --text-secondary: #4b5563;
-  --text-muted: #9ca3af;
+  --text-muted: #6b7280;
   --text-inverse: #ffffff;
   --border: #eef0ee;
   --border-strong: #e2e6e3;
@@ -50,6 +50,15 @@
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", Inter, Roboto, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, Consolas, "Liberation Mono", Menlo, monospace;
 
+  --font-size-xs: 12px;
+  --font-size-sm: 13px;
+  --font-size-body: 14px;
+  --font-size-lg: 16px;
+  --font-size-title: 20px;
+  --line-height-sm: 20px;
+  --line-height-body: 1.55;
+  --line-height-title: 28px;
+
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -64,6 +73,11 @@
   --radius-control: 10px;
   --radius-card: 14px;
   --radius-tag: 999px;
+  --overlay-narrow: 420px;
+  --overlay-medium: 560px;
+  --overlay-wide: 720px;
+  --overlay-drawer-max: calc(100vw - 16px);
+  --overlay-modal-max: calc(100vw - 32px);
   --shadow-card: 0 1px 3px rgba(17, 24, 39, .06), 0 6px 16px rgba(17, 24, 39, .05);
   --shadow-card-hover: 0 4px 8px rgba(17, 24, 39, .07), 0 14px 28px rgba(17, 24, 39, .07);
   --shadow-floating: 0 18px 42px rgba(17, 24, 39, .14), 0 4px 14px rgba(17, 24, 39, .08);
@@ -91,8 +105,8 @@ body {
   color: var(--text);
   background: var(--page-bg);
   font-family: var(--font-sans);
-  font-size: 14px;
-  line-height: 1.55;
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
   letter-spacing: 0;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
@@ -116,7 +130,7 @@ select {
 }
 
 .page-section {
-  margin-bottom: var(--space-7);
+  margin-bottom: var(--space-6);
 }
 
 .page-section:last-child {
@@ -154,8 +168,7 @@ select {
   text-align: right;
 }
 
-.filters,
-.filter-bar {
+.filters {
   display: flex;
   align-items: center;
   gap: var(--space-3);
@@ -166,11 +179,7 @@ select {
 .filters .n-input,
 .filters .n-select,
 .filters .n-button,
-.filters .n-segmented,
-.filter-bar .n-input,
-.filter-bar .n-select,
-.filter-bar .n-button,
-.filter-bar .n-segmented {
+.filters .n-segmented {
   min-height: 34px;
 }
 
@@ -363,18 +372,26 @@ select {
 
 @media (max-width: 720px) {
   .page-section {
-    margin-bottom: var(--space-5);
+    margin-bottom: var(--space-4);
   }
 
-  .filters,
-  .filter-bar {
+  .filters {
     align-items: stretch;
   }
 
   .filters .n-input,
-  .filters .n-select,
-  .filter-bar .n-input,
-  .filter-bar .n-select {
+  .filters .n-select {
     width: 100% !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
   }
 }

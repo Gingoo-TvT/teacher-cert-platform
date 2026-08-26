@@ -30,7 +30,7 @@ public interface ProcessMaterialService {
 
     void delete(Long id);
 
-    String previewUrl(Long id);
+    Long previewFileId(Long id);
 
     void submit(Long id);
 

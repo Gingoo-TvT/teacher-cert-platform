@@ -71,6 +71,7 @@ function open(row?: ProcessMaterial, category?: string) {
 }
 
 async function saveUpload() {
+  if (saving.value || cancelling.value) return
   const file = fileList.value[0]?.file
   if (!uploadForm.studentId || !uploadForm.assessmentYear || !uploadForm.category || !file) {
     message.error('请选择学生、年度、类别和附件')
@@ -284,40 +285,45 @@ defineExpose({ open, getStudentId })
 </script>
 
 <template>
-  <n-drawer v-model:show="uploadVisible" :width="560" :mask-closable="!saving && !activeFileId">
+  <n-drawer
+    v-model:show="uploadVisible"
+    width="min(var(--overlay-medium), var(--overlay-drawer-max))"
+    :mask-closable="!saving && !activeFileId"
+    :close-on-esc="!saving && !activeFileId"
+  >
     <n-drawer-content :title="replacing ? '替换材料' : '上传材料'" :closable="!saving && !activeFileId">
       <n-alert v-if="replacing" type="info" :bordered="false" class="page-section">
         替换材料沿用原学生、年度与材料类别。
       </n-alert>
-      <n-form label-placement="top">
+      <n-form label-placement="top" :disabled="saving || cancelling">
         <div class="form-section-title">材料信息</div>
-        <n-grid :cols="2" :x-gap="12">
-          <n-form-item-gi label="学生" :span="2">
+        <n-grid cols="1 480:2" responsive="self" item-responsive :x-gap="12">
+          <n-form-item-gi label="学生" span="1 480:2">
             <StudentSelect
               v-model:value="uploadForm.studentId"
-              :disabled="Boolean(replacing) || selfMode"
+              :disabled="Boolean(replacing) || selfMode || saving || cancelling"
               :selected-label="selectedStudentLabel"
               placeholder="输入学号或姓名搜索"
             />
           </n-form-item-gi>
           <n-form-item-gi label="考核年度">
-            <n-input v-model:value="uploadForm.assessmentYear" :disabled="Boolean(replacing)" placeholder="考核年度" class="mono-input" />
+            <n-input v-model:value="uploadForm.assessmentYear" :disabled="Boolean(replacing) || saving || cancelling" placeholder="考核年度" class="mono-input" />
           </n-form-item-gi>
           <n-form-item-gi label="材料类别">
-            <n-select v-model:value="uploadForm.category" :options="categoryOptions" :disabled="Boolean(replacing)" placeholder="材料类别" />
+            <n-select v-model:value="uploadForm.category" :options="categoryOptions" :disabled="Boolean(replacing) || saving || cancelling" placeholder="材料类别" />
           </n-form-item-gi>
         </n-grid>
         <div class="form-section-title">上传文件</div>
-        <n-grid :cols="2" :x-gap="12">
-          <n-form-item-gi label="文件" :span="2">
-            <n-upload v-model:file-list="fileList" :max="1" accept=".pdf,.jpg,.jpeg,.png" :default-upload="false">
+        <n-grid cols="1 480:2" responsive="self" item-responsive :x-gap="12">
+          <n-form-item-gi label="文件" span="1 480:2">
+            <n-upload v-model:file-list="fileList" :max="1" accept=".pdf,.jpg,.jpeg,.png" :default-upload="false" :disabled="saving || cancelling">
               <n-upload-dragger>
                 <n-text>点击或拖拽文件到此处上传</n-text>
                 <n-p depth="3">支持 PDF、JPG、JPEG、PNG，最多 1 个文件。</n-p>
               </n-upload-dragger>
             </n-upload>
           </n-form-item-gi>
-          <n-form-item-gi v-if="saving" label="上传进度" :span="2">
+          <n-form-item-gi v-if="saving" label="上传进度" span="1 480:2">
             <n-progress type="line" :percentage="uploadProgress" indicator-placement="inside" />
           </n-form-item-gi>
         </n-grid>

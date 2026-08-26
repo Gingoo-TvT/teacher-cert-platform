@@ -38,11 +38,13 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertAll;
 
 @SpringBootTest(classes = PlatformApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @TestPropertySource(properties = {
@@ -247,6 +249,75 @@ class Phase6ExemptionIT {
         assertThat(studentRecords.at("/0/studentId").asLong()).isEqualTo(9001L);
     }
 
+    @Test
+    void exemptionMaterialCookieSupportsRangeAndRejectsLogoutAndAccountSwitch() throws Exception {
+        LoginResult studentA = readyLogin("test_student");
+        byte[] contentA = "%PDF-1.7\nexemption-A-range-contract\n%%EOF"
+                .getBytes(StandardCharsets.UTF_8);
+        long requestA = applyOk(studentA.accessToken(), 9001L, YEAR, SEGMENT, SUBJECT_A).get(0);
+        ResponseEntity<String> uploadedA = upload(studentA.accessToken(), requestA,
+                "evidence-a.pdf", "application/pdf", contentA);
+        assertThat(json(uploadedA).at("/code").asInt()).isZero();
+        long materialA = firstMaterialId(requestA);
+        String contentPathA = "/api/exemption/materials/" + materialA + "/content";
+
+        assertAll("免考佐证媒体 Cookie 安全合同",
+                () -> {
+                    ResponseEntity<String> previewA = exchange(
+                            "/api/exemption/materials/" + materialA + "/preview",
+                            HttpMethod.GET, studentA.accessToken(), null);
+                    assertThat(json(previewA).at("/data").asText()).isEqualTo(contentPathA);
+                    String cookieA = mediaCookie(previewA);
+                    assertThat(cookieMaxAge(previewA)).isBetween(1L, 30L);
+                    ResponseEntity<byte[]> rangeA = mediaBytes(contentPathA, cookieA, "bytes=5-11");
+                    assertThat(rangeA.getStatusCode()).isEqualTo(HttpStatus.PARTIAL_CONTENT);
+                    assertThat(rangeA.getHeaders().getFirst(HttpHeaders.CONTENT_RANGE))
+                            .isEqualTo("bytes 5-11/" + contentA.length);
+                    assertThat(rangeA.getBody())
+                            .isEqualTo(java.util.Arrays.copyOfRange(contentA, 5, 12));
+                },
+                () -> {
+                    LoginResult studentB = readyLogin("test_student_b");
+                    byte[] contentB = "%PDF-1.7\nexemption-B-account-contract\n%%EOF"
+                            .getBytes(StandardCharsets.UTF_8);
+                    long requestB = applyOk(
+                            studentB.accessToken(), 9002L, YEAR, SEGMENT, SUBJECT_B).get(0);
+                    ResponseEntity<String> uploadedB = upload(
+                            studentB.accessToken(), requestB,
+                            "evidence-b.pdf", "application/pdf", contentB);
+                    assertThat(json(uploadedB).at("/code").asInt()).isZero();
+                    long materialB = firstMaterialId(requestB);
+                    ResponseEntity<String> previewB = exchange(
+                            "/api/exemption/materials/" + materialB + "/preview",
+                            HttpMethod.GET, studentB.accessToken(), null);
+                    ResponseEntity<String> crossAccount = mediaText(
+                            contentPathA, mediaCookie(previewB), "bytes=0-3");
+                    // 超出 @DataScope 的定向读取按“不可见即不存在”返回 404，避免泄露资源存在性。
+                    assertThat(json(crossAccount).at("/code").asInt()).isEqualTo(404);
+                },
+                () -> {
+                    readyLogin("test_student_b");
+                    ResponseEntity<String> switched = loginRaw("test_student_b", CHANGED_PASSWORD);
+                    assertThat(json(switched).at("/code").asInt()).isZero();
+                    assertClearsMediaCookie(switched);
+                    assertThat(mediaBytes(contentPathA, cookiePair(switched), "bytes=0-3").getStatusCode())
+                            .isEqualTo(HttpStatus.UNAUTHORIZED);
+                },
+                () -> {
+                    LoginResult freshStudentA = login("test_student", CHANGED_PASSWORD);
+                    ResponseEntity<String> freshPreviewA = exchange(
+                            "/api/exemption/materials/" + materialA + "/preview",
+                            HttpMethod.GET, freshStudentA.accessToken(), null);
+                    String retainedOldCookie = mediaCookie(freshPreviewA);
+                    ResponseEntity<String> logout = exchange(
+                            "/api/auth/logout", HttpMethod.POST, freshStudentA.accessToken(), null);
+                    assertThat(json(logout).at("/code").asInt()).isZero();
+                    assertClearsMediaCookie(logout);
+                    assertThat(mediaBytes(contentPathA, retainedOldCookie, "bytes=0-3").getStatusCode())
+                            .isEqualTo(HttpStatus.UNAUTHORIZED);
+                });
+    }
+
     /**
      * Phase 44e-rollout（P1-1 真分页 · 数据范围 × 分页组合的正确性证明，逐字参照
      * Phase3StudentIT.paginatedStudentListIsScopedAndPagedForCollegeUser 落地到免考列表）：
@@ -388,6 +459,50 @@ class Phase6ExemptionIT {
         HttpHeaders headers = new HttpHeaders();
         headers.setBearerAuth(accessToken);
         return rest.exchange(url(path), method, new HttpEntity<>(body, headers), String.class);
+    }
+
+    private ResponseEntity<byte[]> mediaBytes(String path, String cookie, String range) {
+        HttpHeaders headers = mediaHeaders(cookie, range);
+        return rest.exchange(url(path), HttpMethod.GET, new HttpEntity<>(headers), byte[].class);
+    }
+
+    private ResponseEntity<String> mediaText(String path, String cookie, String range) {
+        HttpHeaders headers = mediaHeaders(cookie, range);
+        return rest.exchange(url(path), HttpMethod.GET, new HttpEntity<>(headers), String.class);
+    }
+
+    private HttpHeaders mediaHeaders(String cookie, String range) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.set(HttpHeaders.COOKIE, cookie);
+        headers.set(HttpHeaders.RANGE, range);
+        return headers;
+    }
+
+    private String mediaCookie(ResponseEntity<?> response) {
+        String setCookie = response.getHeaders().getFirst(HttpHeaders.SET_COOKIE);
+        assertThat(setCookie).contains("TCP_MEDIA_ACCESS=").contains("HttpOnly").contains("SameSite=Strict");
+        return setCookie.substring(0, setCookie.indexOf(';'));
+    }
+
+    private String cookiePair(ResponseEntity<?> response) {
+        String setCookie = response.getHeaders().getFirst(HttpHeaders.SET_COOKIE);
+        assertThat(setCookie).isNotNull();
+        return setCookie.substring(0, setCookie.indexOf(';'));
+    }
+
+    private long cookieMaxAge(ResponseEntity<?> response) {
+        String setCookie = response.getHeaders().getFirst(HttpHeaders.SET_COOKIE);
+        assertThat(setCookie).isNotNull();
+        return Long.parseLong(setCookie.replaceAll(".*Max-Age=([0-9]+).*", "$1"));
+    }
+
+    private void assertClearsMediaCookie(ResponseEntity<?> response) {
+        assertThat(response.getHeaders().get(HttpHeaders.SET_COOKIE))
+                .isNotNull()
+                .anySatisfy(cookie -> assertThat(cookie)
+                        .contains("TCP_MEDIA_ACCESS=")
+                        .contains("Max-Age=0")
+                        .contains("Path=/api"));
     }
 
     private JsonNode json(ResponseEntity<String> response) throws Exception {

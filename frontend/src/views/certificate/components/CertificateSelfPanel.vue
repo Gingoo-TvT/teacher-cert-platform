@@ -8,6 +8,12 @@ import type { Certificate } from '@/api/certificate'
 defineProps<{
   records: Certificate[]
   loading: boolean
+  loadError: string
+  hasLoadedSuccessfully: boolean
+}>()
+
+const emit = defineEmits<{
+  refresh: []
 }>()
 
 function certificateSubject(row: Certificate) {
@@ -17,8 +23,34 @@ function certificateSubject(row: Certificate) {
 
 <template>
   <n-spin :show="loading">
-    <n-empty v-if="!records.length" description="暂无证书记录" class="page-section" />
-    <n-grid v-else :cols="2" :x-gap="12" :y-gap="12" responsive="screen" class="page-section certificate-card-grid">
+    <n-card v-if="loading && !hasLoadedSuccessfully" :bordered="false" class="page-section certificate-loading-card">
+      <n-skeleton text :repeat="4" />
+    </n-card>
+    <n-result
+      v-else-if="loadError && !hasLoadedSuccessfully"
+      status="error"
+      title="证书加载失败"
+      :description="loadError"
+      class="page-section"
+      role="alert"
+    >
+      <template #footer>
+        <n-button type="primary" :loading="loading" @click="emit('refresh')">重试</n-button>
+      </template>
+    </n-result>
+    <n-alert
+      v-else-if="loadError"
+      type="error"
+      title="证书刷新失败"
+      :bordered="false"
+      class="page-section"
+      role="alert"
+    >
+      {{ loadError }}。以下仍显示上次成功加载的证书。
+      <n-button text type="error" size="small" :loading="loading" @click="emit('refresh')">重试</n-button>
+    </n-alert>
+    <n-empty v-if="hasLoadedSuccessfully && !records.length" description="暂无证书记录" class="page-section" />
+    <n-grid v-else-if="hasLoadedSuccessfully && records.length" cols="1 440:2" :x-gap="12" :y-gap="12" responsive="self" class="page-section certificate-card-grid">
       <n-gi v-for="item in records" :key="item.id">
         <n-card :bordered="false" class="certificate-card">
           <div class="certificate-card__top">
@@ -59,6 +91,10 @@ function certificateSubject(row: Certificate) {
   background:
     linear-gradient(135deg, var(--brand-soft), var(--surface) 46%),
     var(--surface);
+}
+
+.certificate-loading-card {
+  min-height: 180px;
 }
 
 .certificate-card :deep(.n-card__content) {

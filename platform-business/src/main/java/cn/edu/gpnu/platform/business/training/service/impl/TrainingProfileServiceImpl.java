@@ -115,9 +115,13 @@ public class TrainingProfileServiceImpl implements TrainingProfileService {
         if (existing && entity.getLocked() != null && entity.getLocked() == 1 && criticalChanged(entity, request)) {
             throw new BizException("关键字段已锁定，不能修改");
         }
+        String expectedStatus = entity.getStatus();
+        Integer expectedLocked = entity.getLocked();
         fill(entity, student, request, subject, matchedMajor);
         if (existing) {
-            trainingProfileMapper.updateById(entity);
+            if (updateProfileContent(entity, expectedStatus, expectedLocked) == 0) {
+                throw new BizException("操作冲突：培养信息状态已变更，请刷新后重试");
+            }
         } else {
             trainingProfileMapper.insert(entity);
         }
@@ -136,9 +140,10 @@ public class TrainingProfileServiceImpl implements TrainingProfileService {
         String oldStatus = entity.getStatus();
         String targetStatus = returnTargetFromSecondRejected(status);
         entity.setStatus(targetStatus);
-        // 原子条件更新：仅当状态未被并发改变时才写入，防重复提交竞态（P0-10）
-        if (trainingProfileMapper.update(entity, new LambdaUpdateWrapper<TrainingProfile>()
-                .eq(TrainingProfile::getId, id).eq(TrainingProfile::getStatus, oldStatus)) == 0) {
+        if (trainingProfileMapper.update(new TrainingProfile(), new LambdaUpdateWrapper<TrainingProfile>()
+                .eq(TrainingProfile::getId, id)
+                .eq(TrainingProfile::getStatus, oldStatus)
+                .set(TrainingProfile::getStatus, targetStatus)) == 0) {
             throw new BizException("操作冲突：该记录已被其他操作更新，请刷新后重试");
         }
         notificationHelper.notifySubmitted(entity.getCollegeId(), entity.getStudentId(), "专业培养信息",
@@ -168,9 +173,13 @@ public class TrainingProfileServiceImpl implements TrainingProfileService {
         entity.setFirstReviewerId(UserContext.getUserIdOrSystem());
         entity.setFirstReviewTime(LocalDateTime.now());
         entity.setFirstReviewComment(trimToNull(request.getComment()));
-        // 原子条件更新：仅当仍为初审态时才写入，防并发/重复初审竞态（P0-10）
-        if (trainingProfileMapper.update(entity, new LambdaUpdateWrapper<TrainingProfile>()
-                .eq(TrainingProfile::getId, id).eq(TrainingProfile::getStatus, oldStatus)) == 0) {
+        if (trainingProfileMapper.update(new TrainingProfile(), new LambdaUpdateWrapper<TrainingProfile>()
+                .eq(TrainingProfile::getId, id)
+                .eq(TrainingProfile::getStatus, oldStatus)
+                .set(TrainingProfile::getStatus, entity.getStatus())
+                .set(TrainingProfile::getFirstReviewerId, entity.getFirstReviewerId())
+                .set(TrainingProfile::getFirstReviewTime, entity.getFirstReviewTime())
+                .set(TrainingProfile::getFirstReviewComment, entity.getFirstReviewComment())) == 0) {
             throw new BizException("操作冲突：该记录已被其他操作更新，请刷新后重试");
         }
         auditLogService.record("training", entity.getId(), trainingTarget(entity), "firstReview",
@@ -208,9 +217,15 @@ public class TrainingProfileServiceImpl implements TrainingProfileService {
         entity.setSecondReviewerId(UserContext.getUserIdOrSystem());
         entity.setSecondReviewTime(LocalDateTime.now());
         entity.setSecondReviewComment(trimToNull(request.getComment()));
-        // 原子条件更新：仅当仍为复审态时才写入，防并发/重复复审竞态（P0-10）
-        if (trainingProfileMapper.update(entity, new LambdaUpdateWrapper<TrainingProfile>()
-                .eq(TrainingProfile::getId, id).eq(TrainingProfile::getStatus, oldStatus)) == 0) {
+        LambdaUpdateWrapper<TrainingProfile> update = new LambdaUpdateWrapper<TrainingProfile>()
+                .eq(TrainingProfile::getId, id)
+                .eq(TrainingProfile::getStatus, oldStatus)
+                .set(TrainingProfile::getStatus, entity.getStatus())
+                .set("PASS".equals(action), TrainingProfile::getLocked, entity.getLocked())
+                .set(TrainingProfile::getSecondReviewerId, entity.getSecondReviewerId())
+                .set(TrainingProfile::getSecondReviewTime, entity.getSecondReviewTime())
+                .set(TrainingProfile::getSecondReviewComment, entity.getSecondReviewComment());
+        if (trainingProfileMapper.update(new TrainingProfile(), update) == 0) {
             throw new BizException("操作冲突：该记录已被其他操作更新，请刷新后重试");
         }
         auditLogService.record("training", entity.getId(), trainingTarget(entity), "secondReview",
@@ -437,6 +452,29 @@ public class TrainingProfileServiceImpl implements TrainingProfileService {
             throw new BizException(ResultCode.NOT_FOUND.getCode(), "培养信息不存在");
         }
         return entity;
+    }
+
+    private int updateProfileContent(TrainingProfile entity, String expectedStatus, Integer expectedLocked) {
+        LambdaUpdateWrapper<TrainingProfile> update = new LambdaUpdateWrapper<TrainingProfile>()
+                .eq(TrainingProfile::getId, entity.getId())
+                .eq(TrainingProfile::getStatus, expectedStatus)
+                .eq(TrainingProfile::getLocked, expectedLocked)
+                .set(TrainingProfile::getCollegeId, entity.getCollegeId())
+                .set(TrainingProfile::getSecondDisciplineCode, entity.getSecondDisciplineCode())
+                .set(TrainingProfile::getSecondDisciplineName, entity.getSecondDisciplineName())
+                .set(TrainingProfile::getInternalMajorCode, entity.getInternalMajorCode())
+                .set(TrainingProfile::getInternalMajorName, entity.getInternalMajorName())
+                .set(TrainingProfile::getEducationLevel, entity.getEducationLevel())
+                .set(TrainingProfile::getTrainingGoal, entity.getTrainingGoal())
+                .set(TrainingProfile::getInternshipOrgMode, entity.getInternshipOrgMode())
+                .set(TrainingProfile::getInternshipLocation, entity.getInternshipLocation())
+                .set(TrainingProfile::getTeachingSegment, entity.getTeachingSegment())
+                .set(TrainingProfile::getTeachingSubjectId, entity.getTeachingSubjectId())
+                .set(TrainingProfile::getTeachingSubjectCode, entity.getTeachingSubjectCode())
+                .set(TrainingProfile::getTeachingSubjectName, entity.getTeachingSubjectName())
+                .set(TrainingProfile::getInterviewOrgMode, entity.getInterviewOrgMode())
+                .set(TrainingProfile::getAbilityTestConclusion, entity.getAbilityTestConclusion());
+        return trainingProfileMapper.update(new TrainingProfile(), update);
     }
 
     private Long currentStudentId() {

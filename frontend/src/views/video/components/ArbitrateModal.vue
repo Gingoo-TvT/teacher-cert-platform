@@ -28,6 +28,7 @@ const message = useMessage()
 
 const arbitrateVisible = ref(false)
 const arbitrating = ref<VideoReview | null>(null)
+const saving = ref(false)
 
 const arbitrateForm = reactive({
   mode: 'thirdExpert' as 'thirdExpert' | 'collegeArbitrate',
@@ -59,7 +60,9 @@ function open(row: VideoReview) {
 }
 
 async function saveArbitrate() {
+  if (saving.value) return
   if (!arbitrating.value) return
+  saving.value = true
   try {
     if (arbitrateForm.mode === 'thirdExpert') {
       if (!arbitrateForm.reviewerId) {
@@ -82,6 +85,8 @@ async function saveArbitrate() {
     emit('saved')
   } catch (error) {
     showError(error, '复评/仲裁失败')
+  } finally {
+    saving.value = false
   }
 }
 
@@ -108,19 +113,27 @@ defineExpose({ open })
 </script>
 
 <template>
-  <n-modal v-model:show="arbitrateVisible" preset="card" title="复评/仲裁" style="width: 580px">
+  <n-modal
+    v-model:show="arbitrateVisible"
+    preset="card"
+    title="复评/仲裁"
+    style="width: min(var(--overlay-medium), var(--overlay-modal-max))"
+    :closable="!saving"
+    :close-on-esc="!saving"
+    :mask-closable="!saving"
+  >
     <n-space vertical>
-      <n-radio-group v-model:value="arbitrateForm.mode">
+      <n-radio-group v-model:value="arbitrateForm.mode" :disabled="saving">
         <n-radio-button value="thirdExpert">第三专家</n-radio-button>
         <n-radio-button value="collegeArbitrate">学院仲裁</n-radio-button>
       </n-radio-group>
-      <n-select v-if="arbitrateForm.mode === 'thirdExpert'" v-model:value="arbitrateForm.reviewerId" :options="reviewerOptions" filterable placeholder="第三专家" />
-      <n-input-number v-model:value="arbitrateForm.score" :min="0" :max="100" style="width: 100%" placeholder="分数/终分" />
-      <n-select v-model:value="arbitrateForm.conclusion" :options="conclusionOptions" />
-      <n-input v-model:value="arbitrateForm.comment" type="textarea" placeholder="意见" />
+      <n-select v-if="arbitrateForm.mode === 'thirdExpert'" v-model:value="arbitrateForm.reviewerId" :options="reviewerOptions" filterable placeholder="第三专家" :disabled="saving" />
+      <n-input-number v-model:value="arbitrateForm.score" :min="0" :max="100" style="width: 100%" placeholder="分数/终分" :disabled="saving" />
+      <n-select v-model:value="arbitrateForm.conclusion" :options="conclusionOptions" :disabled="saving" />
+      <n-input v-model:value="arbitrateForm.comment" type="textarea" placeholder="意见" :disabled="saving" />
       <n-space justify="end">
-        <n-button @click="arbitrateVisible = false">取消</n-button>
-        <n-button type="primary" @click="saveArbitrate">保存</n-button>
+        <n-button :disabled="saving" @click="arbitrateVisible = false">取消</n-button>
+        <n-button type="primary" :loading="saving" @click="saveArbitrate">保存</n-button>
       </n-space>
     </n-space>
   </n-modal>

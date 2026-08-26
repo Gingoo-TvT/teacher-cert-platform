@@ -9,6 +9,7 @@ import cn.edu.gpnu.platform.system.entity.SysUser;
 import cn.edu.gpnu.platform.system.mapper.SysPermissionMapper;
 import cn.edu.gpnu.platform.system.mapper.SysRoleMapper;
 import cn.edu.gpnu.platform.system.mapper.SysUserMapper;
+import cn.edu.gpnu.platform.system.service.AuditLogService;
 import cn.edu.gpnu.platform.system.service.DataScopeService;
 import cn.edu.gpnu.platform.system.service.impl.UserSecurityServiceImpl;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
@@ -162,7 +163,8 @@ class CredentialHardeningTest {
 
         SecurityAdminServiceImpl service = new SecurityAdminServiceImpl(
                 userMapper, null, null, null, null, null, null, null, null,
-                passwordEncoder, revocationService, null, dataScopeService, authorizationGuard);
+                passwordEncoder, revocationService, null, dataScopeService, authorizationGuard,
+                mock(AuditLogService.class));
 
         assertThatThrownBy(() -> service.resetPassword(student.getId()))
                 .isInstanceOf(BizException.class)
@@ -282,7 +284,8 @@ class CredentialHardeningTest {
         SecurityAdminServiceImpl securityAdminService(Environment environment) {
             return new SecurityAdminServiceImpl(
                     null, null, null, null, null, null, null, null, null,
-                    new BCryptPasswordEncoder(10), null, environment, null, null);
+                    new BCryptPasswordEncoder(10), null, environment, null, null,
+                    mock(AuditLogService.class));
         }
     }
 

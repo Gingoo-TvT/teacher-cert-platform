@@ -67,52 +67,73 @@ async function loadCaptcha() {
 }
 
 async function handleLogin() {
-  await formRef.value?.validate()
+  if (loading.value) return
   loading.value = true
   try {
-    const res = await login({
-      username: form.username.trim(),
-      password: form.password,
-      captchaId: form.captchaId,
-      captchaCode: form.captchaCode.trim()
-    })
-    userStore.applyLogin(res.data)
-    if (res.data.mustChangePwd) {
-      pwdForm.oldPassword = form.password
-      pwdForm.newPassword = ''
-      pwdForm.confirmPassword = ''
-      changePwdVisible.value = true
-      message.warning('请先修改初始密码')
+    try {
+      await formRef.value?.validate()
+    } catch {
       return
     }
-    goRedirect()
-  } catch (error) {
-    showError(error, '登录失败')
-    await loadCaptcha()
+    try {
+      const res = await login({
+        username: form.username.trim(),
+        password: form.password,
+        captchaId: form.captchaId,
+        captchaCode: form.captchaCode.trim()
+      })
+      userStore.applyLogin(res.data)
+      if (res.data.mustChangePwd) {
+        pwdForm.oldPassword = form.password
+        pwdForm.newPassword = ''
+        pwdForm.confirmPassword = ''
+        changePwdVisible.value = true
+        message.warning('请先修改初始密码')
+        return
+      }
+      goRedirect()
+    } catch (error) {
+      showError(error, '登录失败')
+      await loadCaptcha()
+    }
   } finally {
     loading.value = false
   }
 }
 
 async function submitChangePwd() {
-  await pwdFormRef.value?.validate()
+  if (changingPwd.value) return
   changingPwd.value = true
   try {
-    await changePassword({ oldPassword: pwdForm.oldPassword, newPassword: pwdForm.newPassword })
-    message.success('密码已修改')
-    changePwdVisible.value = false
-    await userStore.loadMe()
-    goRedirect()
-  } catch (error) {
-    showError(error, '密码修改失败')
+    try {
+      await pwdFormRef.value?.validate()
+    } catch {
+      return
+    }
+    try {
+      await changePassword({ oldPassword: pwdForm.oldPassword, newPassword: pwdForm.newPassword })
+      userStore.clearSessionEverywhere()
+      form.password = ''
+      pwdForm.oldPassword = ''
+      pwdForm.newPassword = ''
+      pwdForm.confirmPassword = ''
+      await loadCaptcha()
+      changePwdVisible.value = false
+      message.success('密码已修改，请使用新密码重新登录')
+    } catch (error) {
+      showError(error, '密码修改失败')
+    }
   } finally {
     changingPwd.value = false
   }
 }
 
 function goRedirect() {
-  const redirect = (route.query.redirect as string) || '/'
-  router.push(redirect)
+  const requested = route.query.redirect
+  const redirect = typeof requested === 'string' && requested.startsWith('/') && !requested.startsWith('//')
+    ? requested
+    : '/'
+  void router.replace(redirect)
 }
 
 function showError(error: unknown, fallback: string) {
@@ -143,17 +164,42 @@ onMounted(loadCaptcha)
           <span>平台登录</span>
           <strong>欢迎使用</strong>
         </div>
-        <n-form ref="formRef" :model="form" :rules="rules" label-placement="top" @keyup.enter="handleLogin">
+        <n-form ref="formRef" :model="form" :rules="rules" label-placement="top" :disabled="loading" @keyup.enter="handleLogin">
           <n-form-item label="账号" path="username">
-            <n-input v-model:value="form.username" size="large" placeholder="学号 / 工号" />
+            <n-input
+              v-model:value="form.username"
+              size="large"
+              placeholder="学号 / 工号"
+              :input-props="{ 'aria-label': '账号', 'aria-required': 'true', autocomplete: 'username' }"
+            />
           </n-form-item>
           <n-form-item label="密码" path="password">
-            <n-input v-model:value="form.password" size="large" type="password" show-password-on="click" placeholder="密码" />
+            <n-input
+              v-model:value="form.password"
+              size="large"
+              type="password"
+              show-password-on="click"
+              placeholder="密码"
+              :input-props="{ 'aria-label': '密码', 'aria-required': 'true', autocomplete: 'current-password' }"
+            />
           </n-form-item>
           <n-form-item label="验证码" path="captchaCode">
             <div class="captcha-row">
-              <n-input v-model:value="form.captchaCode" size="large" maxlength="4" placeholder="验证码" />
-              <button class="captcha-button" type="button" :disabled="captchaLoading" @click="loadCaptcha">
+              <n-input
+                v-model:value="form.captchaCode"
+                size="large"
+                maxlength="4"
+                placeholder="验证码"
+                :input-props="{ 'aria-label': '验证码', 'aria-required': 'true', autocomplete: 'one-time-code' }"
+              />
+              <button
+                class="captcha-button"
+                type="button"
+                aria-label="刷新验证码"
+                :disabled="captchaLoading || loading"
+                @click="loadCaptcha"
+                @keyup.enter.stop
+              >
                 <img v-if="form.captchaImage" :src="form.captchaImage" alt="验证码" />
                 <span v-else>刷新</span>
               </button>
@@ -164,16 +210,40 @@ onMounted(loadCaptcha)
       </div>
     </section>
 
-    <n-modal v-model:show="changePwdVisible" preset="dialog" title="修改初始密码" :show-icon="false" :closable="false">
-      <n-form ref="pwdFormRef" :model="pwdForm" :rules="pwdRules" label-placement="top">
+    <n-modal
+      v-model:show="changePwdVisible"
+      preset="dialog"
+      title="修改初始密码"
+      aria-label="修改初始密码"
+      :show-icon="false"
+      :closable="false"
+      :mask-closable="false"
+      :close-on-esc="false"
+    >
+      <n-form ref="pwdFormRef" :model="pwdForm" :rules="pwdRules" label-placement="top" :disabled="changingPwd">
         <n-form-item label="旧密码" path="oldPassword">
-          <n-input v-model:value="pwdForm.oldPassword" type="password" show-password-on="click" />
+          <n-input
+            v-model:value="pwdForm.oldPassword"
+            type="password"
+            show-password-on="click"
+            :input-props="{ 'aria-label': '旧密码', 'aria-required': 'true', autocomplete: 'current-password' }"
+          />
         </n-form-item>
         <n-form-item label="新密码" path="newPassword">
-          <n-input v-model:value="pwdForm.newPassword" type="password" show-password-on="click" />
+          <n-input
+            v-model:value="pwdForm.newPassword"
+            type="password"
+            show-password-on="click"
+            :input-props="{ 'aria-label': '新密码', 'aria-required': 'true', autocomplete: 'new-password' }"
+          />
         </n-form-item>
         <n-form-item label="确认新密码" path="confirmPassword">
-          <n-input v-model:value="pwdForm.confirmPassword" type="password" show-password-on="click" />
+          <n-input
+            v-model:value="pwdForm.confirmPassword"
+            type="password"
+            show-password-on="click"
+            :input-props="{ 'aria-label': '确认新密码', 'aria-required': 'true', autocomplete: 'new-password' }"
+          />
         </n-form-item>
       </n-form>
       <template #action>
@@ -185,8 +255,8 @@ onMounted(loadCaptcha)
 
 <style scoped>
 .login-shell {
-  height: 100vh;
-  min-height: 640px;
+  min-height: 100vh;
+  min-height: 100dvh;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 480px;
   background: var(--page-bg);
@@ -200,21 +270,7 @@ onMounted(loadCaptcha)
   justify-content: center;
   padding: 72px;
   color: var(--text);
-  background:
-    radial-gradient(circle at 18% 20%, var(--brand-soft-strong), transparent 34%),
-    linear-gradient(135deg, var(--login-brand-start), var(--login-brand-end)),
-    var(--brand);
-}
-
-.brand-panel::after {
-  position: absolute;
-  inset: auto 48px 48px auto;
-  width: 220px;
-  height: 220px;
-  border: 1px solid var(--login-panel-line);
-  border-radius: 44px;
-  transform: rotate(12deg);
-  content: "";
+  background: var(--brand-soft);
 }
 
 .brand-mark {
@@ -281,8 +337,9 @@ onMounted(loadCaptcha)
 }
 
 .login-form-card {
-  width: min(100%, 368px);
+  width: min(100%, 392px);
   padding: var(--space-8);
+  border: 1px solid var(--border);
   border-radius: var(--radius-card);
   background: var(--surface);
   box-shadow: var(--shadow-card);
@@ -358,10 +415,6 @@ onMounted(loadCaptcha)
     padding: var(--space-10) var(--space-6);
   }
 
-  .brand-panel::after {
-    display: none;
-  }
-
   .brand-panel h1 {
     font-size: 28px;
     line-height: 36px;
@@ -378,6 +431,38 @@ onMounted(loadCaptcha)
 
   .login-form-card {
     padding: var(--space-6);
+  }
+}
+
+@media (max-width: 520px) {
+  .brand-panel {
+    min-height: auto;
+    padding: var(--space-5);
+  }
+
+  .brand-mark {
+    width: 40px;
+    height: 40px;
+    border-radius: var(--radius-control);
+    font-size: 20px;
+  }
+
+  .brand-kicker {
+    margin-top: var(--space-3);
+  }
+
+  .brand-panel h1 {
+    margin-top: var(--space-2);
+    font-size: 24px;
+    line-height: 30px;
+  }
+
+  .brand-panel p {
+    display: none;
+  }
+
+  .login-panel {
+    padding: var(--space-6) var(--space-4) var(--space-8);
   }
 }
 </style>

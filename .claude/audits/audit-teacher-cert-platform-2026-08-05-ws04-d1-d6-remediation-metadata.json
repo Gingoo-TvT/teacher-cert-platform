@@ -1,0 +1,32 @@
+{
+  "timestamp": "2026-08-05T23:52:08+08:00",
+  "project": "teacher-cert-platform",
+  "scope": "WS-4 D1-D6 first remediation independent rereview",
+  "auditModes": [
+    "incremental",
+    "testing-authenticity"
+  ],
+  "commitHash": "aa3509a19151e2caad03014324b9b36e98bc0f05",
+  "candidateFingerprint": "745e9986b65c072823b3b0a0b04ed73acd16756447d7b408f306d8e0e340d4d9",
+  "baselineFingerprint": "65a07cd566da1e5fb9a32243dee6d1a1db1c9517504b9a181b10cf01c461b136",
+  "overallScore": 7.3,
+  "dimensionScores": {
+    "security": 8.2,
+    "stability": 7.2,
+    "performance": 8.0,
+    "testing": 6.4,
+    "maintainability": 7.8,
+    "design": 7.4,
+    "release": 6.8
+  },
+  "findings": {
+    "critical": 0,
+    "high": 0,
+    "medium": 2,
+    "low": 1,
+    "info": 0
+  },
+  "verdict": "CHANGES_REQUESTED",
+  "reportPath": "docs/reviews/ws-04-d1-d6-remediation-independent-rereview-2026-08-05.md",
+  "dynamicBoundary": "No browser, network, Docker, database, Redis, MinIO, service, vulnerability scan, or cyber action was executed by the independent reviewer."
+}

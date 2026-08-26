@@ -31,14 +31,20 @@ const hasMore = computed(() => Boolean(slots.more))
         </template>
       </div>
       <div class="filter-bar__actions">
-        <n-button v-if="hasMore" secondary @click="expanded = !expanded">
+        <n-button
+          v-if="hasMore"
+          secondary
+          :disabled="loading"
+          :aria-expanded="expanded"
+          @click="expanded = !expanded"
+        >
           <template #icon>
             <n-icon :component="FunnelOutline" />
           </template>
           {{ expanded ? '收起筛选' : '更多筛选' }}
         </n-button>
         <n-button :loading="loading" type="primary" @click="emit('submit')">{{ submitText }}</n-button>
-        <n-button @click="emit('reset')">{{ resetText }}</n-button>
+        <n-button :disabled="loading" @click="emit('reset')">{{ resetText }}</n-button>
       </div>
     </div>
   </n-card>
@@ -46,7 +52,7 @@ const hasMore = computed(() => Boolean(slots.more))
 
 <style scoped>
 .filter-card {
-  margin-bottom: var(--space-5);
+  margin-bottom: var(--space-4);
 }
 
 .filter-card :deep(.n-card__content) {
@@ -87,7 +93,7 @@ const hasMore = computed(() => Boolean(slots.more))
 :deep(.filter-field > span:first-child) {
   flex: 0 0 auto;
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   white-space: nowrap;
 }
 
@@ -96,7 +102,7 @@ const hasMore = computed(() => Boolean(slots.more))
   min-height: 34px;
 }
 
-@media (max-width: 860px) {
+@media (max-width: 720px) {
   .filter-bar {
     flex-direction: column;
   }

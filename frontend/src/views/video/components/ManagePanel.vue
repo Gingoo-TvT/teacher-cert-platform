@@ -36,6 +36,12 @@ const message = useMessage()
 const yearStore = useYearStore()
 
 const loading = ref(false)
+const loadError = ref('')
+const lastSuccessfulReviewQueryKey = ref('')
+const optionsLoading = ref(false)
+const optionsError = ref('')
+const optionsLoaded = ref(false)
+const confirmingId = ref('')
 const playerVisible = ref(false)
 const keyword = ref('')
 const assessmentYear = ref(yearStore.assessmentYear)
@@ -50,6 +56,8 @@ const dimensions = ref<DictItem[]>([])
 const playbackUrl = ref('')
 const watermarkText = ref('')
 const watermarkStyle = ref({ left: '12%', top: '18%' })
+let reviewRequestSequence = 0
+let optionsRequestSequence = 0
 
 const uploadRef = ref<InstanceType<typeof UploadVideoDrawer> | null>(null)
 const assignRef = ref<InstanceType<typeof AssignReviewerModal> | null>(null)
@@ -57,6 +65,23 @@ const arbitrateRef = ref<InstanceType<typeof ArbitrateModal> | null>(null)
 const returnRef = ref<InstanceType<typeof ReturnModal> | null>(null)
 
 const canLoadReviews = computed(() => props.canUpload || props.canAssign || props.canArbitrate || props.canConfirm || props.canPlay)
+const needsOptions = computed(() => props.canAssign || props.canArbitrate)
+const currentReviewQueryKey = computed(() => JSON.stringify({
+  keyword: keyword.value,
+  status: statusFilter.value,
+  assessmentYear: assessmentYear.value,
+  page: page.value,
+  size: size.value
+}))
+const hasLoadedSuccessfully = computed(() => Boolean(lastSuccessfulReviewQueryKey.value))
+const reviewDataFresh = computed(() =>
+  !loading.value && !loadError.value && lastSuccessfulReviewQueryKey.value === currentReviewQueryKey.value
+)
+const reviewDataStale = computed(() => hasLoadedSuccessfully.value && !reviewDataFresh.value)
+const optionDataFresh = computed(() => !needsOptions.value || (
+  optionsLoaded.value && !optionsLoading.value && !optionsError.value
+))
+const reviewWritesBlocked = computed(() => Boolean(confirmingId.value) || !reviewDataFresh.value)
 
 const statusOptions: SelectOption[] = [
   { label: '校验失败', value: 'VALIDATION_FAILED' },
@@ -97,38 +122,48 @@ const columns: DataTableColumns<VideoReview> = [
       const actions: VNodeChild[] = []
       if (props.canPlay) actions.push(h(NButton, { size: 'small', type: 'primary', onClick: () => openPlayer(row) }, { default: () => '播放' }))
       if (props.canUpload && canReupload(row)) {
-        actions.push(h(NButton, { size: 'small', quaternary: true, type: row.status === 'RETURNED' ? 'warning' : 'default', onClick: () => openUpload(row) }, { default: () => row.status === 'RETURNED' ? '重新上传' : '上传' }))
+        actions.push(h(NButton, { size: 'small', quaternary: true, type: row.status === 'RETURNED' ? 'warning' : 'default', disabled: reviewWritesBlocked.value, onClick: () => openUpload(row) }, { default: () => row.status === 'RETURNED' ? '重新上传' : '上传' }))
       }
-      if (props.canAssign) actions.push(h(NButton, { size: 'small', quaternary: true, onClick: () => openAssign(row) }, { default: () => '指派' }))
-      if (props.canArbitrate && row.status === 'NEED_REVIEW') actions.push(h(NButton, { size: 'small', quaternary: true, onClick: () => openArbitrate(row) }, { default: () => '复评/仲裁' }))
-      if (props.canConfirm && row.status === 'REVIEW_COMPLETED') actions.push(h(NButton, { size: 'small', quaternary: true, onClick: () => confirm(row) }, { default: () => '确认' }))
-      if ((props.canConfirm || props.canArbitrate) && row.status !== 'CONFIRMED') actions.push(h(NButton, { size: 'small', quaternary: true, type: 'warning', onClick: () => openReturn(row) }, { default: () => '退回' }))
+      if (props.canAssign) actions.push(h(NButton, { size: 'small', quaternary: true, disabled: reviewWritesBlocked.value || !optionDataFresh.value, onClick: () => openAssign(row) }, { default: () => '指派' }))
+      if (props.canArbitrate && row.status === 'NEED_REVIEW') actions.push(h(NButton, { size: 'small', quaternary: true, disabled: reviewWritesBlocked.value || !optionDataFresh.value, onClick: () => openArbitrate(row) }, { default: () => '复评/仲裁' }))
+      if (props.canConfirm && row.status === 'REVIEW_COMPLETED') actions.push(h(NButton, { size: 'small', quaternary: true, loading: confirmingId.value === row.id, disabled: reviewWritesBlocked.value, onClick: () => confirm(row) }, { default: () => '确认' }))
+      if ((props.canConfirm || props.canArbitrate) && row.status !== 'CONFIRMED') actions.push(h(NButton, { size: 'small', quaternary: true, type: 'warning', disabled: reviewWritesBlocked.value, onClick: () => openReturn(row) }, { default: () => '退回' }))
       return renderTableActions(actions)
     }
   }
 ]
 
 async function loadReviews() {
+  const sequence = ++reviewRequestSequence
+  const query = {
+    keyword: keyword.value,
+    status: statusFilter.value,
+    assessmentYear: assessmentYear.value,
+    page: page.value,
+    size: size.value
+  }
+  const queryKey = JSON.stringify(query)
   if (!canLoadReviews.value) {
     reviews.value = []
     reviewTotal.value = 0
+    loadError.value = ''
+    lastSuccessfulReviewQueryKey.value = queryKey
     return
   }
   loading.value = true
+  loadError.value = ''
   try {
-    const res = await listVideoReviews({
-      keyword: keyword.value,
-      status: statusFilter.value,
-      assessmentYear: assessmentYear.value,
-      page: page.value,
-      size: size.value
-    })
+    const res = await listVideoReviews(query)
+    if (sequence !== reviewRequestSequence || queryKey !== currentReviewQueryKey.value) return
     reviews.value = res.data.records
     reviewTotal.value = res.data.total
+    lastSuccessfulReviewQueryKey.value = queryKey
   } catch (error) {
+    if (sequence !== reviewRequestSequence) return
+    loadError.value = errorText(error, '视频评审列表加载失败')
     showError(error, '视频评审列表加载失败')
   } finally {
-    loading.value = false
+    if (sequence === reviewRequestSequence) loading.value = false
   }
 }
 
@@ -149,39 +184,65 @@ function onPageSizeChange(next: number) {
 }
 
 async function loadOptions() {
-  const [dimensionRes, reviewerRes, groupRes] = await Promise.all([
-    props.canArbitrate ? listDictItems('video_score_dimension', true) : Promise.resolve(null),
-    props.canAssign || props.canArbitrate ? listReviewerCandidates() : Promise.resolve(null),
-    props.canAssign ? listReviewerGroups() : Promise.resolve(null)
-  ])
-  dimensions.value = dimensionRes?.data.slice(0, 9) || []
-  reviewers.value = reviewerRes?.data || []
-  groups.value = groupRes?.data || []
+  const sequence = ++optionsRequestSequence
+  if (!needsOptions.value) {
+    optionsLoaded.value = true
+    optionsError.value = ''
+    return
+  }
+  optionsLoading.value = true
+  optionsError.value = ''
+  try {
+    const [dimensionRes, reviewerRes, groupRes] = await Promise.all([
+      props.canArbitrate ? listDictItems('video_score_dimension', true) : Promise.resolve(null),
+      listReviewerCandidates(),
+      props.canAssign ? listReviewerGroups() : Promise.resolve(null)
+    ])
+    if (sequence !== optionsRequestSequence) return
+    dimensions.value = dimensionRes?.data.slice(0, 9) || []
+    reviewers.value = reviewerRes.data
+    groups.value = groupRes?.data || []
+    optionsLoaded.value = true
+  } catch (error) {
+    if (sequence !== optionsRequestSequence) return
+    optionsError.value = errorText(error, '评审选项加载失败')
+    showError(error, '评审选项加载失败')
+  } finally {
+    if (sequence === optionsRequestSequence) optionsLoading.value = false
+  }
 }
 
 function openUpload(row?: VideoReview) {
+  if (reviewWritesBlocked.value) return
   uploadRef.value?.open(row)
 }
 
 function openAssign(row: VideoReview) {
+  if (reviewWritesBlocked.value || !optionDataFresh.value) return
   assignRef.value?.open(row)
 }
 
 function openArbitrate(row: VideoReview) {
+  if (reviewWritesBlocked.value || !optionDataFresh.value) return
   arbitrateRef.value?.open(row)
 }
 
 async function confirm(row: VideoReview) {
+  if (reviewWritesBlocked.value) return
+  confirmingId.value = row.id
   try {
     await confirmVideoReview(row.id)
     message.success('已确认结果')
     await loadReviews()
   } catch (error) {
     showError(error, '确认失败')
+  } finally {
+    confirmingId.value = ''
   }
 }
 
 function openReturn(row: VideoReview) {
+  if (reviewWritesBlocked.value) return
   returnRef.value?.open(row)
 }
 
@@ -222,13 +283,16 @@ function moveWatermark() {
 }
 
 function showError(error: unknown, fallback: string) {
-  const detail = error instanceof Error ? error.message : fallback
+  const detail = errorText(error, fallback)
   message.error(detail || fallback)
 }
 
+function errorText(error: unknown, fallback: string) {
+  return error instanceof Error ? error.message || fallback : fallback
+}
+
 onMounted(async () => {
-  await loadOptions()
-  await loadReviews()
+  await Promise.all([loadOptions(), loadReviews()])
 })
 
 watch(
@@ -243,7 +307,7 @@ watch(
 
 <template>
   <section>
-    <n-grid :cols="5" :x-gap="12" responsive="screen" class="page-section">
+    <n-grid v-if="hasLoadedSuccessfully" :cols="5" :x-gap="12" responsive="screen" class="page-section">
       <n-gi><StatCard label="视频总数" :value="statusSummary.total" /></n-gi>
       <n-gi><StatCard label="待评审" :value="statusSummary.wait" tone="warning" /></n-gi>
       <n-gi><StatCard label="评审中" :value="statusSummary.reviewingCount" tone="info" /></n-gi>
@@ -270,12 +334,29 @@ watch(
       已退回视频可由学生重新上传；评审中、需复评、已确认等状态仍按校验规则禁止重传。
     </n-alert>
 
+    <n-alert v-if="optionsError" type="error" :bordered="false" class="page-section" role="alert">
+      <div class="panel-error-content">
+        <span>{{ optionsError }}。指派与复评/仲裁暂不可用。</span>
+        <n-button size="small" type="error" secondary :loading="optionsLoading" @click="loadOptions">重试</n-button>
+      </div>
+    </n-alert>
+
+    <n-alert v-if="reviewDataStale" :type="loadError ? 'error' : 'warning'" :bordered="false" class="page-section" role="status">
+      {{ loadError
+        ? `${loadError}。以下仍显示上次成功加载的结果，写操作暂不可用。`
+        : loading
+          ? '列表正在刷新，以下为上次成功加载的结果，写操作暂不可用。'
+          : '筛选条件已变化，请查询成功后再执行写操作。' }}
+    </n-alert>
+
     <DataPanel
       title="视频评审列表"
       :columns="columns"
       :data="reviews"
       :total="reviewTotal"
       :loading="loading"
+      :initial-loading="loading && !lastSuccessfulReviewQueryKey"
+      :error="hasLoadedSuccessfully ? '' : loadError"
       remote
       :page="page"
       :page-size="size"
@@ -286,10 +367,10 @@ watch(
       @update:page-size="onPageSizeChange"
     >
       <template #actions>
-        <n-button v-if="canUpload" type="primary" size="small" @click="openUpload()">上传视频</n-button>
+        <n-button v-if="canUpload && reviews.length > 0" type="primary" size="small" :disabled="reviewWritesBlocked" @click="openUpload()">上传视频</n-button>
       </template>
       <template v-if="canUpload" #emptyAction>
-        <n-button type="primary" @click="openUpload()">上传视频</n-button>
+        <n-button type="primary" :disabled="reviewWritesBlocked" @click="openUpload()">上传视频</n-button>
       </template>
     </DataPanel>
 
@@ -317,6 +398,13 @@ watch(
   background: var(--video-bg);
 }
 
+.panel-error-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
 .video-player {
   width: 100%;
   height: 100%;
@@ -329,5 +417,12 @@ watch(
   pointer-events: none;
   text-shadow: 0 1px 2px var(--video-watermark-shadow);
   transition: left 0.4s ease, top 0.4s ease;
+}
+
+@media (max-width: 720px) {
+  .panel-error-content {
+    align-items: flex-start;
+    flex-direction: column;
+  }
 }
 </style>

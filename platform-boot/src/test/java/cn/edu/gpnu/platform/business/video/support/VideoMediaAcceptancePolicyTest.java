@@ -135,6 +135,14 @@ class VideoMediaAcceptancePolicyTest {
         assertRejected(outsideDefaultBoundary, "视频时长超出容差");
     }
 
+    @Test
+    void playbackCookieLifetimeCoversAcceptedVideoAndFinalRangeBuffer() {
+        paramService.put("video.durationTarget", "900");
+        paramService.put("video.durationTolerance", "60");
+
+        assertEquals(1020, VideoMediaAcceptancePolicy.playbackCookieLifetimeSeconds(paramService));
+    }
+
     private VideoMediaAcceptancePolicy.Result validate(
             String contentType, Long fileSize, VideoMediaInspection inspection) {
         return VideoMediaAcceptancePolicy.validate(

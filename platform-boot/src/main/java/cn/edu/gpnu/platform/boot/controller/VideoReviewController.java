@@ -20,10 +20,17 @@ import cn.edu.gpnu.platform.common.annotation.AuditLog;
 import cn.edu.gpnu.platform.common.annotation.DataScope;
 import cn.edu.gpnu.platform.common.api.PageResult;
 import cn.edu.gpnu.platform.common.api.Result;
+import cn.edu.gpnu.platform.boot.support.FileStreamingSupport;
+import cn.edu.gpnu.platform.security.service.MediaAccessCookieService;
+import cn.edu.gpnu.platform.system.service.AuditLogService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -34,6 +41,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
 import java.io.IOException;
 import java.util.List;
@@ -45,10 +53,13 @@ import java.util.List;
 public class VideoReviewController {
 
     private final VideoReviewService videoReviewService;
+    private final MediaAccessCookieService mediaAccessCookieService;
+    private final FileStreamingSupport fileStreamingSupport;
+    private final AuditLogService auditLogService;
 
     @Operation(summary = "视频分片上传初始化")
     @PreAuthorize("@pms.has('video:upload')")
-    @AuditLog(bizType = "video", operation = "uploadInit")
+    @AuditLog(bizType = "video", operation = "uploadInit", before = true)
     @PostMapping("/upload/init")
     public Result<VideoUploadInitVO> initUpload(@Valid @RequestBody VideoUploadInitRequest request) {
         return Result.ok(videoReviewService.initUpload(request));
@@ -67,7 +78,7 @@ public class VideoReviewController {
 
     @Operation(summary = "定稿浏览器直传的视频分片")
     @PreAuthorize("@pms.has('video:upload')")
-    @AuditLog(bizType = "video", operation = "uploadComplete")
+    @AuditLog(bizType = "video", operation = "uploadComplete", before = true)
     @PostMapping("/upload/complete")
     public Result<VideoReviewVO> complete(@Valid @RequestBody VideoUploadCompleteRequest request) {
         return Result.ok(videoReviewService.complete(request));
@@ -75,7 +86,7 @@ public class VideoReviewController {
 
     @Operation(summary = "取消视频上传会话")
     @PreAuthorize("@pms.has('video:upload')")
-    @AuditLog(bizType = "video", operation = "uploadCancel")
+    @AuditLog(bizType = "video", operation = "uploadCancel", before = true)
     @DeleteMapping("/upload/{uploadId}")
     public Result<Void> cancelUpload(@PathVariable String uploadId) {
         videoReviewService.cancelUpload(uploadId);
@@ -84,7 +95,7 @@ public class VideoReviewController {
 
     @Operation(summary = "合并视频分片并校验")
     @PreAuthorize("@pms.has('video:upload')")
-    @AuditLog(bizType = "video", operation = "uploadMerge")
+    @AuditLog(bizType = "video", operation = "uploadMerge", before = true)
     @PostMapping("/upload/merge")
     public Result<VideoReviewVO> merge(@Valid @RequestBody VideoUploadMergeRequest request) {
         return Result.ok(videoReviewService.merge(request));
@@ -206,9 +217,27 @@ public class VideoReviewController {
     @Operation(summary = "获取鉴权播放地址与水印")
     @PreAuthorize("@pms.has('video:play')")
     @DataScope(alias = "video_review_task", permission = "video:play")
-    @AuditLog(bizType = "video", operation = "play")
+    @AuditLog(bizType = "video", operation = "play", before = true)
     @GetMapping("/reviews/{id}/play")
-    public Result<VideoPlaybackVO> playback(@PathVariable Long id) {
-        return Result.ok(videoReviewService.playback(id));
+    public Result<VideoPlaybackVO> playback(@PathVariable Long id,
+                                            HttpServletRequest request,
+                                            HttpServletResponse response) {
+        VideoPlaybackVO playback = videoReviewService.playback(id);
+        mediaAccessCookieService.issue(request, response, playback.getExpirySeconds());
+        return Result.ok(playback);
+    }
+
+    @Operation(summary = "流式播放视频")
+    @PreAuthorize("@pms.has('video:play')")
+    @DataScope(alias = "video_review_task", permission = "video:play")
+    @GetMapping("/reviews/{id}/content")
+    public ResponseEntity<StreamingResponseBody> playbackContent(
+            @PathVariable Long id,
+            @org.springframework.web.bind.annotation.RequestHeader(
+                    value = HttpHeaders.RANGE, required = false) String range) {
+        Long fileId = videoReviewService.playbackFileId(id);
+        auditLogService.record("video", id, "video-review:" + id + ":content",
+                "playContent", null, null, "读取视频播放内容");
+        return fileStreamingSupport.stream(fileId, range);
     }
 }

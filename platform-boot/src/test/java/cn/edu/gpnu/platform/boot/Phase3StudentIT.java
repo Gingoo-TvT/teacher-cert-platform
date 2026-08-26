@@ -3,6 +3,7 @@ package cn.edu.gpnu.platform.boot;
 import cn.edu.gpnu.platform.PlatformApplication;
 import cn.edu.gpnu.platform.business.student.entity.Student;
 import cn.edu.gpnu.platform.business.student.mapper.StudentMapper;
+import cn.edu.gpnu.platform.security.service.IdCardProtectionService;
 import cn.edu.gpnu.platform.system.entity.SysParam;
 import cn.edu.gpnu.platform.system.entity.SysUser;
 import cn.edu.gpnu.platform.system.mapper.SysParamMapper;
@@ -21,6 +22,7 @@ import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -30,6 +32,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.TestPropertySource;
 
 import java.time.LocalDateTime;
+import java.util.Locale;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -66,6 +69,12 @@ class Phase3StudentIT {
 
     @Autowired
     private StudentMapper studentMapper;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private IdCardProtectionService idCardProtectionService;
 
     @Autowired
     private PasswordEncoder passwordEncoder;
@@ -132,7 +141,12 @@ class Phase3StudentIT {
         JsonNode textDetail = json(exchange("/api/student/" + textId, HttpMethod.GET, academic.accessToken(), null)).at("/data");
         assertThat(textDetail.at("/studentNo").asText()).startsWith("00P3TXT");
         assertThat(textDetail.at("/idCardNo").asText()).isNotEqualTo("M12345678");
-        assertThat(textDetail.at("/birthDate").asText()).isEqualTo("2001/01/02");
+        assertThat(textDetail.at("/birthDate").asText()).isEqualTo("****/**/**");
+
+        JsonNode sensitiveIdentity = json(exchange("/api/student/" + residentId + "/id-card?plain=1",
+                HttpMethod.GET, academic.accessToken(), null)).at("/data");
+        assertThat(sensitiveIdentity.at("/idCardNo").asText()).isEqualTo(residentNo);
+        assertThat(sensitiveIdentity.at("/birthDate").asText()).isEqualTo("1990/6/28");
 
         ResponseEntity<String> noSensitive = exchange("/api/student/" + residentId + "/id-card?plain=1",
                 HttpMethod.GET, readyLogin("test_college_clerk").accessToken(), null);
@@ -218,7 +232,7 @@ class Phase3StudentIT {
         assertThat(before.getCollegeId()).isEqualTo(COLLEGE_A);
 
         Map<String, Object> changedCollege = student(before.getStudentNo(), before.getName(), before.getIdCardType(),
-                before.getIdCardNo(), before.getBirthDate(), COLLEGE_B);
+                idCardProtectionService.decrypt(before.getIdCardNo()), before.getBirthDate(), COLLEGE_B);
         ResponseEntity<String> response = exchange("/api/student/confirm", HttpMethod.POST, student.accessToken(), changedCollege);
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(json(response).at("/code").asInt()).isEqualTo(0);
@@ -391,8 +405,9 @@ class Phase3StudentIT {
         setStudentAccountParams(true, "Student-Delete-2026!");
 
         String studentNo = uniqueNo("P3DELETECEILING");
+        String idCardNo = uniqueTravelPermit("Z");
         long studentId = create(sysAdmin.accessToken(), student(
-                studentNo, "删除天花板", "hm_travel_permit", uniqueTravelPermit("Z"),
+                studentNo, "删除天花板", "hm_travel_permit", idCardNo,
                 "2000/1/2", COLLEGE_A));
         SysUser account = userMapper.selectByUsername(studentNo);
         assertThat(account).isNotNull();
@@ -411,6 +426,16 @@ class Phase3StudentIT {
         assertThat(json(deleted).at("/code").asInt()).isEqualTo(0);
         assertThat(studentMapper.selectById(studentId)).isNull();
         assertThat(userMapper.selectById(account.getId()).getStatus()).isEqualTo("DISABLED");
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT id_card_hmac FROM student WHERE id = ?", String.class, studentId)).isNull();
+
+        long replacementId = create(sysAdmin.accessToken(), student(
+                uniqueNo("P3REUSEIDCARD"), "证件号重建", "hm_travel_permit", idCardNo,
+                "2000/1/2", COLLEGE_A));
+        Student replacement = studentMapper.selectById(replacementId);
+        assertThat(replacement).isNotNull();
+        assertThat(replacement.getIdCardHmac())
+                .isEqualTo(idCardProtectionService.hmac(idCardNo.toLowerCase(Locale.ROOT)));
     }
 
     @Test
@@ -430,7 +455,7 @@ class Phase3StudentIT {
         long secondId = root.at("/data/1").asLong();
         JsonNode detail = json(exchange("/api/student/" + secondId, HttpMethod.GET, academic.accessToken(), null)).at("/data");
         assertThat(detail.at("/studentNo").asText()).isEqualTo(secondNo);
-        assertThat(detail.at("/birthDate").asText()).isEqualTo("2002/01/03");
+        assertThat(detail.at("/birthDate").asText()).isEqualTo("****/**/**");
 
         ResponseEntity<String> deleted = exchange("/api/student/" + secondId, HttpMethod.DELETE, academic.accessToken(), null);
         assertThat(deleted.getStatusCode()).isEqualTo(HttpStatus.OK);
@@ -615,8 +640,10 @@ class Phase3StudentIT {
     private void ensureSecondCollegeStudent() {
         Student studentB = studentMapper.selectById(9002L);
         if (studentB != null) {
+            String idCardNo = "110101199107010019";
             studentB.setCollegeId(COLLEGE_B);
-            studentB.setIdCardNo("110101199107010019");
+            studentB.setIdCardNo(idCardProtectionService.encrypt(idCardNo));
+            studentB.setIdCardHmac(idCardProtectionService.hmac(idCardNo));
             studentMapper.updateById(studentB);
         }
         SysUser user = userMapper.selectByUsername("test_student_b");

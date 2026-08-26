@@ -89,9 +89,14 @@ function open(row?: DictItem) {
 }
 
 async function save() {
-  await formRef.value?.validate()
+  if (saving.value) return
   saving.value = true
   try {
+    try {
+      await formRef.value?.validate()
+    } catch {
+      return
+    }
     const payload: DictItemPayload = {
       typeCode: normalizeTypeCode(form.typeCode),
       itemCode: form.itemCode.trim(),
@@ -132,18 +137,24 @@ defineExpose({ open })
 </script>
 
 <template>
-  <n-drawer v-model:show="visible" :width="560" placement="right">
-    <n-drawer-content :title="editingId ? '编辑字典项' : '新增字典项'">
-      <n-form ref="formRef" :model="form" :rules="rules" label-placement="top">
+  <n-drawer
+    v-model:show="visible"
+    width="min(var(--overlay-medium), var(--overlay-drawer-max))"
+    placement="right"
+    :mask-closable="!saving"
+    :close-on-esc="!saving"
+  >
+    <n-drawer-content :title="editingId ? '编辑字典项' : '新增字典项'" :closable="!saving">
+      <n-form ref="formRef" :model="form" :rules="rules" label-placement="top" :disabled="saving">
         <div class="form-section-title">基本信息</div>
-        <n-grid :cols="2" :x-gap="12">
+        <n-grid cols="1 480:2" responsive="self" item-responsive :x-gap="12">
           <n-form-item-gi label="类型编码" path="typeCode">
             <n-input v-model:value="form.typeCode" disabled />
           </n-form-item-gi>
           <n-form-item-gi label="项编码" path="itemCode">
-            <n-input v-model:value="form.itemCode" :disabled="!!editingId" maxlength="128" show-count />
+            <n-input v-model:value="form.itemCode" :disabled="!!editingId || saving" maxlength="128" show-count />
           </n-form-item-gi>
-          <n-form-item-gi label="项值" path="itemValue" :span="2">
+          <n-form-item-gi label="项值" path="itemValue" span="1 480:2">
             <n-input v-model:value="form.itemValue" maxlength="255" show-count />
           </n-form-item-gi>
           <n-form-item-gi label="父级编码" path="parentCode">
@@ -160,15 +171,15 @@ defineExpose({ open })
           </n-form-item-gi>
         </n-grid>
         <div class="form-section-title">扩展信息</div>
-        <n-grid :cols="2" :x-gap="12">
-          <n-form-item-gi label="扩展 JSON" path="extJson" :span="2">
+        <n-grid cols="1 480:2" responsive="self" item-responsive :x-gap="12">
+          <n-form-item-gi label="扩展 JSON" path="extJson" span="1 480:2">
             <n-input v-model:value="form.extJson" type="textarea" :autosize="{ minRows: 5, maxRows: 10 }" />
           </n-form-item-gi>
         </n-grid>
       </n-form>
       <template #footer>
         <n-space justify="end">
-          <n-button @click="visible = false">取消</n-button>
+          <n-button :disabled="saving" @click="visible = false">取消</n-button>
           <n-button type="primary" :loading="saving" @click="save">保存</n-button>
         </n-space>
       </template>

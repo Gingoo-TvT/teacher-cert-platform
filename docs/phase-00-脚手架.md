@@ -13,7 +13,8 @@
 > 3. **lint 门禁**：原稿写 Spotless/Checkstyle/ESLint 三件套但从未落地。现按「违反即真实缺陷」的最小口径正式落地：
 >    后端 maven-checkstyle-plugin 绑定 validate 阶段（规则 `build/checkstyle/checkstyle.xml`，`mvn verify` 自动执行）；
 >    前端 ESLint 9（`frontend/eslint.config.js`，`npm run lint`）；两者均已进入 `.github/workflows/ci.yml`。
->    格式化统一（Spotless 及 vue3 recommended 升级）移交 WS-6 可持续质量门禁，不在 Phase 0 范围内冒充闭环。
+>    后续 WS-6 已补 Vitest、Playwright 产品冒烟与 scoped axe；格式化统一（Spotless/Prettier 及更严格规则）
+>    未纳入该最小产品门禁，继续作为非阻断后续项，不在 Phase 0 或 WS-6 冒充闭环。
 > 4. **通用 MD5 秒传退役**：规划期 T-FILE-1 把内部摘要字段误写成“同 MD5 二次上传自动去重”。
 >    当前通用上传不接收或信任客户端摘要，也没有跨请求唯一约束/并发仲裁；直接按全局 MD5 复用还会暴露
 >    其它主体对象是否存在。因此 Phase 0 正式退役通用自动秒传合同及公开摘要命中 API；同内容普通上传
@@ -21,8 +22,9 @@
 >    HEAD 合同执行；本修订不削弱该安全能力。
 > 5. **证据范围拆分**：Phase 0 的依赖栈验收以 CI 等价 MySQL/Redis/MinIO 的真实连接 +
 >    `docker-compose.dev.yml` 静态解析为本阶段门禁；exact dev Compose 启动属于部署形态复验。
->    前端本阶段只锁定构建、类型、lint 与 Axios/路由静态契约；当前浏览器真实登录 E2E 由 WS-6/最终全量
->    审计承接。下列 `[x]` 不再引用这两项未重跑材料，也不把它们写成当前候选已证明。
+>    前端本阶段只锁定构建、类型、lint 与 Axios/路由静态契约；后续 WS-6 的 Playwright 严格 mock 产品冒烟
+>    补足前端行为回归，但不冒充真实后端登录联调；真实全栈证据仍由相应认证阶段/最终审计承接。下列 `[x]`
+>    不引用未重跑材料，也不把它们写成当前候选已证明。
 > 6. **候选与隔离目标证据**：Phase 0 exact gate 固定 5 个 Surefire + 2 个 Failsafe suite（33 cases），
 >    在正式测试前先执行不启动 Spring 的只读身份预检；预检还强制 MySQL 目标 schema 为 0 张表、
 >    Redis 目标 DB 的 `DBSIZE=0`，且 MinIO 目标 bucket 除唯一的一次性身份对象外没有其它对象。
@@ -35,7 +37,7 @@
 >    改靶或候选外 SQL 来源；正式 JVM 只接受候选内 dev profile 的四项 Flyway 精确合同
 >    （enabled/locations/baseline/encoding），并在首个
 >    context refresh/Flyway 前复核空状态，并在每个 context refresh 前用 Spring
->    `ConfigurableEnvironment` 的实际解析值再绑定目标；预签名下载使用的
+>    `ConfigurableEnvironment` 的实际解析值再绑定目标；浏览器预签名直传使用的
 >    `MINIO_PUBLIC_ENDPOINT` 也必须与 SDK `MINIO_ENDPOINT` 的 scheme/host/port 同靶。MySQL UUID、
 >    Redis run_id/db 和 MinIO 一次性对象挑战的 schema-v5 运行期身份必须与预检逐字段一致。
 >    MinIO 绑定 canonical endpoint/bucket、唯一 schema-v2 身份对象、对象 SHA、candidate/runContext、
@@ -60,6 +62,9 @@
 >    最后原子写入已验证 PASS manifest，最终目录 rename 是最后一个证据状态转换。任一不一致均失败
 >    且不得宣称 PASS。preflight/runtime target identity 使用独立于业务 Jackson 配置的证据 mapper，
 >    四个 freshness 计数必须写成 JSON integer，禁止继承面向前端的 `Long→String`。
+> 7. **敏感对象 GET 预签名退役（2026-07-28 最终审计 R10）**：MinIO GET 预签名是可复制的 bearer URL，
+>    与 `plan.md`“未登录复制链接不可访问”冲突。公开 `FileService.presignedGet` 已删除，视频、过程材料、
+>    免考佐证及附件清单改走登录绑定的应用鉴权代理；预签名仅保留在范围受限的浏览器直传上传流程。
 
 ## 1. 目标与范围
 - Maven 多模块后端骨架 + Spring Boot 启动。
@@ -96,14 +101,15 @@ platform-parent/  (pom，dependencyManagement 锁版本)
 - `Result<T>{code,msg,data}`；`PageResult<T>{total,records}`；`ResultCode` 统一码表。
 - `BaseEntity`：id(雪花/自增)、created_by/at、updated_by/at、deleted；MyBatis-Plus 自动填充 + 逻辑删除。
 - Jackson：`Long`→`String`、日期统一 `yyyy-MM-dd HH:mm:ss`、**业务文本日期字段保持原文本不参与日期序列化**。
-- `@AuditLog(bizType, operation)`：AOP 在方法成功后写 `audit_log`，前后状态由返回值/入参解析（提供 `AuditContext` 供业务填充 old/new 状态）。
+- `@AuditLog(bizType, operation)`：普通数据库写由 AOP 与业务同事务写 `audit_log`；文件流、对象存储等
+  不可共同回滚的边界在业务前先审计并失败关闭。前后状态由返回值/入参解析（提供 `AuditContext` 供业务填充 old/new 状态）。
 - `@DataScope`：注入 SQL 范围（MyBatis 拦截器或动态条件），现行范围类型为
   `NONE/SELF/COLLEGE/SCHOOL/SYSTEM/LOGIN_ALL/ASSIGNED`；其中 SCHOOL/SYSTEM/LOGIN_ALL 为全校可见，
   NONE 与缺少所需身份/学院集合时失败关闭，Phase 2 接入真实用户范围解析。
 
 ## 6. 文件服务（platform-file）
-- `FileService`：`upload(stream, meta)`→fileId、`presignedGet(fileId, ttl)`、`delete(fileId)`；
-  不公开通用摘要命中 API。
+- `FileService`：`upload(stream, meta)`→fileId、`openRange(fileId, offset, length)`、`delete(fileId)`；
+  不公开通用摘要命中或 GET 预签名 API。
 - 通用上传每次创建独立对象/元数据；不得把客户端 MD5 当作跨用户、跨业务复用凭据。需要秒传的业务必须像
   Phase 7 一样显式定义服务端强摘要、主体/业务授权、并发仲裁、对象存在性和生命周期合同。
 - 普通上传与分片上传分离（分片在 Phase 7）。MinIO bucket 按 `biz_type` 隔离或统一 bucket + 前缀。
@@ -146,11 +152,14 @@ platform-parent/  (pom，dependencyManagement 锁版本)
       `Phase00ParameterMatrixIT.allDocumentedDefaultsHaveExpectedValueAndType` 在 fresh schema 对全部 **32**
       个 active 参数逐项核对 exact key/value/type，并以全表 key 集合比较拒绝未知项或缺失项；
       第九轮最终 SHA 的 fresh-schema 运行 1/1 PASS。
-- [x] 上传任意文件返回 fileId；预签名 URL 限时可访问，过期返回 403/失效。——
-      `Phase00ScaffoldIT.uploadWritesAuditRowAndPresignedUrlExpiresAfterTtl`（3 秒 TTL 正向下载逐字节一致 +
-      过期后同一 URL 403）在第九轮最终 SHA 的 exact gate 中通过。
+- [x] 上传任意文件返回 fileId；对象可经服务端受控范围流逐字节读取，公开文件服务不提供 GET 预签名。——
+      当前整改候选沿用 exact 7/33 固定方法标识
+      `Phase00ScaffoldIT.uploadWritesAuditRowAndPresignedUrlExpiresAfterTtl`，其现行语义校验领域上传、
+      审计与受控流内容，并由 `FileServiceUploadContractTest` 锁定公开 API 不得重新暴露
+      `presignedGet`。
+      浏览器未登录/退出反例由 Phase 5/6/7 与最终审计的应用内容端点回归承接。
 - [x] 标注 `@AuditLog` 的样例方法成功后写入 `audit_log`（操作人/时间/IP 不为空）。——同上用例对
-      `file/upload` 审计行的三字段非空断言在第九轮最终 SHA 中通过；更丰富链路由
+      领域材料上传审计行的三字段非空断言由同一 Phase 0 用例覆盖；更丰富链路由
       `Phase13SystemAuditIT` 覆盖。
 - [x] `@DataScope` 单测：不同范围生成的 SQL 条件正确。——`DataScopeSqlHandlerTest` 9 例（COLLEGE IN/SELF/ASSIGNED/
       全校无条件/空集合与 NONE fail-closed/未注册表跳过/别名匹配）；`DataScopeMapperChainTest` 5 例
@@ -168,7 +177,7 @@ platform-parent/  (pom，dependencyManagement 锁版本)
   `@DataScope` → context → MyBatis data-permission interceptor → 真实 mapper/分页 SQL 或结果的组合链。
 - T-FILE-1（R10 修订）：通用自动 MD5 秒传合同及摘要命中 API 已退役；顺序执行两次同内容普通上传，
   断言 fileId、objectKey 与元数据行彼此独立，且公开 `FileService` 不存在摘要查询方法。
-- T-FILE-2（边界）：预签名 URL 过期后访问 → 拒绝。
+- T-FILE-2（边界）：公开文件服务不存在 GET 预签名能力；应用内容地址在未登录或退出后访问 → 拒绝。
 - T-RESP-1：未捕获异常 → 全局处理器返回统一错误码，不泄漏堆栈。
 
 ## 10. 风险与注意

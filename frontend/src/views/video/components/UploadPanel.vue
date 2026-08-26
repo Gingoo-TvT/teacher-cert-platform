@@ -25,6 +25,8 @@ const userStore = useUserStore()
 const yearStore = useYearStore()
 
 const loading = ref(false)
+const loadError = ref('')
+const hasLoadedSuccessfully = ref(false)
 const uploadVisible = ref(false)
 const uploading = ref(false)
 const playerVisible = ref(false)
@@ -45,6 +47,9 @@ let durationDetectionSequence = 0
 const playbackUrl = ref('')
 const watermarkText = ref('')
 const watermarkStyle = ref({ left: '12%', top: '18%' })
+const compactViewport = ref(false)
+let compactViewportQuery: MediaQueryList | null = null
+let reviewRequestSequence = 0
 
 const uploadForm = reactive({
   studentId: userStore.currentUser?.studentId || '',
@@ -55,7 +60,9 @@ const uploadForm = reactive({
 
 const currentReview = computed(() => reviews.value[0] || null)
 const returned = computed(() => currentReview.value?.status === 'RETURNED')
-const canUploadNow = computed(() => !currentReview.value || ['WAIT_UPLOAD', 'VALIDATION_FAILED', 'RETURNED'].includes(currentReview.value.status))
+const dataFresh = computed(() => hasLoadedSuccessfully.value && !loadError.value && !loading.value)
+const showingStaleData = computed(() => hasLoadedSuccessfully.value && Boolean(loadError.value))
+const canUploadNow = computed(() => dataFresh.value && (!currentReview.value || ['WAIT_UPLOAD', 'VALIDATION_FAILED', 'RETURNED'].includes(currentReview.value.status)))
 const stepCurrent = computed(() => {
   const status = currentReview.value?.status
   if (!status || ['WAIT_UPLOAD', 'VALIDATION_FAILED', 'RETURNED'].includes(status)) return 1
@@ -71,22 +78,40 @@ const statusIcon = computed<Component>(() => {
 })
 const reviewMessage = computed(() => currentReview.value?.validationMessage || '')
 const durationText = computed(() => `${formatVideoDuration(uploadForm.durationSeconds)} (${uploadForm.durationSeconds}s)`)
+const videoTitle = computed(() => currentReview.value?.videoFileName || (showingStaleData.value ? '上次成功结果未记录视频' : '尚未上传视频'))
+const videoStatusText = computed(() => {
+  if (currentReview.value) return currentReview.value.statusLabel || statusLabel(currentReview.value.status)
+  return showingStaleData.value ? '旧结果：待上传' : statusLabel('WAIT_UPLOAD')
+})
 
-onMounted(loadReviews)
+onMounted(() => {
+  compactViewportQuery = window.matchMedia('(max-width: 720px)')
+  syncCompactViewport()
+  compactViewportQuery.addEventListener('change', syncCompactViewport)
+  void loadReviews()
+})
 
 async function loadReviews() {
+  const requestSequence = ++reviewRequestSequence
+  const requestedYear = yearStore.assessmentYear
   loading.value = true
+  loadError.value = ''
   try {
-    const res = await listVideoReviews({ assessmentYear: yearStore.assessmentYear })
+    const res = await listVideoReviews({ assessmentYear: requestedYear })
+    if (requestSequence !== reviewRequestSequence || requestedYear !== yearStore.assessmentYear) return
     reviews.value = res.data.records
+    hasLoadedSuccessfully.value = true
   } catch (error) {
-    showError(error, '视频进度加载失败')
+    if (requestSequence !== reviewRequestSequence || requestedYear !== yearStore.assessmentYear) return
+    loadError.value = errorMessage(error, '视频进度加载失败')
+    message.error(loadError.value)
   } finally {
-    loading.value = false
+    if (requestSequence === reviewRequestSequence) loading.value = false
   }
 }
 
 function openUpload() {
+  if (!dataFresh.value) return
   uploadForm.studentId = currentReview.value?.studentId || userStore.currentUser?.studentId || ''
   uploadForm.assessmentYear = currentReview.value?.assessmentYear || yearStore.assessmentYear
   uploadForm.durationSeconds = currentReview.value?.durationSeconds || 900
@@ -131,6 +156,7 @@ async function handleFileListUpdate(next: UploadFileInfo[]) {
 }
 
 async function uploadVideo() {
+  if (uploading.value || cancelling.value) return
   const file = fileList.value[0]?.file
   if (!file || !uploadForm.studentId || !uploadForm.assessmentYear) {
     message.error('请选择年度和视频文件')
@@ -253,8 +279,15 @@ function moveWatermark() {
 }
 
 function showError(error: unknown, fallback: string) {
-  const detail = error instanceof Error ? error.message : fallback
-  message.error(detail || fallback)
+  message.error(errorMessage(error, fallback))
+}
+
+function errorMessage(error: unknown, fallback: string) {
+  return error instanceof Error && error.message ? error.message : fallback
+}
+
+function syncCompactViewport(event?: MediaQueryListEvent) {
+  compactViewport.value = event?.matches ?? compactViewportQuery?.matches ?? false
 }
 
 watch(
@@ -266,13 +299,54 @@ watch(
 )
 
 onBeforeUnmount(() => {
+  compactViewportQuery?.removeEventListener('change', syncCompactViewport)
   uploadController?.abort()
 })
 </script>
 
 <template>
   <section>
-    <n-card :bordered="false" class="page-section video-step-card">
+    <n-card
+      v-if="loading && !hasLoadedSuccessfully && !loadError"
+      :bordered="false"
+      class="page-section video-load-result"
+      role="status"
+      aria-live="polite"
+    >
+      <div class="video-initial-loading">
+        <n-text depth="3">正在加载视频进度…</n-text>
+        <n-skeleton text :repeat="3" />
+      </div>
+    </n-card>
+
+    <n-card
+      v-if="loadError && !hasLoadedSuccessfully"
+      :bordered="false"
+      class="page-section video-load-result"
+      role="alert"
+    >
+      <n-result status="error" title="视频进度加载失败" :description="loadError">
+        <template #footer>
+          <n-button type="primary" :loading="loading" @click="loadReviews">重试</n-button>
+        </template>
+      </n-result>
+    </n-card>
+
+    <n-alert
+      v-if="showingStaleData"
+      type="warning"
+      title="刷新失败，当前显示上次成功结果"
+      :bordered="false"
+      class="page-section"
+      role="alert"
+    >
+      <div class="load-feedback">
+        <span>{{ loadError }}</span>
+        <n-button size="small" secondary :loading="loading" @click="loadReviews">重试</n-button>
+      </div>
+    </n-alert>
+
+    <n-card v-if="hasLoadedSuccessfully" :bordered="false" class="page-section video-step-card">
       <template #header>视频进度</template>
       <template #header-extra>
         <n-button secondary size="small" :loading="loading" @click="loadReviews">
@@ -280,14 +354,19 @@ onBeforeUnmount(() => {
           刷新
         </n-button>
       </template>
-      <n-steps :current="stepCurrent" class="video-step">
+      <n-steps
+        :current="stepCurrent"
+        :vertical="compactViewport"
+        :size="compactViewport ? 'small' : 'medium'"
+        class="video-step"
+      >
         <n-step title="上传视频" description="选择教学能力视频并提交" />
         <n-step title="评审中" description="等待评审教师评分" />
         <n-step :title="finalStepTitle" description="查看确认或退回意见" />
       </n-steps>
     </n-card>
 
-    <n-card :bordered="false" class="page-section video-self-card">
+    <n-card v-if="hasLoadedSuccessfully" :bordered="false" class="page-section video-self-card">
       <n-spin :show="loading">
         <div class="video-self-content">
           <div class="video-icon">
@@ -295,8 +374,8 @@ onBeforeUnmount(() => {
           </div>
           <div class="video-info">
             <div class="video-title-row">
-              <h3>{{ currentReview?.videoFileName || '尚未上传视频' }}</h3>
-              <StatusTag :value="currentReview?.status || 'WAIT_UPLOAD'" :text="currentReview?.statusLabel || statusLabel(currentReview?.status || 'WAIT_UPLOAD')" />
+              <h3>{{ videoTitle }}</h3>
+              <StatusTag :value="currentReview?.status || 'WAIT_UPLOAD'" :text="videoStatusText" />
             </div>
             <div class="video-meta">
               <span>考核年度：<span class="mono">{{ currentReview?.assessmentYear || yearStore.assessmentYear }}</span></span>
@@ -321,30 +400,37 @@ onBeforeUnmount(() => {
       </n-spin>
     </n-card>
 
-    <n-drawer v-model:show="uploadVisible" :width="560" :mask-closable="!uploading && !activeUploadId">
-      <n-drawer-content title="上传教学能力视频" :closable="!uploading && !activeUploadId">
-        <n-space vertical>
+    <n-drawer
+      v-model:show="uploadVisible"
+      width="min(var(--overlay-medium), var(--overlay-drawer-max))"
+      :mask-closable="!uploading && !activeUploadId"
+      :close-on-esc="!uploading && !activeUploadId"
+    >
+      <n-drawer-content class="video-upload-drawer" title="上传教学能力视频" :closable="!uploading && !activeUploadId">
+        <n-space vertical class="video-upload-content">
           <n-alert v-if="returned" type="warning" :bordered="false">
             {{ reviewMessage || '视频已退回，请按意见重新上传。' }}
           </n-alert>
-          <n-input v-model:value="uploadForm.assessmentYear" placeholder="考核年度" class="mono-input" />
+          <n-input v-model:value="uploadForm.assessmentYear" placeholder="考核年度" class="mono-input" :disabled="uploading || cancelling" />
           <n-alert v-if="!durationDetectFailed" type="info" :bordered="false">
             {{ fileList.length ? (durationDetected ? `时长：${durationText} · 自动识别` : '正在识别视频时长') : '选择视频后自动识别时长' }}
           </n-alert>
-          <n-input-number v-else v-model:value="uploadForm.durationSeconds" :min="1" style="width: 100%" placeholder="时长（秒）" />
-          <n-upload :file-list="fileList" :max="1" accept="video/mp4,.mp4" :default-upload="false" @update:file-list="handleFileListUpdate">
+          <n-input-number v-else v-model:value="uploadForm.durationSeconds" :min="1" style="width: 100%" placeholder="时长（秒）" :disabled="uploading || cancelling" />
+          <n-upload class="video-file-upload" :file-list="fileList" :max="1" accept="video/mp4,.mp4" :default-upload="false" :disabled="uploading || cancelling" @update:file-list="handleFileListUpdate">
             <n-upload-dragger>
               <n-text>点击或拖拽视频到此处上传</n-text>
               <n-p depth="3">支持 MP4 文件，选择后自动识别时长。</n-p>
             </n-upload-dragger>
           </n-upload>
-          <n-progress type="line" :percentage="uploadProgress" indicator-placement="inside" />
         </n-space>
         <template #footer>
-          <n-space justify="end">
-            <n-button :loading="cancelling" @click="cancelOrClose">取消</n-button>
-            <n-button type="primary" :loading="uploading" :disabled="durationDetecting" @click="uploadVideo">开始上传</n-button>
-          </n-space>
+          <div class="video-upload-footer">
+            <n-progress type="line" :percentage="uploadProgress" indicator-placement="inside" />
+            <div class="video-upload-footer__actions">
+              <n-button :loading="cancelling" @click="cancelOrClose">取消</n-button>
+              <n-button type="primary" :loading="uploading" :disabled="durationDetecting || cancelling" @click="uploadVideo">开始上传</n-button>
+            </div>
+          </div>
         </template>
       </n-drawer-content>
     </n-drawer>
@@ -363,7 +449,25 @@ onBeforeUnmount(() => {
   padding-top: var(--space-3);
 }
 
+.video-load-result :deep(.n-card__content) {
+  padding: var(--space-4);
+}
+
+.video-initial-loading {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.load-feedback {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
 .video-step {
+  width: 100%;
   max-width: 860px;
 }
 
@@ -453,13 +557,68 @@ onBeforeUnmount(() => {
   font-family: var(--font-mono);
 }
 
+.video-upload-content,
+.video-file-upload {
+  width: 100%;
+  min-width: 0;
+}
+
+.video-file-upload :deep(.n-upload-trigger),
+.video-file-upload :deep(.n-upload-dragger) {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.video-file-upload :deep(.n-upload-dragger) {
+  overflow-wrap: anywhere;
+}
+
+.video-upload-footer {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  gap: var(--space-3);
+}
+
+.video-upload-footer__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.video-upload-drawer :deep(.n-drawer-body-content-wrapper) {
+  overflow-x: hidden;
+}
+
 @media (max-width: 820px) {
   .video-self-content {
     grid-template-columns: 1fr;
   }
 
   .video-actions {
-    justify-content: flex-start;
+    display: grid;
+    width: 100%;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .video-actions .n-button {
+    width: 100%;
+  }
+
+  .video-meta {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .video-upload-footer__actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .video-upload-footer__actions .n-button {
+    width: 100%;
   }
 }
 </style>

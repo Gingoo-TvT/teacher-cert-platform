@@ -22,7 +22,6 @@ export interface CurrentUser {
 
 export interface LoginResult {
   accessToken: string
-  refreshToken: string
   expiresIn: number
   mustChangePwd: boolean
   user: CurrentUser
@@ -48,8 +47,11 @@ export function login(payload: LoginPayload) {
   return request.post<unknown, ApiResult<LoginResult>>('/auth/login', payload, { skipAuthRefresh: true })
 }
 
-export function refreshToken(refreshToken: string) {
-  return request.post<unknown, ApiResult<LoginResult>>('/auth/refresh', { refreshToken }, { skipAuthRefresh: true })
+export function refreshToken() {
+  return request.post<unknown, ApiResult<LoginResult>>('/auth/refresh', undefined, {
+    skipAuthRefresh: true,
+    skipAuthHeader: true
+  })
 }
 
 export function logout() {
@@ -57,7 +59,7 @@ export function logout() {
 }
 
 export function changePassword(payload: ChangePasswordPayload) {
-  return request.post<unknown, ApiResult<null>>('/auth/change-pwd', payload, { skipAuthRefresh: true })
+  return request.post<unknown, ApiResult<null>>('/auth/change-pwd', payload)
 }
 
 export function getMe() {

@@ -15,6 +15,9 @@ type ReadFilter = 'all' | 'unread' | 'read'
 const message = useMessage()
 const noticeStore = useNoticeStore()
 const loading = ref(false)
+const loadError = ref('')
+const hasLoaded = ref(false)
+const loadedQueryKey = ref('')
 const notices = ref<NotificationItem[]>([])
 const total = ref(0)
 const page = ref(1)
@@ -24,12 +27,25 @@ const typeFilter = ref<string | null>(null)
 const selectedNotice = ref<NotificationItem | null>(null)
 const drawerVisible = ref(false)
 let noticeTimer: number | undefined
+let listRequestSequence = 0
 
 // Phase 44e-contract（P1-1 真分页 rollout · NoticeCenterView 前端特例，见 docs/pagination-rollout-spec.md §2）：
 // 真分页后 notices 只是当页数据，「未读」不能再靠本地 filter 当页统计（会漏掉其它页），改读
 // noticeStore.unreadCount（全局真实未读数，来自 /notice/unread-count，标记已读/全部已读时已同步刷新）；
 // 「已读」按当前 read 筛选精确推：筛未读时子集全未读→0，筛已读时子集全已读→total，筛全部时 total－全局未读。
 const unreadCount = computed(() => noticeStore.unreadCount)
+const listQueryKey = computed(() => JSON.stringify([
+  readFilter.value,
+  page.value,
+  size.value
+]))
+const listDataFresh = computed(() =>
+  hasLoaded.value
+  && loadedQueryKey.value === listQueryKey.value
+  && !loading.value
+  && !loadError.value
+)
+const writeBlocked = computed(() => !listDataFresh.value)
 const readCount = computed(() => {
   if (readFilter.value === 'unread') return 0
   if (readFilter.value === 'read') return total.value
@@ -44,6 +60,7 @@ const filteredNotices = computed(() => {
   if (!typeFilter.value) return notices.value
   return notices.value.filter((item) => item.type === typeFilter.value)
 })
+const hasActiveFilters = computed(() => readFilter.value !== 'all' || Boolean(typeFilter.value))
 
 const filterOptions: SelectOption[] = [
   { label: '全部', value: 'all' },
@@ -62,16 +79,25 @@ onBeforeUnmount(() => {
 })
 
 async function loadNotices() {
+  const requestSequence = ++listRequestSequence
+  const queryKey = listQueryKey.value
+  const read = readFilter.value === 'all' ? null : readFilter.value === 'read'
+  const requestedPage = page.value
+  const requestedSize = size.value
   loading.value = true
+  loadError.value = ''
   try {
-    const read = readFilter.value === 'all' ? null : readFilter.value === 'read'
-    const res = await listNotices(read, page.value, size.value)
+    const res = await listNotices(read, requestedPage, requestedSize)
+    if (requestSequence !== listRequestSequence || queryKey !== listQueryKey.value) return
     notices.value = res.data.records || []
     total.value = res.data.total || 0
+    hasLoaded.value = true
+    loadedQueryKey.value = queryKey
   } catch (error) {
-    showError(error, '通知加载失败')
+    if (requestSequence !== listRequestSequence || queryKey !== listQueryKey.value) return
+    loadError.value = errorText(error, '通知加载失败')
   } finally {
-    loading.value = false
+    if (requestSequence === listRequestSequence) loading.value = false
   }
 }
 
@@ -95,7 +121,7 @@ function onPageSizeChange(s: number) {
 async function openNotice(row: NotificationItem) {
   selectedNotice.value = row
   drawerVisible.value = true
-  if (row.readFlag !== 0) return
+  if (row.readFlag !== 0 || writeBlocked.value) return
   try {
     await markNoticeRead(row.id)
     row.readFlag = 1
@@ -106,6 +132,7 @@ async function openNotice(row: NotificationItem) {
 }
 
 async function handleReadAll() {
+  if (writeBlocked.value) return
   try {
     await markAllNoticesRead()
     notices.value = notices.value.map((item) => ({ ...item, readFlag: 1 }))
@@ -139,8 +166,12 @@ function typeName(type?: string | null) {
 }
 
 function showError(error: unknown, fallback: string) {
+  message.error(errorText(error, fallback))
+}
+
+function errorText(error: unknown, fallback: string) {
   const detail = error instanceof Error ? error.message : fallback
-  message.error(detail || fallback)
+  return detail || fallback
 }
 </script>
 
@@ -149,17 +180,17 @@ function showError(error: unknown, fallback: string) {
     <template #actions>
       <n-space>
         <n-button secondary :loading="loading" @click="loadNotices">刷新</n-button>
-        <n-button type="primary" :disabled="unreadCount === 0" @click="handleReadAll">全部已读</n-button>
+        <n-button type="primary" :disabled="writeBlocked || unreadCount === 0" @click="handleReadAll">全部已读</n-button>
       </n-space>
     </template>
 
-    <n-grid :cols="3" :x-gap="12" responsive="screen" class="page-section">
+    <n-grid v-if="hasLoaded" cols="1 440:2 720:3" :x-gap="12" :y-gap="12" responsive="self" class="page-section">
       <n-gi><StatCard label="通知总数" :value="total" /></n-gi>
       <n-gi><StatCard label="未读" :value="unreadCount" tone="error" /></n-gi>
       <n-gi><StatCard label="已读" :value="readCount" tone="success" /></n-gi>
     </n-grid>
 
-    <FilterBar :loading="loading" submit-text="刷新" @submit="search" @reset="resetFilters">
+    <FilterBar :loading="loading" submit-text="查询" @submit="search" @reset="resetFilters">
       <label class="filter-field">
         <span>阅读状态</span>
         <n-segmented v-model:value="readFilter" :options="filterOptions" @update:value="onReadFilterChange" />
@@ -170,14 +201,38 @@ function showError(error: unknown, fallback: string) {
       </label>
     </FilterBar>
 
+    <n-alert v-if="loadError && hasLoaded" type="error" title="通知刷新失败" class="page-section" role="alert">
+      <div class="notice-feedback">
+        <span>{{ loadError }}。以下仍显示上次成功加载的结果。</span>
+        <n-button size="small" type="error" secondary :loading="loading" @click="loadNotices">重试</n-button>
+      </div>
+    </n-alert>
+
     <n-spin :show="loading">
-      <n-list v-if="filteredNotices.length" bordered class="notice-list">
+      <n-result
+        v-if="loadError && !hasLoaded"
+        status="error"
+        title="通知加载失败"
+        :description="loadError"
+        class="notice-load-error"
+        role="alert"
+      >
+        <template #footer>
+          <n-button type="primary" :loading="loading" @click="loadNotices">重试</n-button>
+        </template>
+      </n-result>
+      <n-list v-else-if="filteredNotices.length" bordered class="notice-list">
         <n-list-item
           v-for="item in filteredNotices"
           :key="item.id"
           class="notice-row"
           :class="{ 'notice-row--unread': item.readFlag === 0 }"
+          role="button"
+          tabindex="0"
           @click="openNotice(item)"
+          @keydown.space.prevent
+          @keyup.enter.prevent="openNotice(item)"
+          @keyup.space.prevent="openNotice(item)"
         >
           <div class="notice-row__dot">
             <span v-if="item.readFlag === 0" class="notice-dot" />
@@ -196,13 +251,21 @@ function showError(error: unknown, fallback: string) {
           </div>
         </n-list-item>
       </n-list>
-      <EmptyState v-else title="暂无通知" description="当前筛选条件下没有通知。" />
+      <EmptyState
+        v-else
+        :title="hasActiveFilters ? '未找到匹配通知' : '暂无通知'"
+        :description="hasActiveFilters ? '请调整或清除筛选条件后重试。' : '当前还没有站内通知。'"
+      >
+        <template v-if="hasActiveFilters" #action>
+          <n-button type="primary" secondary @click="resetFilters">清除筛选</n-button>
+        </template>
+      </EmptyState>
     </n-spin>
 
     <!-- Phase 44e-contract（P1-1 真分页 · n-list 特例）：n-list 无内置分页，DataPanel 的 remote 分页配方
          不适用于此处，改用独立 n-pagination 绑定后端 total / page / size，翻页与改页大小回抛后端重新查询。 -->
     <n-pagination
-      v-if="total > 0"
+      v-if="hasLoaded && total > 0"
       class="notice-pagination"
       :page="page"
       :page-size="size"
@@ -215,7 +278,7 @@ function showError(error: unknown, fallback: string) {
       <template #prefix="{ itemCount }">共 {{ itemCount }} 条</template>
     </n-pagination>
 
-    <n-drawer v-model:show="drawerVisible" :width="560">
+    <n-drawer v-model:show="drawerVisible" width="min(var(--overlay-medium), var(--overlay-drawer-max))">
       <n-drawer-content :title="selectedNotice?.title || '通知详情'" closable>
         <n-space v-if="selectedNotice" vertical :size="16">
           <n-space>
@@ -262,6 +325,23 @@ function showError(error: unknown, fallback: string) {
 
 .notice-row:hover {
   background: var(--surface-muted);
+}
+
+.notice-row:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: -2px;
+}
+
+.notice-feedback {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.notice-load-error {
+  min-height: 220px;
+  padding: var(--space-8) var(--space-4);
 }
 
 .notice-row :deep(.n-list-item__main) {
@@ -345,5 +425,12 @@ function showError(error: unknown, fallback: string) {
 
 .notice-detail-meta strong {
   font-weight: 500;
+}
+
+@media (max-width: 720px) {
+  .notice-feedback {
+    align-items: flex-start;
+    flex-direction: column;
+  }
 }
 </style>

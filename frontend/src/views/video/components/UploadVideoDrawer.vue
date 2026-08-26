@@ -94,6 +94,7 @@ async function handleFileListUpdate(next: UploadFileInfo[]) {
 }
 
 async function uploadVideo() {
+  if (uploading.value || cancelling.value) return
   const file = fileList.value[0]?.file
   if (!file || !uploadForm.studentId || !uploadForm.assessmentYear) {
     message.error('请选择学生、年度和视频文件')
@@ -216,19 +217,24 @@ defineExpose({ open })
 </script>
 
 <template>
-  <n-drawer v-model:show="uploadVisible" :width="560" :mask-closable="!uploading && !activeUploadId">
+  <n-drawer
+    v-model:show="uploadVisible"
+    width="min(var(--overlay-medium), var(--overlay-drawer-max))"
+    :mask-closable="!uploading && !activeUploadId"
+    :close-on-esc="!uploading && !activeUploadId"
+  >
     <n-drawer-content title="上传教学能力视频" :closable="!uploading && !activeUploadId">
       <n-space vertical>
         <n-alert type="info" :bordered="false">
           仅退回、待上传或校验失败状态显示重传入口；其他状态由校验规则禁止重传。
         </n-alert>
-        <StudentSelect v-model:value="uploadForm.studentId" :selected-label="selectedStudentLabel" placeholder="输入学号或姓名搜索" />
-        <n-input v-model:value="uploadForm.assessmentYear" placeholder="考核年度" class="mono-input" />
+        <StudentSelect v-model:value="uploadForm.studentId" :selected-label="selectedStudentLabel" placeholder="输入学号或姓名搜索" :disabled="uploading || cancelling" />
+        <n-input v-model:value="uploadForm.assessmentYear" placeholder="考核年度" class="mono-input" :disabled="uploading || cancelling" />
         <n-alert v-if="!durationDetectFailed" type="info" :bordered="false">
           {{ fileList.length ? (durationDetected ? `时长：${durationText} · 自动识别` : '正在识别视频时长') : '选择视频后自动识别时长' }}
         </n-alert>
-        <n-input-number v-else v-model:value="uploadForm.durationSeconds" :min="1" style="width: 100%" placeholder="时长（秒）" />
-        <n-upload :file-list="fileList" :max="1" accept="video/mp4,.mp4" :default-upload="false" @update:file-list="handleFileListUpdate">
+        <n-input-number v-else v-model:value="uploadForm.durationSeconds" :min="1" style="width: 100%" placeholder="时长（秒）" :disabled="uploading || cancelling" />
+        <n-upload :file-list="fileList" :max="1" accept="video/mp4,.mp4" :default-upload="false" :disabled="uploading || cancelling" @update:file-list="handleFileListUpdate">
           <n-upload-dragger>
             <n-text>点击或拖拽视频到此处上传</n-text>
             <n-p depth="3">支持 MP4 文件，选择后自动识别时长。</n-p>
@@ -239,7 +245,7 @@ defineExpose({ open })
       <template #footer>
         <n-space justify="end">
           <n-button :loading="cancelling" @click="cancelOrClose">取消</n-button>
-          <n-button type="primary" :loading="uploading" :disabled="durationDetecting" @click="uploadVideo">开始上传</n-button>
+          <n-button type="primary" :loading="uploading" :disabled="durationDetecting || cancelling" @click="uploadVideo">开始上传</n-button>
         </n-space>
       </template>
     </n-drawer-content>

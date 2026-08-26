@@ -17,6 +17,7 @@ import cn.edu.gpnu.platform.business.material.service.ProcessMaterialService;
 import cn.edu.gpnu.platform.business.material.vo.ProcessStatusVO;
 import cn.edu.gpnu.platform.business.student.entity.Student;
 import cn.edu.gpnu.platform.business.student.mapper.StudentMapper;
+import cn.edu.gpnu.platform.business.student.support.SensitiveMasker;
 import cn.edu.gpnu.platform.business.student.support.StudentStatus;
 import cn.edu.gpnu.platform.business.testresult.entity.AbilityTestResult;
 import cn.edu.gpnu.platform.business.testresult.mapper.AbilityTestResultMapper;
@@ -34,6 +35,7 @@ import cn.edu.gpnu.platform.common.api.ResultCode;
 import cn.edu.gpnu.platform.common.context.DataScopeContext;
 import cn.edu.gpnu.platform.common.context.UserContext;
 import cn.edu.gpnu.platform.common.exception.BizException;
+import cn.edu.gpnu.platform.security.service.IdCardProtectionService;
 import cn.edu.gpnu.platform.system.entity.SysAuditLog;
 import cn.edu.gpnu.platform.system.entity.SysDictItem;
 import cn.edu.gpnu.platform.system.mapper.SysDictItemMapper;
@@ -81,6 +83,7 @@ public class CertificateServiceImpl implements CertificateService {
     private final ParamService paramService;
     private final AuditLogService auditLogService;
     private final ObjectMapper objectMapper;
+    private final IdCardProtectionService idCardProtectionService;
 
     // Phase 44e（P1-1 真分页铺开）：由「全表 selectList 后 new PageResult<>(size, records)」改为
     // MyBatis-Plus Page + selectPage 真分页。@DataScope（CertificateController.list，alias=certificate）设置的
@@ -163,8 +166,14 @@ public class CertificateServiceImpl implements CertificateService {
         entity.setValidUntil(validUntil(issueDate));
         entity.setStatus(CertificateStatus.ISSUED.name());
         entity.setLocked(1);
-        // 原子条件更新：仅当仍为待签发态时才写入，防并发/重复签发竞态（P0-10）
-        if (certificateMapper.update(entity, new LambdaUpdateWrapper<Certificate>()
+        Certificate patch = new Certificate();
+        patch.setIssuer(entity.getIssuer());
+        patch.setIssueDate(entity.getIssueDate());
+        patch.setValidUntil(entity.getValidUntil());
+        patch.setStatus(entity.getStatus());
+        patch.setLocked(entity.getLocked());
+        // 状态流转仅写本次状态字段，避免把并发更正后的证书内容覆盖回旧快照。
+        if (certificateMapper.update(patch, new LambdaUpdateWrapper<Certificate>()
                 .eq(Certificate::getId, id).eq(Certificate::getStatus, oldStatus)) == 0) {
             throw new BizException("操作冲突：该记录已被其他操作更新，请刷新后重试");
         }
@@ -182,8 +191,10 @@ public class CertificateServiceImpl implements CertificateService {
         String oldStatus = entity.getStatus();
         entity.setStatus(CertificateStatus.EXPORTED.name());
         entity.setLocked(1);
-        // 原子条件更新：仅当仍为已签发态时才写入，防并发/重复标记竞态（P0-10）
-        if (certificateMapper.update(entity, new LambdaUpdateWrapper<Certificate>()
+        Certificate patch = new Certificate();
+        patch.setStatus(entity.getStatus());
+        patch.setLocked(entity.getLocked());
+        if (certificateMapper.update(patch, new LambdaUpdateWrapper<Certificate>()
                 .eq(Certificate::getId, id).eq(Certificate::getStatus, oldStatus)) == 0) {
             throw new BizException("操作冲突：该记录已被其他操作更新，请刷新后重试");
         }
@@ -201,8 +212,10 @@ public class CertificateServiceImpl implements CertificateService {
         String oldStatus = entity.getStatus();
         entity.setStatus(CertificateStatus.ARCHIVED.name());
         entity.setLocked(1);
-        // 原子条件更新：仅当仍为已导出态时才写入，防并发/重复归档竞态（P0-10）
-        if (certificateMapper.update(entity, new LambdaUpdateWrapper<Certificate>()
+        Certificate patch = new Certificate();
+        patch.setStatus(entity.getStatus());
+        patch.setLocked(entity.getLocked());
+        if (certificateMapper.update(patch, new LambdaUpdateWrapper<Certificate>()
                 .eq(Certificate::getId, id).eq(Certificate::getStatus, oldStatus)) == 0) {
             throw new BizException("操作冲突：该记录已被其他操作更新，请刷新后重试");
         }
@@ -224,8 +237,13 @@ public class CertificateServiceImpl implements CertificateService {
         entity.setVoidTime(LocalDateTime.now());
         entity.setStatus(CertificateStatus.VOIDED.name());
         entity.setLocked(1);
-        // 原子条件更新：仅当仍为可作废态时才写入，防并发/重复作废竞态（P0-10）
-        if (certificateMapper.update(entity, new LambdaUpdateWrapper<Certificate>()
+        Certificate patch = new Certificate();
+        patch.setVoidReason(entity.getVoidReason());
+        patch.setVoidOperatorId(entity.getVoidOperatorId());
+        patch.setVoidTime(entity.getVoidTime());
+        patch.setStatus(entity.getStatus());
+        patch.setLocked(entity.getLocked());
+        if (certificateMapper.update(patch, new LambdaUpdateWrapper<Certificate>()
                 .eq(Certificate::getId, id).eq(Certificate::getStatus, oldStatus)) == 0) {
             throw new BizException("操作冲突：该记录已被其他操作更新，请刷新后重试");
         }
@@ -250,7 +268,10 @@ public class CertificateServiceImpl implements CertificateService {
         original.setLocked(1);
         // 原子条件更新：仅当原证仍为已作废态时才置为已重开，既把 REISSUED 落库（§7.4 死枚举）
         // 又防并发重复重开——两并发只有一个能命中 VOIDED、另一个受影响行数=0 被拒（P0-10）。
-        if (certificateMapper.update(original, new LambdaUpdateWrapper<Certificate>()
+        Certificate patch = new Certificate();
+        patch.setStatus(original.getStatus());
+        patch.setLocked(original.getLocked());
+        if (certificateMapper.update(patch, new LambdaUpdateWrapper<Certificate>()
                 .eq(Certificate::getId, id).eq(Certificate::getStatus, oldStatus)) == 0) {
             throw new BizException("证书状态已变更或已重开，请刷新后重试");
         }
@@ -308,7 +329,25 @@ public class CertificateServiceImpl implements CertificateService {
         }
         entity.setCorrectionReason(requiredTrim(request.getReason(), "更正原因不能为空"));
         entity.setLocked(1);
-        certificateMapper.updateById(entity);
+        Certificate patch = new Certificate();
+        patch.setCertNo(StringUtils.hasText(request.getCertNo()) ? entity.getCertNo() : null);
+        patch.setValidUntil(StringUtils.hasText(request.getValidUntil()) ? entity.getValidUntil() : null);
+        patch.setTeachingSubjectCode(StringUtils.hasText(request.getTeachingSubjectCode())
+                ? entity.getTeachingSubjectCode() : null);
+        patch.setTeachingSubjectName(StringUtils.hasText(request.getTeachingSubjectName())
+                ? entity.getTeachingSubjectName() : null);
+        patch.setTeachingSegment(StringUtils.hasText(request.getTeachingSegment())
+                ? entity.getTeachingSegment() : null);
+        patch.setTrainingGoal(StringUtils.hasText(request.getTrainingGoal()) ? entity.getTrainingGoal() : null);
+        patch.setCorrectionReason(entity.getCorrectionReason());
+        patch.setLocked(entity.getLocked());
+        LambdaUpdateWrapper<Certificate> update = new LambdaUpdateWrapper<Certificate>()
+                .eq(Certificate::getId, id)
+                .eq(Certificate::getStatus, oldStatus);
+        // 更正以读取时状态作 CAS，且不写 status；流转先提交时旧更正失败，反向顺序则保留更正内容。
+        if (certificateMapper.update(patch, update) == 0) {
+            throw new BizException("操作冲突：该记录已被其他操作更新，请刷新后重试");
+        }
         recordAudit(entity, "correct", oldStatus, entity.getStatus(), entity.getCorrectionReason());
         return toVO(entity);
     }
@@ -451,7 +490,9 @@ public class CertificateServiceImpl implements CertificateService {
         entity.setStudentNo(student.getStudentNo());
         entity.setStudentName(student.getName());
         entity.setIdCardType(student.getIdCardType());
-        entity.setIdCardNo(student.getIdCardNo());
+        String plainIdCardNo = idCardProtectionService.decrypt(student.getIdCardNo());
+        entity.setIdCardNo(idCardProtectionService.encrypt(plainIdCardNo));
+        entity.setIdCardHmac(idCardProtectionService.hmac(plainIdCardNo));
         entity.setEducationLevel(training.getEducationLevel());
         entity.setTrainingGoal(training.getTrainingGoal());
         entity.setTeachingSegment(training.getTeachingSegment());
@@ -600,7 +641,7 @@ public class CertificateServiceImpl implements CertificateService {
         vo.setStudentNo(entity.getStudentNo());
         vo.setStudentName(entity.getStudentName());
         vo.setIdCardType(entity.getIdCardType());
-        vo.setIdCardNo(entity.getIdCardNo());
+        vo.setIdCardNo(SensitiveMasker.idCard(idCardProtectionService.decrypt(entity.getIdCardNo())));
         vo.setEducationLevel(entity.getEducationLevel());
         vo.setTrainingGoal(entity.getTrainingGoal());
         vo.setTeachingSegment(entity.getTeachingSegment());

@@ -20,6 +20,7 @@ import cn.edu.gpnu.platform.common.api.ResultCode;
 import cn.edu.gpnu.platform.common.context.DataScopeContext;
 import cn.edu.gpnu.platform.common.context.UserContext;
 import cn.edu.gpnu.platform.common.exception.BizException;
+import cn.edu.gpnu.platform.security.service.IdCardProtectionService;
 import cn.edu.gpnu.platform.security.service.RbacAuthorizationGuard;
 import cn.edu.gpnu.platform.system.entity.SysRole;
 import cn.edu.gpnu.platform.system.entity.SysUser;
@@ -65,6 +66,7 @@ public class StudentServiceImpl implements StudentService {
     private final SysUserRoleMapper userRoleMapper;
     private final SysUserDataScopeMapper userDataScopeMapper;
     private final RbacAuthorizationGuard authorizationGuard;
+    private final IdCardProtectionService idCardProtectionService;
     private final CollegeParentGuard collegeParentGuard;
     private final PasswordEncoder passwordEncoder;
     private final DataScopeService dataScopeService;
@@ -80,17 +82,17 @@ public class StudentServiceImpl implements StudentService {
     // 数据权限拦截器在 selectPage 的 count 与数据两条 SQL 上均生效 → 该页与 total 同为「已按学院/本人范围过滤」的结果。
     @Override
     public PageResult<StudentVO> list(String keyword, String status, Long collegeId, String grade,
-                                      boolean plain, Integer page, Integer size) {
+                                      Integer page, Integer size) {
         Page<Student> result = studentMapper.selectPage(
                 PageQuery.of(page, size), buildListWrapper(keyword, status, collegeId, grade));
-        List<StudentVO> records = result.getRecords().stream().map(item -> toVO(item, plain)).toList();
+        List<StudentVO> records = result.getRecords().stream().map(this::toVO).toList();
         return new PageResult<>(result.getTotal(), records);
     }
 
     @Override
-    public List<StudentVO> listAll(String keyword, String status, Long collegeId, boolean plain) {
+    public List<StudentVO> listAll(String keyword, String status, Long collegeId) {
         return studentMapper.selectList(buildListWrapper(keyword, status, collegeId, null))
-                .stream().map(item -> toVO(item, plain)).toList();
+                .stream().map(this::toVO).toList();
     }
 
     private LambdaQueryWrapper<Student> buildListWrapper(String keyword, String status, Long collegeId, String grade) {
@@ -116,8 +118,8 @@ public class StudentServiceImpl implements StudentService {
     }
 
     @Override
-    public StudentVO detail(Long id, boolean plain) {
-        return toVO(requireStudent(id), plain);
+    public StudentVO detail(Long id) {
+        return toVO(requireStudent(id));
     }
 
     @Override
@@ -138,8 +140,8 @@ public class StudentServiceImpl implements StudentService {
         try {
             studentMapper.insert(entity);
         } catch (DuplicateKeyException e) {
-            // 生成列唯一键 uk_student_idcard（Phase42.1）：两并发 create 各自过 existsIdCardNo 快照预检、
-            // 都插入未删学生 → 后到者撞该唯一键。与预检 fill() 的「证件号码已存在」同措辞，保证 UX 一致；
+            // HMAC 唯一键 uk_student_idcard：两并发 create 各自过 existsIdCardNo 快照预检、
+            // 都插入未删学生 → 后到者撞唯一键。与预检 fill() 的「证件号码已存在」同措辞，保证 UX 一致；
             // 非该键（如 uk_student_no 学号并发撞键）保持既有行为，原样上抛交全局兜底。
             if (violatesIndex(e, "uk_student_idcard")) {
                 throw new BizException("证件号码已存在");
@@ -177,9 +179,13 @@ public class StudentServiceImpl implements StudentService {
     public void update(Long id, StudentSaveRequest request) {
         authorizationGuard.lockAuthorizationState();
         Student entity = requireStudent(id);
+        String expectedStatus = entity.getStatus();
+        Integer expectedLocked = entity.getLocked();
         fill(entity, request, true, true);
         collegeParentGuard.lockExisting(entity.getCollegeId(), CollegeParentGuard.Operation.UPDATE_STUDENT);
-        studentMapper.updateById(entity);
+        if (updateStudentContent(entity, expectedStatus, expectedLocked) == 0) {
+            throw new BizException("操作冲突：学生状态已变更，请刷新后重试");
+        }
         ensureStudentAccount(entity);
     }
 
@@ -190,7 +196,14 @@ public class StudentServiceImpl implements StudentService {
         Student entity = requireStudent(id);
         ensureEditable(entity, "删除");
         ensureStudentAccountCanBeDisabled(id);
-        studentMapper.deleteById(id);
+        if (studentMapper.update(new Student(), new LambdaUpdateWrapper<Student>()
+                .eq(Student::getId, id)
+                .eq(Student::getStatus, entity.getStatus())
+                .eq(Student::getLocked, entity.getLocked())
+                .set(Student::getIdCardHmac, null)
+                .set(Student::getDeleted, 1)) == 0) {
+            throw new BizException("操作冲突：学生状态已变更，请刷新后重试");
+        }
         // P0-12：同步停用该学生的登录账号，防删除/退学后仍可登录（JWT filter 每请求校验 status=ENABLED，旧 token 下次请求即失效）
         userMapper.update(null, new LambdaUpdateWrapper<SysUser>()
                 .eq(SysUser::getStudentId, id)
@@ -202,9 +215,13 @@ public class StudentServiceImpl implements StudentService {
     public StudentVO confirm(StudentConfirmRequest request) {
         Long studentId = currentStudentId();
         Student entity = requireStudent(studentId);
+        String expectedStatus = entity.getStatus();
+        Integer expectedLocked = entity.getLocked();
         fill(entity, request, true, false);
-        studentMapper.updateById(entity);
-        return toVO(entity, false);
+        if (updateStudentContent(entity, expectedStatus, expectedLocked) == 0) {
+            throw new BizException("操作冲突：学生状态已变更，请刷新后重试");
+        }
+        return toVO(entity);
     }
 
     @Override
@@ -220,9 +237,11 @@ public class StudentServiceImpl implements StudentService {
         String oldStatus = entity.getStatus();
         String targetStatus = returnTargetFromSecondRejected(status);
         entity.setStatus(targetStatus);
-        // 原子条件更新：仅当状态未被并发改变时才写入，防重复提交竞态（P0-10）
-        if (studentMapper.update(entity, new LambdaUpdateWrapper<Student>()
-                .eq(Student::getId, id).eq(Student::getStatus, oldStatus)) == 0) {
+        // 状态流转只写状态字段，避免把并发资料编辑后的字段覆盖回旧快照。
+        if (studentMapper.update(new Student(), new LambdaUpdateWrapper<Student>()
+                .eq(Student::getId, id)
+                .eq(Student::getStatus, oldStatus)
+                .set(Student::getStatus, targetStatus)) == 0) {
             throw new BizException("操作冲突：该记录已被其他操作更新，请刷新后重试");
         }
         notificationHelper.notifySubmitted(entity.getCollegeId(), entity.getId(), "学生基本信息",
@@ -252,9 +271,13 @@ public class StudentServiceImpl implements StudentService {
         entity.setFirstReviewerId(UserContext.getUserIdOrSystem());
         entity.setFirstReviewTime(LocalDateTime.now());
         entity.setFirstReviewComment(trimToNull(request.getComment()));
-        // 原子条件更新：仅当仍为初审态时才写入，防并发/重复初审竞态（P0-10）
-        if (studentMapper.update(entity, new LambdaUpdateWrapper<Student>()
-                .eq(Student::getId, id).eq(Student::getStatus, oldStatus)) == 0) {
+        if (studentMapper.update(new Student(), new LambdaUpdateWrapper<Student>()
+                .eq(Student::getId, id)
+                .eq(Student::getStatus, oldStatus)
+                .set(Student::getStatus, entity.getStatus())
+                .set(Student::getFirstReviewerId, entity.getFirstReviewerId())
+                .set(Student::getFirstReviewTime, entity.getFirstReviewTime())
+                .set(Student::getFirstReviewComment, entity.getFirstReviewComment())) == 0) {
             throw new BizException("操作冲突：该记录已被其他操作更新，请刷新后重试");
         }
         auditLogService.record("student", entity.getId(), studentTarget(entity), "firstReview",
@@ -291,9 +314,15 @@ public class StudentServiceImpl implements StudentService {
         entity.setSecondReviewerId(UserContext.getUserIdOrSystem());
         entity.setSecondReviewTime(LocalDateTime.now());
         entity.setSecondReviewComment(trimToNull(request.getComment()));
-        // 原子条件更新：仅当仍为复审态时才写入，防并发/重复复审竞态（P0-10）
-        if (studentMapper.update(entity, new LambdaUpdateWrapper<Student>()
-                .eq(Student::getId, id).eq(Student::getStatus, oldStatus)) == 0) {
+        LambdaUpdateWrapper<Student> update = new LambdaUpdateWrapper<Student>()
+                .eq(Student::getId, id)
+                .eq(Student::getStatus, oldStatus)
+                .set(Student::getStatus, entity.getStatus())
+                .set("PASS".equals(action), Student::getLocked, entity.getLocked())
+                .set(Student::getSecondReviewerId, entity.getSecondReviewerId())
+                .set(Student::getSecondReviewTime, entity.getSecondReviewTime())
+                .set(Student::getSecondReviewComment, entity.getSecondReviewComment());
+        if (studentMapper.update(new Student(), update) == 0) {
             throw new BizException("操作冲突：该记录已被其他操作更新，请刷新后重试");
         }
         auditLogService.record("student", entity.getId(), studentTarget(entity), "secondReview",
@@ -306,8 +335,29 @@ public class StudentServiceImpl implements StudentService {
 
     @Override
     public StudentPlainIdCardVO plainIdCard(Long id) {
+        if (!UserContext.hasPermission("exchange:export:sensitive")) {
+            throw new BizException(ResultCode.FORBIDDEN.getCode(), "无权查看明文证件信息");
+        }
         Student entity = requireStudent(id);
-        return new StudentPlainIdCardVO(entity.getId(), entity.getIdCardNo());
+        ensureCanViewSensitiveStudent(entity);
+        return new StudentPlainIdCardVO(entity.getId(),
+                idCardProtectionService.decrypt(entity.getIdCardNo()), entity.getBirthDate());
+    }
+
+    private void ensureCanViewSensitiveStudent(Student student) {
+        DataScopeContext.Scope scope = dataScopeService.resolve("student:view");
+        if (scope == null) {
+            throw new BizException(ResultCode.FORBIDDEN.getCode(), "无权查看该学生");
+        }
+        boolean allowed = scope.allSchool()
+                || (scope.getScopeType() == DataScopeContext.ScopeType.SELF
+                && student.getId().equals(scope.getStudentId()))
+                || ((scope.getScopeType() == DataScopeContext.ScopeType.COLLEGE
+                || scope.getScopeType() == DataScopeContext.ScopeType.ASSIGNED)
+                && scope.getCollegeIds().contains(student.getCollegeId()));
+        if (!allowed) {
+            throw new BizException(ResultCode.FORBIDDEN.getCode(), "无权查看该学生");
+        }
     }
 
     private void fill(Student entity, StudentSaveRequest request, boolean existing, boolean enforceWriteScope) {
@@ -332,7 +382,8 @@ public class StudentServiceImpl implements StudentService {
         entity.setName(requiredTrim(request.getName(), "姓名不能为空"));
         entity.setGender(requiredTrim(request.getGender(), "性别不能为空"));
         entity.setIdCardType(idCardType);
-        entity.setIdCardNo(idCardNo);
+        entity.setIdCardNo(idCardProtectionService.encrypt(idCardNo));
+        entity.setIdCardHmac(idCardProtectionService.hmac(idCardNo));
         entity.setBirthDate(requiredTrim(request.getBirthDate(), "出生日期不能为空"));
         entity.setIdentityType(requiredTrim(request.getIdentityType(), "身份类型不能为空"));
         entity.setSourceProvince(trimToNull(request.getSourceProvince()));
@@ -376,7 +427,7 @@ public class StudentServiceImpl implements StudentService {
     private boolean criticalChanged(Student entity, StudentSaveRequest request) {
         return changed(entity.getName(), request.getName())
                 || changed(entity.getIdCardType(), request.getIdCardType())
-                || changed(entity.getIdCardNo(), request.getIdCardNo())
+                || changed(idCardProtectionService.decrypt(entity.getIdCardNo()), request.getIdCardNo())
                 || changed(entity.getBirthDate(), request.getBirthDate())
                 || changed(entity.getIdentityType(), request.getIdentityType());
     }
@@ -567,15 +618,15 @@ public class StudentServiceImpl implements StudentService {
         return role.getId();
     }
 
-    private StudentVO toVO(Student entity, boolean plain) {
+    private StudentVO toVO(Student entity) {
         StudentVO vo = new StudentVO();
         vo.setId(entity.getId());
         vo.setStudentNo(entity.getStudentNo());
         vo.setName(entity.getName());
         vo.setGender(entity.getGender());
         vo.setIdCardType(entity.getIdCardType());
-        vo.setIdCardNo(plain ? entity.getIdCardNo() : SensitiveMasker.idCard(entity.getIdCardNo()));
-        vo.setBirthDate(entity.getBirthDate());
+        vo.setIdCardNo(SensitiveMasker.idCard(idCardProtectionService.decrypt(entity.getIdCardNo())));
+        vo.setBirthDate(SensitiveMasker.birthDate(entity.getBirthDate()));
         vo.setIdentityType(entity.getIdentityType());
         vo.setSourceProvince(entity.getSourceProvince());
         vo.setSourceCity(entity.getSourceCity());
@@ -607,6 +658,29 @@ public class StudentServiceImpl implements StudentService {
         return entity;
     }
 
+    private int updateStudentContent(Student entity, String expectedStatus, Integer expectedLocked) {
+        LambdaUpdateWrapper<Student> update = new LambdaUpdateWrapper<Student>()
+                .eq(Student::getId, entity.getId())
+                .eq(Student::getStatus, expectedStatus)
+                .eq(Student::getLocked, expectedLocked)
+                .set(Student::getStudentNo, entity.getStudentNo())
+                .set(Student::getName, entity.getName())
+                .set(Student::getGender, entity.getGender())
+                .set(Student::getIdCardType, entity.getIdCardType())
+                .set(Student::getIdCardNo, entity.getIdCardNo())
+                .set(Student::getIdCardHmac, entity.getIdCardHmac())
+                .set(Student::getBirthDate, entity.getBirthDate())
+                .set(Student::getIdentityType, entity.getIdentityType())
+                .set(Student::getSourceProvince, entity.getSourceProvince())
+                .set(Student::getSourceCity, entity.getSourceCity())
+                .set(Student::getSourceCounty, entity.getSourceCounty())
+                .set(Student::getSourceFull, entity.getSourceFull())
+                .set(Student::getCollegeId, entity.getCollegeId())
+                .set(Student::getGrade, entity.getGrade())
+                .set(Student::getClassName, entity.getClassName());
+        return studentMapper.update(new Student(), update);
+    }
+
     private Long currentStudentId() {
         UserContext.CurrentUser user = UserContext.get();
         if (user == null || user.getStudentId() == null) {
@@ -624,7 +698,8 @@ public class StudentServiceImpl implements StudentService {
     }
 
     private boolean existsIdCardNo(String idCardNo, Long excludeId) {
-        LambdaQueryWrapper<Student> wrapper = new LambdaQueryWrapper<Student>().eq(Student::getIdCardNo, idCardNo);
+        LambdaQueryWrapper<Student> wrapper = new LambdaQueryWrapper<Student>()
+                .eq(Student::getIdCardHmac, idCardProtectionService.hmac(idCardNo));
         if (excludeId != null) {
             wrapper.ne(Student::getId, excludeId);
         }

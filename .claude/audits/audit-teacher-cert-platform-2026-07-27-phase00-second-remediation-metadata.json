@@ -1,0 +1,297 @@
+{
+  "metadata": {
+    "project": "teacher-cert-platform",
+    "auditModes": [
+      "incremental",
+      "testing-authenticity",
+      "release",
+      "configuration",
+      "documentation",
+      "supply-chain",
+      "security"
+    ],
+    "date": "2026-07-27",
+    "reviewer": "OpenAI Codex",
+    "baselineCommit": "8e3217da5f39f55f8146fa6d4e638adf8406914f",
+    "productCommit": "3bfe83d9eaa4486bb39cc89fc3f05a975319e3af",
+    "commitHash": "c426480e718333ba864c2753c0a6c5d28b971221",
+    "scope": "Phase 0 / U-004 second remediation and its exact evidence gate",
+    "reportLanguage": "zh-CN",
+    "reportPath": "docs/reviews/phase-00-second-remediation-rereview-2026-07-27.md",
+    "evidencePath": "docs/reviews/evidence/phase00-second-remediation-rereview-2026-07-27",
+    "verdict": "CHANGES_REQUESTED"
+  },
+  "executiveSummary": {
+    "text": "The second remediation closes the three prior Medium findings and most prior Low findings. The normal upload contract is now honest, exact 6-suite/25-testcase discovery is enforced, active documentation is aligned, production documentation paths are closed, and the real DataScope mapper chain is tested. CHANGES_REQUESTED remains because the gate does not revalidate HEAD after Maven and target markers are not bound to actual datasource, Redis, or MinIO targets. Three Low findings cover verifier path/source boundaries, an overchecked application-context item, and a 24-of-32 parameter matrix. Final real-dependency evidence has not been executed."
+  },
+  "scoreDashboard": {
+    "dimensions": [
+      {
+        "name": "Incremental",
+        "score": 7.0,
+        "grade": "A",
+        "coverageConfidence": "High"
+      },
+      {
+        "name": "Testing Authenticity",
+        "score": 7.0,
+        "grade": "A",
+        "coverageConfidence": "High"
+      },
+      {
+        "name": "Release",
+        "score": 6.0,
+        "grade": "B",
+        "coverageConfidence": "High"
+      },
+      {
+        "name": "Configuration",
+        "score": 8.0,
+        "grade": "A",
+        "coverageConfidence": "Medium"
+      },
+      {
+        "name": "Documentation",
+        "score": 7.0,
+        "grade": "A",
+        "coverageConfidence": "High"
+      },
+      {
+        "name": "Supply Chain",
+        "score": 7.5,
+        "grade": "A",
+        "coverageConfidence": "Medium"
+      },
+      {
+        "name": "Security",
+        "score": 7.5,
+        "grade": "A",
+        "coverageConfidence": "Medium"
+      }
+    ],
+    "overall": {
+      "score": 7.1,
+      "grade": "A"
+    }
+  },
+  "findingStatistics": {
+    "bySeverity": [
+      {
+        "severity": "Critical",
+        "count": 0,
+        "confirmed": 0,
+        "suspected": 0
+      },
+      {
+        "severity": "High",
+        "count": 0,
+        "confirmed": 0,
+        "suspected": 0
+      },
+      {
+        "severity": "Medium",
+        "count": 2,
+        "confirmed": 2,
+        "suspected": 0
+      },
+      {
+        "severity": "Low",
+        "count": 3,
+        "confirmed": 3,
+        "suspected": 0
+      },
+      {
+        "severity": "Info",
+        "count": 0,
+        "confirmed": 0,
+        "suspected": 0
+      }
+    ],
+    "total": {
+      "count": 5,
+      "confirmed": 5,
+      "suspected": 0
+    }
+  },
+  "previousFindingClosure": [
+    {
+      "finding": "P00-R1-M1 generic MD5 deduplication false closure",
+      "status": "CLOSED"
+    },
+    {
+      "finding": "P00-R1-M2 required suites can disappear",
+      "status": "ORIGINAL_FAILURE_CLOSED_NEW_PROVENANCE_FINDINGS"
+    },
+    {
+      "finding": "P00-R1-M3 active authoritative documents conflict",
+      "status": "CLOSED"
+    },
+    {
+      "finding": "P00-R1-L1 production static documentation UI",
+      "status": "CLOSED"
+    },
+    {
+      "finding": "P00-R1-L2 evidence provenance",
+      "status": "PARTIALLY_CLOSED"
+    },
+    {
+      "finding": "P00-R1-L3 overclaimed acceptance anchors",
+      "status": "PARTIALLY_CLOSED"
+    },
+    {
+      "finding": "P00-R1-L4 DataScope specification and test-layer drift",
+      "status": "CLOSED"
+    }
+  ],
+  "topRisks": [
+    {
+      "findingId": "P00-R2-M1",
+      "title": "Gate does not revalidate HEAD after Maven",
+      "severity": "Medium"
+    },
+    {
+      "findingId": "P00-R2-M2",
+      "title": "Target markers are not bound to actual connection targets",
+      "severity": "Medium"
+    },
+    {
+      "findingId": "P00-R2-L1",
+      "title": "Evidence verifier source and Windows path boundaries are incomplete",
+      "severity": "Low"
+    }
+  ],
+  "detailedFindings": [
+    {
+      "id": "P00-R2-M1",
+      "title": "Gate does not revalidate HEAD after Maven",
+      "severity": "Medium",
+      "confidence": "High",
+      "category": "Release / Testing Authenticity / Provenance",
+      "status": "Confirmed",
+      "affectedArea": "scripts/phase00_ci_gate.py run_gate",
+      "evidence": {
+        "file": "scripts/phase00_ci_gate.py",
+        "lineNumbers": "755-765,790-797,904-915",
+        "relevantBehavior": "HEAD is read only before Maven; end checks only prove the then-current worktree is clean while the manifest retains the start SHA."
+      },
+      "failureScenario": "A clean checkout changes HEAD during Maven, and evidence from the new commit is attributed to the starting commit.",
+      "minimalFix": "Require endHead equals startHead equals expectedCandidateSha and add a head-drift unit test.",
+      "estimatedEffort": "1-2 hours"
+    },
+    {
+      "id": "P00-R2-M2",
+      "title": "Target markers are not bound to actual connection targets",
+      "severity": "Medium",
+      "confidence": "High",
+      "category": "Configuration / Release / Testing Authenticity",
+      "status": "Confirmed",
+      "affectedArea": "manual real-dependency evidence provenance",
+      "evidence": {
+        "file": "scripts/phase00_ci_gate.py",
+        "lineNumbers": "193-210,1141-1146",
+        "relevantBehavior": "Markers receive syntax and secret-shape validation but are not compared to datasource, Redis, or MinIO configuration or runtime identity."
+      },
+      "failureScenario": "A stale datasource URL points to a shared database while the independently entered marker labels it as a fresh isolated schema.",
+      "minimalFix": "Cross-check normalized marker and connection configuration and record credential-free runtime service identity.",
+      "estimatedEffort": "0.5-1 day"
+    },
+    {
+      "id": "P00-R2-L1",
+      "title": "Evidence verifier source and Windows path boundaries are incomplete",
+      "severity": "Low",
+      "confidence": "High",
+      "category": "Security / Supply Chain / Testing Authenticity",
+      "status": "Confirmed",
+      "affectedArea": "offline evidence verifier",
+      "evidence": {
+        "file": "scripts/phase00_ci_gate.py",
+        "lineNumbers": "98-102,993-1023,1046-1081,1186-1203",
+        "relevantBehavior": "PurePosixPath validation accepts Windows drive, UNC, and backslash traversal forms; source fields and spec hash are not all mandatory."
+      },
+      "failureScenario": "A malformed evidence path is read and hashed outside evidence_dir before exact directory coverage rejects the package.",
+      "minimalFix": "Enforce resolved containment before access and require exact source path/hash plus a spec hash.",
+      "estimatedEffort": "2-4 hours"
+    },
+    {
+      "id": "P00-R2-L2",
+      "title": "Application context startup is checked before it was executed",
+      "severity": "Low",
+      "confidence": "High",
+      "category": "Documentation / Testing Authenticity",
+      "status": "Confirmed",
+      "affectedArea": "docs/phase-00-脚手架.md acceptance checklist",
+      "evidence": {
+        "file": "docs/phase-00-脚手架.md",
+        "lineNumbers": "81-87",
+        "relevantBehavior": "The checklist combines proven packaging and unexecuted application-context startup under one completed item."
+      },
+      "failureScenario": "A final-candidate context-start failure is hidden behind a package-only green check.",
+      "minimalFix": "Split package as completed from application-context startup as pending.",
+      "estimatedEffort": "less than 1 hour"
+    },
+    {
+      "id": "P00-R2-L3",
+      "title": "Parameter matrix covers 24 of 32 current defaults",
+      "severity": "Low",
+      "confidence": "High",
+      "category": "Configuration / Documentation / Testing",
+      "status": "Confirmed",
+      "affectedArea": "sys_param baseline and Phase00ParameterMatrixIT",
+      "evidence": {
+        "file": "platform-boot/src/test/java/cn/edu/gpnu/platform/boot/Phase00ParameterMatrixIT.java",
+        "lineNumbers": "30-71",
+        "relevantBehavior": "The test queries only the 24 documented keys and cannot detect drift or removal in eight other migration-defined defaults."
+      },
+      "failureScenario": "A security, file, or video parameter disappears while the all-documented-defaults test remains green.",
+      "minimalFix": "Expand to all 32 current defaults or explicitly name and document the 24-key subset.",
+      "estimatedEffort": "1-2 hours"
+    }
+  ],
+  "independentValidation": {
+    "phase00GateUnitTests": {
+      "tests": 21,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "focusedSurefire": {
+      "tests": 18,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "fullSurefire": {
+      "suites": 31,
+      "tests": 266,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "backendPackage": "PASS_9_OF_9_MODULES",
+    "backendCheckstyle": "PASS_0_VIOLATIONS",
+    "frontendLint": "PASS",
+    "frontendTypeCheck": "PASS",
+    "frontendBuild": "PASS_WITH_EXISTING_CHUNK_WARNINGS",
+    "diffCheck": "PASS",
+    "realDependencyExactGate": "NOT_EXECUTED",
+    "dockerComposeConfig": "NOT_EXECUTED",
+    "browserValidation": "NOT_EXECUTED"
+  },
+  "safetyBoundary": {
+    "docker": "not started or connected",
+    "databases": "not started or connected",
+    "network": "not used",
+    "services": "not started",
+    "browser": "not used",
+    "cyberActions": "not executed",
+    "destructiveActions": "not executed",
+    "gitMutations": "no stage, commit, merge, push, or deploy"
+  },
+  "nextGate": [
+    "Fix P00-R2-M1 and P00-R2-M2.",
+    "Fix or explicitly disposition P00-R2-L1 through P00-R2-L3.",
+    "Run the final-HEAD exact 6-suite/25-testcase gate in an authorized fresh isolated MySQL, Redis, and MinIO stack.",
+    "Provide docker compose config and any required non-production browser evidence.",
+    "Perform an independent evidence-only incremental review before Phase 0 PASS."
+  ]
+}

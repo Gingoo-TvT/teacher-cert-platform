@@ -1,0 +1,29 @@
+{
+  "timestamp": "2026-08-06T00:40:00+08:00",
+  "commitHash": "aa3509a19151e2caad03014324b9b36e98bc0f05",
+  "candidateFingerprint": "48a6c264d80824082d9fde1b5c1aaa5f26a6845605bf71cdbbbef88069ba5929",
+  "selectedModes": [
+    "incremental",
+    "testing-authenticity"
+  ],
+  "scope": "FINAL-F01-DYN ERROR export exact-batch and owner boundary",
+  "overallScore": 7.9,
+  "dimensionScores": {
+    "security": 8.5,
+    "stability": 8.2,
+    "performance": 8.8,
+    "testing": 7.0,
+    "maintainability": 8.3,
+    "design": 8.5,
+    "release": 5.8
+  },
+  "findingCounts": {
+    "critical": 0,
+    "high": 0,
+    "medium": 1,
+    "low": 0,
+    "info": 0
+  },
+  "verdict": "CHANGES_REQUESTED_EVIDENCE_PENDING",
+  "reportPath": "docs/reviews/final-f01-dynamic-independent-rereview-2026-08-06.md"
+}

@@ -1,0 +1,73 @@
+{
+  "timestamp": "2026-07-26T18:41:22+08:00",
+  "project": "teacher-cert-platform",
+  "reviewer": "OpenAI Codex",
+  "audit_mode": "incremental-remediation-rereview",
+  "selected_modes": [
+    "security",
+    "stability",
+    "performance",
+    "testing-authenticity",
+    "release",
+    "configuration",
+    "data-integrity",
+    "concurrency"
+  ],
+  "scope": "f9ccda310c479cd9a7c9dd39b8e1c73494a71cb4..f9aec54ddfce7202bfcbeb576e6d8c989f21a6e7, one direct candidate commit across 21 paths",
+  "baseline_commit": "f9ccda310c479cd9a7c9dd39b8e1c73494a71cb4",
+  "candidate_commit": "f9aec54ddfce7202bfcbeb576e6d8c989f21a6e7",
+  "outcome": "CHANGES_REQUESTED",
+  "overall_score": 7.5,
+  "dimension_scores": {
+    "security": 9.2,
+    "stability": 6.8,
+    "performance": 8.4,
+    "testing": 7.4,
+    "maintainability": 7.5,
+    "design": 6.5,
+    "release": 6.6
+  },
+  "finding_counts": {
+    "critical": 0,
+    "high": 0,
+    "medium": 4,
+    "low": 3,
+    "info": 0
+  },
+  "previous_finding_closure": {
+    "pg_m3_notification_real_batch": "closed",
+    "pg_m4_cache_commit_window": "not_closed"
+  },
+  "blocking_findings": [
+    "EpochGuardedCache publishes a stale value before its second epoch check and compensating deletion",
+    "Redis version advance, payload deletion and local evictions are non-atomic and failure-coupled while payload hits do not validate the version",
+    "Redis payload and version key namespaces collide for backend-valid type codes",
+    "Phase44NotificationBatchIT does not restore the pooled MySQL innodb_lock_wait_timeout session variable"
+  ],
+  "non_blocking_findings": [
+    "Uncommitted read-through data can be visible from the shared cache while the write transaction is still active",
+    "The NotificationMapper @Param explanation does not match MyBatis-Plus 3.5.16 parameter extraction",
+    "Current branch and candidate test-count metadata drifted"
+  ],
+  "safe_checks": [
+    "mvn -o -B -ntp -pl platform-system -am test: PASS 21/21",
+    "mvn -o -B -ntp -DskipTests package: PASS 9/9 modules including testCompile of the two new integration tests",
+    "git diff --check f9ccda3..f9aec54: PASS",
+    "candidate Surefire XML read-only cross-check: PASS 216/216",
+    "candidate Failsafe XML read-only cross-check: PASS 196/196",
+    "audit report lint for all supported selected modes: PASS"
+  ],
+  "evidence_hashes": {
+    "report_sha256": "145FF961EA2D739AB5228B659A406CF2B75140542BD74A67C158A4AF1514B3BC",
+    "independent_evidence_sha256": "D0AB98D682A3B1541E37370E1B5970E47ECF77B0D254A678509849A7F5F525F5"
+  },
+  "evidence_limitations": [
+    "No network, service, Docker, database, Redis, MinIO, browser, permission change, scan, credential attempt, fault injection, malicious payload, fuzz or stress action was executed",
+    "The candidate MySQL and Redis integration tests were not independently rerun",
+    "The candidate XML files do not embed the candidate Git SHA and are treated as high-confidence cross-evidence rather than an independently executed dynamic gate",
+    "Multi-node Caffeine invalidation remains an explicit long-term fix",
+    "Redis Cluster behavior was not verified"
+  ],
+  "evidence_path": "docs/reviews/evidence/phase44-remediation-rereview-2026-07-26/offline-gates-and-evidence-integrity.txt",
+  "report_path": "docs/reviews/phase-44-remediation-rereview-2026-07-26.md"
+}

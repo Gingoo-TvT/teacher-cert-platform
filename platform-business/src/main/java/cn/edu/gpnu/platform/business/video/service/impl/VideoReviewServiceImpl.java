@@ -278,7 +278,8 @@ public class VideoReviewServiceImpl implements VideoReviewService {
                     .contentType("application/octet-stream")
                     .build());
         } catch (Exception e) {
-            throw new BizException("分片上传失败: " + e.getMessage());
+            log.error("视频分片上传失败 uploadId={} index={}", uploadId, index, e);
+            throw new BizException("分片上传失败，请稍后重试");
         }
         // 分片元数据写入单独短事务
         transactionTemplate.executeWithoutResult(txStatus -> {
@@ -929,9 +930,11 @@ public class VideoReviewServiceImpl implements VideoReviewService {
         if (review.getVideoFileId() == null) {
             throw new BizException("视频文件不存在");
         }
-        int expiry = paramService.getInt("video.presign.expirySeconds", DEFAULT_PRESIGN_SECONDS);
+        int expiry = Math.max(
+                paramService.getInt("video.presign.expirySeconds", DEFAULT_PRESIGN_SECONDS),
+                VideoMediaAcceptancePolicy.playbackCookieLifetimeSeconds(paramService));
         VideoPlaybackVO vo = new VideoPlaybackVO();
-        vo.setUrl(fileService.presignedGet(review.getVideoFileId(), expiry));
+        vo.setUrl("/api/video/reviews/" + reviewId + "/content");
         vo.setExpirySeconds(expiry);
         UserContext.CurrentUser user = UserContext.get();
         String realName = user == null ? "未知用户" : user.getRealName();
@@ -940,6 +943,16 @@ public class VideoReviewServiceImpl implements VideoReviewService {
                 + DateTimeFormatter.ISO_INSTANT.format(Instant.now()));
         vo.setIssuedAt(Instant.now().toEpochMilli());
         return vo;
+    }
+
+    @Override
+    public Long playbackFileId(Long reviewId) {
+        VideoReview review = requireReview(reviewId);
+        ensurePlayable(review);
+        if (review.getVideoFileId() == null) {
+            throw new BizException("视频文件不存在");
+        }
+        return review.getVideoFileId();
     }
 
     @Override
@@ -1887,7 +1900,8 @@ public class VideoReviewServiceImpl implements VideoReviewService {
                     .headers(Map.of("Content-Type", "video/mp4"))
                     .build());
         } catch (Exception e) {
-            throw new BizException("视频合并失败: " + e.getMessage());
+            log.error("视频服务端合并失败", e);
+            throw new BizException("视频合并失败，请稍后重试");
         }
     }
 
@@ -1900,7 +1914,8 @@ public class VideoReviewServiceImpl implements VideoReviewService {
                     .contentType("video/mp4")
                     .build());
         } catch (Exception ex) {
-            throw new BizException("视频合并失败: " + ex.getMessage());
+            log.error("视频流式合并失败", ex);
+            throw new BizException("视频合并失败，请稍后重试");
         }
     }
 

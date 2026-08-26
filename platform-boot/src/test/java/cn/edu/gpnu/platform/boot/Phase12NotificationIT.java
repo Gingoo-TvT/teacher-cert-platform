@@ -11,6 +11,7 @@ import cn.edu.gpnu.platform.business.video.entity.VideoReview;
 import cn.edu.gpnu.platform.business.video.entity.VideoReviewTask;
 import cn.edu.gpnu.platform.business.video.mapper.VideoReviewMapper;
 import cn.edu.gpnu.platform.business.video.mapper.VideoReviewTaskMapper;
+import cn.edu.gpnu.platform.security.service.IdCardProtectionService;
 import cn.edu.gpnu.platform.system.entity.Notification;
 import cn.edu.gpnu.platform.system.entity.SysParam;
 import cn.edu.gpnu.platform.system.entity.SysUser;
@@ -80,6 +81,9 @@ class Phase12NotificationIT {
 
     @Autowired
     private StudentMapper studentMapper;
+
+    @Autowired
+    private IdCardProtectionService idCardProtectionService;
 
     @Autowired
     private ProcessMaterialMapper materialMapper;
@@ -270,12 +274,14 @@ class Phase12NotificationIT {
     }
 
     private void seedCertificateSnapshot() {
+        String idCardNo = "P12345678";
         Student student = new Student();
         student.setStudentNo("P12CERT");
         student.setName("P12证书学生");
         student.setGender("female");
         student.setIdCardType("hm_travel_permit");
-        student.setIdCardNo("P12345678");
+        student.setIdCardNo(idCardProtectionService.encrypt(idCardNo));
+        student.setIdCardHmac(idCardProtectionService.hmac(idCardNo));
         student.setBirthDate("2000/12/31");
         student.setIdentityType("normal_student");
         student.setCollegeId(COLLEGE_A);
@@ -291,7 +297,8 @@ class Phase12NotificationIT {
         certificate.setStudentNo(student.getStudentNo());
         certificate.setStudentName(student.getName());
         certificate.setIdCardType(student.getIdCardType());
-        certificate.setIdCardNo(student.getIdCardNo());
+        certificate.setIdCardNo(idCardProtectionService.encrypt(idCardNo));
+        certificate.setIdCardHmac(idCardProtectionService.hmac(idCardNo));
         certificate.setEducationLevel("bachelor");
         certificate.setTrainingGoal("junior_middle_school_teacher");
         certificate.setTeachingSegment("junior_middle_school");

@@ -1,0 +1,36 @@
+{
+  "timestamp": "2026-07-23T13:23:02+08:00",
+  "project": "teacher-cert-platform",
+  "commit_hash": "ca400f122d2a669ba3c17c196af3050243b61ebe",
+  "selected_modes": [
+    "incremental",
+    "security",
+    "stability",
+    "performance",
+    "testing-authenticity",
+    "release",
+    "configuration",
+    "data-integrity"
+  ],
+  "scope": "37f6cdb..ca400f1 and directly affected unchanged callers/state/migration/demo initialization",
+  "overall_score": 5.6,
+  "dimension_scores": {
+    "security": 5.5,
+    "stability": 4.5,
+    "performance": 5.0,
+    "testing": 7.0,
+    "maintainability": 7.5,
+    "design": 5.5,
+    "release": 4.5
+  },
+  "finding_counts": {
+    "critical": 0,
+    "high": 6,
+    "medium": 2,
+    "low": 1,
+    "info": 0
+  },
+  "recommendation": "request_changes",
+  "report_path": "docs/reviews/ws-03-remediation-rereview-2026-07-23.md",
+  "safety_limits": "No malformed-media construction, fuzzing, offensive concurrency, or exploit execution; static evidence and standard project tests only."
+}

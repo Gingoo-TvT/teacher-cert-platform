@@ -39,9 +39,11 @@ import cn.edu.gpnu.platform.exchange.model.ExchangeColumn;
 import cn.edu.gpnu.platform.exchange.model.ExchangeStandardRow;
 import cn.edu.gpnu.platform.exchange.service.ExchangeService;
 import cn.edu.gpnu.platform.exchange.support.ExchangeBatchStatus;
+import cn.edu.gpnu.platform.exchange.support.BoundedPreviewJsonWriter;
 import cn.edu.gpnu.platform.exchange.support.ExchangeExcelHelper;
 import cn.edu.gpnu.platform.exchange.support.ExchangeExportType;
 import cn.edu.gpnu.platform.exchange.support.ExchangeImportHook;
+import cn.edu.gpnu.platform.exchange.support.ExchangeImportProperties;
 import cn.edu.gpnu.platform.exchange.support.ImportStrategy;
 import cn.edu.gpnu.platform.exchange.vo.BatchVO;
 import cn.edu.gpnu.platform.exchange.vo.ExchangeFile;
@@ -50,7 +52,7 @@ import cn.edu.gpnu.platform.exchange.vo.ImportPreviewRowVO;
 import cn.edu.gpnu.platform.exchange.vo.ImportResultVO;
 import cn.edu.gpnu.platform.exchange.vo.PrevalidateResultVO;
 import cn.edu.gpnu.platform.exchange.vo.RollbackResultVO;
-import cn.edu.gpnu.platform.file.service.FileService;
+import cn.edu.gpnu.platform.security.service.IdCardProtectionService;
 import cn.edu.gpnu.platform.system.entity.SysCollege;
 import cn.edu.gpnu.platform.system.entity.SysDictItem;
 import cn.edu.gpnu.platform.system.entity.SysMajor;
@@ -74,6 +76,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -104,6 +107,7 @@ import java.util.zip.ZipOutputStream;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class ExchangeServiceImpl implements ExchangeService {
 
     private static final String DEFAULT_YEAR_VERSION = "GLOBAL";
@@ -140,12 +144,13 @@ public class ExchangeServiceImpl implements ExchangeService {
     private final BirthDateValidator birthDateValidator;
     private final MajorCodeValidator majorCodeValidator;
     private final TrainingLinkValidator trainingLinkValidator;
-    private final FileService fileService;
     private final ExchangeExcelHelper excelHelper;
+    private final ExchangeImportProperties importProperties;
     private final ObjectMapper objectMapper;
     private final PlatformTransactionManager transactionManager;
     private final AuditLogService auditLogService;
     private final ExchangeImportHook exchangeImportHook;
+    private final IdCardProtectionService idCardProtectionService;
 
     @Override
     public ExchangeFile template(ExchangeQuery query) {
@@ -166,12 +171,7 @@ public class ExchangeServiceImpl implements ExchangeService {
             throw new BizException("仅支持Excel .xlsx导入");
         }
         String batchNo = nextBatchNo("IMP");
-        List<ExchangeExcelHelper.ReadRow> rows;
-        try {
-            rows = excelHelper.readStandardRows(file.getBytes());
-        } catch (IOException e) {
-            throw new BizException("读取Excel失败");
-        }
+        List<ExchangeExcelHelper.ReadRow> rows = excelHelper.readStandardRows(file);
         ImportExportBatch batch = new ImportExportBatch();
         batch.setBatchNo(batchNo);
         batch.setType("import");
@@ -204,8 +204,9 @@ public class ExchangeServiceImpl implements ExchangeService {
                 preview.setRowNo(readRow.rowNo());
                 preview.setRow(readRow.row());
                 result.getPreviewRows().add(preview);
-                previews.add(new PreviewPayload(readRow.rowNo(), readRow.row()));
+                previews.add(protectedPreview(readRow.rowNo(), readRow.row()));
             } else {
+                importProperties.assertErrorDetailBudget(result.getErrors().size(), errors.size());
                 for (ValidationError error : errors) {
                     ImportErrorDetail detail = toErrorDetail(batch, readRow, error);
                     errorMapper.insert(detail);
@@ -213,11 +214,17 @@ public class ExchangeServiceImpl implements ExchangeService {
                 }
             }
         }
+        // 预留确认阶段的最坏情况：每条预览成功行至多追加一条导入失败明细。
+        // 该方法处于同一事务，超限会连同已写入的批次与预校验错误一起回滚。
+        importProperties.assertErrorDetailBudget(
+                result.getErrors().size(), result.getPreviewRows().size());
         result.setSuccessCount(result.getPreviewRows().size());
         result.setFailCount(result.getErrors().size());
         batch.setSuccessCount(result.getSuccessCount());
         batch.setFailCount(result.getFailCount());
-        batch.setPreviewJson(writeJson(previews));
+        String previewJson = BoundedPreviewJsonWriter.write(
+                objectMapper, previews, importProperties.getMaxPreviewJsonBytes());
+        batch.setPreviewJson(previewJson);
         batchMapper.updateById(batch);
         return result;
     }
@@ -226,13 +233,15 @@ public class ExchangeServiceImpl implements ExchangeService {
     public ExchangeFile errorReport(Long batchId) {
         ImportExportBatch batch = requireBatch(batchId);
         ensureBatchAccessible(batch, "exchange:prevalidate");
+        boolean sensitive = UserContext.hasPermission("exchange:export:sensitive");
         List<ImportErrorDetail> errors = errorMapper.selectList(new LambdaQueryWrapper<ImportErrorDetail>()
                 .eq(ImportErrorDetail::getBatchId, batchId)
                 .orderByAsc(ImportErrorDetail::getRowNo)
                 .orderByAsc(ImportErrorDetail::getId));
         byte[] content = excelHelper.writeErrorWorkbook(errors.stream()
                 .map(item -> new ExchangeExcelHelper.ErrorRow(batch.getBatchNo(), item.getRowNo(),
-                        item.getStudentNo(), item.getStudentName(), item.getFieldName(), item.getErrorValue(),
+                        item.getStudentNo(), item.getStudentName(), item.getFieldName(),
+                        projectErrorValue(item.getFieldName(), item.getErrorValue(), sensitive),
                         item.getErrorReason(), item.getSuggestion()))
                 .toList());
         return new ExchangeFile(batch.getBatchNo() + "-异常报告.xlsx",
@@ -271,6 +280,7 @@ public class ExchangeServiceImpl implements ExchangeService {
             } catch (ImportExecutionStoppedException e) {
                 throw importStopped(e);
             } catch (Exception e) {
+                log.error("确认导入行执行失败 batchId={} rowNo={}", batch.getId(), preview.rowNo(), e);
                 String message = importFailureMessage(e);
                 fail++;
                 vo.getMessages().add("第" + preview.rowNo() + "行: " + message);
@@ -468,7 +478,7 @@ public class ExchangeServiceImpl implements ExchangeService {
     public ExchangeFile export(String type, ExchangeQuery query) {
         ExchangeExportType exportType = ExchangeExportType.of(type);
         if (exportType == ExchangeExportType.ERROR) {
-            return exportErrors();
+            return exportErrors(query == null ? new ExchangeQuery() : query);
         }
         if (exportType == ExchangeExportType.ATTACHMENT_LIST) {
             return exportAttachments(query);
@@ -536,9 +546,14 @@ public class ExchangeServiceImpl implements ExchangeService {
 
     private ImportDecision importOne(ImportExportBatch batch, PreviewPayload preview, ImportStrategy strategy) {
         ExchangeStandardRow row = preview.row();
-        Student existingStudent = studentByNo(row.getStudentNo());
-        Student duplicateId = studentByIdCard(row.getIdCardNo());
-        Certificate existingCertificate = certificateByNo(row.getCertNo());
+        Long collegeId = resolveCollegeId(row);
+        ensureCanImportCollege(collegeId);
+        // 每行都在独立 REQUIRES_NEW 事务内；先锁父学院，再直接按业务键锁定当前聚合，
+        // 避免“先读旧 ID、并发更正业务键、再按旧 ID 加锁”把更正后的值覆盖回旧快照。
+        collegeParentGuard.lockExisting(collegeId, CollegeParentGuard.Operation.IMPORT_STUDENT);
+        Student existingStudent = studentByNoForUpdate(row.getStudentNo());
+        Student duplicateId = studentByIdCardForUpdate(row.getIdCardNo());
+        Certificate existingCertificate = certificateByNoForUpdate(row.getCertNo());
         boolean duplicate = (existingStudent != null)
                 || (duplicateId != null && (existingStudent == null || !duplicateId.getId().equals(existingStudent.getId())))
                 || existingCertificate != null;
@@ -551,30 +566,30 @@ public class ExchangeServiceImpl implements ExchangeService {
             addError(batch, preview.rowNo(), row, "重复数据", row.getStudentNo(), "策略=跳过重复，记录未导入", "如需更新请选择覆盖或仅更新空字段");
             return new ImportDecision(false, "第" + preview.rowNo() + "行重复，已跳过");
         }
-        Long collegeId = resolveCollegeId(row);
-        ensureCanImportCollege(collegeId);
-        // 每行都在独立 REQUIRES_NEW 事务内；在任何 student 直写前锁住目标学院，
-        // 与学院删除共享同一串行化边界，避免导入行在删除检查后迟到提交。
-        collegeParentGuard.lockExisting(collegeId, CollegeParentGuard.Operation.IMPORT_STUDENT);
-        ensureCanUpdateExisting(existingStudent, collegeId, "现有学生");
-        ensureCanUpdateExisting(existingCertificate, collegeId, "现有证书");
         Student student = existingStudent == null ? new Student() : existingStudent;
         boolean studentExisting = existingStudent != null;
+        ensureCanUpdateExisting(studentExisting ? student : null, collegeId, "现有学生");
+        assertCertificateAggregate(existingCertificate, student, assessmentYear(row));
         String beforeStudent = studentExisting ? snapshot(student) : null;
         applyStudent(student, row, collegeId, strategy, studentExisting);
         if (studentExisting) {
-            studentMapper.updateById(student);
+            if (studentMapper.updateById(student) != 1) {
+                throw new BizException("现有学生发生并发冲突，请重新预校验");
+            }
         } else {
             try {
                 studentMapper.insert(student);
             } catch (DuplicateKeyException e) {
+                if (violatesIndex(e, "uk_student_idcard")) {
+                    throw new BizException("证件号码已存在");
+                }
                 throw new BizException("学生学号已存在");
             }
         }
         recordRef(batch, preview.rowNo(), "student", student.getId(), studentExisting ? "UPDATE" : "INSERT",
                 beforeStudent, snapshot(student), studentExisting ? "导入更新学生" : "导入新增学生");
 
-        TrainingProfile training = trainingByStudentYear(student.getId(), assessmentYear(row));
+        TrainingProfile training = trainingByStudentYearForUpdate(student.getId(), assessmentYear(row));
         boolean trainingExisting = training != null;
         ensureCanUpdateExisting(training, student.getCollegeId(), "现有培养信息");
         if (!trainingExisting) {
@@ -584,7 +599,9 @@ public class ExchangeServiceImpl implements ExchangeService {
         String beforeTraining = trainingExisting ? snapshot(training) : null;
         applyTraining(training, row, student, strategy, trainingExisting);
         if (trainingExisting) {
-            trainingProfileMapper.updateById(training);
+            if (trainingProfileMapper.updateById(training) != 1) {
+                throw new BizException("现有培养信息发生并发冲突，请重新预校验");
+            }
         } else {
             trainingProfileMapper.insert(training);
         }
@@ -593,7 +610,7 @@ public class ExchangeServiceImpl implements ExchangeService {
 
         Certificate certificate = existingCertificate;
         if (certificate == null) {
-            certificate = certificateByStudentYear(student.getId(), assessmentYear(row));
+            certificate = certificateByStudentYearForUpdate(student.getId(), assessmentYear(row));
         }
         boolean certExisting = certificate != null;
         ensureCanUpdateExisting(certificate, student.getCollegeId(), "现有证书");
@@ -617,7 +634,9 @@ public class ExchangeServiceImpl implements ExchangeService {
         String beforeCert = certExisting ? snapshot(certificate) : null;
         applyCertificate(certificate, row, student, training, strategy, certExisting);
         if (certExisting) {
-            certificateMapper.updateById(certificate);
+            if (certificateMapper.updateById(certificate) != 1) {
+                throw new BizException("现有证书发生并发冲突，请重新预校验");
+            }
         } else {
             certificateMapper.insert(certificate);
         }
@@ -628,6 +647,16 @@ public class ExchangeServiceImpl implements ExchangeService {
         // 与本行导入同一 REQUIRES_NEW 事务：证书落库与序列推进同提交/同回滚，保持一致。
         certificateService.reserveImportedSequence(certificate.getCertNo());
         return new ImportDecision(true, "导入成功");
+    }
+
+    static void assertCertificateAggregate(Certificate certificate, Student student, String assessmentYear) {
+        if (certificate == null) {
+            return;
+        }
+        if (!Objects.equals(certificate.getStudentId(), student.getId())
+                || !Objects.equals(certificate.getAssessmentYear(), assessmentYear)) {
+            throw new BizException("证书编号已绑定其他学生或考核年度，不能通过导入换绑");
+        }
     }
 
     private List<ValidationError> validate(ExchangeStandardRow row, int rowNo,
@@ -838,7 +867,9 @@ public class ExchangeServiceImpl implements ExchangeService {
             student.setIdCardType(required(row.getIdCardType(), "证件类型不能为空"));
         }
         if (!existing || overwrite(strategy, student.getIdCardNo())) {
-            student.setIdCardNo(required(row.getIdCardNo(), "证件号码不能为空"));
+            String plainIdCardNo = required(row.getIdCardNo(), "证件号码不能为空");
+            student.setIdCardNo(idCardProtectionService.encrypt(plainIdCardNo));
+            student.setIdCardHmac(idCardProtectionService.hmac(plainIdCardNo));
         }
         if (!existing || overwrite(strategy, student.getBirthDate())) {
             student.setBirthDate(required(row.getBirthDate(), "出生日期不能为空"));
@@ -897,14 +928,18 @@ public class ExchangeServiceImpl implements ExchangeService {
 
     private void applyCertificate(Certificate certificate, ExchangeStandardRow row, Student student,
                                   TrainingProfile training, ImportStrategy strategy, boolean existing) {
-        certificate.setStudentId(student.getId());
-        certificate.setCollegeId(student.getCollegeId());
-        certificate.setAssessmentYear(assessmentYear(row));
+        if (!existing) {
+            certificate.setStudentId(student.getId());
+            certificate.setCollegeId(student.getCollegeId());
+            certificate.setAssessmentYear(assessmentYear(row));
+        }
         setIfAllowed(existing, strategy, certificate::getCertNo, certificate::setCertNo, row.getCertNo());
         certificate.setStudentNo(student.getStudentNo());
         certificate.setStudentName(student.getName());
         certificate.setIdCardType(student.getIdCardType());
-        certificate.setIdCardNo(student.getIdCardNo());
+        String plainIdCardNo = idCardProtectionService.decrypt(student.getIdCardNo());
+        certificate.setIdCardNo(idCardProtectionService.encrypt(plainIdCardNo));
+        certificate.setIdCardHmac(idCardProtectionService.hmac(plainIdCardNo));
         certificate.setEducationLevel(training.getEducationLevel());
         certificate.setTrainingGoal(training.getTrainingGoal());
         certificate.setTeachingSegment(training.getTeachingSegment());
@@ -949,7 +984,7 @@ public class ExchangeServiceImpl implements ExchangeService {
                     .eq(Student::getId, ref.getRecordId())
                     .last("FOR UPDATE"));
             return rollbackEntity(ref, current, Student.class, studentMapper::updateById,
-                    id -> studentMapper.deleteById(id), "学生");
+                    this::softDeleteImportedStudent, "学生");
         }
         if ("training_profile".equals(ref.getTableName())) {
             TrainingProfile current = trainingProfileMapper.selectOne(new LambdaQueryWrapper<TrainingProfile>()
@@ -989,6 +1024,13 @@ public class ExchangeServiceImpl implements ExchangeService {
         return new RollbackDecision(false, label + "#" + ref.getRecordId() + "动作不可回滚: " + ref.getAction());
     }
 
+    private Integer softDeleteImportedStudent(Long id) {
+        return studentMapper.update(new Student(), new LambdaUpdateWrapper<Student>()
+                .eq(Student::getId, id)
+                .set(Student::getIdCardHmac, null)
+                .set(Student::getDeleted, 1));
+    }
+
     private List<Certificate> selectCertificates(ExchangeQuery query) {
         ExchangeQuery q = query == null ? new ExchangeQuery() : query;
         LambdaQueryWrapper<Certificate> wrapper = new LambdaQueryWrapper<Certificate>()
@@ -1011,13 +1053,15 @@ public class ExchangeServiceImpl implements ExchangeService {
         }
         if (StringUtils.hasText(q.getKeyword())) {
             String keyword = q.getKeyword().trim();
+            String normalizedIdCardKeyword = normalizeIdCardLookup(keyword);
             wrapper.and(w -> w.like(Certificate::getStudentNo, keyword)
                     .or()
                     .like(Certificate::getStudentName, keyword)
                     .or()
                     .like(Certificate::getCertNo, keyword)
                     .or()
-                    .like(Certificate::getIdCardNo, keyword));
+                    .eq(Certificate::getIdCardHmac,
+                            idCardProtectionService.hmac(normalizedIdCardKeyword)));
         }
         List<Certificate> certificates = certificateMapper.selectList(wrapper);
         if (certificates.size() > MAX_EXPORT_ROWS) {
@@ -1059,8 +1103,10 @@ public class ExchangeServiceImpl implements ExchangeService {
         row.setName(cert.getStudentName());
         row.setGender(student == null ? "" : student.getGender());
         row.setIdCardType(cert.getIdCardType());
-        row.setIdCardNo(sensitive ? cert.getIdCardNo() : SensitiveMasker.idCard(cert.getIdCardNo()));
-        row.setBirthDate(student == null ? "" : student.getBirthDate());
+        String plainIdCardNo = idCardProtectionService.decrypt(cert.getIdCardNo());
+        row.setIdCardNo(sensitive ? plainIdCardNo : SensitiveMasker.idCard(plainIdCardNo));
+        row.setBirthDate(student == null ? ""
+                : sensitive ? student.getBirthDate() : SensitiveMasker.birthDate(student.getBirthDate()));
         row.setIdentityType(student == null ? "" : student.getIdentityType());
         row.setSourcePlace(student == null ? "" : student.getSourceFull());
         row.setSecondDisciplineCode(training == null ? "" : training.getSecondDisciplineCode());
@@ -1085,17 +1131,33 @@ public class ExchangeServiceImpl implements ExchangeService {
         return row;
     }
 
-    private ExchangeFile exportErrors() {
-        List<ImportErrorDetail> errors = errorMapper.selectList(new LambdaQueryWrapper<ImportErrorDetail>()
+    private ExchangeFile exportErrors(ExchangeQuery query) {
+        if (query.getBatchId() == null) {
+            throw new BizException("导出异常数据必须指定导入批次");
+        }
+        ImportExportBatch sourceBatch = requireBatch(query.getBatchId());
+        if (!"import".equalsIgnoreCase(sourceBatch.getType())) {
+            throw new BizException("仅支持导出导入批次的异常数据");
+        }
+        ensureBatchAccessible(sourceBatch, "exchange:export:full");
+        LambdaQueryWrapper<ImportErrorDetail> wrapper = new LambdaQueryWrapper<ImportErrorDetail>()
+                .eq(ImportErrorDetail::getBatchId, sourceBatch.getId())
                 .orderByDesc(ImportErrorDetail::getCreatedAt)
                 .orderByAsc(ImportErrorDetail::getBatchNo)
-                .orderByAsc(ImportErrorDetail::getRowNo));
+                .orderByAsc(ImportErrorDetail::getRowNo);
+        String fileName = sourceBatch.getBatchNo() + "-异常数据表.xlsx";
+        List<ImportErrorDetail> errors = errorMapper.selectList(wrapper);
+        boolean sensitive = UserContext.hasPermission("exchange:export:sensitive");
         byte[] content = excelHelper.writeErrorWorkbook(errors.stream()
                 .map(item -> new ExchangeExcelHelper.ErrorRow(item.getBatchNo(), item.getRowNo(), item.getStudentNo(),
-                        item.getStudentName(), item.getFieldName(), item.getErrorValue(), item.getErrorReason(), item.getSuggestion()))
+                        item.getStudentName(), item.getFieldName(),
+                        projectErrorValue(item.getFieldName(), item.getErrorValue(), sensitive),
+                        item.getErrorReason(), item.getSuggestion()))
                 .toList());
-        recordExportBatch("export", ExchangeExportType.ERROR.name(), new ExchangeQuery(), errors.size(), errors.size(), 0, "异常数据表.xlsx");
-        return new ExchangeFile("异常数据表.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", content);
+        recordExportBatch("export", ExchangeExportType.ERROR.name(), query,
+                errors.size(), errors.size(), 0, fileName);
+        return new ExchangeFile(fileName,
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", content);
     }
 
     private List<String> fullReviewHeaders() {
@@ -1135,10 +1197,11 @@ public class ExchangeServiceImpl implements ExchangeService {
         List<List<String>> rows = new ArrayList<>();
         for (Certificate cert : certificates) {
             Student student = students.get(cert.getStudentId());
+            String plainIdCardNo = idCardProtectionService.decrypt(cert.getIdCardNo());
             rows.add(List.of(
                     nvl(cert.getStudentNo()),
                     nvl(cert.getStudentName()),
-                    sensitive ? nvl(cert.getIdCardNo()) : nvl(SensitiveMasker.idCard(cert.getIdCardNo())),
+                    sensitive ? nvl(plainIdCardNo) : nvl(SensitiveMasker.idCard(plainIdCardNo)),
                     student == null ? "" : nvl(student.getIdentityType()),
                     nvl(cert.getEducationLevel()),
                     nvl(cert.getTrainingGoal()),
@@ -1175,11 +1238,8 @@ public class ExchangeServiceImpl implements ExchangeService {
             Student student = students.get(material.getStudentId());
             String link = "";
             if (material.getFileId() != null && material.getFileId() > 0) {
-                try {
-                    link = fileService.presignedGet(material.getFileId(), 600);
-                } catch (BizException ignored) {
-                    link = "";
-                }
+                link = nvl(query == null ? null : query.getContentBaseUrl())
+                        + "/api/material/preview/" + material.getId() + "/content";
             }
             rows.add(List.of(
                     student == null ? "" : nvl(student.getStudentNo()),
@@ -1408,38 +1468,54 @@ public class ExchangeServiceImpl implements ExchangeService {
                 .last("LIMIT 1"));
     }
 
-    private Student studentByNo(String studentNo) {
+    private Student studentByNoForUpdate(String studentNo) {
         if (!StringUtils.hasText(studentNo)) {
             return null;
         }
         return studentMapper.selectOne(new LambdaQueryWrapper<Student>()
                 .eq(Student::getStudentNo, studentNo.trim())
-                .last("LIMIT 1"));
+                .last("FOR UPDATE"));
     }
 
-    private Student studentByIdCard(String idCardNo) {
+    private Student studentByIdCardForUpdate(String idCardNo) {
         if (!StringUtils.hasText(idCardNo)) {
             return null;
         }
         return studentMapper.selectOne(new LambdaQueryWrapper<Student>()
-                .eq(Student::getIdCardNo, idCardNo.trim())
-                .last("LIMIT 1"));
+                .eq(Student::getIdCardHmac, idCardProtectionService.hmac(idCardNo.trim()))
+                .last("FOR UPDATE"));
     }
 
-    private Certificate certificateByNo(String certNo) {
+    private Certificate certificateByNoForUpdate(String certNo) {
         if (!StringUtils.hasText(certNo)) {
             return null;
         }
         return certificateMapper.selectOne(new LambdaQueryWrapper<Certificate>()
                 .eq(Certificate::getCertNo, certNo.trim())
-                .last("LIMIT 1"));
+                .last("FOR UPDATE"));
     }
 
-    private Certificate certificateByStudentYear(Long studentId, String year) {
-        return certificateMapper.selectOne(new LambdaQueryWrapper<Certificate>()
+    private Certificate certificateByStudentYearForUpdate(Long studentId, String year) {
+        List<Certificate> matches = certificateMapper.selectList(new LambdaQueryWrapper<Certificate>()
                 .eq(Certificate::getStudentId, studentId)
                 .eq(Certificate::getAssessmentYear, year)
-                .last("LIMIT 1"));
+                .last("FOR UPDATE"));
+        // V24 只保证每个 student-year 至多一张非 VOIDED/REISSUED 证书；合法历史可以有多条。
+        // 先返回唯一活跃记录；若只剩历史，仍返回最新终态记录，让现有 Phase 48 守卫拒绝通过导入改写。
+        return matches.stream()
+                .filter(item -> !CertificateStatus.VOIDED.name().equals(item.getStatus())
+                        && !CertificateStatus.REISSUED.name().equals(item.getStatus()))
+                .findFirst()
+                .orElseGet(() -> matches.stream()
+                        .max(Comparator.comparing(Certificate::getId))
+                        .orElse(null));
+    }
+
+    private TrainingProfile trainingByStudentYearForUpdate(Long studentId, String year) {
+        return trainingProfileMapper.selectOne(new LambdaQueryWrapper<TrainingProfile>()
+                .eq(TrainingProfile::getStudentId, studentId)
+                .eq(TrainingProfile::getAssessmentYear, year)
+                .last("FOR UPDATE"));
     }
 
     private TrainingProfile trainingByStudentYear(Long studentId, String year) {
@@ -1533,7 +1609,7 @@ public class ExchangeServiceImpl implements ExchangeService {
         detail.setStudentNo(dbText(row.getStudentNo(), 64));
         detail.setStudentName(dbText(row.getName(), 64));
         detail.setFieldName(dbText(field, 128));
-        detail.setErrorValue(dbText(value, 512));
+        detail.setErrorValue(dbText(protectErrorValue(field, value), 512));
         detail.setErrorReason(dbText(reason, 512));
         detail.setSuggestion(dbText(suggestion, 512));
         errorMapper.insert(detail);
@@ -1547,7 +1623,7 @@ public class ExchangeServiceImpl implements ExchangeService {
         detail.setStudentNo(dbText(readRow.row().getStudentNo(), 64));
         detail.setStudentName(dbText(readRow.row().getName(), 64));
         detail.setFieldName(dbText(error.fieldName(), 128));
-        detail.setErrorValue(dbText(error.errorValue(), 512));
+        detail.setErrorValue(dbText(protectErrorValue(error.fieldName(), error.errorValue()), 512));
         detail.setErrorReason(dbText(error.errorReason(), 512));
         detail.setSuggestion(dbText(error.suggestion(), 512));
         return detail;
@@ -1567,10 +1643,38 @@ public class ExchangeServiceImpl implements ExchangeService {
         vo.setStudentNo(detail.getStudentNo());
         vo.setStudentName(detail.getStudentName());
         vo.setFieldName(detail.getFieldName());
-        vo.setErrorValue(detail.getErrorValue());
+        vo.setErrorValue(projectErrorValue(detail.getFieldName(), detail.getErrorValue(),
+                UserContext.hasPermission("exchange:export:sensitive")));
         vo.setErrorReason(detail.getErrorReason());
         vo.setSuggestion(detail.getSuggestion());
         return vo;
+    }
+
+    private String projectErrorValue(String fieldName, String value, boolean sensitive) {
+        if (!StringUtils.hasText(value)) {
+            return value;
+        }
+        if ("身份证件号码".equals(fieldName)) {
+            String plainIdCardNo = idCardProtectionService.isEncrypted(value)
+                    ? idCardProtectionService.decrypt(value) : value;
+            return sensitive ? plainIdCardNo : SensitiveMasker.idCard(plainIdCardNo);
+        }
+        if (sensitive) {
+            return value;
+        }
+        if ("出生日期".equals(fieldName)) {
+            return SensitiveMasker.birthDate(value);
+        }
+        return value;
+    }
+
+    private String protectErrorValue(String fieldName, String value) {
+        if (!"身份证件号码".equals(fieldName) || !StringUtils.hasText(value)
+                || idCardProtectionService.isEncrypted(value)) {
+            return value;
+        }
+        // 先界定明文长度再加密，避免事后截断密文导致 AES-GCM 认证标签不可用。
+        return idCardProtectionService.encrypt(dbText(value.trim(), 64));
     }
 
     private ImportExportBatch requireBatch(Long batchId) {
@@ -1641,7 +1745,7 @@ public class ExchangeServiceImpl implements ExchangeService {
         batch.setTotal(total);
         batch.setSuccessCount(success);
         batch.setFailCount(fail);
-        batch.setScopeJson(writeJson(query == null ? new ExchangeQuery() : query));
+        batch.setScopeJson(writeJson(protectedExportScope(query)));
         batch.setStrategy(exportType);
         batch.setStatus(ExchangeBatchStatus.EXPORTED.name());
         batchMapper.insert(batch);
@@ -1655,6 +1759,35 @@ public class ExchangeServiceImpl implements ExchangeService {
     private String nextBatchNo(String prefix) {
         return prefix + "-" + DateTimeFormatter.ofPattern("yyyyMMddHHmmss").format(LocalDateTime.now())
                 + "-" + IdWorker.getIdStr().substring(12);
+    }
+
+    /**
+     * 导出 keyword 可能是完整证件号；批次审计只需保存筛选语义，不得把该原值再次明文落库。
+     * 其它结构化筛选项保持可读，keyword 使用可认证密文保存且不改变本次实际查询对象。
+     */
+    private Map<String, Object> protectedExportScope(ExchangeQuery query) {
+        ExchangeQuery source = query == null ? new ExchangeQuery() : query;
+        Map<String, Object> scope = new LinkedHashMap<>();
+        scope.put("batchId", source.getBatchId());
+        scope.put("keyword", StringUtils.hasText(source.getKeyword())
+                ? idCardProtectionService.encrypt(source.getKeyword().trim()) : null);
+        scope.put("assessmentYear", source.getAssessmentYear());
+        scope.put("collegeId", source.getCollegeId());
+        scope.put("internalMajorCode", source.getInternalMajorCode());
+        scope.put("className", source.getClassName());
+        scope.put("trainingGoal", source.getTrainingGoal());
+        scope.put("teachingSegment", source.getTeachingSegment());
+        scope.put("auditStatus", source.getAuditStatus());
+        scope.put("certStatus", source.getCertStatus());
+        return scope;
+    }
+
+    private String normalizeIdCardLookup(String value) {
+        String normalized = value.trim().toLowerCase(Locale.ROOT);
+        if (normalized.length() == 18 && normalized.endsWith("x")) {
+            return normalized.substring(0, normalized.length() - 1) + "X";
+        }
+        return normalized;
     }
 
     private String assessmentYear(ExchangeStandardRow row) {
@@ -1743,12 +1876,29 @@ public class ExchangeServiceImpl implements ExchangeService {
         }
     }
 
+    private PreviewPayload protectedPreview(Integer rowNo, ExchangeStandardRow row) {
+        ExchangeStandardRow stored = objectMapper.convertValue(row, ExchangeStandardRow.class);
+        if (StringUtils.hasText(stored.getIdCardNo())
+                && !idCardProtectionService.isEncrypted(stored.getIdCardNo())) {
+            stored.setIdCardNo(idCardProtectionService.encrypt(stored.getIdCardNo().trim()));
+        }
+        return new PreviewPayload(rowNo, stored);
+    }
+
     private List<PreviewPayload> readPreviews(String json) {
         if (!StringUtils.hasText(json)) {
             return List.of();
         }
         try {
-            return objectMapper.readValue(json, PREVIEW_LIST_TYPE);
+            List<PreviewPayload> previews = objectMapper.readValue(json, PREVIEW_LIST_TYPE);
+            previews.forEach(preview -> {
+                if (StringUtils.hasText(preview.row().getIdCardNo())) {
+                    String stored = preview.row().getIdCardNo();
+                    preview.row().setIdCardNo(idCardProtectionService.isEncrypted(stored)
+                            ? idCardProtectionService.decrypt(stored) : stored);
+                }
+            });
+            return previews;
         } catch (Exception e) {
             throw new BizException("预校验成功行解析失败");
         }
@@ -1762,7 +1912,7 @@ public class ExchangeServiceImpl implements ExchangeService {
         }
     }
 
-    private String importFailureMessage(Exception e) {
+    static String importFailureMessage(Exception e) {
         Throwable cursor = e;
         while (cursor != null) {
             if (cursor instanceof BizException bizException && StringUtils.hasText(bizException.getMessage())) {
@@ -1770,16 +1920,21 @@ public class ExchangeServiceImpl implements ExchangeService {
             }
             cursor = cursor.getCause();
         }
-        if (StringUtils.hasText(e.getMessage())) {
-            return e.getMessage();
-        }
         return "导入失败";
     }
 
     private JsonNode normalizedSnapshot(String json) throws IOException {
         JsonNode node = objectMapper.readTree(json);
         if (node instanceof ObjectNode objectNode) {
-            objectNode.remove(List.of("createdAt", "updatedAt", "createdBy", "updatedBy", "deleted"));
+            objectNode.remove(List.of("createdAt", "updatedAt", "createdBy", "updatedBy", "deleted", "idCardHmac"));
+            JsonNode storedIdCardNo = objectNode.get("idCardNo");
+            if (storedIdCardNo != null && storedIdCardNo.isTextual()
+                    && StringUtils.hasText(storedIdCardNo.asText())) {
+                String stored = storedIdCardNo.asText();
+                String plain = idCardProtectionService.isEncrypted(stored)
+                        ? idCardProtectionService.decrypt(stored) : stored;
+                objectNode.put("idCardNo", idCardProtectionService.hmac(plain));
+            }
         }
         return node;
     }
@@ -1809,6 +1964,15 @@ public class ExchangeServiceImpl implements ExchangeService {
         } catch (NumberFormatException e) {
             return null;
         }
+    }
+
+    private static boolean violatesIndex(Throwable error, String indexName) {
+        for (Throwable cursor = error; cursor != null; cursor = cursor.getCause()) {
+            if (cursor.getMessage() != null && cursor.getMessage().contains(indexName)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @FunctionalInterface

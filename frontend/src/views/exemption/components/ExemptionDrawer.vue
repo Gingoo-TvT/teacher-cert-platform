@@ -25,6 +25,10 @@ const props = defineProps<{
   selfMode: boolean
   assessmentYear: string
   segmentFilter: string | null
+  subjectsLoading: boolean
+  subjectsError: string
+  subjectsLoadedSuccessfully: boolean
+  subjectsLoadedSegment: string | null
 }>()
 
 const emit = defineEmits<{
@@ -53,6 +57,20 @@ const subjectOptions = computed<SelectOption[]>(() =>
 const basisOptions = computed<SelectOption[]>(() =>
   props.bases.map((item) => ({ label: item.itemValue, value: item.itemCode }))
 )
+const subjectsFresh = computed(() =>
+  Boolean(form.teachingSegment)
+  && props.subjectsLoadedSuccessfully
+  && props.subjectsLoadedSegment === form.teachingSegment
+  && !props.subjectsLoading
+  && !props.subjectsError
+)
+const subjectsFeedback = computed(() => {
+  if (!form.teachingSegment) return '请先选择任教学段'
+  if (props.subjectsLoading) return '免考科目正在加载，请稍候'
+  if (props.subjectsError) return props.subjectsError
+  if (!subjectsFresh.value) return '当前学段的免考科目尚未加载成功'
+  return ''
+})
 
 watch(
   () => yearStore.assessmentYear,
@@ -79,6 +97,10 @@ function handleSegmentChange(value: string | number | null) {
 }
 
 function addSubjectRow() {
+  if (saving.value || !subjectsFresh.value) {
+    message.error(subjectsFeedback.value || '免考科目尚未加载成功')
+    return
+  }
   form.rows.push({ subject: '', basis: props.bases[0]?.itemCode || '', remark: '', fileList: [] })
 }
 
@@ -86,14 +108,25 @@ function removeSubjectRow(index: number) {
   form.rows.splice(index, 1)
 }
 
+function retrySubjects() {
+  if (saving.value || props.subjectsLoading || !form.teachingSegment) return
+  emit('load-subjects', form.teachingSegment)
+}
+
 async function saveApply() {
+  if (saving.value) return
   if (!form.studentId || !form.assessmentYear || !form.teachingSegment || form.rows.length === 0) {
     message.error('请选择学生、年度、学段和免考科目')
     return
   }
+  if (!subjectsFresh.value) {
+    message.error(subjectsFeedback.value || '免考科目尚未加载成功，请重试后再保存')
+    return
+  }
+  const currentSubjectCodes = new Set(props.subjects.map((item) => item.itemCode))
   const items: ExemptionApplyItem[] = []
   for (const row of form.rows) {
-    if (!row.subject || !row.basis || !row.fileList[0]?.file) {
+    if (!row.subject || !currentSubjectCodes.has(row.subject) || !row.basis || !row.fileList[0]?.file) {
       message.error('每科必须填写依据并上传佐证')
       return
     }
@@ -129,18 +162,27 @@ defineExpose({ open, form })
 </script>
 
 <template>
-  <n-drawer v-model:show="drawerVisible" :width="560">
-    <n-drawer-content title="免考申请" closable>
+  <n-drawer
+    v-model:show="drawerVisible"
+    width="min(var(--overlay-medium), var(--overlay-drawer-max))"
+    :mask-closable="!saving"
+    :close-on-esc="!saving"
+  >
+    <n-drawer-content title="免考申请" :closable="!saving">
       <n-alert type="info" :bordered="false" class="page-section">
         每个免考科目独立审核，须分别上传佐证；仅复审通过科目会从应考清单中剔除。
       </n-alert>
-      <n-form label-placement="top">
+      <n-alert v-if="form.teachingSegment && !subjectsFresh" :type="subjectsError ? 'error' : 'info'" :bordered="false" class="page-section">
+        {{ subjectsFeedback }}
+        <n-button v-if="subjectsError || (!subjectsLoading && !subjectsFresh)" text :type="subjectsError ? 'error' : 'primary'" size="small" :loading="subjectsLoading" @click="retrySubjects">重试加载科目</n-button>
+      </n-alert>
+      <n-form label-placement="top" :disabled="saving">
         <div class="form-section-title">申请信息</div>
-        <n-grid :cols="2" :x-gap="12">
-          <n-form-item-gi label="学生" :span="2">
+        <n-grid cols="1 480:2" responsive="self" item-responsive :x-gap="12">
+          <n-form-item-gi label="学生" span="1 480:2">
             <StudentSelect
               v-model:value="form.studentId"
-              :disabled="selfMode"
+              :disabled="selfMode || saving"
               :selected-label="selectedStudentLabel"
               placeholder="输入学号或姓名搜索"
             />
@@ -155,17 +197,17 @@ defineExpose({ open, form })
         <div class="form-section-title">免考科目</div>
         <n-space justify="space-between" align="center">
           <span>免考科目</span>
-          <n-button size="small" @click="addSubjectRow">添加科目</n-button>
+          <n-button size="small" :loading="subjectsLoading" :disabled="saving || !subjectsFresh" @click="addSubjectRow">添加科目</n-button>
         </n-space>
         <section v-for="(row, index) in form.rows" :key="index" class="subject-row">
           <n-space vertical>
-            <n-space align="center">
-              <n-select v-model:value="row.subject" :options="subjectOptions" placeholder="科目" style="width: 210px" />
-              <n-select v-model:value="row.basis" :options="basisOptions" placeholder="依据" style="width: 190px" />
-              <n-button quaternary type="error" @click="removeSubjectRow(index)">删除</n-button>
-            </n-space>
-            <n-input v-model:value="row.remark" type="textarea" placeholder="说明" />
-            <n-upload v-model:file-list="row.fileList" :max="1" accept=".pdf,.jpg,.jpeg,.png" :default-upload="false">
+            <div class="subject-row__controls">
+              <n-select v-model:value="row.subject" :options="subjectOptions" placeholder="科目" :loading="subjectsLoading" :disabled="saving || !subjectsFresh" />
+              <n-select v-model:value="row.basis" :options="basisOptions" placeholder="依据" :disabled="saving" />
+              <n-button quaternary type="error" :disabled="saving" @click="removeSubjectRow(index)">删除</n-button>
+            </div>
+            <n-input v-model:value="row.remark" type="textarea" placeholder="说明" :disabled="saving" />
+            <n-upload v-model:file-list="row.fileList" :max="1" accept=".pdf,.jpg,.jpeg,.png" :default-upload="false" :disabled="saving">
               <n-upload-dragger>
                 <n-text>点击或拖拽佐证文件到此处上传</n-text>
                 <n-p depth="3">支持 PDF、JPG、JPEG、PNG，最多 1 个文件。</n-p>
@@ -176,8 +218,8 @@ defineExpose({ open, form })
       </n-form>
       <template #footer>
         <n-space justify="end">
-          <n-button @click="drawerVisible = false">取消</n-button>
-          <n-button type="primary" :loading="saving" @click="saveApply">保存</n-button>
+          <n-button :disabled="saving" @click="drawerVisible = false">取消</n-button>
+          <n-button type="primary" :loading="saving" :disabled="!subjectsFresh" @click="saveApply">保存</n-button>
         </n-space>
       </template>
     </n-drawer-content>
@@ -196,6 +238,19 @@ defineExpose({ open, form })
   padding: var(--space-4);
   border: 1px solid var(--shell-border);
   border-radius: var(--radius-card);
+}
+
+.subject-row__controls {
+  display: grid;
+  grid-template-columns: minmax(0, 210px) minmax(0, 190px) auto;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+@media (max-width: 480px) {
+  .subject-row__controls {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .mono-input :deep(input) {

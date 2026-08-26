@@ -25,10 +25,12 @@ import cn.edu.gpnu.platform.system.service.DataScopeService;
 import cn.edu.gpnu.platform.system.service.DictService;
 import cn.idev.excel.FastExcel;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -47,6 +49,7 @@ import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class AbilityTestResultServiceImpl implements AbilityTestResultService {
 
     private static final TypeReference<List<ExamSubjectVO>> SUBJECT_LIST_TYPE = new TypeReference<>() {
@@ -131,7 +134,15 @@ public class AbilityTestResultServiceImpl implements AbilityTestResultService {
         }
         entity.setConfirmStatus(TestConfirmStatus.CONFIRMED.name());
         entity.setLocked(1);
-        resultMapper.updateById(entity);
+        AbilityTestResult patch = new AbilityTestResult();
+        patch.setConfirmStatus(entity.getConfirmStatus());
+        patch.setLocked(entity.getLocked());
+        if (resultMapper.update(patch, new LambdaUpdateWrapper<AbilityTestResult>()
+                .eq(AbilityTestResult::getId, id)
+                .eq(AbilityTestResult::getConfirmStatus, TestConfirmStatus.PENDING.name())
+                .eq(AbilityTestResult::getLocked, 0)) == 0) {
+            throw new BizException("操作冲突：测试结果已被更新，请刷新后重试");
+        }
     }
 
     @Override
@@ -176,6 +187,8 @@ public class AbilityTestResultServiceImpl implements AbilityTestResultService {
         } else {
             ensureEditable(entity);
         }
+        String expectedConfirmStatus = entity.getConfirmStatus();
+        Integer expectedLocked = entity.getLocked();
         entity.setCollegeId(student.getCollegeId());
         entity.setExamOrgMode(request.getExamOrgMode().trim());
         entity.setExamSubjects(writeJson(subjects.stream().filter(ExamSubjectVO::isIncludedInExam).toList()));
@@ -185,7 +198,9 @@ public class AbilityTestResultServiceImpl implements AbilityTestResultService {
         entity.setConfirmStatus(TestConfirmStatus.PENDING.name());
         entity.setLocked(0);
         if (existing) {
-            resultMapper.updateById(entity);
+            if (updateResultContent(entity, expectedConfirmStatus, expectedLocked) == 0) {
+                throw new BizException("操作冲突：测试结果状态已变更，请刷新后重试");
+            }
         } else {
             resultMapper.insert(entity);
         }
@@ -335,7 +350,8 @@ public class AbilityTestResultServiceImpl implements AbilityTestResultService {
                     .map(this::rowFromValues)
                     .toList();
         } catch (Exception e) {
-            throw new BizException("导入文件读取失败: " + e.getMessage());
+            log.error("能力测试结果导入文件读取失败", e);
+            throw new BizException("导入文件读取失败，请检查文件格式");
         }
     }
 
@@ -474,6 +490,22 @@ public class AbilityTestResultServiceImpl implements AbilityTestResultService {
             throw new BizException(ResultCode.NOT_FOUND.getCode(), "测试结果不存在");
         }
         return entity;
+    }
+
+    private int updateResultContent(AbilityTestResult entity, String expectedConfirmStatus, Integer expectedLocked) {
+        AbilityTestResult patch = new AbilityTestResult();
+        patch.setCollegeId(entity.getCollegeId());
+        patch.setExamOrgMode(entity.getExamOrgMode());
+        patch.setExamSubjects(entity.getExamSubjects());
+        patch.setExemptionRelation(entity.getExemptionRelation());
+        patch.setScore(entity.getScore());
+        patch.setConclusion(entity.getConclusion());
+        LambdaUpdateWrapper<AbilityTestResult> update = new LambdaUpdateWrapper<AbilityTestResult>()
+                .eq(AbilityTestResult::getId, entity.getId())
+                .eq(AbilityTestResult::getConfirmStatus, expectedConfirmStatus)
+                .eq(AbilityTestResult::getLocked, expectedLocked)
+                .set(entity.getScore() == null, AbilityTestResult::getScore, null);
+        return resultMapper.update(patch, update);
     }
 
     private Student requireStudent(Long id) {

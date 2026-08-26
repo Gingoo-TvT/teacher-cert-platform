@@ -24,6 +24,7 @@ const message = useMessage()
 const visible = ref(false)
 const loading = ref(false)
 const saving = ref(false)
+const loaded = ref(false)
 const currentPermissionRole = ref<Role | null>(null)
 const selectedPermissionIds = ref<string[]>([])
 const scopeByPermission = ref<Partial<Record<string, RolePermissionScopeType>>>({})
@@ -50,6 +51,8 @@ const hasIncompleteScope = computed(() => selectedPermissionIds.value.some(
 ))
 
 async function open(row: Role) {
+  if (loading.value || saving.value) return
+  loaded.value = false
   currentPermissionRole.value = row
   selectedPermissionIds.value = []
   scopeByPermission.value = {}
@@ -64,6 +67,7 @@ async function open(row: Role) {
     }
     scopeByPermission.value = map
     selectedPermissionIds.value = granted.map((item) => item.id)
+    loaded.value = true
   } catch (error) {
     showError(error, '角色权限加载失败')
   } finally {
@@ -72,6 +76,7 @@ async function open(row: Role) {
 }
 
 async function saveRolePermissions() {
+  if (saving.value || loading.value || !loaded.value) return
   if (!currentPermissionRole.value) return
   const payload: RolePermissionItem[] = []
   for (const permissionId of selectedPermissionIds.value) {
@@ -121,14 +126,23 @@ defineExpose({ open })
 </script>
 
 <template>
-  <n-drawer v-model:show="visible" width="min(640px, 100vw)" placement="right">
-    <n-drawer-content :title="currentPermissionRole ? `角色权限：${currentPermissionRole.name}` : '角色权限'">
+  <n-drawer
+    v-model:show="visible"
+    width="min(var(--overlay-wide), var(--overlay-drawer-max))"
+    placement="right"
+    :mask-closable="!loading && !saving"
+    :close-on-esc="!loading && !saving"
+  >
+    <n-drawer-content
+      :title="currentPermissionRole ? `角色权限：${currentPermissionRole.name}` : '角色权限'"
+      :closable="!loading && !saving"
+    >
       <n-spin :show="loading">
         <div class="form-section-title">功能授权</div>
         <n-tree
           v-model:checked-keys="selectedPermissionIds"
           :data="permissionOptions"
-          :disabled="loading"
+          :disabled="loading || saving"
           checkable
           cascade
           block-line
@@ -148,6 +162,7 @@ defineExpose({ open })
                 :options="scopeOptions"
                 placeholder="请选择数据范围"
                 aria-label="数据范围"
+                :disabled="loading || saving"
               />
             </div>
           </div>
@@ -155,11 +170,11 @@ defineExpose({ open })
       </n-spin>
       <template #footer>
         <n-space justify="end">
-          <n-button @click="visible = false">取消</n-button>
+          <n-button :disabled="loading || saving" @click="visible = false">取消</n-button>
           <n-button
             type="primary"
             :loading="saving"
-            :disabled="loading || hasIncompleteScope"
+            :disabled="loading || !loaded || hasIncompleteScope"
             @click="saveRolePermissions"
           >保存</n-button>
         </n-space>

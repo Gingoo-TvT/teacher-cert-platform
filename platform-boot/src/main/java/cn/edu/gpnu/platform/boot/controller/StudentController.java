@@ -10,6 +10,7 @@ import cn.edu.gpnu.platform.common.annotation.AuditLog;
 import cn.edu.gpnu.platform.common.annotation.DataScope;
 import cn.edu.gpnu.platform.common.api.PageResult;
 import cn.edu.gpnu.platform.common.api.Result;
+import cn.edu.gpnu.platform.system.service.AuditLogService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -34,6 +35,7 @@ import java.util.List;
 public class StudentController {
 
     private final StudentService studentService;
+    private final AuditLogService auditLogService;
 
     @Operation(summary = "学生列表")
     @PreAuthorize("@pms.has('student:view')")
@@ -45,7 +47,7 @@ public class StudentController {
                                               @RequestParam(value = "grade", required = false) String grade,
                                               @RequestParam(value = "page", required = false) Integer page,
                                               @RequestParam(value = "size", required = false) Integer size) {
-        return Result.ok(studentService.list(keyword, status, collegeId, grade, false, page, size));
+        return Result.ok(studentService.list(keyword, status, collegeId, grade, page, size));
     }
 
     @Operation(summary = "学生详情")
@@ -53,7 +55,7 @@ public class StudentController {
     @DataScope(alias = "student", permission = "student:view")
     @GetMapping("/{id}")
     public Result<StudentVO> detail(@PathVariable Long id) {
-        return Result.ok(studentService.detail(id, false));
+        return Result.ok(studentService.detail(id));
     }
 
     @Operation(summary = "新增学生")
@@ -132,10 +134,11 @@ public class StudentController {
     @Operation(summary = "查看明文证件号")
     @PreAuthorize("@pms.has('exchange:export:sensitive')")
     @DataScope(alias = "student", permission = "student:view")
-    @AuditLog(bizType = "student", operation = "plainIdCard")
     @GetMapping("/{id}/id-card")
-    public Result<StudentPlainIdCardVO> plainIdCard(@PathVariable Long id,
-                                                    @RequestParam(value = "plain", defaultValue = "0") Integer plain) {
-        return Result.ok(studentService.plainIdCard(id));
+    public Result<StudentPlainIdCardVO> plainIdCard(@PathVariable Long id) {
+        StudentPlainIdCardVO result = studentService.plainIdCard(id);
+        auditLogService.record("student", id, "student:" + id + ":id-card",
+                "plainIdCard", null, null, "查看明文证件信息");
+        return Result.ok(result);
     }
 }

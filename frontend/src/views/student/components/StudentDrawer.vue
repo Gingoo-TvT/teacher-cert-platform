@@ -56,6 +56,7 @@ const rules: FormRules = {
 }
 
 function open(row?: Student) {
+  if (saving.value) return
   editingId.value = row?.id || null
   Object.assign(form, {
     studentNo: row?.studentNo || '',
@@ -63,7 +64,7 @@ function open(row?: Student) {
     gender: row?.gender || '',
     idCardType: row?.idCardType || '',
     idCardNo: row?.idCardNo?.includes('*') ? '' : row?.idCardNo || '',
-    birthDate: row?.birthDate || '',
+    birthDate: row?.birthDate?.includes('*') ? '' : row?.birthDate || '',
     identityType: row?.identityType || '',
     sourceProvince: row?.sourceProvince || null,
     sourceCity: row?.sourceCity || null,
@@ -77,9 +78,15 @@ function open(row?: Student) {
 }
 
 async function save() {
-  await formRef.value?.validate()
+  if (saving.value) return
   saving.value = true
   try {
+    try {
+      await formRef.value?.validate()
+    } catch {
+      // 表单校验失败由字段反馈承接，不应泄漏为页面未处理异常或误报保存失败。
+      return
+    }
     if (editingId.value) await updateStudent(editingId.value, form)
     else await createStudent(form)
     message.success('已保存')
@@ -108,14 +115,19 @@ defineExpose({ open })
 </script>
 
 <template>
-  <n-drawer v-model:show="drawerVisible" :width="560">
-    <n-drawer-content :title="editingId ? '编辑学生' : '新增学生'" closable>
+  <n-drawer
+    v-model:show="drawerVisible"
+    width="min(var(--overlay-medium), var(--overlay-drawer-max))"
+    :mask-closable="!saving"
+    :close-on-esc="!saving"
+  >
+    <n-drawer-content :title="editingId ? '编辑学生' : '新增学生'" :closable="!saving">
       <n-alert v-if="editingId" type="info" :bordered="false" class="page-section">
-        如证件号已脱敏显示，请重新录入完整证件号后保存。
+        如证件号或出生日期已脱敏显示，请重新录入完整证件号和出生日期后保存。
       </n-alert>
-      <n-form ref="formRef" :model="form" :rules="rules" label-placement="top">
+      <n-form ref="formRef" :model="form" :rules="rules" label-placement="top" :disabled="saving">
         <div class="form-section-title">基本信息</div>
-        <n-grid :cols="2" :x-gap="12">
+        <n-grid cols="1 480:2" responsive="self" :x-gap="16">
           <n-form-item-gi label="学号" path="studentNo"><n-input v-model:value="form.studentNo" /></n-form-item-gi>
           <n-form-item-gi label="姓名" path="name"><n-input v-model:value="form.name" /></n-form-item-gi>
           <n-form-item-gi label="性别" path="gender"><n-select v-model:value="form.gender" :options="genderOptions" /></n-form-item-gi>
@@ -125,21 +137,21 @@ defineExpose({ open })
           <n-form-item-gi label="出生日期" path="birthDate"><n-input v-model:value="form.birthDate" placeholder="2000/12/31" /></n-form-item-gi>
         </n-grid>
         <div class="form-section-title">就读信息</div>
-        <n-grid :cols="2" :x-gap="12">
+        <n-grid cols="1 480:2" responsive="self" :x-gap="16">
           <n-form-item-gi label="学院" path="collegeId"><n-select v-model:value="form.collegeId" filterable :options="collegeOptions" /></n-form-item-gi>
           <n-form-item-gi label="年级"><n-input v-model:value="form.grade" placeholder="如 2022" /></n-form-item-gi>
           <n-form-item-gi label="班级"><n-input v-model:value="form.className" /></n-form-item-gi>
         </n-grid>
         <div class="form-section-title">生源信息</div>
         <n-form-item label="生源地">
-          <RegionCascader :value="form.sourceCounty" @change="handleRegionChange" />
+          <RegionCascader :value="form.sourceCounty" :disabled="saving" @change="handleRegionChange" />
         </n-form-item>
       </n-form>
       <template #footer>
-        <n-space justify="end">
-          <n-button @click="drawerVisible = false">取消</n-button>
+        <div class="student-drawer__footer">
+          <n-button :disabled="saving" @click="drawerVisible = false">取消</n-button>
           <n-button type="primary" :loading="saving" @click="save">保存</n-button>
-        </n-space>
+        </div>
       </template>
     </n-drawer-content>
   </n-drawer>
@@ -155,5 +167,23 @@ defineExpose({ open })
 
 .form-section-title:first-child {
   margin-top: 0;
+}
+
+.student-drawer__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  width: 100%;
+}
+
+@media (max-width: 480px) {
+  .student-drawer__footer {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .student-drawer__footer .n-button {
+    width: 100%;
+  }
 }
 </style>

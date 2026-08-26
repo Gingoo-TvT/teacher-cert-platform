@@ -25,6 +25,7 @@ const message = useMessage()
 
 const assignVisible = ref(false)
 const assigning = ref<VideoReview | null>(null)
+const saving = ref(false)
 
 const assignForm = reactive({
   mode: 'person' as AssignMode,
@@ -48,7 +49,9 @@ function open(row: VideoReview) {
 }
 
 async function saveAssign() {
+  if (saving.value) return
   if (!assigning.value) return
+  saving.value = true
   try {
     if (assignForm.mode === 'group') {
       if (!assignForm.groupId) {
@@ -68,6 +71,8 @@ async function saveAssign() {
     emit('saved')
   } catch (error) {
     showError(error, '指派失败')
+  } finally {
+    saving.value = false
   }
 }
 
@@ -80,12 +85,20 @@ defineExpose({ open })
 </script>
 
 <template>
-  <n-modal v-model:show="assignVisible" preset="card" title="指派评审" style="width: 620px">
+  <n-modal
+    v-model:show="assignVisible"
+    preset="card"
+    title="指派评审"
+    style="width: min(var(--overlay-medium), var(--overlay-modal-max))"
+    :closable="!saving"
+    :close-on-esc="!saving"
+    :mask-closable="!saving"
+  >
     <n-space vertical>
       <n-alert v-if="assigning" type="info" :bordered="false">
         {{ assigning.studentNo }} / {{ assigning.studentName }} / 当前状态：{{ assigning.statusLabel || statusLabel(assigning.status) }}
       </n-alert>
-      <n-radio-group v-model:value="assignForm.mode">
+      <n-radio-group v-model:value="assignForm.mode" :disabled="saving">
         <n-radio-button value="person">按人指派</n-radio-button>
         <n-radio-button value="group">按组指派</n-radio-button>
       </n-radio-group>
@@ -96,11 +109,12 @@ defineExpose({ open })
         filterable
         :options="reviewerOptions"
         placeholder="选择评审教师"
+        :disabled="saving"
       />
-      <n-select v-else v-model:value="assignForm.groupId" filterable :options="groupOptions" placeholder="选择评审组" />
+      <n-select v-else v-model:value="assignForm.groupId" filterable :options="groupOptions" placeholder="选择评审组" :disabled="saving" />
       <n-space justify="end">
-        <n-button @click="assignVisible = false">取消</n-button>
-        <n-button type="primary" @click="saveAssign">保存</n-button>
+        <n-button :disabled="saving" @click="assignVisible = false">取消</n-button>
+        <n-button type="primary" :loading="saving" @click="saveAssign">保存</n-button>
       </n-space>
     </n-space>
   </n-modal>

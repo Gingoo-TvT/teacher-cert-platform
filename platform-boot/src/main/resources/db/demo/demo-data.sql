@@ -43,7 +43,7 @@ ON DUPLICATE KEY UPDATE user_id = VALUES(user_id), role_id = VALUES(role_id), up
 
 -- =====================================================================================
 -- 1) 文件登记 file_object（bucket 与 object_key 由 DemoDataInitializer 按运行时配置/manifest 注入）
---    预览/播放走 FileService.presignedGet(fileId) → 读 file_object(bucket+object_key) → MinIO 预签名。
+--    预览/播放走应用鉴权内容端点 → FileService.openRange(fileId) → 读 file_object(bucket+object_key) → MinIO 流式读取。
 --    多行可共享同一 object_key（同一物理样例对象），演示足够且省存储。
 -- =====================================================================================
 INSERT INTO file_object
@@ -77,21 +77,22 @@ ON DUPLICATE KEY UPDATE
 --    首审人=学院教务员 test_college_clerk(3003)，复审人=学院负责人 test_college_auditor(3004)。id_card_no 各不相同。
 -- =====================================================================================
 INSERT INTO student
-(id, student_no, name, gender, id_card_type, id_card_no, birth_date, identity_type,
+(id, student_no, name, gender, id_card_type, id_card_no, id_card_hmac, birth_date, identity_type,
  source_province, source_city, source_county, source_full, college_id, grade, class_name,
  status, locked, first_reviewer_id, first_review_time, first_review_comment,
  second_reviewer_id, second_review_time, second_review_comment, created_at, updated_at, deleted)
 VALUES
-(9101, 'S9101', '陈晓明', 'male',   'resident_id_card', '440105200001010011', '2000/1/1',  'normal_student', '440000','440100','440105','广东省/广州市/海珠区', 800000000000000201, '2022', '师范1班', 'PASSED',         1, 800000000000003003, NOW(), '材料齐全，初审通过', 800000000000003004, NOW(), '复审通过，准予发证', NOW(), NOW(), 0),
-(9102, 'S9102', '林芳',   'female', 'resident_id_card', '440105200102020022', '2001/2/2',  'normal_student', '440000','440100','440105','广东省/广州市/海珠区', 800000000000000201, '2022', '师范1班', 'DRAFT',          0, NULL, NULL, NULL, NULL, NULL, NULL, NOW(), NOW(), 0),
-(9103, 'S9103', '黄志强', 'male',   'resident_id_card', '440105200003030033', '2000/3/3',  'normal_student', '440000','440100','440105','广东省/广州市/海珠区', 800000000000000201, '2022', '师范2班', 'FIRST_REVIEW',   0, NULL, NULL, NULL, NULL, NULL, NULL, NOW(), NOW(), 0),
-(9104, 'S9104', '周雅婷', 'female', 'resident_id_card', '440105200104040044', '2001/4/4',  'normal_student', '440000','440100','440105','广东省/广州市/海珠区', 800000000000000201, '2022', '师范2班', 'SECOND_REVIEW',  0, 800000000000003003, NOW(), '初审通过，转复审', NULL, NULL, NULL, NOW(), NOW(), 0),
-(9105, 'S9105', '吴俊杰', 'male',   'resident_id_card', '440105200005050055', '2000/5/5',  'normal_student', '440000','440100','440105','广东省/广州市/海珠区', 800000000000000201, '2022', '师范3班', 'FIRST_REJECTED', 0, 800000000000003003, NOW(), '实习证明缺章，请补充后重新提交', NULL, NULL, NULL, NOW(), NOW(), 0),
-(9106, 'S9106', '郑丽华', 'female', 'resident_id_card', '440105200106060066', '2001/6/6',  'normal_student', '440000','440100','440105','广东省/广州市/海珠区', 800000000000000202, '2022', '师范1班', 'FIRST_REVIEW',   0, NULL, NULL, NULL, NULL, NULL, NULL, NOW(), NOW(), 0),
-(9107, 'S9107', '刘伟',   'male',   'resident_id_card', '440105200007070077', '2000/7/7',  'normal_student', '440000','440100','440105','广东省/广州市/海珠区', 800000000000000202, '2022', '师范1班', 'SECOND_REVIEW',  0, 800000000000003003, NOW(), '初审通过，转复审', NULL, NULL, NULL, NOW(), NOW(), 0),
-(9108, 'S9108', '孙梦琪', 'female', 'resident_id_card', '440105200108080088', '2001/8/8',  'normal_student', '440000','440100','440105','广东省/广州市/海珠区', 800000000000000202, '2022', '师范2班', 'PASSED',         1, 800000000000003003, NOW(), '材料齐全，初审通过', 800000000000003004, NOW(), '复审通过，准予发证', NOW(), NOW(), 0)
+(9101, 'S9101', '陈晓明', 'male',   'resident_id_card', {{DEMO_STUDENT_9101_ID_CARD}}, {{DEMO_STUDENT_9101_ID_CARD_HMAC}}, '2000/1/1',  'normal_student', '440000','440100','440105','广东省/广州市/海珠区', 800000000000000201, '2022', '师范1班', 'PASSED',         1, 800000000000003003, NOW(), '材料齐全，初审通过', 800000000000003004, NOW(), '复审通过，准予发证', NOW(), NOW(), 0),
+(9102, 'S9102', '林芳',   'female', 'resident_id_card', {{DEMO_STUDENT_9102_ID_CARD}}, {{DEMO_STUDENT_9102_ID_CARD_HMAC}}, '2001/2/2',  'normal_student', '440000','440100','440105','广东省/广州市/海珠区', 800000000000000201, '2022', '师范1班', 'DRAFT',          0, NULL, NULL, NULL, NULL, NULL, NULL, NOW(), NOW(), 0),
+(9103, 'S9103', '黄志强', 'male',   'resident_id_card', {{DEMO_STUDENT_9103_ID_CARD}}, {{DEMO_STUDENT_9103_ID_CARD_HMAC}}, '2000/3/3',  'normal_student', '440000','440100','440105','广东省/广州市/海珠区', 800000000000000201, '2022', '师范2班', 'FIRST_REVIEW',   0, NULL, NULL, NULL, NULL, NULL, NULL, NOW(), NOW(), 0),
+(9104, 'S9104', '周雅婷', 'female', 'resident_id_card', {{DEMO_STUDENT_9104_ID_CARD}}, {{DEMO_STUDENT_9104_ID_CARD_HMAC}}, '2001/4/4',  'normal_student', '440000','440100','440105','广东省/广州市/海珠区', 800000000000000201, '2022', '师范2班', 'SECOND_REVIEW',  0, 800000000000003003, NOW(), '初审通过，转复审', NULL, NULL, NULL, NOW(), NOW(), 0),
+(9105, 'S9105', '吴俊杰', 'male',   'resident_id_card', {{DEMO_STUDENT_9105_ID_CARD}}, {{DEMO_STUDENT_9105_ID_CARD_HMAC}}, '2000/5/5',  'normal_student', '440000','440100','440105','广东省/广州市/海珠区', 800000000000000201, '2022', '师范3班', 'FIRST_REJECTED', 0, 800000000000003003, NOW(), '实习证明缺章，请补充后重新提交', NULL, NULL, NULL, NOW(), NOW(), 0),
+(9106, 'S9106', '郑丽华', 'female', 'resident_id_card', {{DEMO_STUDENT_9106_ID_CARD}}, {{DEMO_STUDENT_9106_ID_CARD_HMAC}}, '2001/6/6',  'normal_student', '440000','440100','440105','广东省/广州市/海珠区', 800000000000000202, '2022', '师范1班', 'FIRST_REVIEW',   0, NULL, NULL, NULL, NULL, NULL, NULL, NOW(), NOW(), 0),
+(9107, 'S9107', '刘伟',   'male',   'resident_id_card', {{DEMO_STUDENT_9107_ID_CARD}}, {{DEMO_STUDENT_9107_ID_CARD_HMAC}}, '2000/7/7',  'normal_student', '440000','440100','440105','广东省/广州市/海珠区', 800000000000000202, '2022', '师范1班', 'SECOND_REVIEW',  0, 800000000000003003, NOW(), '初审通过，转复审', NULL, NULL, NULL, NOW(), NOW(), 0),
+(9108, 'S9108', '孙梦琪', 'female', 'resident_id_card', {{DEMO_STUDENT_9108_ID_CARD}}, {{DEMO_STUDENT_9108_ID_CARD_HMAC}}, '2001/8/8',  'normal_student', '440000','440100','440105','广东省/广州市/海珠区', 800000000000000202, '2022', '师范2班', 'PASSED',         1, 800000000000003003, NOW(), '材料齐全，初审通过', 800000000000003004, NOW(), '复审通过，准予发证', NOW(), NOW(), 0)
 ON DUPLICATE KEY UPDATE
     student_no = VALUES(student_no), name = VALUES(name), gender = VALUES(gender), id_card_no = VALUES(id_card_no),
+    id_card_hmac = VALUES(id_card_hmac),
     college_id = VALUES(college_id), grade = VALUES(grade), class_name = VALUES(class_name), status = VALUES(status),
     locked = VALUES(locked), first_reviewer_id = VALUES(first_reviewer_id), first_review_time = VALUES(first_review_time),
     first_review_comment = VALUES(first_review_comment), second_reviewer_id = VALUES(second_reviewer_id),
@@ -241,16 +242,17 @@ ON DUPLICATE KEY UPDATE
 --    作废证书 active_key 生成列为 NULL，不与本人同年度有效证书冲突（uk_cert_active）。
 -- =====================================================================================
 INSERT INTO certificate
-(id, student_id, college_id, assessment_year, cert_no, student_no, student_name, id_card_type, id_card_no,
+(id, student_id, college_id, assessment_year, cert_no, student_no, student_name, id_card_type, id_card_no, id_card_hmac,
  education_level, training_goal, teaching_segment, teaching_subject_code, teaching_subject_name,
  issuer, issue_date, valid_until, status, void_reason, void_operator_id, void_time, reissue_origin_cert_no,
  locked, created_at, updated_at, deleted)
 VALUES
-(8100000000006001, 9101, 800000000000000201, '2026', '202610588344290001', 'S9101', '陈晓明', 'resident_id_card', '440105200001010011', 'bachelor', 'primary_school_teacher',       'primary_school',       'ps_chinese', '语文', '广东技术师范大学教务处', '2026/06/30', NULL, 'ISSUED', NULL, NULL, NULL, '202610588344290000', 1, NOW(), NOW(), 0),
-(8100000000006002, 9108, 800000000000000202, '2026', '202610588344390002', 'S9108', '孙梦琪', 'resident_id_card', '440105200108080088', 'bachelor', 'junior_middle_school_teacher', 'junior_middle_school', 'jms_math',   '数学', '广东技术师范大学教务处', '2026/06/30', NULL, 'ISSUED', NULL, NULL, NULL, NULL, 1, NOW(), NOW(), 0),
-(8100000000006003, 9101, 800000000000000201, '2026', '202610588344290000', 'S9101', '陈晓明', 'resident_id_card', '440105200001010011', 'bachelor', 'primary_school_teacher',       'primary_school',       'ps_chinese', '语文', '广东技术师范大学教务处', '2026/06/20', NULL, 'VOIDED', '姓名信息更正，作废后重开', 800000000000003007, NOW(), NULL, 1, NOW(), NOW(), 0)
+(8100000000006001, 9101, 800000000000000201, '2026', '202610588344290001', 'S9101', '陈晓明', 'resident_id_card', {{DEMO_CERTIFICATE_6001_ID_CARD}}, {{DEMO_CERTIFICATE_6001_ID_CARD_HMAC}}, 'bachelor', 'primary_school_teacher',       'primary_school',       'ps_chinese', '语文', '广东技术师范大学教务处', '2026/06/30', NULL, 'ISSUED', NULL, NULL, NULL, '202610588344290000', 1, NOW(), NOW(), 0),
+(8100000000006002, 9108, 800000000000000202, '2026', '202610588344390002', 'S9108', '孙梦琪', 'resident_id_card', {{DEMO_CERTIFICATE_6002_ID_CARD}}, {{DEMO_CERTIFICATE_6002_ID_CARD_HMAC}}, 'bachelor', 'junior_middle_school_teacher', 'junior_middle_school', 'jms_math',   '数学', '广东技术师范大学教务处', '2026/06/30', NULL, 'ISSUED', NULL, NULL, NULL, NULL, 1, NOW(), NOW(), 0),
+(8100000000006003, 9101, 800000000000000201, '2026', '202610588344290000', 'S9101', '陈晓明', 'resident_id_card', {{DEMO_CERTIFICATE_6003_ID_CARD}}, {{DEMO_CERTIFICATE_6003_ID_CARD_HMAC}}, 'bachelor', 'primary_school_teacher',       'primary_school',       'ps_chinese', '语文', '广东技术师范大学教务处', '2026/06/20', NULL, 'VOIDED', '姓名信息更正，作废后重开', 800000000000003007, NOW(), NULL, 1, NOW(), NOW(), 0)
 ON DUPLICATE KEY UPDATE
-    student_name = VALUES(student_name), id_card_no = VALUES(id_card_no), education_level = VALUES(education_level),
+    student_name = VALUES(student_name), id_card_no = VALUES(id_card_no),
+    id_card_hmac = VALUES(id_card_hmac), education_level = VALUES(education_level),
     training_goal = VALUES(training_goal), teaching_segment = VALUES(teaching_segment),
     teaching_subject_code = VALUES(teaching_subject_code), teaching_subject_name = VALUES(teaching_subject_name),
     issuer = VALUES(issuer), issue_date = VALUES(issue_date), status = VALUES(status), void_reason = VALUES(void_reason),

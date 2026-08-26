@@ -36,6 +36,9 @@ const userStore = useUserStore()
 const yearStore = useYearStore()
 
 const loading = ref(false)
+const loadError = ref('')
+const hasLoadedSuccessfully = ref(false)
+const loadedQueryKey = ref('')
 const keyword = ref('')
 const assessmentYear = ref(yearStore.assessmentYear)
 const statusFilter = ref<string | null>(null)
@@ -51,6 +54,7 @@ const generateDrawer = ref<InstanceType<typeof CertificateGenerateDrawer> | null
 const issueDrawer = ref<InstanceType<typeof CertificateIssueDrawer> | null>(null)
 const voidDrawer = ref<InstanceType<typeof CertificateVoidDrawer> | null>(null)
 const correctDrawer = ref<InstanceType<typeof CertificateCorrectDrawer> | null>(null)
+let listRequestSequence = 0
 
 const canGenerate = computed(() => userStore.hasPerm('cert:generate'))
 const canCorrect = computed(() => userStore.hasPerm('cert:correct'))
@@ -63,6 +67,20 @@ const hasVisibleSection = computed(() => canView.value || canOpenGenerate.value)
 const isStudentMode = computed(() => userStore.roles.includes('STUDENT') && canView.value)
 const pageTitle = computed(() => isStudentMode.value ? '我的证书' : '证书管理')
 const pageDescription = computed(() => isStudentMode.value ? '查看本人证书编号、有效期与当前状态。' : '证书生成、签发、导出、归档、更正、作废与重开。')
+const listQueryKey = computed(() => JSON.stringify([
+  keyword.value,
+  assessmentYear.value,
+  statusFilter.value || '',
+  page.value,
+  size.value
+]))
+const listDataFresh = computed(() =>
+  hasLoadedSuccessfully.value
+  && loadedQueryKey.value === listQueryKey.value
+  && !loading.value
+  && !loadError.value
+)
+const writeBlocked = computed(() => !listDataFresh.value)
 
 const statusOptions = computed<SelectOption[]>(() => statuses.value.map((item) => ({ label: item.itemValue, value: item.itemCode })))
 const segmentOptions = computed<SelectOption[]>(() => segments.value.map((item) => ({ label: item.itemValue, value: item.itemCode })))
@@ -98,10 +116,10 @@ const columns: DataTableColumns<Certificate> = [
       {
         const actions = []
         if (canGenerate.value) {
-          actions.push(h(NButton, { size: 'small', quaternary: true, onClick: () => openPrecheck(row) }, { default: () => '前置' }))
+          actions.push(h(NButton, { size: 'small', quaternary: true, disabled: writeBlocked.value, onClick: () => openPrecheck(row) }, { default: () => '前置' }))
         }
         if (canIssue.value && row.status === 'GENERATED') {
-          actions.push(h(NButton, { size: 'small', type: 'primary', onClick: () => openIssue(row) }, { default: () => '签发' }))
+          actions.push(h(NButton, { size: 'small', type: 'primary', disabled: writeBlocked.value, onClick: () => openIssue(row) }, { default: () => '签发' }))
         }
         if (canView.value && row.status === 'ISSUED') {
           actions.push(confirmButton('已导出', '确认将该证书标记为已导出？', () => markExported(row)))
@@ -110,10 +128,10 @@ const columns: DataTableColumns<Certificate> = [
           actions.push(confirmButton('归档', '确认归档该证书？', () => archive(row), 'success'))
         }
         if (canCorrect.value) {
-          actions.push(h(NButton, { size: 'small', quaternary: true, onClick: () => openCorrect(row) }, { default: () => '更正' }))
+          actions.push(h(NButton, { size: 'small', quaternary: true, disabled: writeBlocked.value, onClick: () => openCorrect(row) }, { default: () => '更正' }))
         }
         if (canVoid.value && (row.status === 'GENERATED' || row.status === 'ISSUED')) {
-          actions.push(h(NButton, { size: 'small', quaternary: true, type: 'error', onClick: () => openVoid(row) }, { default: () => '作废' }))
+          actions.push(h(NButton, { size: 'small', quaternary: true, type: 'error', disabled: writeBlocked.value, onClick: () => openVoid(row) }, { default: () => '作废' }))
         }
         if (canReissue.value && row.status === 'VOIDED') {
           actions.push(confirmButton('重开', '重开会生成新证书并关联原编号，是否继续？', () => reissue(row), 'warning'))
@@ -124,25 +142,38 @@ const columns: DataTableColumns<Certificate> = [
 ]
 
 async function loadRecords() {
+  const requestSequence = ++listRequestSequence
   if (!canView.value) {
     records.value = []
+    certTotal.value = 0
+    loadError.value = ''
+    hasLoadedSuccessfully.value = false
+    loadedQueryKey.value = ''
+    loading.value = false
     return
   }
+  const queryKey = listQueryKey.value
+  const query = {
+    keyword: keyword.value,
+    assessmentYear: assessmentYear.value,
+    status: statusFilter.value,
+    page: page.value,
+    size: size.value
+  }
   loading.value = true
+  loadError.value = ''
   try {
-    const res = await listCertificates({
-      keyword: keyword.value,
-      assessmentYear: assessmentYear.value,
-      status: statusFilter.value,
-      page: page.value,
-      size: size.value
-    })
+    const res = await listCertificates(query)
+    if (requestSequence !== listRequestSequence || queryKey !== listQueryKey.value) return
     records.value = res.data.records
     certTotal.value = res.data.total
+    hasLoadedSuccessfully.value = true
+    loadedQueryKey.value = queryKey
   } catch (error) {
-    showError(error, '证书列表加载失败')
+    if (requestSequence !== listRequestSequence || queryKey !== listQueryKey.value) return
+    loadError.value = showError(error, '证书列表加载失败')
   } finally {
-    loading.value = false
+    if (requestSequence === listRequestSequence) loading.value = false
   }
 }
 
@@ -164,29 +195,37 @@ function onPageSizeChange(nextSize: number) {
 }
 
 async function loadOptions() {
-  const [statusRes, segmentRes, goalRes] = await Promise.all([
-    listDictItems('certificate_status', true),
-    listDictItems('teaching_segment', true),
-    listDictItems('training_goal', true)
-  ])
-  statuses.value = statusRes.data
-  segments.value = segmentRes.data
-  goals.value = goalRes.data
+  try {
+    const [statusRes, segmentRes, goalRes] = await Promise.all([
+      listDictItems('certificate_status', true),
+      listDictItems('teaching_segment', true),
+      listDictItems('training_goal', true)
+    ])
+    statuses.value = statusRes.data
+    segments.value = segmentRes.data
+    goals.value = goalRes.data
+  } catch (error) {
+    showError(error, '证书选项加载失败')
+  }
 }
 
 function openGenerate() {
+  if (writeBlocked.value) return
   generateDrawer.value?.open()
 }
 
 function openPrecheck(row: Certificate) {
+  if (writeBlocked.value) return
   generateDrawer.value?.openPrecheck(row)
 }
 
 function openIssue(row: Certificate) {
+  if (writeBlocked.value) return
   issueDrawer.value?.open(row)
 }
 
 async function markExported(row: Certificate) {
+  if (writeBlocked.value) return
   try {
     await markCertificateExported(row.id)
     message.success('已标记导出')
@@ -197,6 +236,7 @@ async function markExported(row: Certificate) {
 }
 
 async function archive(row: Certificate) {
+  if (writeBlocked.value) return
   try {
     await archiveCertificate(row.id)
     message.success('已归档')
@@ -207,10 +247,12 @@ async function archive(row: Certificate) {
 }
 
 function openVoid(row: Certificate) {
+  if (writeBlocked.value) return
   voidDrawer.value?.open(row)
 }
 
 async function reissue(row: Certificate) {
+  if (writeBlocked.value) return
   try {
     await reissueCertificate(row.id)
     message.success('已重开新证书')
@@ -221,6 +263,7 @@ async function reissue(row: Certificate) {
 }
 
 function openCorrect(row: Certificate) {
+  if (writeBlocked.value) return
   correctDrawer.value?.open(row)
 }
 
@@ -229,7 +272,7 @@ function confirmButton(label: string, text: string, onPositiveClick: () => void,
     NPopconfirm,
     { onPositiveClick },
     {
-      trigger: () => h(NButton, { size: 'small', quaternary: true, type: type === 'default' ? undefined : type }, { default: () => label }),
+      trigger: () => h(NButton, { size: 'small', quaternary: true, type: type === 'default' ? undefined : type, disabled: writeBlocked.value }, { default: () => label }),
       default: () => text
     }
   )
@@ -249,12 +292,13 @@ function resetFilters() {
 
 function showError(error: unknown, fallback: string) {
   const detail = error instanceof Error ? error.message : fallback
-  message.error(detail || fallback)
+  const text = detail || fallback
+  message.error(text)
+  return text
 }
 
-onMounted(async () => {
-  await loadOptions()
-  if (canView.value) await loadRecords()
+onMounted(() => {
+  void Promise.all([loadOptions(), canView.value ? loadRecords() : Promise.resolve()])
 })
 
 watch(
@@ -270,9 +314,16 @@ watch(
   <PageContainer :title="pageTitle" :description="pageDescription">
     <n-empty v-if="!hasVisibleSection" description="当前账号没有可访问的证书分区" class="page-section" />
 
-    <CertificateSelfPanel v-if="isStudentMode" :records="records" :loading="loading" />
+    <CertificateSelfPanel
+      v-if="isStudentMode"
+      :records="records"
+      :loading="loading"
+      :load-error="loadError"
+      :has-loaded-successfully="hasLoadedSuccessfully"
+      @refresh="loadRecords"
+    />
 
-    <n-grid v-if="canView && !isStudentMode" :cols="5" :x-gap="12" responsive="screen" class="page-section">
+    <n-grid v-if="canView && !isStudentMode && hasLoadedSuccessfully" cols="1 440:2 720:3 900:5" :x-gap="12" :y-gap="12" responsive="self" class="page-section">
       <n-gi><StatCard label="证书总数" :value="summary.total" /></n-gi>
       <n-gi><StatCard label="待签发" :value="summary.generated" tone="warning" /></n-gi>
       <n-gi><StatCard label="已签发" :value="summary.issued" tone="success" /></n-gi>
@@ -302,6 +353,7 @@ watch(
       :data="records"
       :total="certTotal"
       :loading="loading"
+      :error="loadError"
       remote
       :page="page"
       :page-size="size"
@@ -312,10 +364,10 @@ watch(
       @refresh="loadRecords"
     >
       <template #actions>
-        <n-button v-if="canOpenGenerate" type="primary" size="small" @click="openGenerate">生成证书</n-button>
+        <n-button v-if="canOpenGenerate && records.length > 0" type="primary" size="small" :disabled="writeBlocked" @click="openGenerate">生成证书</n-button>
       </template>
       <template v-if="canOpenGenerate" #emptyAction>
-        <n-button type="primary" @click="openGenerate">生成证书</n-button>
+        <n-button type="primary" :disabled="writeBlocked" @click="openGenerate">生成证书</n-button>
       </template>
     </DataPanel>
 

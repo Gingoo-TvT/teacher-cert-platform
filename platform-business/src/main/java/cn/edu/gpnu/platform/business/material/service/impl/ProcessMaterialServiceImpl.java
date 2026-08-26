@@ -40,6 +40,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import io.minio.GetObjectArgs;
 import io.minio.MinioClient;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.transaction.annotation.Transactional;
@@ -61,11 +62,11 @@ import java.util.zip.ZipOutputStream;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class ProcessMaterialServiceImpl implements ProcessMaterialService {
 
     private static final String MATERIAL_BIZ_TYPE = "process-material";
     private static final long DEFAULT_MATERIAL_MAX_SIZE = 52_428_800L;
-    private static final int PREVIEW_EXPIRY_SECONDS = 600;
 
     private final ProcessMaterialMapper processMaterialMapper;
     private final StudentMapper studentMapper;
@@ -189,11 +190,7 @@ public class ProcessMaterialServiceImpl implements ProcessMaterialService {
             String expectedStatus = entity.getStatus();
             Integer expectedLocked = entity.getLocked();
             fillFile(entity, file);
-            int changed = processMaterialMapper.update(entity, new LambdaUpdateWrapper<ProcessMaterial>()
-                    .eq(ProcessMaterial::getId, entity.getId())
-                    .eq(ProcessMaterial::getFileId, expectedFileId)
-                    .eq(ProcessMaterial::getStatus, expectedStatus)
-                    .eq(ProcessMaterial::getLocked, expectedLocked));
+            int changed = updateMaterialFile(entity, expectedFileId, expectedStatus, expectedLocked);
             if (changed != 1) {
                 ProcessMaterial current = requireMaterial(entity.getId());
                 if (file.getId().equals(current.getFileId())) {
@@ -237,13 +234,18 @@ public class ProcessMaterialServiceImpl implements ProcessMaterialService {
         ProcessMaterial entity = requireMaterial(id);
         ensureCanWriteMaterial(entity, "material:upload");
         ensureEditable(entity);
+        Long expectedFileId = entity.getFileId();
+        String expectedStatus = entity.getStatus();
+        Integer expectedLocked = entity.getLocked();
         validateFile(originalFilename, contentType, size);
         FileObject file = fileService.upload(input, requiredTrim(originalFilename, "文件名不能为空"),
                 normalizeContentType(originalFilename, contentType), size, MATERIAL_BIZ_TYPE);
         fillFile(entity, file);
         entity.setUploaderId(UserContext.getUserIdOrSystem());
         entity.setUploadTime(LocalDateTime.now());
-        processMaterialMapper.updateById(entity);
+        if (updateMaterialFile(entity, expectedFileId, expectedStatus, expectedLocked) == 0) {
+            throw new BizException("操作冲突：材料已被提交、审核或其他上传替换，请刷新后重试");
+        }
     }
 
     @Override
@@ -252,14 +254,20 @@ public class ProcessMaterialServiceImpl implements ProcessMaterialService {
         ProcessMaterial entity = requireMaterial(id);
         ensureCanWriteMaterial(entity, "material:upload");
         ensureEditable(entity);
-        processMaterialMapper.deleteById(id);
+        if (processMaterialMapper.delete(new LambdaQueryWrapper<ProcessMaterial>()
+                .eq(ProcessMaterial::getId, id)
+                .eq(ProcessMaterial::getFileId, entity.getFileId())
+                .eq(ProcessMaterial::getStatus, entity.getStatus())
+                .eq(ProcessMaterial::getLocked, entity.getLocked())) == 0) {
+            throw new BizException("操作冲突：材料已被提交、审核或替换，请刷新后重试");
+        }
     }
 
     @Override
-    public String previewUrl(Long id) {
+    public Long previewFileId(Long id) {
         ProcessMaterial entity = requireMaterial(id);
         ensureReadableMaterial(entity);
-        return fileService.presignedGet(entity.getFileId(), PREVIEW_EXPIRY_SECONDS);
+        return entity.getFileId();
     }
 
     @Override
@@ -274,9 +282,10 @@ public class ProcessMaterialServiceImpl implements ProcessMaterialService {
         String oldStatus = entity.getStatus();
         String targetStatus = returnTargetFromSecondRejected(status);
         entity.setStatus(targetStatus);
-        // 原子条件更新：仅当状态未被并发改变时才写入，防重复提交竞态（P0-10）
-        if (processMaterialMapper.update(entity, new LambdaUpdateWrapper<ProcessMaterial>()
-                .eq(ProcessMaterial::getId, id).eq(ProcessMaterial::getStatus, oldStatus)) == 0) {
+        if (processMaterialMapper.update(new ProcessMaterial(), new LambdaUpdateWrapper<ProcessMaterial>()
+                .eq(ProcessMaterial::getId, id)
+                .eq(ProcessMaterial::getStatus, oldStatus)
+                .set(ProcessMaterial::getStatus, targetStatus)) == 0) {
             throw new BizException("操作冲突：该记录已被其他操作更新，请刷新后重试");
         }
         notificationHelper.notifySubmitted(entity.getCollegeId(), entity.getStudentId(), "过程性材料",
@@ -309,9 +318,16 @@ public class ProcessMaterialServiceImpl implements ProcessMaterialService {
         entity.setFirstReviewerId(UserContext.getUserIdOrSystem());
         entity.setFirstReviewTime(LocalDateTime.now());
         entity.setFirstReviewComment(trimToNull(request.getComment()));
-        // 原子条件更新：仅当仍为初审态时才写入，防并发/重复初审竞态（P0-10）
-        if (processMaterialMapper.update(entity, new LambdaUpdateWrapper<ProcessMaterial>()
-                .eq(ProcessMaterial::getId, id).eq(ProcessMaterial::getStatus, oldStatus)) == 0) {
+        LambdaUpdateWrapper<ProcessMaterial> update = new LambdaUpdateWrapper<ProcessMaterial>()
+                .eq(ProcessMaterial::getId, id)
+                .eq(ProcessMaterial::getStatus, oldStatus)
+                .set(ProcessMaterial::getStatus, entity.getStatus())
+                .set("FAIL".equals(action), ProcessMaterial::getLocked, entity.getLocked())
+                .set(ProcessMaterial::getFirstReviewStatus, entity.getFirstReviewStatus())
+                .set(ProcessMaterial::getFirstReviewerId, entity.getFirstReviewerId())
+                .set(ProcessMaterial::getFirstReviewTime, entity.getFirstReviewTime())
+                .set(ProcessMaterial::getFirstReviewComment, entity.getFirstReviewComment());
+        if (processMaterialMapper.update(new ProcessMaterial(), update) == 0) {
             throw new BizException("操作冲突：该记录已被其他操作更新，请刷新后重试");
         }
         auditLogService.record("material", entity.getId(), materialTarget(entity), "firstReview",
@@ -353,9 +369,15 @@ public class ProcessMaterialServiceImpl implements ProcessMaterialService {
         entity.setSecondReviewerId(UserContext.getUserIdOrSystem());
         entity.setSecondReviewTime(LocalDateTime.now());
         entity.setSecondReviewComment(trimToNull(request.getComment()));
-        // 原子条件更新：仅当仍为复审态时才写入，防并发/重复复审竞态（P0-10）
-        if (processMaterialMapper.update(entity, new LambdaUpdateWrapper<ProcessMaterial>()
-                .eq(ProcessMaterial::getId, id).eq(ProcessMaterial::getStatus, oldStatus)) == 0) {
+        if (processMaterialMapper.update(new ProcessMaterial(), new LambdaUpdateWrapper<ProcessMaterial>()
+                .eq(ProcessMaterial::getId, id)
+                .eq(ProcessMaterial::getStatus, oldStatus)
+                .set(ProcessMaterial::getStatus, entity.getStatus())
+                .set(ProcessMaterial::getLocked, entity.getLocked())
+                .set(ProcessMaterial::getSecondReviewStatus, entity.getSecondReviewStatus())
+                .set(ProcessMaterial::getSecondReviewerId, entity.getSecondReviewerId())
+                .set(ProcessMaterial::getSecondReviewTime, entity.getSecondReviewTime())
+                .set(ProcessMaterial::getSecondReviewComment, entity.getSecondReviewComment())) == 0) {
             throw new BizException("操作冲突：该记录已被其他操作更新，请刷新后重试");
         }
         auditLogService.record("material", entity.getId(), materialTarget(entity), "secondReview",
@@ -418,7 +440,8 @@ public class ProcessMaterialServiceImpl implements ProcessMaterialService {
                             .build())) {
                         input.transferTo(zip);
                     } catch (Exception e) {
-                        throw new BizException("材料读取失败: " + e.getMessage());
+                        log.error("批量下载材料读取失败 materialId={}", material.getId(), e);
+                        throw new BizException("材料读取失败，请稍后重试");
                     }
                     zip.closeEntry();
                 }
@@ -434,6 +457,23 @@ public class ProcessMaterialServiceImpl implements ProcessMaterialService {
         entity.setContentType(file.getContentType());
         entity.setUploaderId(UserContext.getUserIdOrSystem());
         entity.setUploadTime(LocalDateTime.now());
+    }
+
+    private int updateMaterialFile(ProcessMaterial entity, Long expectedFileId,
+                                   String expectedStatus, Integer expectedLocked) {
+        LambdaUpdateWrapper<ProcessMaterial> update = new LambdaUpdateWrapper<ProcessMaterial>()
+                .eq(ProcessMaterial::getId, entity.getId())
+                .eq(ProcessMaterial::getFileId, expectedFileId)
+                .eq(ProcessMaterial::getStatus, expectedStatus)
+                .eq(ProcessMaterial::getLocked, expectedLocked)
+                .set(ProcessMaterial::getFileId, entity.getFileId())
+                .set(ProcessMaterial::getFileName, entity.getFileName())
+                .set(ProcessMaterial::getFilePath, entity.getFilePath())
+                .set(ProcessMaterial::getFileSize, entity.getFileSize())
+                .set(ProcessMaterial::getContentType, entity.getContentType())
+                .set(ProcessMaterial::getUploaderId, entity.getUploaderId())
+                .set(ProcessMaterial::getUploadTime, entity.getUploadTime());
+        return processMaterialMapper.update(new ProcessMaterial(), update);
     }
 
     private List<ProcessMaterial> selectMaterials(MaterialQuery query, List<Long> ids) {

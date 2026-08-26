@@ -15,6 +15,7 @@ import cn.edu.gpnu.platform.business.video.entity.VideoReview;
 import cn.edu.gpnu.platform.business.video.mapper.VideoReviewMapper;
 import cn.edu.gpnu.platform.exchange.model.ExchangeStandardRow;
 import cn.edu.gpnu.platform.exchange.support.ExchangeExcelHelper;
+import cn.edu.gpnu.platform.security.service.IdCardProtectionService;
 import cn.edu.gpnu.platform.system.entity.SysParam;
 import cn.edu.gpnu.platform.system.entity.SysUser;
 import cn.edu.gpnu.platform.system.entity.TeachingSubject;
@@ -106,6 +107,9 @@ class Phase43CertRoundTripIT {
 
     @Autowired
     private StudentMapper studentMapper;
+
+    @Autowired
+    private IdCardProtectionService idCardProtectionService;
 
     @Autowired
     private TrainingProfileMapper trainingProfileMapper;
@@ -302,12 +306,14 @@ class Phase43CertRoundTripIT {
     }
 
     private long insertStudent(String prefix, long collegeId) {
+        String idCardNo = "G" + ("%08d").formatted(Math.floorMod(System.nanoTime(), 100000000));
         Student student = new Student();
         student.setStudentNo(prefix + "-" + Math.floorMod(System.nanoTime(), 1_000_000_000L));
         student.setName("证书学生" + prefix);
         student.setGender("female");
         student.setIdCardType("hm_travel_permit");
-        student.setIdCardNo("G" + ("%08d").formatted(Math.floorMod(System.nanoTime(), 100000000)));
+        student.setIdCardNo(idCardProtectionService.encrypt(idCardNo));
+        student.setIdCardHmac(idCardProtectionService.hmac(idCardNo));
         student.setBirthDate("2001/1/2");
         student.setIdentityType("normal_student");
         student.setSourceFull("广东省/广州市/天河区");

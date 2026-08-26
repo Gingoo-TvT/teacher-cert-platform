@@ -59,7 +59,6 @@ public class SystemAuditController {
 
     @Operation(summary = "拒绝删除审计日志")
     @PreAuthorize("@pms.has('audit:view')")
-    @AuditLog(bizType = "audit", operation = "deleteRejected")
     @DeleteMapping("/api/audit/log/{id}")
     public Result<Void> deleteAuditLog(@PathVariable Long id) {
         systemManagementService.rejectAuditDelete(id);
@@ -77,7 +76,7 @@ public class SystemAuditController {
 
     @Operation(summary = "触发数据库逻辑备份（JDBC 导出→gzip→MinIO）")
     @PreAuthorize("@pms.has('system:backup')")
-    @AuditLog(bizType = "backup", operation = "trigger")
+    @AuditLog(bizType = "backup", operation = "trigger", before = true)
     @PostMapping("/api/system/backup/trigger")
     public Result<BackupRecordVO> triggerBackup(@Valid @RequestBody BackupTriggerRequest request) {
         return Result.ok(systemManagementService.triggerBackup(request));

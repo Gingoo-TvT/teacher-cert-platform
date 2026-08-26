@@ -61,6 +61,18 @@ public final class VideoMediaAcceptancePolicy {
         }
     }
 
+    /**
+     * 媒体 Cookie 至少覆盖一段允许的视频时长，并额外保留一个配置容差用于末尾 Range/seek。
+     */
+    public static int playbackCookieLifetimeSeconds(ParamService paramService) {
+        long target = Math.max(0, paramService.getInt(
+                "video.durationTarget", DEFAULT_DURATION_TARGET));
+        long tolerance = Math.max(0, paramService.getInt(
+                "video.durationTolerance", DEFAULT_DURATION_TOLERANCE));
+        long lifetime = Math.max(1L, target + tolerance * 2L);
+        return (int) Math.min(lifetime, Integer.MAX_VALUE);
+    }
+
     public record Result(boolean accepted, String message) {
 
         private static Result allow() {

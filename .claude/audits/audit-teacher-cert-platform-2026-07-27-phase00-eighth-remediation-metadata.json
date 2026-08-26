@@ -1,0 +1,27 @@
+{
+  "timestamp": "2026-07-27T23:16:49+08:00",
+  "project": "teacher-cert-platform",
+  "commitHash": "1c9d41696574ff2b4d50a5908f5998c3ed55b437",
+  "treeHash": "8e629804c088c515ebe772eb914d3db00476f37a",
+  "selectedModes": [
+    "incremental",
+    "testing-authenticity",
+    "release"
+  ],
+  "scope": "9b97741a3da921e3bce648e0c98fdb2892ec72e2..1c9d41696574ff2b4d50a5908f5998c3ed55b437",
+  "overallScore": 7.3,
+  "dimensionScores": {
+    "incremental": 8.3,
+    "testingAuthenticity": 7.0,
+    "release": 6.7
+  },
+  "findingCounts": {
+    "critical": 0,
+    "high": 0,
+    "medium": 1,
+    "low": 0,
+    "info": 0
+  },
+  "recommendation": "CHANGES_REQUESTED",
+  "reportPath": "docs/reviews/phase-00-eighth-remediation-rereview-2026-07-27.md"
+}

@@ -1,6 +1,8 @@
+# WS8_V33_OFFLINE_UPGRADE：已有数据库最高版本为 V32 时，禁止直接执行通用 up 或滚动混部；
+# 必须先按 docs/phase-14-非功能部署验收.md 的 WS-8/V33 停机切换合同冻结写入、停尽旧节点并留好恢复点。
 services:
   mysql:
-    image: mysql:8.4
+    image: mysql:8.4@sha256:b3b90af2a6552ae30c266fdb7d5dd55f3afb72404bb78d37fe8a23eb857fd3fb
     container_name: teacher-cert-mysql-prod
     restart: unless-stopped
     environment:
@@ -29,7 +31,7 @@ services:
       retries: 12
 
   redis:
-    image: redis:7.4-alpine
+    image: redis:7.4-alpine@sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2
     container_name: teacher-cert-redis-prod
     restart: unless-stopped
     # Phase 41.3：加密码认证（--requirepass），配套 application-prod.yml 的 spring.data.redis.password
@@ -44,7 +46,7 @@ services:
       retries: 12
 
   minio:
-    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z@sha256:a1ea29fa28355559ef137d71fc570e508a214ec84ff8083e39bc5428980b015e
     container_name: teacher-cert-minio-prod
     restart: unless-stopped
     command: server /data --console-address ":9001"
@@ -53,9 +55,11 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
       # MinIO 的 S3 PutBucketCors API 返回 501；浏览器直传来源必须在服务启动时配置。
       MINIO_API_CORS_ALLOW_ORIGIN: ${MINIO_CORS_ALLOWED_ORIGINS}
+    # 浏览器只访问 MINIO_PUBLIC_ENDPOINT 对应的 HTTPS 网关；API/console 不直接暴露到主机公网。
+    # 回环绑定为同机 TLS 网关和受控运维保留入口，远端管理请经现有运维通道转发。
     ports:
-      - "${MINIO_API_PORT:-9000}:9000"
-      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+      - "127.0.0.1:${MINIO_API_PORT:-9000}:9000"
+      - "127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001"
     volumes:
       - minio-data:/data
     healthcheck:
@@ -68,7 +72,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: teacher-cert-platform/backend:${APP_IMAGE_TAG:-latest}
+    image: teacher-cert-platform/backend:${APP_IMAGE_TAG:?APP_IMAGE_TAG must be an immutable source revision tag}
     container_name: teacher-cert-backend-prod
     restart: unless-stopped
     environment:
@@ -120,12 +124,26 @@ services:
       VIDEO_PROBE_ARTIFACT_CLEANUP_INTERVAL: ${VIDEO_PROBE_ARTIFACT_CLEANUP_INTERVAL:-PT5M}
       VIDEO_PROBE_ARTIFACT_CLEANUP_SCAN_LIMIT: ${VIDEO_PROBE_ARTIFACT_CLEANUP_SCAN_LIMIT:-10000}
       JWT_SECRET: ${JWT_SECRET}
+      JWT_ACCESS_TTL_SECONDS: ${JWT_ACCESS_TTL_SECONDS:-900}
+      JWT_REFRESH_TTL_SECONDS: ${JWT_REFRESH_TTL_SECONDS:-604800}
+      # WS-8：AES-256 密钥与 HMAC pepper 必须独立，缺失/示例值会在生产启动期失败关闭。
+      IDCARD_ENCRYPTION_KEY: ${IDCARD_ENCRYPTION_KEY}
+      IDCARD_HMAC_PEPPER: ${IDCARD_HMAC_PEPPER}
       # WS-2：显式转发生产凭据；Compose 的 .env 只负责插值，不会自动把变量注入容器。
       ADMIN_INITIAL_PASSWORD_HASH: ${ADMIN_INITIAL_PASSWORD_HASH:-}
       STAFF_INITIAL_PASSWORD: ${STAFF_INITIAL_PASSWORD:-}
       # P1-7：CORS 前端来源白名单（逗号分隔，含协议+端口、无末尾斜杠）。留空时后端回退到仅本地
       # localhost:5173（CorsConfig 默认），生产跨域前端会被拦截；同源部署（nginx 同域反代）下 CORS 不参与。
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
+      # 只信任会覆盖 XFF/X-Real-IP 的后端直连代理；未显式配置时忽略所有转发头。
+      AUDIT_TRUSTED_PROXIES: ${FRONTEND_AUDIT_PROXY_IP:-172.30.42.10}
+      # 标准名册导入进程级资源预算，解析和错误明细物化前即拒绝超限输入。
+      EXCHANGE_IMPORT_MAX_FILE_BYTES: ${EXCHANGE_IMPORT_MAX_FILE_BYTES:-16777216}
+      EXCHANGE_IMPORT_MAX_EXPANDED_BYTES: ${EXCHANGE_IMPORT_MAX_EXPANDED_BYTES:-67108864}
+      EXCHANGE_IMPORT_MAX_ROWS: ${EXCHANGE_IMPORT_MAX_ROWS:-20000}
+      EXCHANGE_IMPORT_MAX_CELL_CHARACTERS: ${EXCHANGE_IMPORT_MAX_CELL_CHARACTERS:-4096}
+      EXCHANGE_IMPORT_MAX_ERROR_DETAILS: ${EXCHANGE_IMPORT_MAX_ERROR_DETAILS:-20000}
+      EXCHANGE_IMPORT_MAX_PREVIEW_JSON_BYTES: ${EXCHANGE_IMPORT_MAX_PREVIEW_JSON_BYTES:-20971520}
       JAVA_OPTS: ${JAVA_OPTS:--Xms512m -Xmx1024m}
       PLATFORM_INTEGRATION_IDENTITY_ENABLED: ${PLATFORM_INTEGRATION_IDENTITY_ENABLED:-false}
       PLATFORM_INTEGRATION_ACADEMIC_ENABLED: ${PLATFORM_INTEGRATION_ACADEMIC_ENABLED:-false}
@@ -133,10 +151,12 @@ services:
       PLATFORM_INTEGRATION_ELECTRONIC_SIGNATURE_ENABLED: ${PLATFORM_INTEGRATION_ELECTRONIC_SIGNATURE_ENABLED:-false}
       PLATFORM_INTEGRATION_ELECTRONIC_LICENSE_ENABLED: ${PLATFORM_INTEGRATION_ELECTRONIC_LICENSE_ENABLED:-false}
       PLATFORM_INTEGRATION_SUPERIOR_PLATFORM_ENABLED: ${PLATFORM_INTEGRATION_SUPERIOR_PLATFORM_ENABLED:-false}
-    ports:
-      - "${BACKEND_PORT:-8080}:8080"
     volumes:
       - video-probe-temp:/var/lib/teacher-cert/video-probe
+    networks:
+      default:
+      audit-proxy:
+        ipv4_address: ${BACKEND_AUDIT_PROXY_IP:-172.30.42.20}
     depends_on:
       mysql:
         condition: service_healthy
@@ -154,16 +174,36 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    image: teacher-cert-platform/frontend:${APP_IMAGE_TAG:-latest}
+    image: teacher-cert-platform/frontend:${APP_IMAGE_TAG:?APP_IMAGE_TAG must be an immutable source revision tag}
     container_name: teacher-cert-frontend-prod
     restart: unless-stopped
+    environment:
+      # 外层网关存在时必须填其精确 IP/CIDR；直连部署保持默认即可。
+      INGRESS_TRUSTED_PROXY_CIDR: ${INGRESS_TRUSTED_PROXY_CIDR:-127.0.0.1/32}
+      TLS_SERVER_NAME: ${TLS_SERVER_NAME:?TLS_SERVER_NAME must be set}
+      # 同一值既控制宿主 HTTPS 发布端口，也进入 HTTP 301 的目标 authority。
+      FRONTEND_HTTPS_PORT: ${FRONTEND_HTTPS_PORT:-443}
+      # CSP 的 MinIO 连接源与后端签发预签名 URL 的公网端点保持同一真源。
+      MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_ENDPOINT:?MINIO_PUBLIC_ENDPOINT must be set}
     ports:
-      - "${FRONTEND_PORT:-80}:80"
+      - "${FRONTEND_PORT:-80}:8080"
+      - "${FRONTEND_HTTPS_PORT:-443}:8443"
+    volumes:
+      - type: bind
+        source: ${TLS_CERTIFICATE_DIR:?TLS_CERTIFICATE_DIR must be set}
+        target: /etc/nginx/certs
+        read_only: true
+    # 只授予 nginx 读取证书实体文件的补充组；私钥不得改为全局可读。
+    group_add:
+      - "${TLS_CERTIFICATE_GID:?TLS_CERTIFICATE_GID must be set to the dedicated certificate group GID}"
     depends_on:
       backend:
         condition: service_healthy
+    networks:
+      audit-proxy:
+        ipv4_address: ${FRONTEND_AUDIT_PROXY_IP:-172.30.42.10}
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/ >/dev/null || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/healthz >/dev/null || exit 1"]
       interval: 30s
       timeout: 3s
       retries: 12
@@ -173,3 +213,9 @@ volumes:
   redis-data:
   minio-data:
   video-probe-temp:
+
+networks:
+  audit-proxy:
+    ipam:
+      config:
+        - subnet: ${AUDIT_PROXY_SUBNET:-172.30.42.0/24}
