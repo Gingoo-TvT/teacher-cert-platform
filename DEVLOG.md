@@ -15,6 +15,20 @@
 
 ---
 
+## [2026-08-27] DOC-README 项目首页与当前进度重构
+- 做了什么：按当前源码、`PROGRESS.md`、`HANDOFF.md` 与统一执行计划重写根 README；新增项目定位、功能范围、
+  技术版本、模块结构、本地启动、测试门禁、安全约束、部署边界和文档导航，并把分散在首页的大段证书续期、
+  升级与恢复细节收敛为权威运行手册链接。
+- 关键决策与理由：README 只承担入口和概览，不复制整份治理账本；进度明确分开 114/114 核心任务、收官后阶段、
+  scoped/stage PASS 与项目级 `CHANGES_REQUESTED / NO-GO`，避免把私有 `main` 快照或局部测试误写成发布授权。
+- 问题与解决：旧 README 的运维细节与当前 WS-8/V33 状态混杂，后续容易漂移；新版本以
+  `docs/CURRENT-EXECUTION-PLAN.md`、`PROGRESS.md`、正式报告为权威来源，并保留 V32/V33、Phase 44 禁止混部和
+  生产凭据 fail-closed 的首页提示。
+- 与规格的偏差/疑问：无业务、API、权限、Flyway、部署实现或状态账本变更；仅文档重构。用户已明确授权提交并
+  推送到私有仓库 `main`。
+- 测试：README 本地链接、引用路径、Markdown 空白与示例命令静态校验；未因纯文档变更重跑后端、前端或运行期门禁。
+- 下一步：提交 README/DEVLOG 文档增量，推送并核验远端 `main` SHA 与 private 属性。
+
 ## [2026-08-13] WS08-R3 过期 WS-7 当前态合同整改
 - 做了什么：接受 R2 Hosted 独立重核正式
   `CHANGES_REQUESTED（0 Critical / 0 High / 1 Medium / 1 Low）`。run `31661893931` 已证明 WS-8 六-suite
