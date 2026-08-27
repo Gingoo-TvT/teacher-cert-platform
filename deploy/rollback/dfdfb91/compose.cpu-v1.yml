@@ -1,0 +1,8 @@
+services:
+  mysql:
+    image: mysql:8.0.36
+
+  minio:
+    image: ${DOCKERHUB_NAMESPACE:?DOCKERHUB_NAMESPACE is required}/teacher-cert-minio-cpu-v1:${APP_IMAGE_TAG:?APP_IMAGE_TAG is required}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9000/minio/health/live >/dev/null"]

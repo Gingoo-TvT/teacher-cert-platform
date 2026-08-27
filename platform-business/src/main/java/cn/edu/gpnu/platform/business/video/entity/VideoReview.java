@@ -22,6 +22,7 @@ public class VideoReview extends BaseEntity {
     private String formatCheck;
     private String validationMessage;
     private String status;
+    private Integer reviewerCount;
     private Integer finalScore;
     private String finalConclusion;
     private Long arbitrateReviewer;

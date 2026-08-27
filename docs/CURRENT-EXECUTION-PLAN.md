@@ -1,4 +1,4 @@
-# 当前统一执行计划（2026-08-11）
+# 当前统一执行计划（2026-08-23）
 
 > 本文件是项目**当前工作队列与阶段复核状态的唯一入口**。业务规格仍按 `AGENTS.md` 规定的优先级执行：`plan.md §15` > `plan.md` 正文 > `docs/phase-NN-*` > `tasks.md`；本文件不改写业务规则，只合并分散计划、复核证据和后续顺序。
 >
@@ -6,7 +6,7 @@
 
 ## 1. 当前基线与本轮结论
 
-- 当前分支：`feature/ws08-idcard-encryption`，基线 HEAD `aa3509a`，工作树含未提交整改。
+- 桌面主工作树分支：`feature/ws08-idcard-encryption`；当前 Codex worktree 为 detached `aa3509a`，含未提交整改。
   Phase 39、Phase 41、Phase 47、Phase 53、Phase 44 与 Phase 0 均保持独立 PASS；Phase 0 /
   U-004 最终 HEAD `ea760bf` 的既有门禁结论不变。最终全量审计已冻结在 `dfdfb91`，正式结论为
   **CHANGES_REQUESTED / NO-GO（0 Critical / 7 High / 13 Medium / 4 Low）**，见
@@ -349,7 +349,12 @@
 | WS-5/STAGE T1–T3 | 正式报告 `ws05-remediation-independent-evidence-20260811` | T1 独立增量 PASS + T2/T3 scoped PASS | ✅ INDEPENDENT_SCOPED_PASS；WS-5 范围 0 open finding，不等于项目 GO |
 | WS-6/STAGE 前端测试门禁 | fingerprint `f5d63378...8607` / HEAD `aa3509a` | multipart 大小写反例与同一 helper 正/反路径；fresh transform Chromium 5/5 | ✅ INDEPENDENT_SCOPED_PASS；0 Critical / 0 High / 0 Medium / 0 Low，不等于项目 GO |
 | WS-7/STAGE 容器/CI 供应链硬化 | fingerprint `d5ea9863...9e24`；Hosted run `31507732334` | 4/4 jobs；双 SPDX、镜像身份、校验和与 artifact 闭环；唯一 Low 的临时 remote 已后续清除 | ✅ INDEPENDENT_STAGE_PASS（0C/0H/0M/1L）；只放行 WS-8，不等于项目 GO |
-| WS-8/STAGE 身份证号加密 + HMAC 唯一键 | R2 fingerprint `09ee0c39...42ba`；Hosted run `31661893931` | 六-suite 46/46 scoped PASS；最新正式退回 0C/0H/1M/1L，过期 WS-7 当前态合同导致整条 workflow 红灯 | ◐ LOCAL_REMEDIATION_R3_READY / HOSTED_WHOLE_WORKFLOW_PENDING；WS-9 不启动 |
+| WS-8/STAGE 身份证号加密 + HMAC 唯一键 | R6 fingerprint `7e077df1...f5c74b`；独立功能报告 SHA-256 `43660de6...153def` | R5 的 2M/1L 全部 CLOSED；真实依赖 49/49 + 29/29，0 open finding | ✅ INDEPENDENT_FUNCTIONAL_PASS；按用户明确口径放行 WS-9 开发，不等于项目发布 GO |
+| WS-9 服务职责拆分 | fingerprint `df1f1950...b2f45` | Surefire 400/400；Phase 7/10/14/39 87/87；原唯一 Medium CLOSED | ✅ INDEPENDENT_INCREMENTAL_PASS；0 open finding |
+| WS-11 health/readiness/指标 | R2 fingerprint `85606aed...9161f`；报告 SHA-256 `38c9896d...9d50a` | Surefire 411/411；Phase 14 + WS-11 18/18；首轮 3 Medium 全部 CLOSED | ✅ INDEPENDENT_INCREMENTAL_PASS；0 open finding，不等于项目 GO |
+| WS-12 前端 bundle 拆分与预算 | 整改 fingerprint `1c8b8821...0ae7b`；manifest SHA-256 `f73b29b...1f5e6` | 生产/预算统一显式 gzip level 6；charts 172.5 KiB；上一轮唯一 Medium CLOSED，0 open finding | ✅ INDEPENDENT_INCREMENTAL_PASS；不等于项目 GO |
+| WS-14 备份生命周期与归档 | R2 fingerprint `4a167463...9cb80`；报告 SHA-256 `8ade2dd7...86be61` | 首轮 2 Medium CLOSED；noncurrent=1；V34 正整数参数；正确口径 Surefire 66 suites / 421 tests、focused 27/27 | ✅ INDEPENDENT_INCREMENTAL_PASS（0C/0H/0M/1L）；唯一统计 Low 已勘误且不阻断 |
+| FINAL-FUNCTIONAL 最终功能完整性 | R5 fingerprint `e98305d4...079a0`；manifest SHA-256 `bc88d67e...13398`；报告 SHA-256 `4a1cf921...1c5eb` | 独立复核确认 R4 唯一 Medium CLOSED；`INDEPENDENT_INCREMENTAL_PASS（0C/0H/0M/0L）`。报告仍要求稳定发布前补同候选真实依赖与发布证据 | ✅ R5 INDEPENDENT_INCREMENTAL_PASS；只关闭最终功能范围，不等于项目发布 GO |
 | WS-4 / D0 全站 UI 基线 | 静态基线；无真实改前运行态 | 74 Vue 静态盘点；6 角色×22 路由×5 断点矩阵；重复入口口径已确认并静态应用 | ✅ STATIC_BASELINE_COMPLETE / BEFORE_STATE_UNAVAILABLE_NONBLOCKING |
 | WS-4 / D1 设计基线与双样板 | fingerprint `745e9986...d4d9` / HEAD `aa3509a` | 共享组件、Student 列表、Training Drawer；lint/type-check/build；三角色五断点 30/30；导航与双 Drawer 5/5 | ✅ INDEPENDENT_SCOPED_PASS |
 | WS-4 / D2 高频 Grid | 同上统一候选 | 七页五断点 55/55；Grid 实际列数 37/37 | ✅ INDEPENDENT_SCOPED_PASS |
@@ -369,8 +374,19 @@
 2. **U-002 WS-3 退回整改—✅ 独立重核 PASS**：`88d3136..2886442` 已确认关闭第五轮新增的 2 Medium：① reconciliation trigger 绑定独立 `TaskScheduler`，真实 scheduling + blocked backup 证据证明普通备份不再阻断对账提交；② `video_finalization_object_candidate` 纳入 37 表逻辑全量备份，scratch restore 后历史 generation、claim/retry/tombstone 完整且真实对账可续跑。唯一新增 Low 是提交材料把 32 个迁移写成 33 个，已在正式报告和活动文档勘误，不阻断。该报告只证明 candidate slice；当时仍独立退回的 Phase 41 整体备份问题现已由后续动态证据报告关闭。V32 发布继续遵守停写、停全部旧节点/worker、迁移、全量启动新实例后再放流，禁止 V31/旧稳定 key 协议混部与旧二进制回滚。独立报告为 `reviews/ws-03-sixth-remediation-rereview-2026-07-24.md`；未执行任何 cyber 指令，后续任何可能属于 cyber 的命令必须明确交由用户决定并亲自执行。
 3. **U-003 阶段退回整改—✅ 独立重核 PASS**：Phase 42、Phase 39、Phase 41、Phase 47、Phase 53 与 Phase 44 均已独立复核 PASS。Phase 44 第四轮 `69f7462..228a355` 的精确 16/16、棕地只读 identity preflight、Compose 双向展开与独立离线门禁成立，正式报告为 `reviews/phase-44-fourth-remediation-rereview-2026-07-27.md`；1 Low 非阻断，稳定发布前接入权威发布步骤并补 target marker。
 4. **U-004 Phase 0 复核退回整改—✅ 独立重核 PASS**：第九轮最终 SHA `ea760bf` 的 Linux 79/79、全新隔离栈 exact 7/33、同 bundle verifier、Compose 与资源清理全部闭环；checksum/XML/source/target/worktree 绑定经独立复算，0 finding。正式报告为 `reviews/phase-00-ninth-remediation-dynamic-evidence-rereview-2026-07-28.md`。
+5. **U-005 第二次部署发布准备—🟩 R4 源码增量 PASS / 动态证据待执行**：R4 fingerprint
+   `0ee662b7...355ed9`、manifest SHA-256 `47b476d6...2017bf` 已正式取得
+   `INDEPENDENT_INCREMENTAL_PASS（0C/0H/0M/0L）`，R3 唯一 Medium CLOSED。根路径和固定派生的同源
+   `/api/health` 已分别失败关闭，“根 503+marker、API 200”反例不能通过。该结论只关闭 R4 源码增量，不授权
+   carrier、Hosted、push、merge、停服、迁移、启动或切流。
 
-**当前下一步：F01–F07、WS-5、WS-6 与 WS-7 门禁均已关闭；WS-8 R2 Hosted 六-suite 46/46 仅获 scoped PASS，最新阶段结论仍退回 1 Medium / 1 Low。Low 已在外部证据包补成 17/17 exact closure；过期 WS-7 当前态合同已最小修复。下一步冻结 R3、取得整体绿灯 Hosted workflow 并独立重核；阶段 PASS 前不领取 WS-9。**
+**当前下一步：最终功能 R5 与 U-005 R4 源码增量均已取得正式
+`INDEPENDENT_INCREMENTAL_PASS（0C/0H/0M/0L）`。本次治理同步后先 capture + verify 新 release-prep manifest，
+再以该同一冻结候选在一次性隔离环境完成 clean-store 五镜像、入口持续关闭、真实 Linux login-path、迁移前首版
+回退、V32→V35、Phase 41、Phase 00、Phase 47，并运行全新同候选 Hosted 4/4，闭合双镜像/双 SPDX/身份与根和
+嵌套校验；随后交用户做项目级发布复核。
+正式域名、受信证书、MinIO HTTPS gateway、
+目标 project/卷和恢复点均须在获授权环境确认。当前不 push、merge、deploy 或 cutover，项目仍为 NO-GO。**
 2026-08-10，F07 候选 `091538b7...c0f8e7` 取得 `INDEPENDENT_INCREMENTAL_PASS`：定向 2/2、F07
 69/69、完整 116/116、Surefire 352/352、F04 低堆 14/14，0 open finding。该证据只绑定已复核 manifest；
 后续治理和 WS-5 变更是新候选，不得挪用 F07 绿灯。WS-5 整改候选 `9e33d20f...a83a` 已取得
@@ -386,23 +402,27 @@ WS-8；当前不执行依赖/镜像扫描或攻击性检查。项目仍为
 
 ### P1：当前产品需求与上线安全
 
-5. **WS-4 全站 UI 优化—✅ scoped PASS**：D0 静态基线与 D1–D6 统一候选复核已完成；真实改前运行态不可补造且非阻断，不再为建议项修改产品代码。
-6. **WS-5 传输与会话安全—✅ independent scoped PASS**：T1–T3 范围 0 open finding；不等于项目发布 GO。
-7. **WS-6 前端测试/a11y 门禁—✅ independent scoped PASS**：第二轮候选范围 0 open finding；不扩到全仓 Prettier、bundle 拆分或真实后端栈，也不等于项目 GO。
-8. **WS-7 容器/CI 供应链硬化—✅ independent stage PASS**：fingerprint `d5ea9863...9e24`，Hosted run `31507732334` 已闭环双 SPDX、镜像身份、校验和与 artifact；唯一 Low 的临时 remote 已后续清除。依赖/镜像扫描仍不在本阶段范围，PASS 不等于项目 GO。
+6. **WS-4 全站 UI 优化—✅ scoped PASS**：D0 静态基线与 D1–D6 统一候选复核已完成；真实改前运行态不可补造且非阻断，不再为建议项修改产品代码。
+7. **WS-5 传输与会话安全—✅ independent scoped PASS**：T1–T3 范围 0 open finding；不等于项目发布 GO。
+8. **WS-6 前端测试/a11y 门禁—✅ independent scoped PASS**：第二轮候选范围 0 open finding；不扩到全仓 Prettier、bundle 拆分或真实后端栈，也不等于项目 GO。
+9. **WS-7 容器/CI 供应链硬化—✅ independent stage PASS**：fingerprint `d5ea9863...9e24`，Hosted run `31507732334` 已闭环双 SPDX、镜像身份、校验和与 artifact；唯一 Low 的临时 remote 已后续清除。依赖/镜像扫描仍不在本阶段范围，PASS 不等于项目 GO。
 
 ### P2/P3：结构与运维债务
 
-9. **WS-8—◐ R3 整体 Hosted 绿灯待形成** 身份证号应用层加密 + HMAC 唯一键；R2 run
-   `31661893931` 的六-suite 46/46 只构成 scoped PASS，最新正式状态为
-   `CHANGES_REQUESTED（0C/0H/1M/1L）`。过期 WS-7 当前态合同和证据包 Low 均已最小整改，当前为
-   `LOCAL_REMEDIATION_R3_READY / HOSTED_WHOLE_WORKFLOW_PENDING`。
-10. **WS-9—未启动** 拆分 `ExchangeServiceImpl` / `VideoReviewServiceImpl`；依赖 WS-8 正式独立 PASS。
-11. **WS-11** health liveness/readiness 与指标。
-12. **WS-12** 前端 bundle 拆分与体积预算。
-13. **WS-14** 备份生命周期与归档；可播放 demo 视频已提升到 U-003 的 Phase 53 发布整改。
-14. **WS-15（可选）** 审计异步重试，仅在不破坏事务/顺序/可靠性的方案有实验证据时实施。
-15. **最终全量审计当前保留项**：裁定 Phase 7 有效预签名 URL 的 bearer 合同与“拿到链接后未登录也失败”的规格冲突；复核 Phase 53 外部精确同-key 写无 CAS、旧新初始化器禁止混部，以及大媒体/异常编码的广覆盖证据；同时重新审计项目级安全、业务规则、数据一致性、性能、运行期与发布 GO。
+10. **WS-8—✅ independent functional PASS** 身份证号应用层加密 + HMAC 唯一键；R6 fingerprint
+   `7e077df1...f5c74b` 的三项历史 finding 全部关闭，独立功能增量复核为 0 open finding。用户明确 Hosted/供应链
+   不作为后续功能开发前置；该边界不授权产品发布。
+11. **WS-9—✅ independent incremental PASS** 七个目标职责等价拆分成立；fingerprint `df1f1950...b2f45` 的 Surefire 400/400、Phase 7/10/14/39 87/87 关闭唯一 Medium，0 open finding。
+12. **WS-11—✅ independent incremental PASS** R2 fingerprint `85606aed...9161f` 正式关闭首轮三项 Medium，0 open finding；不等于项目 GO。
+13. **WS-12—✅ independent incremental PASS** 整改 fingerprint `1c8b8821...0ae7b` 关闭原 1 Medium，0 open finding；不等于项目 GO。
+14. **WS-14—✅ independent incremental PASS** R2 fingerprint `4a167463...9cb80` 正式关闭首轮 2 Medium；唯一测试统计 Low 已勘误，不阻断。隔离 Phase00/Phase47 IT 保留为稳定发布前证据。
+15. **WS-15（可选，暂不实施）** 现有同步审计路径可接受；本项是纯收益优化，不作为功能完整性或下一阶段前置。
+16. **最终功能完整性复核—✅ R5 independent incremental PASS**：fingerprint
+    `e98305d4...079a0` 的正式报告确认 R4 唯一 Medium CLOSED，0 open finding；新增真实依赖 IT 与稳定发布
+    证据仍按报告留给最终发布候选。该 PASS 不授权部署、切流或项目级稳定发布。
+17. **第二次部署发布准备—🟩 U-005 R4 SOURCE_INCREMENT_PASS / DYNAMIC_PENDING**：fingerprint
+    `0ee662b7...355ed9` 已正式 0 finding；R3 唯一 Medium CLOSED。PASS 后治理字节须重新冻结，隔离门禁、同候选
+    Hosted/离线包与实际服务器动作仍等待后续独立证据和用户授权。
 
 ## 5. 分散计划合并映射
 

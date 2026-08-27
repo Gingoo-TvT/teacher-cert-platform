@@ -59,6 +59,7 @@ class Phase00ParameterMatrixIT {
             entry("validate.idcard.checksum", value("false", "bool")),
             entry("student.autoCreateAccount", value("false", "bool")),
             entry("student.defaultPwd", value("random", "string")),
+            entry("cleanup.backup.retentionDays", value("30", "int")),
             entry("current_assessment_year", value("2026", "int"))
     );
 
@@ -68,8 +69,8 @@ class Phase00ParameterMatrixIT {
     @Test
     void allDocumentedDefaultsHaveExpectedValueAndType() {
         assertThat(DOCUMENTED_DEFAULTS)
-                .as("V1–V32 fresh-schema active sys_param 合同必须精确包含 32 项")
-                .hasSize(32);
+                .as("V1–V34 fresh-schema active sys_param 合同必须精确包含 33 项")
+                .hasSize(33);
 
         // SysParam.deleted 使用 @TableLogic；空 wrapper 查询的是整张 active 参数集合，而不是预先按
         // DOCUMENTED_DEFAULTS 过滤后的子集，因此未知 key 和缺失 key 都会使下列 exact 断言失败。

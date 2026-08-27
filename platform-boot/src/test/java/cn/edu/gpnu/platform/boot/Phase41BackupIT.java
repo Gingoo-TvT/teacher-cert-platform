@@ -371,7 +371,7 @@ class Phase41BackupIT {
                 WHERE success = 1 AND version IS NOT NULL
                 ORDER BY installed_rank DESC
                 LIMIT 1
-                """, String.class)).isEqualTo("33");
+                """, String.class)).isEqualTo("35");
     }
 
     private void insertSourceFixtures() {

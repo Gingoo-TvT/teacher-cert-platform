@@ -1,0 +1,22 @@
+# 第二次部署的旧 CPU 兼容覆盖层。目标机已在第一版确认只支持 x86-64-v1；
+# 所有 config/up/ps/logs 命令都必须与根 docker-compose.yml 同时使用。
+services:
+  mysql:
+    image: ${MYSQL_CPU_V1_IMAGE:?MYSQL_CPU_V1_IMAGE must identify the preloaded MySQL 8.0.36 image}
+    pull_policy: never
+
+  redis:
+    image: ${REDIS_CPU_V1_IMAGE:?REDIS_CPU_V1_IMAGE must identify the preloaded Redis 7.4 image}
+    pull_policy: never
+
+  minio:
+    image: ${MINIO_CPU_V1_IMAGE:?MINIO_CPU_V1_IMAGE must identify the preloaded CPU-v1 MinIO image}
+    pull_policy: never
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9000/minio/health/live >/dev/null || exit 1"]
+
+  backend:
+    pull_policy: never
+
+  frontend:
+    pull_policy: never

@@ -149,7 +149,7 @@ platform-parent/  (pom，dependencyManagement 锁版本)
       第九轮 preflight/exact 在 MySQL 8.0.46、Redis 7.4.9 与一次性 MinIO 上 PASS；
       `docker compose -f docker-compose.dev.yml config --quiet` exit 0，专属栈已 `down -v` 零残留。
 - [x] Flyway 自动建 `sys_param`/`file_object`/`audit_log`，并生成 `docs/README.md` §6 参数基线。——
-      `Phase00ParameterMatrixIT.allDocumentedDefaultsHaveExpectedValueAndType` 在 fresh schema 对全部 **32**
+      `Phase00ParameterMatrixIT.allDocumentedDefaultsHaveExpectedValueAndType` 在 fresh schema 对全部 **33**
       个 active 参数逐项核对 exact key/value/type，并以全表 key 集合比较拒绝未知项或缺失项；
       第九轮最终 SHA 的 fresh-schema 运行 1/1 PASS。
 - [x] 上传任意文件返回 fileId；对象可经服务端受控范围流逐字节读取，公开文件服务不提供 GET 预签名。——

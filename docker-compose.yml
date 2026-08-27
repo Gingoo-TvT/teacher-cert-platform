@@ -126,6 +126,13 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       JWT_ACCESS_TTL_SECONDS: ${JWT_ACCESS_TTL_SECONDS:-900}
       JWT_REFRESH_TTL_SECONDS: ${JWT_REFRESH_TTL_SECONDS:-604800}
+      # WS-11：Prometheus 独立机器身份，不经过业务 JWT、Redis 会话或 sys_user。
+      PROMETHEUS_SCRAPE_USERNAME: ${PROMETHEUS_SCRAPE_USERNAME}
+      PROMETHEUS_SCRAPE_PASSWORD: ${PROMETHEUS_SCRAPE_PASSWORD}
+      READINESS_TIMEOUT: ${READINESS_TIMEOUT:-3s}
+      READINESS_MINIO_CONNECT_TIMEOUT: ${READINESS_MINIO_CONNECT_TIMEOUT:-1s}
+      READINESS_MINIO_READ_TIMEOUT: ${READINESS_MINIO_READ_TIMEOUT:-2s}
+      READINESS_MINIO_CALL_TIMEOUT: ${READINESS_MINIO_CALL_TIMEOUT:-2s}
       # WS-8：AES-256 密钥与 HMAC pepper 必须独立，缺失/示例值会在生产启动期失败关闭。
       IDCARD_ENCRYPTION_KEY: ${IDCARD_ENCRYPTION_KEY}
       IDCARD_HMAC_PEPPER: ${IDCARD_HMAC_PEPPER}
@@ -165,7 +172,7 @@ services:
       minio:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://127.0.0.1:8080/api/health >/dev/null || exit 1"]
+      test: ["CMD-SHELL", "curl -f http://127.0.0.1:8080/api/health/readiness >/dev/null || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 12

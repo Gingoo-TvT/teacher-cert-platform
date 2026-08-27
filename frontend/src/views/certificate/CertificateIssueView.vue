@@ -38,6 +38,9 @@ const certTotal = ref(0)
 const page = ref(1)
 const size = ref(20)
 const statuses = ref<DictItem[]>([])
+const issuers = ref<DictItem[]>([])
+const issuerLoading = ref(false)
+const issuerError = ref('')
 const selected = ref<Certificate | null>(null)
 const canIssue = computed(() => userStore.hasPerm('cert:issue'))
 const canMarkFlow = computed(() => userStore.hasPerm('cert:view'))
@@ -65,6 +68,12 @@ const issueForm = reactive<CertificateIssuePayload>({
 })
 
 const statusOptions = computed<SelectOption[]>(() => statuses.value.map((item) => ({ label: item.itemValue, value: item.itemCode })))
+const issuerOptions = computed<SelectOption[]>(() =>
+  issuers.value.map((item) => ({ label: item.itemValue, value: item.itemValue }))
+)
+const issuerReady = computed(() =>
+  !issuerLoading.value && !issuerError.value && issuerOptions.value.length > 0
+)
 // Phase 44e-rollout（P1-1 真分页铺开）：records 真分页后仅为当页数据，下列 waiting/issued/exported
 // 仅代表当页状态分布，不再是全表统计（与 CertificateManageView.vue 的既有局限一致，暂不新增全量聚合查询）。
 const summary = computed(() => ({
@@ -165,16 +174,23 @@ async function loadOptions() {
   }
 }
 
-function openIssue(row: Certificate) {
+async function openIssue(row: Certificate) {
   if (writeBlocked.value) return
   selected.value = row
-  issueForm.issuer = userStore.realName || row.issuer || ''
+  issueForm.issuer = ''
   issueForm.issueDate = todayText()
   issueVisible.value = true
+  await loadIssuers()
+  const values = new Set(issuerOptions.value.map((option) => String(option.value)))
+  issueForm.issuer = [row.issuer, userStore.realName].find((value) => value && values.has(value)) || ''
 }
 
 async function saveIssue() {
   if (saving.value || writeBlocked.value) return
+  if (!issuerReady.value) {
+    message.error(issuerError.value || '请先在字典管理中维护启用的证书签发人')
+    return
+  }
   if (!selected.value || !issueForm.issuer.trim() || !issueForm.issueDate.trim()) {
     message.error('请填写签发人和签发日期')
     return
@@ -189,6 +205,23 @@ async function saveIssue() {
     showError(error, '签发失败')
   } finally {
     saving.value = false
+  }
+}
+
+async function loadIssuers() {
+  issuerLoading.value = true
+  issuerError.value = ''
+  try {
+    const response = await listDictItems('cert_issuer', true)
+    issuers.value = response.data.filter((item) => item.yearVersion === 'GLOBAL')
+    if (!issuers.value.length) {
+      issuerError.value = '暂无启用的证书签发人，请先在字典管理中维护'
+    }
+  } catch (error) {
+    issuers.value = []
+    issuerError.value = errorText(error, '证书签发人字典加载失败')
+  } finally {
+    issuerLoading.value = false
   }
 }
 
@@ -238,10 +271,13 @@ function todayText() {
 }
 
 function showError(error: unknown, fallback: string) {
-  const detail = error instanceof Error ? error.message : fallback
-  const text = detail || fallback
+  const text = errorText(error, fallback)
   message.error(text)
   return text
+}
+
+function errorText(error: unknown, fallback: string) {
+  return error instanceof Error && error.message ? error.message : fallback
 }
 
 onMounted(() => {
@@ -310,11 +346,18 @@ watch(
       :mask-closable="!saving"
     >
       <n-space vertical>
-        <n-input v-model:value="issueForm.issuer" placeholder="签发人" :disabled="saving" />
+        <n-alert v-if="issuerError" type="warning">{{ issuerError }}</n-alert>
+        <n-select
+          v-model:value="issueForm.issuer"
+          :options="issuerOptions"
+          :loading="issuerLoading"
+          :disabled="saving || !issuerReady"
+          placeholder="请选择签发人"
+        />
         <n-input v-model:value="issueForm.issueDate" placeholder="签发日期，如 2026/6/30" :disabled="saving" />
         <n-space justify="end">
           <n-button :disabled="saving" @click="issueVisible = false">取消</n-button>
-          <n-button type="primary" :loading="saving" :disabled="writeBlocked" @click="saveIssue">签发</n-button>
+          <n-button type="primary" :loading="saving" :disabled="writeBlocked || !issuerReady" @click="saveIssue">签发</n-button>
         </n-space>
       </n-space>
     </n-modal>

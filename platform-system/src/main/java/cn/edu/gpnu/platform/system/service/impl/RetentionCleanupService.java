@@ -1,5 +1,6 @@
 package cn.edu.gpnu.platform.system.service.impl;
 
+import cn.edu.gpnu.platform.system.mapper.BackupRecordMapper;
 import cn.edu.gpnu.platform.system.mapper.NotificationMapper;
 import cn.edu.gpnu.platform.system.mapper.SysAuditLogMapper;
 import cn.edu.gpnu.platform.system.service.ParamService;
@@ -10,10 +11,11 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDateTime;
 
 /**
- * Phase 47（P1-9 定时清理）：audit_log / notification 保留期物理清理。
+ * Phase 47（P1-9 定时清理）：audit_log / notification / backup_record 保留期物理清理。
  *
- * <p>两张表都只增不清（audit_log 追加写；notification 长期累积）。本服务按可配置保留窗口
- * （{@link ParamService} 读 sys_param，默认 audit_log 180 天、notification 90 天）分批物理删除过期行。
+ * <p>三张表都属于持续累积的运营记录。本服务按可配置保留窗口
+ * （{@link ParamService} 读 sys_param，默认 audit_log 180 天、notification 90 天、backup_record 30 天）
+ * 分批物理删除过期行。
  * 分批（每条 SQL 带 LIMIT，循环直至删尽或触及 maxBatches 上限）以避免一次大清理长时间锁表。
  * 只删过期运营数据、不碰业务数据。方法可被定时器（{@code CleanupScheduleConfig}）或运维直接调用；
  * 编排与告警由调用方负责，与 {@code DatabaseBackupService} 一样做成无接口的具体服务。
@@ -26,15 +28,18 @@ public class RetentionCleanupService {
     // 参数键（sys_param 可覆盖）与保守默认值
     static final String KEY_AUDIT_RETENTION_DAYS = "cleanup.auditLog.retentionDays";
     static final String KEY_NOTIFICATION_RETENTION_DAYS = "cleanup.notification.retentionDays";
+    static final String KEY_BACKUP_RETENTION_DAYS = "cleanup.backup.retentionDays";
     static final String KEY_BATCH_SIZE = "cleanup.prune.batchSize";
     static final String KEY_MAX_BATCHES = "cleanup.prune.maxBatches";
     static final int DEFAULT_AUDIT_RETENTION_DAYS = 180;
     static final int DEFAULT_NOTIFICATION_RETENTION_DAYS = 90;
+    static final int DEFAULT_BACKUP_RETENTION_DAYS = 30;
     static final int DEFAULT_BATCH_SIZE = 1000;
     static final int DEFAULT_MAX_BATCHES = 500;
 
     private final SysAuditLogMapper sysAuditLogMapper;
     private final NotificationMapper notificationMapper;
+    private final BackupRecordMapper backupRecordMapper;
     private final ParamService paramService;
 
     /** 物理清理过期审计日志（operate_time 早于 now-保留天数）。返回删除总行数。 */
@@ -47,6 +52,15 @@ public class RetentionCleanupService {
     public int pruneNotification() {
         int days = retentionDays(KEY_NOTIFICATION_RETENTION_DAYS, DEFAULT_NOTIFICATION_RETENTION_DAYS);
         return pruneOlderThan("notification", days, notificationMapper::deletePhysicalOlderThan);
+    }
+
+    /**
+     * 物理清理过期终态备份记录（finished_at 早于 now-保留天数）。
+     * 仅删除 backup_record 行；对应 MinIO 产物由备份前缀生命周期独立管理。
+     */
+    public int pruneBackupRecord() {
+        int days = retentionDays(KEY_BACKUP_RETENTION_DAYS, DEFAULT_BACKUP_RETENTION_DAYS);
+        return pruneOlderThan("backup_record", days, backupRecordMapper::deletePhysicalTerminalOlderThan);
     }
 
     private int retentionDays(String key, int defaultDays) {

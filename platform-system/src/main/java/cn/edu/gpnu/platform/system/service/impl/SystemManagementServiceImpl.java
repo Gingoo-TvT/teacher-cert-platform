@@ -42,6 +42,9 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class SystemManagementServiceImpl implements SystemManagementService {
 
+    private static final String BACKUP_RETENTION_DAYS_KEY = "cleanup.backup.retentionDays";
+    private static final long MAX_VIDEO_DURATION_TARGET_SECONDS = 24 * 60 * 60;
+    private static final long MAX_VIDEO_DURATION_TOLERANCE_SECONDS = 60 * 60;
     private static final Set<String> PARAM_GROUPS = Set.of(
             "cert", "video", "file", "review", "validate", "student", "global", "security"
     );
@@ -195,7 +198,12 @@ public class SystemManagementServiceImpl implements SystemManagementService {
         String type = trimToNull(entity.getParamType());
         String normalizedType = type == null ? "string" : type.toLowerCase(Locale.ROOT);
         switch (normalizedType) {
-            case "int", "long" -> parseLong(value, entity.getParamKey());
+            case "int", "long" -> {
+                long number = parseLong(value, entity.getParamKey());
+                if (BACKUP_RETENTION_DAYS_KEY.equals(entity.getParamKey()) && number == 0) {
+                    throw new BizException("备份保留天数必须大于0");
+                }
+            }
             case "bool", "boolean" -> validateBoolean(value, entity.getParamKey());
             case "enum" -> validateEnum(entity.getParamKey(), value);
             case "string" -> {
@@ -206,6 +214,32 @@ public class SystemManagementServiceImpl implements SystemManagementService {
     }
 
     private void validateKnownParam(String key, String value) {
+        if ("video.reviewerCount".equals(key)) {
+            requireRange(key, value, 2, 10, "视频评审教师人数必须为2到10的整数");
+        }
+        if ("video.durationTarget".equals(key)) {
+            requireRange(key, value, 1, MAX_VIDEO_DURATION_TARGET_SECONDS,
+                    "视频目标时长必须为1到86400秒的整数");
+        }
+        if ("video.durationTolerance".equals(key)) {
+            requireRange(key, value, 0, MAX_VIDEO_DURATION_TOLERANCE_SECONDS,
+                    "视频时长容差必须为0到3600秒的整数");
+        }
+        if ("video.passLine".equals(key)) {
+            requireRange(key, value, 0, 100, "视频合格线必须为0到100的整数");
+        }
+        if ("video.diffThreshold".equals(key)) {
+            requireRange(key, value, 0, 100, "视频分差阈值必须为0到100的整数");
+        }
+        if ("cert.school.code".equals(key) && !value.matches("^\\d{5}$")) {
+            throw new BizException("学校代码必须为5位数字");
+        }
+        if ("cert.province.code".equals(key) && !value.matches("^\\d{2}$")) {
+            throw new BizException("省码必须为2位数字");
+        }
+        if (key != null && key.startsWith("file.maxSize.") && parseLong(value, key) == 0) {
+            throw new BizException("文件大小上限必须大于0");
+        }
         if ("cert.seq.scope".equals(key) && !Set.of("SCHOOL_YEAR_SEGMENT", "SCHOOL_YEAR").contains(value)) {
             throw new BizException("证书序列作用域不支持");
         }
@@ -220,6 +254,13 @@ public class SystemManagementServiceImpl implements SystemManagementService {
         }
         if (key != null && key.startsWith("cert.") && key.endsWith(".code") && !value.matches("^\\d+$")) {
             throw new BizException("证书编码参数必须为数字文本");
+        }
+    }
+
+    private void requireRange(String key, String value, long min, long max, String message) {
+        long number = parseLong(value, key);
+        if (number < min || number > max) {
+            throw new BizException(message);
         }
     }
 

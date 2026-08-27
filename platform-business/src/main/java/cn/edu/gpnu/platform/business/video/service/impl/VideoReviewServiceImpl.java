@@ -33,16 +33,17 @@ import cn.edu.gpnu.platform.business.video.support.VideoMediaAcceptancePolicy;
 import cn.edu.gpnu.platform.business.video.support.VideoMediaInspection;
 import cn.edu.gpnu.platform.business.video.support.VideoMediaProbe;
 import cn.edu.gpnu.platform.business.video.support.VideoProbeCapacityGuard;
+import cn.edu.gpnu.platform.business.video.support.VideoReviewSettlement;
 import cn.edu.gpnu.platform.business.video.support.VideoReviewStatus;
+import cn.edu.gpnu.platform.business.video.support.VideoReviewVoMapper;
+import cn.edu.gpnu.platform.business.video.support.VideoUploadComposer;
 import cn.edu.gpnu.platform.business.video.support.VideoUploadStatus;
 import cn.edu.gpnu.platform.business.video.vo.ReviewerCandidateVO;
 import cn.edu.gpnu.platform.business.video.vo.VideoPlaybackVO;
 import cn.edu.gpnu.platform.business.video.vo.VideoReviewTaskVO;
 import cn.edu.gpnu.platform.business.video.vo.VideoReviewVO;
 import cn.edu.gpnu.platform.business.video.vo.VideoUploadInitVO;
-import cn.edu.gpnu.platform.business.video.vo.VideoPresignedPartVO;
 import cn.edu.gpnu.platform.business.video.vo.VideoUploadProgressVO;
-import cn.edu.gpnu.platform.business.video.vo.VideoUploadedPartVO;
 import cn.edu.gpnu.platform.business.support.ReviewNotificationHelper;
 import cn.edu.gpnu.platform.common.api.PageQuery;
 import cn.edu.gpnu.platform.common.api.PageResult;
@@ -70,7 +71,6 @@ import cn.edu.gpnu.platform.system.service.ParamService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.minio.ComposeObjectArgs;
 import io.minio.ComposeSource;
@@ -123,6 +123,8 @@ public class VideoReviewServiceImpl implements VideoReviewService {
     private static final int DEFAULT_PASS_LINE = 60;
     private static final int DEFAULT_DIFF_THRESHOLD = 12;
     private static final int DEFAULT_REVIEWER_COUNT = 2;
+    private static final int MIN_REVIEWER_COUNT = 2;
+    private static final int MAX_REVIEWER_COUNT = 10;
     private static final int DEFAULT_PRESIGN_SECONDS = 300;
     private static final String REVIEW_TEACHER_ROLE = "REVIEW_TEACHER";
 
@@ -224,19 +226,9 @@ public class VideoReviewServiceImpl implements VideoReviewService {
                     existingFile.getMediaValidationPolicyHash(), existingFile.getMediaProbeVersion());
             VideoReview review = transactionTemplate.execute(status -> upsertReviewAfterValidation(
                     student, assessmentYear, existingFile, inspection, true, null));
-            VideoUploadInitVO vo = new VideoUploadInitVO();
-            vo.setUploadId(null);
-            vo.setUploadMode("FAST_HIT");
-            vo.setPartSize(request.getChunkSize());
-            vo.setInstantHit(true);
-            vo.setFileId(existingFile.getId());
-            vo.setReviewId(review == null ? null : review.getId());
-            vo.setUploadedChunks(List.of());
-            vo.setUploadedParts(List.of());
-            vo.setParts(List.of());
-            vo.setStatus(review == null ? null : review.getStatus());
-            vo.setValidationMessage(review == null ? null : review.getValidationMessage());
-            return vo;
+            return VideoUploadComposer.instantHit(request.getChunkSize(), existingFile.getId(),
+                    review == null ? null : review.getId(), review == null ? null : review.getStatus(),
+                    review == null ? null : review.getValidationMessage());
         }
         if (!minioProperties.isDirectUploadEnabled()) {
             VideoUploadSession serverSession;
@@ -697,20 +689,9 @@ public class VideoReviewServiceImpl implements VideoReviewService {
             session.setUploadedChunks(directParts.size());
             session.setUploadedBytes(directParts.stream().mapToLong(MultipartUploadedPart::size).sum());
         }
-        VideoUploadProgressVO vo = new VideoUploadProgressVO();
-        vo.setUploadId(session.getUploadId());
-        vo.setUploadMode(StringUtils.hasText(session.getUploadMode()) ? session.getUploadMode() : SERVER_CHUNK_MODE);
-        vo.setStatus(session.getStatus());
-        vo.setTotalChunks(session.getTotalChunks());
-        vo.setUploadedChunks(session.getUploadedChunks());
-        vo.setUploadedBytes(session.getUploadedBytes());
-        vo.setUploadedChunkIndexes(PRESIGNED_MULTIPART_MODE.equals(session.getUploadMode())
-                ? directParts.stream().map(part -> part.partNumber() - 1).sorted().toList()
-                : uploadedIndexes(uploadId));
-        vo.setUploadedParts(directParts.stream().map(this::toUploadedPartVO).toList());
-        vo.setFileId(session.getFileId());
-        vo.setValidationMessage(session.getValidationMessage());
-        return vo;
+        List<Integer> serverUploadedIndexes = PRESIGNED_MULTIPART_MODE.equals(session.getUploadMode())
+                ? List.of() : uploadedIndexes(uploadId);
+        return VideoUploadComposer.progress(session, directParts, serverUploadedIndexes);
     }
 
     @Override
@@ -724,7 +705,8 @@ public class VideoReviewServiceImpl implements VideoReviewService {
     public List<ReviewerCandidateVO> reviewerCandidates() {
         return reviewerCandidateCollegeIds().stream()
                 .flatMap(collegeId -> userMapper.selectEnabledByRoleAndCollege(REVIEW_TEACHER_ROLE, collegeId).stream())
-                .collect(Collectors.toMap(SysUser::getId, this::toReviewerCandidateVO, (left, right) -> left, LinkedHashMap::new))
+                .collect(Collectors.toMap(SysUser::getId, VideoReviewVoMapper::reviewerCandidate,
+                        (left, right) -> left, LinkedHashMap::new))
                 .values()
                 .stream()
                 .toList();
@@ -747,18 +729,52 @@ public class VideoReviewServiceImpl implements VideoReviewService {
         if (status != VideoReviewStatus.WAIT_REVIEW && status != VideoReviewStatus.REVIEWING) {
             throw new BizException("当前状态不可分配评审教师");
         }
-        int expected = paramService.getInt("video.reviewerCount", DEFAULT_REVIEWER_COUNT);
+        int expected = frozenReviewerCount(review);
         List<Long> reviewerIds = resolveAssignReviewerIds(request, review);
         if (reviewerIds.size() != expected) {
-            throw new BizException("评审教师人数需等于系统参数 video.reviewerCount");
+            throw new BizException("评审教师人数需等于本轮冻结人数（" + expected + "人）");
+        }
+        List<VideoReviewTask> currentTasks = activeReviewerTasksForUpdate(review.getId());
+        Set<Long> currentReviewerIds = currentTasks.stream()
+                .map(VideoReviewTask::getReviewerId)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        Set<Long> targetReviewerIds = new LinkedHashSet<>(reviewerIds);
+        boolean assignmentChanged = !currentReviewerIds.equals(targetReviewerIds);
+        Set<Long> submittedReviewerIds = currentTasks.stream()
+                .filter(this::isSubmitted)
+                .map(VideoReviewTask::getReviewerId)
+                .collect(Collectors.toSet());
+        if (assignmentChanged && !targetReviewerIds.containsAll(submittedReviewerIds)) {
+            throw new BizException("已有评审成绩，不可移除或替换已提交评审教师");
+        }
+
+        // 已提交任务是历史业务事实，即使教师之后停用或离职也必须保留；
+        // 仍待提交及新加入的教师要按当前资格校验，避免把未完成任务留给失效账号。
+        Map<Long, SysUser> reviewers = reviewerIds.stream()
+                .filter(reviewerId -> !submittedReviewerIds.contains(reviewerId))
+                .map(reviewerId -> requireReviewerForReview(reviewerId, review.getCollegeId()))
+                .collect(Collectors.toMap(SysUser::getId, reviewer -> reviewer,
+                        (left, right) -> left, LinkedHashMap::new));
+        if (assignmentChanged) {
+            for (VideoReviewTask task : currentTasks) {
+                if (!targetReviewerIds.contains(task.getReviewerId())
+                        && taskMapper.deleteById(task.getId()) != 1) {
+                    throw new BizException("评审任务已被其他操作更新，请刷新后重试");
+                }
+            }
         }
         for (Long reviewerId : reviewerIds) {
-            SysUser reviewer = requireReviewerForReview(reviewerId, review.getCollegeId());
-            VideoReviewTask existing = taskMapper.selectOne(new LambdaQueryWrapper<VideoReviewTask>()
-                    .eq(VideoReviewTask::getVideoReviewId, review.getId())
-                    .eq(VideoReviewTask::getReviewerId, reviewerId)
-                    .last("LIMIT 1"));
-            if (existing == null) {
+            if (!currentReviewerIds.contains(reviewerId)) {
+                VideoReviewTask deletedTask = taskMapper.selectDeletedReviewerTaskForUpdate(
+                        review.getId(), reviewerId);
+                if (deletedTask != null) {
+                    if (taskMapper.restoreReviewerTask(deletedTask.getId(), review.getStudentId(),
+                            review.getCollegeId(), UserContext.getUserIdOrSystem(), LocalDateTime.now()) != 1) {
+                        throw new BizException("评审任务已被其他操作更新，请刷新后重试");
+                    }
+                    continue;
+                }
+                SysUser reviewer = reviewers.get(reviewerId);
                 VideoReviewTask task = new VideoReviewTask();
                 task.setVideoReviewId(review.getId());
                 task.setStudentId(review.getStudentId());
@@ -771,6 +787,12 @@ public class VideoReviewServiceImpl implements VideoReviewService {
         }
         review.setStatus(VideoReviewStatus.REVIEWING.name());
         reviewMapper.updateById(review);
+        String settlementOldStatus = review.getStatus();
+        settleIfReady(review);
+        if (!settlementOldStatus.equals(review.getStatus())) {
+            auditLogService.record("video", review.getId(), videoTarget(review), "settle",
+                    settlementOldStatus, review.getStatus(), "指派后自动结算");
+        }
         notificationHelper.notifyVideoAssigned(reviewerIds, review.getStudentId(), "video_review", review.getId());
     }
 
@@ -817,7 +839,9 @@ public class VideoReviewServiceImpl implements VideoReviewService {
         fillScore(task, request);
         task.setSubmitted(1);
         task.setSubmitTime(LocalDateTime.now());
-        taskMapper.updateById(task);
+        if (taskMapper.updateById(task) != 1) {
+            throw new BizException("评审任务已被改派，请刷新后重试");
+        }
         settleIfReady(review);
         if (!oldStatus.equals(review.getStatus())) {
             auditLogService.record("video", review.getId(), videoTarget(review), "settle",
@@ -1138,60 +1162,16 @@ public class VideoReviewServiceImpl implements VideoReviewService {
     }
 
     private VideoUploadInitVO toUploadInitVO(VideoUploadSession session, MultipartUploadPlan uploadPlan) {
-        VideoUploadInitVO vo = new VideoUploadInitVO();
-        vo.setUploadId(session.getUploadId());
-        vo.setUploadMode(StringUtils.hasText(session.getUploadMode()) ? session.getUploadMode() : SERVER_CHUNK_MODE);
-        vo.setPartSize(session.getChunkSize());
-        vo.setInstantHit(false);
-        vo.setStatus(session.getStatus());
-        vo.setValidationMessage(session.getValidationMessage());
-        vo.setFileId(session.getFileId());
         if (uploadPlan == null) {
-            vo.setUploadedChunks(uploadedIndexes(session.getUploadId()));
-            vo.setUploadedParts(List.of());
-            vo.setParts(List.of());
-            return vo;
+            return VideoUploadComposer.serverInit(session, uploadedIndexes(session.getUploadId()));
         }
-        vo.setUploadedChunks(uploadPlan.uploadedParts().stream()
-                .map(part -> part.partNumber() - 1)
-                .sorted()
-                .toList());
-        vo.setUploadedParts(uploadPlan.uploadedParts().stream().map(this::toUploadedPartVO).toList());
-        vo.setParts(uploadPlan.parts().stream().map(part -> {
-            VideoPresignedPartVO item = new VideoPresignedPartVO();
-            item.setPartNumber(part.partNumber());
-            item.setUrl(part.url());
-            item.setExpiresAt(part.expiresAt());
-            return item;
-        }).toList());
-        return vo;
+        return VideoUploadComposer.directInit(session, uploadPlan);
     }
 
     private VideoUploadInitVO toMergingUploadInitVO(VideoUploadSession session) {
         List<MultipartUploadedPart> verifiedParts = directPartsFromDatabase(session.getUploadId());
         validateDirectParts(session, verifiedParts);
-        VideoUploadInitVO vo = new VideoUploadInitVO();
-        vo.setUploadId(session.getUploadId());
-        vo.setUploadMode(PRESIGNED_MULTIPART_MODE);
-        vo.setPartSize(session.getChunkSize());
-        vo.setInstantHit(false);
-        vo.setFileId(session.getFileId());
-        vo.setUploadedChunks(verifiedParts.stream()
-                .map(part -> part.partNumber() - 1)
-                .toList());
-        vo.setUploadedParts(verifiedParts.stream().map(this::toUploadedPartVO).toList());
-        vo.setParts(List.of());
-        vo.setStatus(session.getStatus());
-        vo.setValidationMessage(session.getValidationMessage());
-        return vo;
-    }
-
-    private VideoUploadedPartVO toUploadedPartVO(MultipartUploadedPart part) {
-        VideoUploadedPartVO vo = new VideoUploadedPartVO();
-        vo.setPartNumber(part.partNumber());
-        vo.setEtag(part.eTag());
-        vo.setSize(part.size());
-        return vo;
+        return VideoUploadComposer.mergingInit(session, verifiedParts);
     }
 
     private VideoReviewVO finalizeDirectUpload(String uploadId, Student student,
@@ -1287,49 +1267,11 @@ public class VideoReviewServiceImpl implements VideoReviewService {
 
     private List<MultipartUploadedPart> verifyClientParts(List<MultipartCompletedPartRequest> requestedParts,
                                                           List<MultipartUploadedPart> storedParts) {
-        Map<Integer, MultipartUploadedPart> stored = storedParts.stream().collect(Collectors.toMap(
-                MultipartUploadedPart::partNumber, part -> part, (left, right) -> left, LinkedHashMap::new));
-        if (requestedParts == null || requestedParts.size() != stored.size()) {
-            throw new BizException("上传分片数量不一致");
-        }
-        Map<Integer, MultipartUploadedPart> verified = new LinkedHashMap<>();
-        for (MultipartCompletedPartRequest requested : requestedParts) {
-            if (requested == null || requested.getPartNumber() == null
-                    || verified.containsKey(requested.getPartNumber())) {
-                throw new BizException("上传分片序号重复或为空");
-            }
-            MultipartUploadedPart storedPart = stored.get(requested.getPartNumber());
-            if (storedPart == null || !normalizeETag(storedPart.eTag()).equals(normalizeETag(requested.getEtag()))) {
-                throw new BizException("上传分片ETag校验失败");
-            }
-            verified.put(requested.getPartNumber(), storedPart);
-        }
-        return verified.values().stream()
-                .sorted(Comparator.comparingInt(MultipartUploadedPart::partNumber))
-                .toList();
+        return VideoUploadComposer.verifyClientParts(requestedParts, storedParts);
     }
 
     private void validateDirectParts(VideoUploadSession session, List<MultipartUploadedPart> parts) {
-        if (parts.size() != session.getTotalChunks()) {
-            throw new BizException("分片尚未全部上传");
-        }
-        long totalSize = 0L;
-        for (int index = 0; index < parts.size(); index++) {
-            MultipartUploadedPart part = parts.get(index);
-            if (part.partNumber() != index + 1) {
-                throw new BizException("上传分片序号必须连续");
-            }
-            long expectedSize = index == parts.size() - 1
-                    ? session.getFileSize() - session.getChunkSize() * index
-                    : session.getChunkSize();
-            if (part.size() != expectedSize) {
-                throw new BizException("上传分片大小不符合会话约束");
-            }
-            totalSize += part.size();
-        }
-        if (totalSize != session.getFileSize()) {
-            throw new BizException("上传对象总大小不一致");
-        }
+        VideoUploadComposer.validateDirectParts(session, parts);
     }
 
     private void validateCompletedVideoObject(VideoUploadSession session, MultipartObjectInfo objectInfo) {
@@ -1411,17 +1353,6 @@ public class VideoReviewServiceImpl implements VideoReviewService {
             throw new BizException("视频对象Key不合法");
         }
         return objectKey;
-    }
-
-    private String normalizeETag(String eTag) {
-        if (!StringUtils.hasText(eTag)) {
-            return "";
-        }
-        String value = eTag.trim();
-        if (value.startsWith("\"") && value.endsWith("\"") && value.length() >= 2) {
-            value = value.substring(1, value.length() - 1);
-        }
-        return value.toLowerCase(Locale.ROOT);
     }
 
     private int totalParts(long fileSize, long partSize) {
@@ -1570,6 +1501,7 @@ public class VideoReviewServiceImpl implements VideoReviewService {
             review.setStudentId(student.getId());
             review.setCollegeId(student.getCollegeId());
             review.setAssessmentYear(requiredTrim(year, "考核年度不能为空"));
+            review.setReviewerCount(configuredReviewerCount());
         } else {
             VideoReviewStatus oldStatus = VideoReviewStatus.of(review.getStatus());
             ensureReuploadable(review);
@@ -1829,16 +1761,7 @@ public class VideoReviewServiceImpl implements VideoReviewService {
      * 不受 5MiB 下限约束，故此处仅校验「非末片」分片的大小。
      */
     private boolean canServerSideCompose(List<VideoUploadChunk> sortedChunks) {
-        if (sortedChunks.size() < 2) {
-            return false;
-        }
-        for (int i = 0; i < sortedChunks.size() - 1; i++) {
-            Long size = sortedChunks.get(i).getChunkSize();
-            if (size == null || size < MIN_COMPOSE_PART_SIZE) {
-                return false;
-            }
-        }
-        return true;
+        return VideoUploadComposer.canServerSideCompose(sortedChunks, MIN_COMPOSE_PART_SIZE);
     }
 
     private void requireServerChunkSources(List<VideoUploadChunk> chunks) {
@@ -1980,30 +1903,37 @@ public class VideoReviewServiceImpl implements VideoReviewService {
                 .set(VideoUploadSession::getUploadedBytes, bytes));
     }
 
+    /** 当前有效的普通评审任务；MP 自动附加 deleted=0，锁与 review 行锁处于同一事务。 */
+    private List<VideoReviewTask> activeReviewerTasksForUpdate(Long reviewId) {
+        return taskMapper.selectList(new LambdaQueryWrapper<VideoReviewTask>()
+                .eq(VideoReviewTask::getVideoReviewId, reviewId)
+                .eq(VideoReviewTask::getReviewerRole, "REVIEWER")
+                .last("FOR UPDATE"));
+    }
+
+    private boolean isSubmitted(VideoReviewTask task) {
+        return Integer.valueOf(1).equals(task.getSubmitted());
+    }
+
     private void settleIfReady(VideoReview review) {
-        int expected = paramService.getInt("video.reviewerCount", DEFAULT_REVIEWER_COUNT);
+        int expected = frozenReviewerCount(review);
         // 锁定读（FOR UPDATE）计票：绕过本事务 REPEATABLE_READ 快照、读最新已提交行——配合 submitScore 对 review 行的
         // 行锁串行化，保证后提交的事务能看到先提交事务已落库的评审任务，实现「末分提交恰一次结算、不卡 REVIEWING」。
         // FOR UPDATE 必须是 SQL 的最后一段（MP 的 .last 会紧跟 WHERE、排在 ORDER BY 之前），故不在 wrapper 里加
         // ORDER BY，改在 Java 侧按 submit_time 升序（等价于原 ORDER BY，submitted=1 的任务 submit_time 恒非空）。
-        List<VideoReviewTask> submitted = taskMapper.selectList(new LambdaQueryWrapper<VideoReviewTask>()
-                .eq(VideoReviewTask::getVideoReviewId, review.getId())
-                .eq(VideoReviewTask::getReviewerRole, "REVIEWER")
-                .eq(VideoReviewTask::getSubmitted, 1)
-                .last("FOR UPDATE"));
-        if (submitted.size() < expected) {
+        List<VideoReviewTask> currentTasks = activeReviewerTasksForUpdate(review.getId());
+        if (currentTasks.size() != expected || currentTasks.stream().anyMatch(task -> !isSubmitted(task))) {
             return;
         }
-        List<VideoReviewTask> initialReviews = submitted.stream()
+        List<VideoReviewTask> initialReviews = currentTasks.stream()
                 .sorted(Comparator.comparing(VideoReviewTask::getSubmitTime))
-                .limit(expected)
                 .toList();
         int threshold = paramService.getInt("video.diffThreshold", DEFAULT_DIFF_THRESHOLD);
-        if (allPairDiffWithin(initialReviews, threshold) && sameConclusion(initialReviews)) {
-            int sum = initialReviews.stream().map(VideoReviewTask::getScore).mapToInt(Integer::intValue).sum();
-            int finalScore = Math.round(sum / (float) initialReviews.size());
-            review.setFinalScore(finalScore);
-            review.setFinalConclusion(conclusionByScore(finalScore));
+        VideoReviewSettlement.InitialResult settlement =
+                VideoReviewSettlement.settleInitial(initialReviews, threshold);
+        if (settlement.completed()) {
+            review.setFinalScore(settlement.finalScore());
+            review.setFinalConclusion(conclusionByScore(settlement.finalScore()));
             review.setStatus(VideoReviewStatus.REVIEW_COMPLETED.name());
             review.setLocked(1);
         } else {
@@ -2019,18 +1949,27 @@ public class VideoReviewServiceImpl implements VideoReviewService {
     }
 
     private void settleThirdExpert(VideoReview review) {
-        List<VideoReviewTask> submitted = taskMapper.selectList(new LambdaQueryWrapper<VideoReviewTask>()
+        int expected = frozenReviewerCount(review);
+        List<VideoReviewTask> initialReviews = activeReviewerTasksForUpdate(review.getId());
+        if (initialReviews.size() != expected
+                || initialReviews.stream().anyMatch(task -> !isSubmitted(task))) {
+            throw new BizException("当前有效评审任务与本轮冻结人数不一致");
+        }
+        List<VideoReviewTask> thirdExperts = taskMapper.selectList(new LambdaQueryWrapper<VideoReviewTask>()
                 .eq(VideoReviewTask::getVideoReviewId, review.getId())
+                .eq(VideoReviewTask::getReviewerRole, "THIRD_EXPERT")
                 .eq(VideoReviewTask::getSubmitted, 1));
-        if (submitted.size() < 3) {
+        if (thirdExperts.size() != 1) {
             throw new BizException("第三专家评分不足");
         }
-        Pair best = bestPair(submitted);
-        int finalScore = Math.round((best.left().getScore() + best.right().getScore()) / 2.0f);
+        List<VideoReviewTask> submitted = new ArrayList<>(initialReviews);
+        submitted.add(thirdExperts.get(0));
+        VideoReviewSettlement.ThirdExpertResult settlement =
+                VideoReviewSettlement.settleThirdExpert(submitted);
         review.setArbitrateMode("thirdExpert");
-        review.setArbitrateReviewer(best.thirdExpertId());
-        review.setFinalScore(finalScore);
-        review.setFinalConclusion(conclusionByScore(finalScore));
+        review.setArbitrateReviewer(settlement.thirdExpertId());
+        review.setFinalScore(settlement.finalScore());
+        review.setFinalConclusion(conclusionByScore(settlement.finalScore()));
         review.setStatus(VideoReviewStatus.REVIEW_COMPLETED.name());
         review.setLocked(1);
         // 原子条件更新：仅当仍为 NEED_REVIEW 时写入，防并发/重复复评（37b 同款守卫）。两并发 thirdReview
@@ -2043,53 +1982,11 @@ public class VideoReviewServiceImpl implements VideoReviewService {
         }
     }
 
-    private Pair bestPair(List<VideoReviewTask> tasks) {
-        Pair best = null;
-        for (int i = 0; i < tasks.size(); i++) {
-            for (int j = i + 1; j < tasks.size(); j++) {
-                VideoReviewTask left = tasks.get(i);
-                VideoReviewTask right = tasks.get(j);
-                int diff = Math.abs(left.getScore() - right.getScore());
-                if (best == null || diff < best.diff()) {
-                    Long third = tasks.stream()
-                            .filter(task -> "THIRD_EXPERT".equals(task.getReviewerRole()))
-                            .map(VideoReviewTask::getReviewerId)
-                            .findFirst()
-                            .orElse(right.getReviewerId());
-                    best = new Pair(left, right, diff, third);
-                }
-            }
-        }
-        if (best == null) {
-            throw new BizException("复评分数不足");
-        }
-        return best;
-    }
-
-    private boolean allPairDiffWithin(List<VideoReviewTask> tasks, int threshold) {
-        for (int i = 0; i < tasks.size(); i++) {
-            for (int j = i + 1; j < tasks.size(); j++) {
-                if (Math.abs(tasks.get(i).getScore() - tasks.get(j).getScore()) > threshold) {
-                    return false;
-                }
-            }
-        }
-        return true;
-    }
-
-    private boolean sameConclusion(List<VideoReviewTask> tasks) {
-        if (tasks.isEmpty()) {
-            return false;
-        }
-        String first = normalizeConclusion(tasks.get(0).getConclusion());
-        return tasks.stream().allMatch(task -> first.equals(normalizeConclusion(task.getConclusion())));
-    }
-
     private void fillScore(VideoReviewTask task, VideoScoreRequest request) {
         task.setScore(request.getScore());
         task.setDimensionScoresJson(writeDimensions(validateDimensions(request.getDimensionScores())));
         task.setComment(trimToNull(request.getComment()));
-        task.setConclusion(normalizeConclusion(request.getConclusion()));
+        task.setConclusion(VideoReviewSettlement.normalizeConclusion(request.getConclusion()));
     }
 
     private Map<String, Integer> validateDimensions(Map<String, Integer> scores) {
@@ -2135,28 +2032,25 @@ public class VideoReviewServiceImpl implements VideoReviewService {
         }
     }
 
-    private Map<String, Integer> readDimensions(String json) {
-        if (!StringUtils.hasText(json)) {
-            return Map.of();
-        }
-        try {
-            return objectMapper.readValue(json, new TypeReference<Map<String, Integer>>() {
-            });
-        } catch (Exception e) {
-            return Map.of();
-        }
-    }
-
     private String conclusionByScore(int score) {
         return score >= paramService.getInt("video.passLine", DEFAULT_PASS_LINE) ? "PASS" : "FAIL";
     }
 
-    private String normalizeConclusion(String conclusion) {
-        String value = requiredTrim(conclusion, "结论不能为空").toUpperCase(Locale.ROOT);
-        if (!"PASS".equals(value) && !"FAIL".equals(value)) {
-            throw new BizException("结论仅支持 PASS/FAIL");
+    private int configuredReviewerCount() {
+        int count = paramService.getInt("video.reviewerCount", DEFAULT_REVIEWER_COUNT);
+        if (count < MIN_REVIEWER_COUNT || count > MAX_REVIEWER_COUNT) {
+            throw new BizException("系统参数 video.reviewerCount 必须为2到10的整数");
         }
-        return value;
+        return count;
+    }
+
+    private int frozenReviewerCount(VideoReview review) {
+        Integer count = review.getReviewerCount();
+        // 新评审仍由 configuredReviewerCount() 限制为 2..10；历史记录必须保留升级前的实际任务人数。
+        if (count == null || count < MIN_REVIEWER_COUNT) {
+            throw new BizException("视频评审冻结人数无效，请联系管理员处理");
+        }
+        return count;
     }
 
     private LambdaQueryWrapper<VideoReview> buildListWrapper(VideoQuery query) {
@@ -2229,34 +2123,10 @@ public class VideoReviewServiceImpl implements VideoReviewService {
     }
 
     private VideoReviewVO toVO(VideoReview entity, Student student, List<VideoReviewTask> tasks, Map<Long, SysUser> reviewers) {
-        VideoReviewVO vo = new VideoReviewVO();
-        vo.setId(entity.getId());
-        vo.setStudentId(entity.getStudentId());
-        vo.setStudentNo(student == null ? null : student.getStudentNo());
-        vo.setStudentName(student == null ? null : student.getName());
-        vo.setCollegeId(entity.getCollegeId());
-        vo.setAssessmentYear(entity.getAssessmentYear());
-        vo.setVideoFileId(entity.getVideoFileId());
-        vo.setVideoFileName(entity.getVideoFileName());
-        vo.setDurationSeconds(entity.getDurationSeconds());
-        vo.setFormatCheck(entity.getFormatCheck());
-        vo.setValidationMessage(entity.getValidationMessage());
-        vo.setStatus(entity.getStatus());
-        vo.setStatusLabel(VideoReviewStatus.of(entity.getStatus()).label());
-        vo.setFinalScore(entity.getFinalScore());
-        vo.setFinalConclusion(entity.getFinalConclusion());
-        vo.setArbitrateReviewer(entity.getArbitrateReviewer());
-        vo.setArbitrateMode(entity.getArbitrateMode());
-        vo.setConfirmedBy(entity.getConfirmedBy());
-        vo.setConfirmedAt(entity.getConfirmedAt());
-        vo.setLocked(entity.getLocked());
         boolean managementView = canViewSubmittedTasks(entity);
         Long currentUserId = UserContext.getUserId();
-        vo.setTasks(tasks.stream()
-                .filter(task -> managementView || (currentUserId != null && currentUserId.equals(task.getReviewerId())))
-                .map(task -> toTaskVO(task, managementView, reviewers.get(task.getReviewerId())))
-                .toList());
-        return vo;
+        return VideoReviewVoMapper.review(entity, student, tasks, reviewers,
+                managementView, currentUserId, objectMapper);
     }
 
     private record VerifiedInstantHit(FileObject file, Integer durationSeconds) {
@@ -2281,31 +2151,8 @@ public class VideoReviewServiceImpl implements VideoReviewService {
     }
 
     private VideoReviewTaskVO toTaskVO(VideoReviewTask task, boolean revealScore, SysUser reviewer) {
-        boolean owner = UserContext.getUserId() != null && UserContext.getUserId().equals(task.getReviewerId());
-        boolean reveal = revealScore || owner;
-        VideoReviewTaskVO vo = new VideoReviewTaskVO();
-        vo.setId(task.getId());
-        vo.setVideoReviewId(task.getVideoReviewId());
-        vo.setReviewerId(task.getReviewerId());
-        vo.setReviewerName(reviewer == null ? null : reviewer.getRealName());
-        vo.setReviewerRole(task.getReviewerRole());
-        vo.setSubmitted(task.getSubmitted());
-        vo.setSubmitTime(task.getSubmitTime());
-        if (reveal) {
-            vo.setScore(task.getScore());
-            vo.setDimensionScores(readDimensions(task.getDimensionScoresJson()));
-            vo.setComment(task.getComment());
-            vo.setConclusion(task.getConclusion());
-        }
-        return vo;
-    }
-
-    private ReviewerCandidateVO toReviewerCandidateVO(SysUser user) {
-        ReviewerCandidateVO vo = new ReviewerCandidateVO();
-        vo.setId(user.getId());
-        vo.setRealName(user.getRealName());
-        vo.setWorkNo(user.getWorkNo());
-        return vo;
+        return VideoReviewVoMapper.task(task, revealScore, reviewer,
+                UserContext.getUserId(), objectMapper);
     }
 
     private void ensurePlayable(VideoReview review) {
@@ -2612,6 +2459,4 @@ public class VideoReviewServiceImpl implements VideoReviewService {
         return StringUtils.hasText(value) ? value.trim() : null;
     }
 
-    private record Pair(VideoReviewTask left, VideoReviewTask right, int diff, Long thirdExpertId) {
-    }
 }

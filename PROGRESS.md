@@ -5,14 +5,37 @@
 > 任务明细见 `tasks.md`，验收见 `docs/phase-NN-*.md`。每次状态变更同时更新下方"阶段汇总"与"AT 跟踪"。
 
 ## 当前焦点
-- 当前唯一阶段：`WS-8` `[~]` **LOCAL_REMEDIATION_R3_READY / HOSTED_WHOLE_WORKFLOW_PENDING**，分支
-  `feature/ws08-idcard-encryption`。R2 fingerprint `09ee0c39...42ba` 的 Hosted run `31661893931` 已关闭原
-  profile Medium：六 suite **46/46**、0 failure/error/skip，仅构成 WS-8 scoped PASS。最新正式报告
-  `C:\Users\wenbibuhaoqwq\Documents\脚本\ws08-hosted-independent-rereview-20260813-09ee0c39-run31661893931\review.md`
-  （SHA-256 `CEAF031A...F4D0B4`）裁定 **CHANGES_REQUESTED（0 Critical / 0 High / 1 Medium / 1 Low）**；唯一
-  Medium 是过期 WS-7 当前态合同导致 workflow 红灯并跳过 WS-8 V33 静态合同及最终镜像/SBOM。R3 已把该合同
-  收敛为有界历史证据与篡改反例；Low 的外部证据根清单已补为 17/17。待新候选整体绿灯 Hosted workflow 与独立
-  阶段 PASS；不扩展到 WS-9，也不运行 cyber/攻击性检查。
+- 当前唯一阶段：`SECOND-RELEASE-PREPARATION / U-005` `[~]`。第一次稳定部署 `dfdfb91` 保持运行基线。
+  R4 fingerprint `0ee662b7276ff1889c50b0b65c37339d919f3da5c63f6da5561dc77d1f355ed9` 已取得正式
+  `INDEPENDENT_INCREMENTAL_PASS（0C/0H/0M/0L）`；manifest SHA-256
+  `47b476d6cfbfe5cd2e537205b13447b3c8997e84f108499ac72c0489422017bf`，报告 SHA-256
+  `37cdbbdacef8a1940ea8d57e03828c21bdd8f6118a6affd5d321b0bbf2bbc32d`。R3 唯一 Medium 已关闭，但该 PASS 只覆盖
+  R4 源码增量；U-005 仍为 `DYNAMIC_RELEASE_EVIDENCE_PENDING`，不 push、merge、停服、迁移、启动或切流。
+- 最终功能完整性 R5 fingerprint
+  `e98305d4eaf04e0594ee6073b7c30364bcfc172529a4501155f986745d2079a0` 已取得正式
+  `INDEPENDENT_INCREMENTAL_PASS（0C/0H/0M/0L）`；manifest SHA-256
+  `bc88d67e5f77d9dcb7eb5bafc3581b4a2f299487ca652d3ea40de67710213398`，报告 SHA-256
+  `4a1cf921f6b5f8678d0589a958ea5c2953aae8ecd50fba4d7139624a8851c5eb`。该 PASS 只关闭功能范围，
+  不等于项目发布 GO。
+- 本地门禁：后端 **68 suites / 447 tests**、九模块 package 全绿；视频指派聚焦 **10/10**；候选工具 **6/6**、
+  WS-7、WS-8/V33 与 diff check 均 PASS。Phase 7、Phase 9 与 V35 真实依赖场景已编译；本机只有共享 `*-prod`
+  MySQL/Redis/MinIO，未连接或写入，留一次性隔离环境独立执行。
+- R2 将 Phase 44 查询固定到已 inspect MySQL 完整 container ID 的一次性网络命名空间客户端，并精确比较授权
+  `server_uuid`；Redis 使用可离线解析的本地 tag 并核对 image ID；首版 `dfdfb91` 原 Compose/CPU overlay/init
+  已逐字节归档，升级通过 external-volume overlay 复用预检四卷。R3 进一步以宿主 UID/GID 和专用 `HOME` 生成
+  operator-owned login-path，并将单路径入口合同收紧为精确维护 marker 或显式授权的 connection refusal。
+  R4 固定同时探测正式根路径和同源 `/api/health`；任一路径返回业务 200、普通 503、DNS/TLS/超时都失败关闭，
+  并已独立增量 PASS。PASS 后治理同步产生的新字节必须冻结为新的 release-prep manifest；后续动态证据、carrier
+  与 Hosted 必须绑定该同一新候选，旧 Hosted 结果不得复用。
+- clean-store 五镜像 `load → --pull never`、迁移 backend healthy 时公开入口仍关闭、V32 新栈迁移前失败后
+  `dfdfb91` 五服务恢复、V32→V35/Phase 41/Phase 00/Phase 47、正式 TLS/MinIO gateway、目标身份与恢复点仍须
+  独立环境执行。可选 WS-15 不作为前置；项目仍为 `NO-GO`。
+- WS-14 R2 manifest fingerprint `4a1674636fc69fe1305003b0bdedbae8ee9df69ce627455b06073b6e9c69cb80`
+  已现场 verify；正式报告 SHA-256 `8ade2dd7...86be61`，裁定
+  `INDEPENDENT_INCREMENTAL_PASS（0C/0H/0M/1L）`，首轮两项 Medium 均 CLOSED。唯一 Low 为历史 XML 混入
+  测试总数，正确口径是九模块 **66 suites / 421 tests**、聚焦 **27/27**，已勘误且不阻断功能 PASS。
+- `Phase00ParameterMatrixIT` / `Phase47CleanupIT` 未在本轮隔离依赖执行，按正式报告保留为稳定发布前证据；这不改写
+  WS-14 或 R5 功能结论，也不等于项目 GO。
 - `WS-7` 最终候选 fingerprint
   `d5ea9863739de05449d8b2d2110a1075b121aa8745bd824c53f6e45359ce9e24` 已取得
   **INDEPENDENT_STAGE_PASS（0 Critical / 0 High / 0 Medium / 1 Low）**。正式报告
@@ -174,11 +197,11 @@
   本地缓存 Low 保留到确认多实例需求后。
 - 线上边界：用户已部署的稳定版本 `dfdfb91` 冻结；本地整改期间不连接服务器、不操作线上容器、
   镜像 tag、数据卷或数据，不部署、不切流。
-- 最近更新：2026-08-13。第一轮整改复核确认本地加密/生产护栏 **18/18**、V33 真 MySQL **3/3** 及发布合同
-  成立，但 Hosted 六-suite 门禁因缺 profile fail-closed。R2 只补 step-local `dev` profile，workflow YAML 与 diff
-  check 已通过；Hosted artifact 尚待同候选运行生成。
-- 下一步：重冻 R2 候选，触发 Hosted backend job，下载核对六份 XML 与 `test-summary.json`；随后只增量重核
-  剩余 1 Medium。独立 PASS 前不进入 WS-9，不 merge 产品主线、不 deploy 或切流。
+- 最近更新：2026-08-22。最终功能完整性 R5 已正式独立增量 PASS；第二次部署 R2 正式退回 2 Medium，
+  R3 最小整改已本地完成，`dfdfb91` 稳定五服务未被修改。
+- 下一步：冻结并 verify 仓库外 R3 release-prep manifest，先交用户按两项原失败条件做独立增量复核；
+  复核认可静态整改后再物化同字节 carrier、跑全新 Hosted 与隔离动态门禁。不 merge、不 deploy 或切流，
+  项目继续 `NO-GO`。
 
 ## 审计整改工作流
 | WS | 内容 | 状态 |
@@ -201,7 +224,14 @@
 | WS-5/STAGE | T1–T3 统一阶段候选 | `[x]` **INDEPENDENT_SCOPED_PASS**；T1–T3 范围内 0 open finding，不构成项目 GO |
 | WS-6/STAGE | 前端 unit、E2E、a11y 与 CI 门禁 | `[x]` **INDEPENDENT_SCOPED_PASS**；第二轮 fingerprint `f5d63378...8607` 为 0 Critical / 0 High / 0 Medium / 0 Low，multipart Medium 正式关闭；不等于项目 GO |
 | WS-7/STAGE | 容器/CI 供应链硬化 | `[x]` **INDEPENDENT_STAGE_PASS**；fingerprint `d5ea9863...9e24`，Hosted run `31507732334` 4/4，双 SPDX/身份/校验和/artifact 闭环；唯一 Low 的临时 remote 已后续清除；不等于项目 GO |
-| WS-8/STAGE | 身份证号应用层加密 + HMAC 唯一键 | `[~]` **LOCAL_REMEDIATION_R3_READY / HOSTED_WHOLE_WORKFLOW_PENDING**；R2 Hosted 六-suite 46/46 scoped PASS，最新正式结论 0C/0H/1M/1L；过期 WS-7 当前态合同已最小整改、证据清单 Low 已关闭，待新候选整体绿灯与独立阶段 PASS，WS-9 不启动 |
+| WS-8/FUNCTIONAL | 身份证号应用层加密 + HMAC 唯一键 | `[x]` **INDEPENDENT_FUNCTIONAL_PASS**；R6 `7e077df1...f5c74b` 三项历史 finding 全部 CLOSED，0 open finding，本地 49/49 + 29/29；Hosted 仅作发布附加证据，不阻塞后续开发 |
+| WS-9 | 拆分 `ExchangeServiceImpl` / `VideoReviewServiceImpl` | `[x]` **INDEPENDENT_INCREMENTAL_PASS**；fingerprint `df1f1950...b2f45`，原唯一 Medium `WS9-INT-M1` CLOSED；Surefire 400/400、真实 Phase 7/10/14/39 87/87，0 open finding |
+| WS-11 | health liveness/readiness + 指标 | `[x]` **INDEPENDENT_INCREMENTAL_PASS**；R2 fingerprint `85606aed...9161f`，首轮三项 Medium 全部 CLOSED，0 open finding；不等于项目 GO |
+| WS-12 | 前端 bundle 拆分与体积预算 | `[x]` **INDEPENDENT_INCREMENTAL_PASS**；整改 fingerprint `1c8b8821...0ae7b`，上一轮唯一 Medium CLOSED，0 open finding；不等于项目 GO |
+| WS-14 | 备份生命周期与记录归档 | `[x]` **INDEPENDENT_INCREMENTAL_PASS（0C/0H/0M/1L）**；R2 `4a167463...9cb80`，首轮 2 Medium CLOSED；正确口径 Surefire 66 suites / 421 tests、focused 27/27；隔离 Phase00/Phase47 IT 留稳定发布前证据 |
+| WS-15 | 可选审计异步重试 | `[ ]` **DEFERRED_OPTIONAL**；现有同步审计可接受，不作为功能完整性前置，不为纯优化增加复杂度 |
+| FINAL-FUNCTIONAL | 当前候选功能完整性复核 | `[x]` **R5 INDEPENDENT_INCREMENTAL_PASS（0C/0H/0M/0L）**；fingerprint `e98305d4...079a0`，R4 唯一 Medium CLOSED；只关闭功能范围，不等于项目发布 GO |
+| U-005 | 第二次部署发布准备 | `[~]` R4 `0ee662b7...355ed9` 已正式 `INDEPENDENT_INCREMENTAL_PASS（0C/0H/0M/0L）`，R3 唯一 Medium CLOSED；只关闭源码增量，下一步为同一新冻结候选的隔离动态门禁与全新 Hosted，仍不执行实际部署 |
 | WS-4-D0 | 全站 UI 走查与样板范围冻结 | `[x]` **STATIC_BASELINE_COMPLETE / BEFORE_STATE_UNAVAILABLE_NONBLOCKING**；矩阵、规范、截图工具与两个样板范围已冻结，D1 前真实 before-state 不伪造 |
 | WS-4-D1 | 设计基线、共享组件与双样板 | `[x]` **INDEPENDENT_SCOPED_PASS**；五断点 30/30、导航与双 Drawer 5/5，纳入 D1–D6 统一候选复核 |
 | WS-4-D2 | 高频指标与列表页响应式铺开 | `[x]` **INDEPENDENT_SCOPED_PASS**；7 页五断点 55/55、Grid 实际列数 37/37 |

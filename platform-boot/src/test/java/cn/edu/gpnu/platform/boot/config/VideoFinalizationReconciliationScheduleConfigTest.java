@@ -2,6 +2,10 @@ package cn.edu.gpnu.platform.boot.config;
 
 import cn.edu.gpnu.platform.business.video.support.VideoFinalizationObjectLifecycleService;
 import cn.edu.gpnu.platform.business.video.support.VideoFinalizationObjectReconciler;
+import cn.edu.gpnu.platform.system.observability.ScheduledJobMetrics;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -30,13 +34,26 @@ class VideoFinalizationReconciliationScheduleConfigTest {
 
     @Mock
     private VideoFinalizationObjectReconciler reconciler;
+    private SimpleMeterRegistry meterRegistry;
+    private ScheduledJobMetrics jobMetrics;
+
+    @BeforeEach
+    void setUpMetrics() {
+        meterRegistry = new SimpleMeterRegistry();
+        jobMetrics = new ScheduledJobMetrics(meterRegistry);
+    }
+
+    @AfterEach
+    void closeMetrics() {
+        meterRegistry.close();
+    }
 
     @Test
     void productionScheduleRunsBackfillAndReconciliationForStartupAndPeriodicTriggers()
             throws Exception {
         VideoFinalizationReconciliationScheduleConfig scheduleConfig =
                 new VideoFinalizationReconciliationScheduleConfig(
-                        lifecycleService, reconciler, Runnable::run);
+                        lifecycleService, reconciler, Runnable::run, jobMetrics);
         when(lifecycleService.backfillLegacyCandidates()).thenReturn(2, 0);
         when(reconciler.reconcileDue()).thenReturn(
                 new VideoFinalizationObjectReconciler.ReconcileResult(3, 2, 1),
@@ -47,6 +64,8 @@ class VideoFinalizationReconciliationScheduleConfigTest {
 
         verify(lifecycleService, times(2)).backfillLegacyCandidates();
         verify(reconciler, times(2)).reconcileDue();
+        assertCounter("failure", 1.0);
+        assertCounter("success", 1.0);
         Profile profile = VideoFinalizationReconciliationScheduleConfig.class
                 .getAnnotation(Profile.class);
         assertThat(profile).isNotNull();
@@ -77,7 +96,7 @@ class VideoFinalizationReconciliationScheduleConfigTest {
         ExecutorService executor = Executors.newSingleThreadExecutor();
         VideoFinalizationReconciliationScheduleConfig scheduleConfig =
                 new VideoFinalizationReconciliationScheduleConfig(
-                        lifecycleService, reconciler, executor);
+                        lifecycleService, reconciler, executor, jobMetrics);
         try {
             long startedAt = System.nanoTime();
             scheduleConfig.reconcileOnStartup();
@@ -89,15 +108,24 @@ class VideoFinalizationReconciliationScheduleConfigTest {
             assertThatCode(scheduleConfig::reconcileOnSchedule)
                     .doesNotThrowAnyException();
             verify(lifecycleService, times(1)).backfillLegacyCandidates();
+            assertCounter("skipped", 1.0);
+            assertCounter("success", 0.0);
 
             release.countDown();
             executor.shutdown();
             assertThat(executor.awaitTermination(
                     Duration.ofSeconds(5).toMillis(), TimeUnit.MILLISECONDS)).isTrue();
             verify(reconciler).reconcileDue();
+            assertCounter("success", 1.0);
         } finally {
             release.countDown();
             executor.shutdownNow();
         }
+    }
+
+    private void assertCounter(String outcome, double expected) {
+        assertThat(meterRegistry.find("platform.scheduled.job.executions")
+                .tags("job", "video_finalization_reconciliation", "outcome", outcome)
+                .counter().count()).isEqualTo(expected);
     }
 }

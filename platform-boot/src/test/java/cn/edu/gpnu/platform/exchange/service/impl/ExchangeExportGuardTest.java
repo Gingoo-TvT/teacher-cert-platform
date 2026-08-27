@@ -5,6 +5,7 @@ import cn.edu.gpnu.platform.business.certificate.mapper.CertificateMapper;
 import cn.edu.gpnu.platform.business.student.entity.Student;
 import cn.edu.gpnu.platform.business.student.mapper.StudentMapper;
 import cn.edu.gpnu.platform.business.student.support.SensitiveMasker;
+import cn.edu.gpnu.platform.business.training.entity.TrainingProfile;
 import cn.edu.gpnu.platform.business.training.mapper.TrainingProfileMapper;
 import cn.edu.gpnu.platform.common.context.DataScopeContext;
 import cn.edu.gpnu.platform.common.context.UserContext;
@@ -15,9 +16,9 @@ import cn.edu.gpnu.platform.exchange.entity.ImportExportBatch;
 import cn.edu.gpnu.platform.exchange.mapper.ImportErrorDetailMapper;
 import cn.edu.gpnu.platform.exchange.mapper.ImportExportBatchMapper;
 import cn.edu.gpnu.platform.exchange.model.ExchangeStandardRow;
+import cn.edu.gpnu.platform.exchange.support.ExchangeDictionaryHelper;
 import cn.edu.gpnu.platform.exchange.support.ExchangeExcelHelper;
 import cn.edu.gpnu.platform.security.service.IdCardProtectionService;
-import cn.edu.gpnu.platform.system.mapper.SysDictItemMapper;
 import cn.edu.gpnu.platform.system.service.DataScopeService;
 import cn.edu.gpnu.platform.system.service.NotificationService;
 import cn.edu.gpnu.platform.system.service.ParamService;
@@ -39,6 +40,7 @@ import java.util.List;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
@@ -76,8 +78,6 @@ class ExchangeExportGuardTest {
     @Mock
     private TrainingProfileMapper trainingProfileMapper;
     @Mock
-    private SysDictItemMapper dictItemMapper;
-    @Mock
     private DataScopeService dataScopeService;
     @Mock
     private NotificationService notificationService;
@@ -85,6 +85,8 @@ class ExchangeExportGuardTest {
     private ParamService paramService;
     @Mock
     private ExchangeExcelHelper excelHelper;
+    @Mock
+    private ExchangeDictionaryHelper dictionaryHelper;
     @Mock
     private ObjectMapper objectMapper;
     @Mock
@@ -227,11 +229,50 @@ class ExchangeExportGuardTest {
         assertThat(capturedErrorRow().errorValue()).isEqualTo("11010119900628002X");
     }
 
+    @Test
+    void educationGraduateStandardExportAllowsEmptyInternalMajorColumns() {
+        useUser(OPERATOR_A, false);
+        stubStandardExport("education_master", "", "", COLLEGE_A);
+
+        assertThatCode(() -> service.export("STANDARD", new ExchangeQuery())).doesNotThrowAnyException();
+
+        ExchangeStandardRow row = capturedStandardRow();
+        assertThat(row.getInternalMajorCode()).isEmpty();
+        assertThat(row.getInternalMajorName()).isEmpty();
+    }
+
+    @Test
+    void ordinaryNormalStudentStandardExportRejectsEmptyInternalMajorColumns() {
+        useUser(OPERATOR_A, false);
+        stubStandardExport("student", "", "", COLLEGE_A);
+
+        assertThatThrownBy(() -> service.export("STANDARD", new ExchangeQuery()))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("校内专业代码");
+
+        verify(excelHelper, never()).writeStandardWorkbook(anyList(), isNull());
+    }
+
+    @Test
+    void standardExportAllowsEmptyRemarkColumn() {
+        useUser(OPERATOR_A, false);
+        stubStandardExport("student", "MATH01", "数学教育", null);
+
+        assertThatCode(() -> service.export("STANDARD", new ExchangeQuery())).doesNotThrowAnyException();
+
+        assertThat(capturedStandardRow().getRemark()).isEmpty();
+    }
+
     private void stubStandardExport() {
+        stubStandardExport("student", "MATH01", "数学教育", COLLEGE_A);
+    }
+
+    private void stubStandardExport(String identityType, String internalMajorCode,
+                                    String internalMajorName, Long certificateCollegeId) {
         Certificate certificate = new Certificate();
         certificate.setId(4501L);
         certificate.setStudentId(4502L);
-        certificate.setCollegeId(COLLEGE_A);
+        certificate.setCollegeId(certificateCollegeId);
         certificate.setAssessmentYear("2026");
         certificate.setStudentNo("P10-PRIVACY");
         certificate.setStudentName("隐私测试");
@@ -249,13 +290,26 @@ class ExchangeExportGuardTest {
         Student student = new Student();
         student.setId(4502L);
         student.setCollegeId(COLLEGE_A);
+        student.setGender("male");
         student.setBirthDate("1990/6/28");
+        student.setIdentityType(identityType);
+        student.setSourceFull("广东省广州市");
+        TrainingProfile training = new TrainingProfile();
+        training.setStudentId(4502L);
+        training.setAssessmentYear("2026");
+        training.setSecondDisciplineCode("040102");
+        training.setSecondDisciplineName("课程与教学论");
+        training.setInternalMajorCode(internalMajorCode);
+        training.setInternalMajorName(internalMajorName);
+        training.setInternshipOrgMode("school_arranged");
+        training.setInternshipLocation("广州市第一中学");
+        training.setInterviewOrgMode("school_arranged");
         when(certificateMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of(certificate));
         when(studentMapper.selectBatchIds(any())).thenReturn(List.of(student));
-        when(trainingProfileMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of());
+        when(trainingProfileMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of(training));
         when(paramService.getString("cert.school.code", "10588")).thenReturn("10588");
-        when(dictItemMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(null);
-        when(excelHelper.writeStandardWorkbook(anyList(), isNull())).thenReturn(new byte[]{4});
+        org.mockito.Mockito.lenient()
+                .when(excelHelper.writeStandardWorkbook(anyList(), isNull())).thenReturn(new byte[]{4});
     }
 
     private ExchangeStandardRow capturedStandardRow() {

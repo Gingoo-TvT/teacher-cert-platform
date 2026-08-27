@@ -62,7 +62,7 @@ const filteredNotices = computed(() => {
 })
 const hasActiveFilters = computed(() => readFilter.value !== 'all' || Boolean(typeFilter.value))
 
-const filterOptions: SelectOption[] = [
+const filterOptions: Array<{ label: string; value: ReadFilter }> = [
   { label: '全部', value: 'all' },
   { label: '未读', value: 'unread' },
   { label: '已读', value: 'read' }
@@ -193,7 +193,14 @@ function errorText(error: unknown, fallback: string) {
     <FilterBar :loading="loading" submit-text="查询" @submit="search" @reset="resetFilters">
       <label class="filter-field">
         <span>阅读状态</span>
-        <n-segmented v-model:value="readFilter" :options="filterOptions" @update:value="onReadFilterChange" />
+        <n-radio-group v-model:value="readFilter" @update:value="onReadFilterChange">
+          <n-radio-button
+            v-for="option in filterOptions"
+            :key="option.value"
+            :value="option.value"
+            :label="option.label"
+          />
+        </n-radio-group>
       </label>
       <label class="filter-field">
         <span>通知类型</span>

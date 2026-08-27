@@ -4,7 +4,9 @@ import cn.edu.gpnu.platform.business.video.support.VideoFinalizationObjectLifecy
 import cn.edu.gpnu.platform.business.video.support.VideoFinalizationObjectReconciler;
 import cn.edu.gpnu.platform.system.config.BackupScheduleConfig;
 import cn.edu.gpnu.platform.system.entity.BackupRecord;
+import cn.edu.gpnu.platform.system.observability.ScheduledJobMetrics;
 import cn.edu.gpnu.platform.system.service.impl.DatabaseBackupService;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.springframework.boot.test.util.TestPropertyValues;
@@ -72,6 +74,9 @@ class VideoFinalizationSchedulingIsolationTest {
                     "platform.video.finalization-reconciliation.cron=*/1 * * * * *")
                     .applyTo(context);
             context.registerBean(DatabaseBackupService.class, () -> backupService);
+            context.registerBean(SimpleMeterRegistry.class, SimpleMeterRegistry::new);
+            context.registerBean(ScheduledJobMetrics.class,
+                    () -> new ScheduledJobMetrics(context.getBean(SimpleMeterRegistry.class)));
             context.registerBean(
                     VideoFinalizationObjectLifecycleService.class, () -> lifecycleService);
             context.registerBean(VideoFinalizationObjectReconciler.class, () -> reconciler);

@@ -4,23 +4,27 @@ import cn.edu.gpnu.platform.business.certificate.entity.Certificate;
 import cn.edu.gpnu.platform.business.certificate.mapper.CertificateMapper;
 import cn.edu.gpnu.platform.business.certificate.service.CertificateService;
 import cn.edu.gpnu.platform.business.certificate.support.CertificateStatus;
+import cn.edu.gpnu.platform.business.exemption.entity.ExemptionMaterial;
+import cn.edu.gpnu.platform.business.exemption.entity.ExemptionRequest;
+import cn.edu.gpnu.platform.business.exemption.mapper.ExemptionMaterialMapper;
+import cn.edu.gpnu.platform.business.exemption.mapper.ExemptionRequestMapper;
 import cn.edu.gpnu.platform.business.material.entity.ProcessMaterial;
 import cn.edu.gpnu.platform.business.material.mapper.ProcessMaterialMapper;
 import cn.edu.gpnu.platform.business.student.entity.Student;
 import cn.edu.gpnu.platform.business.student.mapper.StudentMapper;
-import cn.edu.gpnu.platform.business.student.support.BirthDateValidator;
-import cn.edu.gpnu.platform.business.student.support.IdCardValidator;
-import cn.edu.gpnu.platform.business.student.support.NameValidator;
 import cn.edu.gpnu.platform.business.student.support.SensitiveMasker;
 import cn.edu.gpnu.platform.business.student.support.StudentStatus;
 import cn.edu.gpnu.platform.business.training.dto.TrainingProfileSaveRequest;
 import cn.edu.gpnu.platform.business.training.entity.TrainingProfile;
 import cn.edu.gpnu.platform.business.training.mapper.TrainingProfileMapper;
-import cn.edu.gpnu.platform.business.training.support.MajorCodeValidator;
 import cn.edu.gpnu.platform.business.training.support.TrainingLinkValidator;
 import cn.edu.gpnu.platform.business.training.support.TrainingStatus;
+import cn.edu.gpnu.platform.business.testresult.entity.AbilityTestResult;
+import cn.edu.gpnu.platform.business.testresult.mapper.AbilityTestResultMapper;
 import cn.edu.gpnu.platform.business.video.entity.VideoReview;
+import cn.edu.gpnu.platform.business.video.entity.VideoReviewTask;
 import cn.edu.gpnu.platform.business.video.mapper.VideoReviewMapper;
+import cn.edu.gpnu.platform.business.video.mapper.VideoReviewTaskMapper;
 import cn.edu.gpnu.platform.common.api.PageQuery;
 import cn.edu.gpnu.platform.common.api.PageResult;
 import cn.edu.gpnu.platform.common.api.ResultCode;
@@ -40,10 +44,14 @@ import cn.edu.gpnu.platform.exchange.model.ExchangeStandardRow;
 import cn.edu.gpnu.platform.exchange.service.ExchangeService;
 import cn.edu.gpnu.platform.exchange.support.ExchangeBatchStatus;
 import cn.edu.gpnu.platform.exchange.support.BoundedPreviewJsonWriter;
+import cn.edu.gpnu.platform.exchange.support.ExchangeDictionaryHelper;
 import cn.edu.gpnu.platform.exchange.support.ExchangeExcelHelper;
 import cn.edu.gpnu.platform.exchange.support.ExchangeExportType;
+import cn.edu.gpnu.platform.exchange.support.ExchangeExportRowBuilder;
 import cn.edu.gpnu.platform.exchange.support.ExchangeImportHook;
 import cn.edu.gpnu.platform.exchange.support.ExchangeImportProperties;
+import cn.edu.gpnu.platform.exchange.support.ExchangeImportValidator;
+import cn.edu.gpnu.platform.exchange.support.ExchangeRollbackService;
 import cn.edu.gpnu.platform.exchange.support.ImportStrategy;
 import cn.edu.gpnu.platform.exchange.vo.BatchVO;
 import cn.edu.gpnu.platform.exchange.vo.ExchangeFile;
@@ -52,15 +60,14 @@ import cn.edu.gpnu.platform.exchange.vo.ImportPreviewRowVO;
 import cn.edu.gpnu.platform.exchange.vo.ImportResultVO;
 import cn.edu.gpnu.platform.exchange.vo.PrevalidateResultVO;
 import cn.edu.gpnu.platform.exchange.vo.RollbackResultVO;
+import cn.edu.gpnu.platform.file.entity.FileObject;
+import cn.edu.gpnu.platform.file.service.FileService;
 import cn.edu.gpnu.platform.security.service.IdCardProtectionService;
-import cn.edu.gpnu.platform.system.entity.SysCollege;
 import cn.edu.gpnu.platform.system.entity.SysDictItem;
 import cn.edu.gpnu.platform.system.entity.SysMajor;
+import cn.edu.gpnu.platform.system.entity.SysUser;
 import cn.edu.gpnu.platform.system.entity.TeachingSubject;
-import cn.edu.gpnu.platform.system.mapper.SysCollegeMapper;
-import cn.edu.gpnu.platform.system.mapper.SysDictItemMapper;
-import cn.edu.gpnu.platform.system.mapper.SysMajorMapper;
-import cn.edu.gpnu.platform.system.mapper.TeachingSubjectMapper;
+import cn.edu.gpnu.platform.system.mapper.SysUserMapper;
 import cn.edu.gpnu.platform.system.service.AuditLogService;
 import cn.edu.gpnu.platform.system.service.CollegeParentGuard;
 import cn.edu.gpnu.platform.system.service.DataScopeService;
@@ -70,11 +77,8 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DuplicateKeyException;
@@ -86,9 +90,9 @@ import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.time.LocalDate;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -110,17 +114,28 @@ import java.util.zip.ZipOutputStream;
 @Slf4j
 public class ExchangeServiceImpl implements ExchangeService {
 
-    private static final String DEFAULT_YEAR_VERSION = "GLOBAL";
     private static final String SCHOOL_NAME = "广东技术师范大学";
     private static final String DEFAULT_SCHOOL_CODE = "10588";
-    private static final String DEFAULT_PROVINCE_CODE = "44";
-    private static final Set<String> EDUCATION_GRADUATE_PREFIXES = Set.of("0401", "0451", "0453");
     private static final TypeReference<List<PreviewPayload>> PREVIEW_LIST_TYPE = new TypeReference<>() {
     };
     // Phase 44b（§7.3 证书导出内存）：selectCertificates 只喂 export/exportAttachments 两个导出入口
     // （无其他调用方），故直接在此设置单次导出上限，早于逐条 matchTrainingAndStudent 后过滤即拦截，
     // 避免筛选条件过宽（或未按学年/学院收窄）时把过大结果集整体驻留堆内存；未超限时行为、返回值不变。
     private static final int MAX_EXPORT_ROWS = 20000;
+    private static final String STANDARD_EXPORT_PERMISSION = "exchange:export:standard";
+    private static final String FULL_EXPORT_PERMISSION = "exchange:export:full";
+    private static final String XLSX_CONTENT_TYPE =
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+    /** 已导出、已归档证书可重导且保持原状态；仅首次导出的已签发证书流转为 EXPORTED。 */
+    private static final Set<String> STANDARD_REPORTABLE_STATUSES = Set.of(
+            CertificateStatus.ISSUED.name(),
+            CertificateStatus.EXPORTED.name(),
+            CertificateStatus.ARCHIVED.name());
+    private static final List<String> MATERIAL_CATEGORIES = List.of(
+            "morality_teacher_ethics",
+            "teacher_education_course",
+            "education_internship_practice",
+            "professional_ability_skill_training");
 
     private final ImportExportBatchMapper batchMapper;
     private final ImportErrorDetailMapper errorMapper;
@@ -130,22 +145,23 @@ public class ExchangeServiceImpl implements ExchangeService {
     private final CertificateMapper certificateMapper;
     private final CertificateService certificateService;
     private final ProcessMaterialMapper materialMapper;
+    private final ExemptionRequestMapper exemptionRequestMapper;
+    private final ExemptionMaterialMapper exemptionMaterialMapper;
+    private final AbilityTestResultMapper abilityTestResultMapper;
     private final VideoReviewMapper videoReviewMapper;
-    private final SysDictItemMapper dictItemMapper;
-    private final SysCollegeMapper collegeMapper;
+    private final VideoReviewTaskMapper videoReviewTaskMapper;
+    private final FileService fileService;
+    private final SysUserMapper sysUserMapper;
+    private final ExchangeDictionaryHelper dictionaryHelper;
     private final CollegeParentGuard collegeParentGuard;
-    private final SysMajorMapper majorMapper;
-    private final TeachingSubjectMapper teachingSubjectMapper;
     private final DataScopeService dataScopeService;
     private final NotificationService notificationService;
     private final ParamService paramService;
-    private final NameValidator nameValidator;
-    private final IdCardValidator idCardValidator;
-    private final BirthDateValidator birthDateValidator;
-    private final MajorCodeValidator majorCodeValidator;
     private final TrainingLinkValidator trainingLinkValidator;
     private final ExchangeExcelHelper excelHelper;
     private final ExchangeImportProperties importProperties;
+    private final ExchangeImportValidator importValidator;
+    private final ExchangeRollbackService rollbackService;
     private final ObjectMapper objectMapper;
     private final PlatformTransactionManager transactionManager;
     private final AuditLogService auditLogService;
@@ -190,15 +206,17 @@ public class ExchangeServiceImpl implements ExchangeService {
         result.setTotal(rows.size());
         List<PreviewPayload> previews = new ArrayList<>();
         Map<String, Long> idCardCounts = rows.stream()
-                .map(item -> trim(item.row().getIdCardNo()))
+                .map(item -> importValidator.canonicalIdCardNo(item.row()))
                 .filter(StringUtils::hasText)
                 .collect(Collectors.groupingBy(Function.identity(), LinkedHashMap::new, Collectors.counting()));
         Map<String, Long> certNoCounts = rows.stream()
                 .map(item -> trim(item.row().getCertNo()))
                 .filter(StringUtils::hasText)
                 .collect(Collectors.groupingBy(Function.identity(), LinkedHashMap::new, Collectors.counting()));
+        int invalidRowCount = 0;
         for (ExchangeExcelHelper.ReadRow readRow : rows) {
-            List<ValidationError> errors = validate(readRow.row(), readRow.rowNo(), idCardCounts, certNoCounts);
+            List<ExchangeImportValidator.ValidationError> errors =
+                    importValidator.validate(readRow.row(), idCardCounts, certNoCounts);
             if (errors.isEmpty()) {
                 ImportPreviewRowVO preview = new ImportPreviewRowVO();
                 preview.setRowNo(readRow.rowNo());
@@ -206,8 +224,9 @@ public class ExchangeServiceImpl implements ExchangeService {
                 result.getPreviewRows().add(preview);
                 previews.add(protectedPreview(readRow.rowNo(), readRow.row()));
             } else {
+                invalidRowCount++;
                 importProperties.assertErrorDetailBudget(result.getErrors().size(), errors.size());
-                for (ValidationError error : errors) {
+                for (ExchangeImportValidator.ValidationError error : errors) {
                     ImportErrorDetail detail = toErrorDetail(batch, readRow, error);
                     errorMapper.insert(detail);
                     result.getErrors().add(toErrorVO(detail));
@@ -219,7 +238,7 @@ public class ExchangeServiceImpl implements ExchangeService {
         importProperties.assertErrorDetailBudget(
                 result.getErrors().size(), result.getPreviewRows().size());
         result.setSuccessCount(result.getPreviewRows().size());
-        result.setFailCount(result.getErrors().size());
+        result.setFailCount(invalidRowCount);
         batch.setSuccessCount(result.getSuccessCount());
         batch.setFailCount(result.getFailCount());
         String previewJson = BoundedPreviewJsonWriter.write(
@@ -347,106 +366,21 @@ public class ExchangeServiceImpl implements ExchangeService {
         // 历史版本允许导入把既有记录跨学院迁移；持久 before_json 不受当前在线校验保护。
         // 因此必须在任何业务子行锁之前一次性预锁全部恢复目标，固定顺序为
         // batch → refs → college IDs 升序 → business child。
-        RollbackParentPlan parentPlan = prepareRollbackParentLocks(refs);
-        int rolledBack = 0;
-        int conflicts = 0;
         RollbackResultVO vo = new RollbackResultVO();
         vo.setBatchId(batch.getId());
         vo.setBatchNo(batch.getBatchNo());
-        for (ImportRecordRef ref : refs) {
-            RollbackDecision decision = parentPlan.conflictFor(ref);
-            if (decision == null) {
-                decision = rollbackOne(ref);
-            }
-            if (decision.success()) {
-                rolledBack++;
-            } else {
-                conflicts++;
-                vo.getConflicts().add(decision.message());
-            }
-        }
+        ExchangeRollbackService.RollbackSummary summary = rollbackService.compensateLocked(refs);
+        int conflicts = summary.conflicts().size();
+        vo.getConflicts().addAll(summary.conflicts());
         batch.setStatus(conflicts > 0 ? ExchangeBatchStatus.PARTIAL_ROLLBACK.name() : ExchangeBatchStatus.ROLLED_BACK.name());
         batch.setRemark(conflicts > 0 ? "部分记录回滚冲突（后续修改或目标学院无效），已跳过" : "已回滚");
         batchMapper.updateById(batch);
         auditLogService.record("exchange", batch.getId(), batch.getBatchNo(), "rollback",
                 oldStatus, batch.getStatus(), batch.getRemark());
-        vo.setRolledBackCount(rolledBack);
+        vo.setRolledBackCount(summary.rolledBackCount());
         vo.setConflictCount(conflicts);
         vo.setStatus(batch.getStatus());
         return vo;
-    }
-
-    private RollbackParentPlan prepareRollbackParentLocks(List<ImportRecordRef> refs) {
-        Map<Long, Long> targetCollegeByRefId = new LinkedHashMap<>();
-        Map<Long, RollbackDecision> conflictByRefId = new LinkedHashMap<>();
-        Map<Long, ImportRecordRef> refById = refs.stream()
-                .collect(Collectors.toMap(ImportRecordRef::getId, Function.identity()));
-        for (ImportRecordRef ref : refs) {
-            if (!"UPDATE".equals(ref.getAction()) || !hasRollbackCollegeParent(ref.getTableName())) {
-                continue;
-            }
-            Long targetCollegeId = rollbackTargetCollegeId(ref.getBeforeJson());
-            if (targetCollegeId == null) {
-                conflictByRefId.put(ref.getId(), new RollbackDecision(false,
-                        rollbackLabel(ref.getTableName()) + "#" + ref.getRecordId()
-                                + "回滚快照缺少有效目标学院，禁止还原"));
-                continue;
-            }
-            targetCollegeByRefId.put(ref.getId(), targetCollegeId);
-        }
-
-        Set<Long> missingCollegeIds = new LinkedHashSet<>();
-        targetCollegeByRefId.values().stream()
-                .distinct()
-                .sorted()
-                .forEach(collegeId -> {
-                    Integer status = collegeParentGuard.lockStatusForUpdate(
-                            collegeId, CollegeParentGuard.Operation.ROLLBACK_RESTORE);
-                    if (status == null) {
-                        missingCollegeIds.add(collegeId);
-                    }
-                });
-        targetCollegeByRefId.forEach((refId, collegeId) -> {
-            if (!missingCollegeIds.contains(collegeId)) {
-                return;
-            }
-            ImportRecordRef ref = refById.get(refId);
-            conflictByRefId.put(refId, new RollbackDecision(false,
-                    rollbackLabel(ref.getTableName()) + "#" + ref.getRecordId()
-                            + "目标学院#" + collegeId + "不存在或已删除，禁止还原"));
-        });
-        return new RollbackParentPlan(conflictByRefId);
-    }
-
-    private Long rollbackTargetCollegeId(String beforeJson) {
-        if (!StringUtils.hasText(beforeJson)) {
-            return null;
-        }
-        try {
-            JsonNode collegeId = objectMapper.readTree(beforeJson).get("collegeId");
-            if (collegeId == null || collegeId.isNull()) {
-                return null;
-            }
-            Long value = parseLong(collegeId.asText());
-            return value != null && value > 0 ? value : null;
-        } catch (JsonProcessingException ignored) {
-            return null;
-        }
-    }
-
-    private boolean hasRollbackCollegeParent(String tableName) {
-        return "student".equals(tableName)
-                || "training_profile".equals(tableName)
-                || "certificate".equals(tableName);
-    }
-
-    private String rollbackLabel(String tableName) {
-        return switch (tableName) {
-            case "student" -> "学生";
-            case "training_profile" -> "培养信息";
-            case "certificate" -> "证书";
-            default -> "记录";
-        };
     }
 
     @Override
@@ -483,8 +417,24 @@ public class ExchangeServiceImpl implements ExchangeService {
         if (exportType == ExchangeExportType.ATTACHMENT_LIST) {
             return exportAttachments(query);
         }
+        ExchangeQuery effectiveQuery = query == null ? new ExchangeQuery() : query;
         boolean sensitive = UserContext.hasPermission("exchange:export:sensitive");
-        List<Certificate> certificates = selectCertificates(query);
+        if (exportType == ExchangeExportType.FULL_REVIEW) {
+            AuditExportContext context = loadAuditExportContext(effectiveQuery, FULL_EXPORT_PERMISSION);
+            List<ExchangeStandardRow> rows = auditStandardRows(context, sensitive);
+            byte[] content = excelHelper.writeTableWorkbook("完整审核表", fullReviewHeaders(),
+                    fullReviewRows(context, rows));
+            String fileName = "完整审核表.xlsx";
+            recordExportBatch("export", exportType.name(), effectiveQuery,
+                    context.rows().size(), context.rows().size(), 0, fileName);
+            return new ExchangeFile(fileName, XLSX_CONTENT_TYPE, content);
+        }
+
+        Set<String> allowedStatuses = exportType == ExchangeExportType.STANDARD
+                ? STANDARD_REPORTABLE_STATUSES : null;
+        String permission = exportType == ExchangeExportType.STANDARD
+                ? STANDARD_EXPORT_PERMISSION : FULL_EXPORT_PERMISSION;
+        List<Certificate> certificates = selectCertificates(effectiveQuery, permission, allowedStatuses);
         Set<Long> studentIds = certificates.stream().map(Certificate::getStudentId).collect(Collectors.toCollection(LinkedHashSet::new));
         Map<Long, Student> students = studentsByIds(studentIds);
         Map<Long, List<TrainingProfile>> trainingByStudent = trainingByStudentIds(studentIds);
@@ -495,31 +445,36 @@ public class ExchangeServiceImpl implements ExchangeService {
         byte[] content;
         String fileName;
         if (exportType == ExchangeExportType.STANDARD) {
+            validateStandardExportRows(rows);
             content = excelHelper.writeStandardWorkbook(rows, null);
             fileName = "标准上报表.xlsx";
-        } else if (exportType == ExchangeExportType.CERT_SUMMARY) {
+            byte[] completedWorkbook = content;
+            return ExchangeFile.streaming(fileName, XLSX_CONTENT_TYPE, out -> {
+                out.write(completedWorkbook);
+                completeStandardExport(certificates, effectiveQuery, fileName);
+            });
+        } else {
             content = excelHelper.writeTableWorkbook("证书获得者汇总表", certSummaryHeaders(), certSummaryRows(certificates, sensitive, students));
             fileName = "证书获得者汇总表.xlsx";
-        } else {
-            Map<Long, List<VideoReview>> videosByStudent = videosByStudentIds(studentIds);
-            Map<Long, List<ProcessMaterial>> materialsByStudent = materialsByStudentIds(studentIds);
-            content = excelHelper.writeTableWorkbook("完整审核表", fullReviewHeaders(),
-                    fullReviewRows(certificates, rows, students, trainingByStudent, videosByStudent, materialsByStudent));
-            fileName = "完整审核表.xlsx";
         }
-        recordExportBatch("export", exportType.name(), query, certificates.size(), certificates.size(), 0, fileName);
-        return new ExchangeFile(fileName, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", content);
+        recordExportBatch("export", exportType.name(), effectiveQuery,
+                certificates.size(), certificates.size(), 0, fileName);
+        return new ExchangeFile(fileName, XLSX_CONTENT_TYPE, content);
     }
 
     @Override
     public ExchangeFile exportAttachments(ExchangeQuery query) {
-        List<Certificate> certificates = selectCertificates(query);
-        Set<Long> studentIds = certificates.stream().map(Certificate::getStudentId).collect(Collectors.toCollection(LinkedHashSet::new));
-        List<List<String>> rows = attachmentRows(studentIds, query);
+        ExchangeQuery effectiveQuery = query == null ? new ExchangeQuery() : query;
+        AuditExportContext context = loadAuditExportContext(effectiveQuery, STANDARD_EXPORT_PERMISSION);
+        List<AttachmentExportItem> items = attachmentItems(context, effectiveQuery);
+        List<List<String>> rows = items.stream().map(AttachmentExportItem::manifestRow).toList();
         byte[] workbook = excelHelper.writeTableWorkbook("附件清单表", attachmentHeaders(), rows);
-        byte[] zip = zipSingleFile("附件清单.xlsx", workbook);
-        recordExportBatch("export", ExchangeExportType.ATTACHMENT_LIST.name(), query, rows.size(), rows.size(), 0, "附件视频打包.zip");
-        return new ExchangeFile("附件视频打包.zip", "application/zip", zip);
+        String fileName = "附件视频打包.zip";
+        return ExchangeFile.streaming(fileName, "application/zip", out -> {
+            writeAttachmentZip(out, workbook, items);
+            recordExportBatch("export", ExchangeExportType.ATTACHMENT_LIST.name(), effectiveQuery,
+                    rows.size(), rows.size(), 0, fileName);
+        });
     }
 
     private ImportDecision importOneInNewTransaction(ImportExportBatch batch, PreviewPayload preview, ImportStrategy strategy) {
@@ -659,200 +614,6 @@ public class ExchangeServiceImpl implements ExchangeService {
         }
     }
 
-    private List<ValidationError> validate(ExchangeStandardRow row, int rowNo,
-                                           Map<String, Long> idCardCounts,
-                                           Map<String, Long> certNoCounts) {
-        List<ValidationError> errors = new ArrayList<>();
-        validateCompleteness(row, errors);
-        validateTextFormat(row, errors);
-        validateSchool(row, errors);
-        validateName(row, errors);
-        validateId(row, errors);
-        validateBirth(row, errors);
-        validateIdentityType(row, errors);
-        validateMajor(row, errors);
-        validateTrainingLink(row, errors);
-        validateCertificateNo(row, errors);
-        validateValidity(row, errors);
-        validateDuplicate(row, errors, idCardCounts, certNoCounts);
-        return errors;
-    }
-
-    private void validateCompleteness(ExchangeStandardRow row, List<ValidationError> errors) {
-        for (ExchangeColumn column : ExchangeColumn.ALL) {
-            if (column.required() && !StringUtils.hasText(column.value(row))) {
-                errors.add(new ValidationError(column.header(), column.value(row), "V-01字段不能为空", "请补齐" + column.header()));
-            }
-        }
-        if (!"education_master".equals(trim(row.getIdentityType()))) {
-            if (!StringUtils.hasText(row.getInternalMajorCode())) {
-                errors.add(new ValidationError("校内专业代码", row.getInternalMajorCode(), "V-01普通师范生校内专业代码不能为空", "请填写试点专业代码"));
-            }
-            if (!StringUtils.hasText(row.getInternalMajorName())) {
-                errors.add(new ValidationError("校内专业名称", row.getInternalMajorName(), "V-01普通师范生校内专业名称不能为空", "请填写试点专业名称"));
-            }
-        }
-    }
-
-    private void validateTextFormat(ExchangeStandardRow row, List<ValidationError> errors) {
-        Map<String, String> values = Map.of(
-                "学校代码", nvl(row.getSchoolCode()),
-                "学号", nvl(row.getStudentNo()),
-                "身份证件号码", nvl(row.getIdCardNo()),
-                "出生日期", nvl(row.getBirthDate()),
-                "证书编号", nvl(row.getCertNo()),
-                "有效期限", nvl(row.getValidUntil())
-        );
-        values.forEach((field, value) -> {
-            if (!StringUtils.hasText(value)) {
-                return;
-            }
-            if (value.matches("(?i).*[0-9]+E\\+?[0-9]+.*") || value.matches("^\\d+\\.0+$")) {
-                errors.add(new ValidationError(field, value, "V-02文本字段疑似被Excel转换", "请将单元格设为文本后重填"));
-            }
-        });
-        if (StringUtils.hasText(row.getStudentNo()) && row.getStudentNo().length() > 1
-                && row.getStudentNo().startsWith("0") && !row.getStudentNo().matches("^0+\\S+")) {
-            errors.add(new ValidationError("学号", row.getStudentNo(), "V-02学号文本格式异常", "请以文本格式填写学号"));
-        }
-    }
-
-    private void validateSchool(ExchangeStandardRow row, List<ValidationError> errors) {
-        String code = paramService.getString("cert.school.code", DEFAULT_SCHOOL_CODE);
-        SysDictItem school = dictItem("school", code);
-        String name = school == null ? SCHOOL_NAME : school.getItemValue();
-        if (!code.equals(trim(row.getSchoolCode())) || !name.equals(trim(row.getSchoolName()))) {
-            errors.add(new ValidationError("学校代码/学校名称", row.getSchoolCode() + "/" + row.getSchoolName(),
-                    "V-03学校代码与名称不匹配", "应为" + code + "/" + name));
-        }
-    }
-
-    private void validateName(ExchangeStandardRow row, List<ValidationError> errors) {
-        try {
-            nameValidator.validate(row.getName());
-        } catch (BizException e) {
-            errors.add(new ValidationError("姓名", row.getName(), "V-04" + e.getMessage(), "请按姓名规则填写"));
-        }
-    }
-
-    private void validateId(ExchangeStandardRow row, List<ValidationError> errors) {
-        if (dictItem("id_card_type", trim(row.getIdCardType())) == null) {
-            errors.add(new ValidationError("身份证件类型", row.getIdCardType(), "V-05证件类型不在字典范围", "请使用模板下拉值"));
-            return;
-        }
-        try {
-            row.setIdCardNo(idCardValidator.validate(row.getIdCardType(), row.getIdCardNo()));
-        } catch (BizException e) {
-            errors.add(new ValidationError("身份证件号码", row.getIdCardNo(), "V-05" + e.getMessage(), "请核对证件类型与号码"));
-        }
-    }
-
-    private void validateBirth(ExchangeStandardRow row, List<ValidationError> errors) {
-        try {
-            birthDateValidator.validate(row.getIdCardType(), row.getIdCardNo(), row.getBirthDate());
-        } catch (BizException e) {
-            errors.add(new ValidationError("出生日期", row.getBirthDate(), "V-06" + e.getMessage(), "请核对出生日期与证件号"));
-        }
-    }
-
-    private void validateIdentityType(ExchangeStandardRow row, List<ValidationError> errors) {
-        if (dictItem("identity_type", trim(row.getIdentityType())) == null) {
-            errors.add(new ValidationError("身份类型", row.getIdentityType(), "V-07身份类型不在字典范围", "请使用模板下拉值"));
-        }
-    }
-
-    private void validateMajor(ExchangeStandardRow row, List<ValidationError> errors) {
-        if ("education_master".equals(trim(row.getIdentityType()))) {
-            String code = trim(row.getSecondDisciplineCode());
-            if (code == null || code.length() < 4 || !EDUCATION_GRADUATE_PREFIXES.contains(code.substring(0, 4))) {
-                errors.add(new ValidationError("二级学科（专业）代码", row.getSecondDisciplineCode(),
-                        "V-08教育类研究生专业代码须为0401/0451/0453系列", "请填写教育类研究生标准专业代码"));
-            }
-            return;
-        }
-        try {
-            Student student = minimalStudent(row);
-            student.setCollegeId(resolveCollegeId(row));
-            majorCodeValidator.validate(student, trainingRequest(row, student.getId()));
-        } catch (BizException e) {
-            errors.add(new ValidationError("二级学科（专业）代码", row.getSecondDisciplineCode(),
-                    "V-08" + e.getMessage(), "请核对专业代码与试点专业范围"));
-        }
-    }
-
-    private void validateTrainingLink(ExchangeStandardRow row, List<ValidationError> errors) {
-        try {
-            Student student = minimalStudent(row);
-            student.setCollegeId(resolveCollegeId(row));
-            SysMajor major = null;
-            if (!"education_master".equals(trim(row.getIdentityType()))) {
-                major = majorByCodeName(resolveCollegeId(row), row.getInternalMajorCode(), row.getInternalMajorName());
-            }
-            trainingLinkValidator.validate(trainingRequest(row, student.getId()), major);
-        } catch (BizException e) {
-            String field = e.getMessage().contains("任教学科") ? "任教学科" : "教育实习实践地点";
-            String code = field.equals("任教学科") ? "V-10" : "V-09";
-            String value = field.equals("任教学科") ? row.getTeachingSubject() : row.getInternshipLocation();
-            errors.add(new ValidationError(field, value, code + e.getMessage(), "请使用模板联动下拉项"));
-        }
-    }
-
-    private void validateCertificateNo(ExchangeStandardRow row, List<ValidationError> errors) {
-        String certNo = trim(row.getCertNo());
-        if (certNo == null || !certNo.matches("^\\d{18}$")) {
-            errors.add(new ValidationError("证书编号", row.getCertNo(), "V-11证书编号必须为18位数字", "请使用系统生成的证书编号"));
-            return;
-        }
-        try {
-            String year = certNo.substring(0, 4);
-            String school = fixedDigits(paramService.getString("cert.school.code", DEFAULT_SCHOOL_CODE), 5);
-            String province = fixedDigits(paramService.getString("cert.province.code", DEFAULT_PROVINCE_CODE), 2);
-            String levelCode = certCode("education_level", row.getEducationLevel(), "certLevelCode");
-            String segmentCode = certCode("teaching_segment", row.getTeachingSegment(), "certSegmentCode");
-            if (!certNo.substring(4, 9).equals(school)
-                    || !certNo.substring(9, 10).equals(levelCode)
-                    || !certNo.substring(10, 12).equals(province)
-                    || !certNo.substring(12, 13).equals(segmentCode)
-                    || !certNo.substring(13).matches("^\\d{5}$")
-                    || !year.matches("^\\d{4}$")) {
-                errors.add(new ValidationError("证书编号", row.getCertNo(), "V-11证书编号段码不合法", "请核对年份/学校/层次/省码/学段/序号"));
-            }
-        } catch (BizException e) {
-            errors.add(new ValidationError("证书编号", row.getCertNo(), "V-11" + e.getMessage(), "请补齐字典段码配置"));
-        }
-    }
-
-    private void validateValidity(ExchangeStandardRow row, List<ValidationError> errors) {
-        String certNo = trim(row.getCertNo());
-        if (certNo == null || certNo.length() < 4) {
-            return;
-        }
-        try {
-            String normalized = normalizeDate(row.getValidUntil());
-            int certYear = Integer.parseInt(certNo.substring(0, 4));
-            Set<String> allowed = Set.of((certYear + 3) + "/6/30", (certYear + 3) + "/12/31");
-            if (!allowed.contains(normalized)) {
-                errors.add(new ValidationError("有效期限", row.getValidUntil(),
-                        "V-12有效期限不符合证书年份+3年的上/下半年规则", "应为" + String.join(" 或 ", allowed)));
-            } else {
-                row.setValidUntil(normalized);
-            }
-        } catch (Exception e) {
-            errors.add(new ValidationError("有效期限", row.getValidUntil(), "V-12有效期限格式异常", "请填写YYYY/M/D文本"));
-        }
-    }
-
-    private void validateDuplicate(ExchangeStandardRow row, List<ValidationError> errors,
-                                   Map<String, Long> idCardCounts,
-                                   Map<String, Long> certNoCounts) {
-        if (StringUtils.hasText(row.getIdCardNo()) && idCardCounts.getOrDefault(row.getIdCardNo().trim(), 0L) > 1) {
-            errors.add(new ValidationError("身份证件号码", row.getIdCardNo(), "V-13证件号码已存在", "请选择覆盖/跳过策略或核对数据"));
-        }
-        if (StringUtils.hasText(row.getCertNo()) && certNoCounts.getOrDefault(row.getCertNo().trim(), 0L) > 1) {
-            errors.add(new ValidationError("证书编号", row.getCertNo(), "V-13证书编号已存在", "请选择覆盖/跳过策略或核对数据"));
-        }
-    }
-
     private void applyStudent(Student student, ExchangeStandardRow row, Long collegeId, ImportStrategy strategy, boolean existing) {
         if (!existing || overwrite(strategy, student.getStudentNo())) {
             student.setStudentNo(required(row.getStudentNo(), "学号不能为空"));
@@ -897,11 +658,6 @@ public class ExchangeServiceImpl implements ExchangeService {
 
     private void applyTraining(TrainingProfile training, ExchangeStandardRow row, Student student,
                                ImportStrategy strategy, boolean existing) {
-        TrainingProfileSaveRequest request = trainingRequest(row, student.getId());
-        SysMajor major = "education_master".equals(student.getIdentityType())
-                ? null
-                : majorByCodeName(student.getCollegeId(), row.getInternalMajorCode(), row.getInternalMajorName());
-        TeachingSubject subject = trainingLinkValidator.validate(request, major);
         training.setStudentId(student.getId());
         training.setCollegeId(student.getCollegeId());
         training.setAssessmentYear(assessmentYear(row));
@@ -914,16 +670,52 @@ public class ExchangeServiceImpl implements ExchangeService {
         setIfAllowed(existing, strategy, training::getInternshipOrgMode, training::setInternshipOrgMode, row.getInternshipOrgMode());
         setIfAllowed(existing, strategy, training::getInternshipLocation, training::setInternshipLocation, row.getInternshipLocation());
         setIfAllowed(existing, strategy, training::getTeachingSegment, training::setTeachingSegment, row.getTeachingSegment());
-        training.setTeachingSubjectId(subject.getId());
-        training.setTeachingSubjectCode(subject.getSubjectCode());
-        training.setTeachingSubjectName(subject.getSubjectName());
         setIfAllowed(existing, strategy, training::getInterviewOrgMode, training::setInterviewOrgMode, row.getInterviewOrgMode());
+
+        boolean subjectGroupEmpty = training.getTeachingSubjectId() == null
+                && !StringUtils.hasText(training.getTeachingSubjectCode())
+                && !StringUtils.hasText(training.getTeachingSubjectName());
+        boolean replaceSubject = !existing || strategy == ImportStrategy.OVERWRITE
+                || strategy == ImportStrategy.INSERT_ONLY
+                || (strategy == ImportStrategy.UPDATE_EMPTY && subjectGroupEmpty);
+        String finalSubjectCode = replaceSubject ? trim(row.getTeachingSubject()) : training.getTeachingSubjectCode();
+        TrainingProfileSaveRequest finalRequest = trainingRequestForFinal(training, student, finalSubjectCode);
+        SysMajor finalMajor = "education_master".equals(student.getIdentityType())
+                ? null
+                : majorByCodeName(student.getCollegeId(), training.getInternalMajorCode(), training.getInternalMajorName());
+        TeachingSubject validatedSubject = trainingLinkValidator.validate(finalRequest, finalMajor);
+        if (replaceSubject) {
+            training.setTeachingSubjectId(validatedSubject.getId());
+            training.setTeachingSubjectCode(validatedSubject.getSubjectCode());
+            training.setTeachingSubjectName(validatedSubject.getSubjectName());
+        }
         if (!StringUtils.hasText(training.getStatus())) {
             training.setStatus(TrainingStatus.PASSED.name());
         }
         if (training.getLocked() == null) {
             training.setLocked(1);
         }
+    }
+
+    private TrainingProfileSaveRequest trainingRequestForFinal(
+            TrainingProfile training, Student student, String subjectCode) {
+        TrainingProfileSaveRequest request = new TrainingProfileSaveRequest();
+        request.setStudentId(student.getId());
+        request.setCollegeId(student.getCollegeId());
+        request.setAssessmentYear(training.getAssessmentYear());
+        request.setSecondDisciplineCode(training.getSecondDisciplineCode());
+        request.setSecondDisciplineName(training.getSecondDisciplineName());
+        request.setInternalMajorCode(training.getInternalMajorCode());
+        request.setInternalMajorName(training.getInternalMajorName());
+        request.setEducationLevel(training.getEducationLevel());
+        request.setTrainingGoal(training.getTrainingGoal());
+        request.setInternshipOrgMode(training.getInternshipOrgMode());
+        request.setInternshipLocation(training.getInternshipLocation());
+        request.setTeachingSegment(training.getTeachingSegment());
+        request.setTeachingSubjectCode(subjectCode);
+        request.setInterviewOrgMode(training.getInterviewOrgMode());
+        request.setAbilityTestConclusion(training.getAbilityTestConclusion());
+        return request;
     }
 
     private void applyCertificate(Certificate certificate, ExchangeStandardRow row, Student student,
@@ -978,64 +770,13 @@ public class ExchangeServiceImpl implements ExchangeService {
         return issueYear + (secondHalf ? "/12/31" : "/6/30");
     }
 
-    private RollbackDecision rollbackOne(ImportRecordRef ref) {
-        if ("student".equals(ref.getTableName())) {
-            Student current = studentMapper.selectOne(new LambdaQueryWrapper<Student>()
-                    .eq(Student::getId, ref.getRecordId())
-                    .last("FOR UPDATE"));
-            return rollbackEntity(ref, current, Student.class, studentMapper::updateById,
-                    this::softDeleteImportedStudent, "学生");
-        }
-        if ("training_profile".equals(ref.getTableName())) {
-            TrainingProfile current = trainingProfileMapper.selectOne(new LambdaQueryWrapper<TrainingProfile>()
-                    .eq(TrainingProfile::getId, ref.getRecordId())
-                    .last("FOR UPDATE"));
-            return rollbackEntity(ref, current, TrainingProfile.class, trainingProfileMapper::updateById,
-                    id -> trainingProfileMapper.deleteById(id), "培养信息");
-        }
-        if ("certificate".equals(ref.getTableName())) {
-            Certificate current = certificateMapper.selectOne(new LambdaQueryWrapper<Certificate>()
-                    .eq(Certificate::getId, ref.getRecordId())
-                    .last("FOR UPDATE"));
-            return rollbackEntity(ref, current, Certificate.class, certificateMapper::updateById,
-                    id -> certificateMapper.deleteById(id), "证书");
-        }
-        return new RollbackDecision(false, "未知回滚表: " + ref.getTableName());
-    }
-
-    private <T> RollbackDecision rollbackEntity(ImportRecordRef ref, T current, Class<T> type,
-                                                Function<T, Integer> updater, Function<Long, Integer> deleter,
-                                                String label) {
-        if (current == null) {
-            return new RollbackDecision(false, label + "#" + ref.getRecordId() + "不存在，跳过");
-        }
-        if (!jsonEquals(snapshot(current), ref.getAfterJson())) {
-            return new RollbackDecision(false, label + "#" + ref.getRecordId() + "已被后续修改，跳过");
-        }
-        if ("INSERT".equals(ref.getAction())) {
-            deleter.apply(ref.getRecordId());
-            return new RollbackDecision(true, "已删除新增" + label);
-        }
-        if ("UPDATE".equals(ref.getAction())) {
-            T before = readJson(ref.getBeforeJson(), type);
-            updater.apply(before);
-            return new RollbackDecision(true, "已还原" + label);
-        }
-        return new RollbackDecision(false, label + "#" + ref.getRecordId() + "动作不可回滚: " + ref.getAction());
-    }
-
-    private Integer softDeleteImportedStudent(Long id) {
-        return studentMapper.update(new Student(), new LambdaUpdateWrapper<Student>()
-                .eq(Student::getId, id)
-                .set(Student::getIdCardHmac, null)
-                .set(Student::getDeleted, 1));
-    }
-
-    private List<Certificate> selectCertificates(ExchangeQuery query) {
+    private List<Certificate> selectCertificates(
+            ExchangeQuery query, String permission, Set<String> allowedStatuses) {
         ExchangeQuery q = query == null ? new ExchangeQuery() : query;
         LambdaQueryWrapper<Certificate> wrapper = new LambdaQueryWrapper<Certificate>()
                 .orderByAsc(Certificate::getAssessmentYear)
                 .orderByAsc(Certificate::getStudentNo);
+        applyCertificateScope(wrapper, dataScopeService.resolve(permission));
         if (StringUtils.hasText(q.getAssessmentYear())) {
             wrapper.eq(Certificate::getAssessmentYear, q.getAssessmentYear().trim());
         }
@@ -1044,6 +785,9 @@ public class ExchangeServiceImpl implements ExchangeService {
         }
         if (StringUtils.hasText(q.getCertStatus())) {
             wrapper.eq(Certificate::getStatus, q.getCertStatus().trim());
+        }
+        if (allowedStatuses != null) {
+            wrapper.in(Certificate::getStatus, allowedStatuses);
         }
         if (StringUtils.hasText(q.getTrainingGoal())) {
             wrapper.eq(Certificate::getTrainingGoal, q.getTrainingGoal().trim());
@@ -1075,6 +819,24 @@ public class ExchangeServiceImpl implements ExchangeService {
         return certificates.stream().filter(cert -> matchTrainingAndStudent(cert, q)).toList();
     }
 
+    private void applyCertificateScope(
+            LambdaQueryWrapper<Certificate> wrapper, DataScopeContext.Scope scope) {
+        if (scope != null && scope.allSchool()) {
+            return;
+        }
+        if (scope != null && scope.getScopeType() == DataScopeContext.ScopeType.COLLEGE
+                && !scope.getCollegeIds().isEmpty()) {
+            wrapper.in(Certificate::getCollegeId, scope.getCollegeIds());
+            return;
+        }
+        if (scope != null && scope.getScopeType() == DataScopeContext.ScopeType.SELF
+                && scope.getStudentId() != null) {
+            wrapper.eq(Certificate::getStudentId, scope.getStudentId());
+            return;
+        }
+        wrapper.eq(Certificate::getId, -1L);
+    }
+
     private boolean matchTrainingAndStudent(Certificate cert, ExchangeQuery q) {
         TrainingProfile training = trainingByStudentYear(cert.getStudentId(), cert.getAssessmentYear());
         Student student = studentMapper.selectById(cert.getStudentId());
@@ -1094,41 +856,15 @@ public class ExchangeServiceImpl implements ExchangeService {
             Map<Long, Student> students, Map<Long, List<TrainingProfile>> trainingByStudent) {
         Student student = students.get(cert.getStudentId());
         TrainingProfile training = trainingFor(trainingByStudent, cert.getStudentId(), cert.getAssessmentYear());
-        ExchangeStandardRow row = new ExchangeStandardRow();
-        row.setSequenceNo(String.valueOf(sequence));
-        row.setSchoolCode(paramService.getString("cert.school.code", DEFAULT_SCHOOL_CODE));
-        SysDictItem school = dictItem("school", row.getSchoolCode());
-        row.setSchoolName(school == null ? SCHOOL_NAME : school.getItemValue());
-        row.setStudentNo(cert.getStudentNo());
-        row.setName(cert.getStudentName());
-        row.setGender(student == null ? "" : student.getGender());
-        row.setIdCardType(cert.getIdCardType());
+        String schoolCode = paramService.getString("cert.school.code", DEFAULT_SCHOOL_CODE);
+        SysDictItem school = dictItem("school", schoolCode);
         String plainIdCardNo = idCardProtectionService.decrypt(cert.getIdCardNo());
-        row.setIdCardNo(sensitive ? plainIdCardNo : SensitiveMasker.idCard(plainIdCardNo));
-        row.setBirthDate(student == null ? ""
-                : sensitive ? student.getBirthDate() : SensitiveMasker.birthDate(student.getBirthDate()));
-        row.setIdentityType(student == null ? "" : student.getIdentityType());
-        row.setSourcePlace(student == null ? "" : student.getSourceFull());
-        row.setSecondDisciplineCode(training == null ? "" : training.getSecondDisciplineCode());
-        row.setSecondDisciplineName(training == null ? "" : training.getSecondDisciplineName());
-        row.setInternalMajorCode(training == null ? "" : training.getInternalMajorCode());
-        row.setInternalMajorName(training == null ? "" : training.getInternalMajorName());
-        row.setEducationLevel(cert.getEducationLevel());
-        row.setTrainingGoal(cert.getTrainingGoal());
-        row.setInternshipOrgMode(training == null ? "" : training.getInternshipOrgMode());
-        row.setInternshipLocation(training == null ? "" : training.getInternshipLocation());
-        row.setTeachingSegment(cert.getTeachingSegment());
-        row.setTeachingSubject(cert.getTeachingSubjectCode());
-        row.setInterviewOrgMode(training == null ? "" : training.getInterviewOrgMode());
-        row.setCertNo(cert.getCertNo());
-        row.setValidUntil(cert.getValidUntil());
-        row.setIssuer(cert.getIssuer());
         // Phase 43.2 §7.4：备注列承载「学院ID」，与导入端 resolveCollegeId 读备注解析学院ID 对齐，
         // 保证 导出→导入 学院标识无损往返。旧实现把证书状态写入备注（与导入语义冲突：
         // 重导出文件时该列被当作学院ID parseLong，破坏学院识别）；证书状态另有汇总表/完整审核表的
         // 「证书状态」专列承载，不再复用备注一列表达两种含义。
-        row.setRemark(cert.getCollegeId() == null ? "" : String.valueOf(cert.getCollegeId()));
-        return row;
+        return ExchangeExportRowBuilder.standardRow(cert, student, training, sequence, sensitive,
+                schoolCode, school == null ? SCHOOL_NAME : school.getItemValue(), plainIdCardNo);
     }
 
     private ExchangeFile exportErrors(ExchangeQuery query) {
@@ -1160,32 +896,494 @@ public class ExchangeServiceImpl implements ExchangeService {
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", content);
     }
 
+    private AuditExportContext loadAuditExportContext(ExchangeQuery query, String permission) {
+        List<Student> students = selectAuthorizedStudents(query, permission);
+        if (students.isEmpty()) {
+            return AuditExportContext.empty();
+        }
+        Set<Long> studentIds = students.stream().map(Student::getId)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        List<TrainingProfile> trainings = selectAuditTrainings(studentIds, query);
+        List<Certificate> certificates = selectAuditCertificates(studentIds, query);
+        List<ProcessMaterial> materials = selectAuditMaterials(studentIds, query);
+        List<ExemptionRequest> exemptions = selectAuditExemptions(studentIds, query);
+        List<AbilityTestResult> abilities = selectAuditAbilities(studentIds, query);
+        List<VideoReview> videos = selectAuditVideos(studentIds, query);
+
+        Map<Long, Student> studentMap = students.stream()
+                .collect(Collectors.toMap(Student::getId, Function.identity()));
+        Map<StudentYearKey, TrainingProfile> trainingMap = latestByKey(
+                trainings, item -> key(item.getStudentId(), item.getAssessmentYear()));
+        Map<StudentYearKey, List<Certificate>> certificatesByKey = certificates.stream()
+                .filter(item -> key(item.getStudentId(), item.getAssessmentYear()) != null)
+                .collect(Collectors.groupingBy(
+                        item -> key(item.getStudentId(), item.getAssessmentYear()), LinkedHashMap::new, Collectors.toList()));
+        Map<StudentYearKey, List<ProcessMaterial>> materialsByKey = materials.stream()
+                .filter(item -> key(item.getStudentId(), item.getAssessmentYear()) != null)
+                .collect(Collectors.groupingBy(
+                        item -> key(item.getStudentId(), item.getAssessmentYear()), LinkedHashMap::new, Collectors.toList()));
+        Map<StudentYearKey, List<ExemptionRequest>> exemptionsByKey = exemptions.stream()
+                .filter(item -> key(item.getStudentId(), item.getAssessmentYear()) != null)
+                .collect(Collectors.groupingBy(
+                        item -> key(item.getStudentId(), item.getAssessmentYear()), LinkedHashMap::new, Collectors.toList()));
+        Map<StudentYearKey, AbilityTestResult> abilityMap = latestByKey(
+                abilities, item -> key(item.getStudentId(), item.getAssessmentYear()));
+        Map<StudentYearKey, VideoReview> videoMap = latestByKey(
+                videos, item -> key(item.getStudentId(), item.getAssessmentYear()));
+
+        Set<StudentYearKey> annualKeys = new LinkedHashSet<>();
+        annualKeys.addAll(trainingMap.keySet());
+        annualKeys.addAll(certificatesByKey.keySet());
+        annualKeys.addAll(materialsByKey.keySet());
+        annualKeys.addAll(exemptionsByKey.keySet());
+        annualKeys.addAll(abilityMap.keySet());
+        annualKeys.addAll(videoMap.keySet());
+
+        List<AuditExportRow> rows = annualKeys.stream()
+                .filter(Objects::nonNull)
+                .filter(item -> matchesAuditQuery(item, studentMap.get(item.studentId()),
+                        trainingMap.get(item), certificatesByKey.getOrDefault(item, List.of()), query))
+                .sorted(Comparator.comparing(StudentYearKey::assessmentYear)
+                        .thenComparing(item -> nvl(studentMap.get(item.studentId()).getStudentNo())))
+                .map(item -> new AuditExportRow(item, studentMap.get(item.studentId()), trainingMap.get(item),
+                        selectAuditCertificate(certificatesByKey.getOrDefault(item, List.of()), query.getCertStatus())))
+                .toList();
+        if (rows.size() > MAX_EXPORT_ROWS) {
+            throw new BizException("本次筛选命中 " + rows.size() + " 条年度学生记录，超过单次导出上限 "
+                    + MAX_EXPORT_ROWS + " 条，请按学年/学院等条件缩小筛选范围后重试");
+        }
+
+        Set<Long> videoIds = rows.stream().map(AuditExportRow::key).map(videoMap::get)
+                .filter(Objects::nonNull).map(VideoReview::getId)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        Map<Long, List<VideoReviewTask>> tasksByVideo = videoIds.isEmpty() ? Map.of()
+                : videoReviewTaskMapper.selectList(new LambdaQueryWrapper<VideoReviewTask>()
+                        .in(VideoReviewTask::getVideoReviewId, videoIds)
+                        .orderByAsc(VideoReviewTask::getId)).stream()
+                .collect(Collectors.groupingBy(VideoReviewTask::getVideoReviewId));
+        Map<Long, String> reviewerNames = reviewerNames(rows, materialsByKey, exemptionsByKey,
+                abilityMap, videoMap, tasksByVideo);
+        return new AuditExportContext(rows, materialsByKey, exemptionsByKey, abilityMap,
+                videoMap, tasksByVideo, reviewerNames);
+    }
+
+    private List<Student> selectAuthorizedStudents(ExchangeQuery query, String permission) {
+        LambdaQueryWrapper<Student> wrapper = new LambdaQueryWrapper<Student>()
+                .orderByAsc(Student::getStudentNo);
+        applyStudentScope(wrapper, dataScopeService.resolve(permission));
+        if (query.getCollegeId() != null) {
+            wrapper.eq(Student::getCollegeId, query.getCollegeId());
+        }
+        if (StringUtils.hasText(query.getClassName())) {
+            wrapper.eq(Student::getClassName, query.getClassName().trim());
+        }
+        return studentMapper.selectList(wrapper);
+    }
+
+    private void applyStudentScope(LambdaQueryWrapper<Student> wrapper, DataScopeContext.Scope scope) {
+        if (scope != null && scope.allSchool()) {
+            return;
+        }
+        if (scope != null && scope.getScopeType() == DataScopeContext.ScopeType.COLLEGE
+                && !scope.getCollegeIds().isEmpty()) {
+            wrapper.in(Student::getCollegeId, scope.getCollegeIds());
+            return;
+        }
+        if (scope != null && scope.getScopeType() == DataScopeContext.ScopeType.SELF
+                && scope.getStudentId() != null) {
+            wrapper.eq(Student::getId, scope.getStudentId());
+            return;
+        }
+        wrapper.eq(Student::getId, -1L);
+    }
+
+    private List<TrainingProfile> selectAuditTrainings(Set<Long> ids, ExchangeQuery query) {
+        LambdaQueryWrapper<TrainingProfile> wrapper = new LambdaQueryWrapper<TrainingProfile>()
+                .in(TrainingProfile::getStudentId, ids);
+        if (StringUtils.hasText(query.getAssessmentYear())) {
+            wrapper.eq(TrainingProfile::getAssessmentYear, query.getAssessmentYear().trim());
+        }
+        return trainingProfileMapper.selectList(wrapper);
+    }
+
+    private List<Certificate> selectAuditCertificates(Set<Long> ids, ExchangeQuery query) {
+        LambdaQueryWrapper<Certificate> wrapper = new LambdaQueryWrapper<Certificate>()
+                .in(Certificate::getStudentId, ids);
+        if (StringUtils.hasText(query.getAssessmentYear())) {
+            wrapper.eq(Certificate::getAssessmentYear, query.getAssessmentYear().trim());
+        }
+        return certificateMapper.selectList(wrapper);
+    }
+
+    private List<ProcessMaterial> selectAuditMaterials(Set<Long> ids, ExchangeQuery query) {
+        LambdaQueryWrapper<ProcessMaterial> wrapper = new LambdaQueryWrapper<ProcessMaterial>()
+                .in(ProcessMaterial::getStudentId, ids)
+                .orderByAsc(ProcessMaterial::getStudentId)
+                .orderByAsc(ProcessMaterial::getCategory)
+                .orderByAsc(ProcessMaterial::getId);
+        if (StringUtils.hasText(query.getAssessmentYear())) {
+            wrapper.eq(ProcessMaterial::getAssessmentYear, query.getAssessmentYear().trim());
+        }
+        return materialMapper.selectList(wrapper);
+    }
+
+    private List<ExemptionRequest> selectAuditExemptions(Set<Long> ids, ExchangeQuery query) {
+        LambdaQueryWrapper<ExemptionRequest> wrapper = new LambdaQueryWrapper<ExemptionRequest>()
+                .in(ExemptionRequest::getStudentId, ids)
+                .orderByAsc(ExemptionRequest::getStudentId)
+                .orderByAsc(ExemptionRequest::getSubject);
+        if (StringUtils.hasText(query.getAssessmentYear())) {
+            wrapper.eq(ExemptionRequest::getAssessmentYear, query.getAssessmentYear().trim());
+        }
+        return exemptionRequestMapper.selectList(wrapper);
+    }
+
+    private List<AbilityTestResult> selectAuditAbilities(Set<Long> ids, ExchangeQuery query) {
+        LambdaQueryWrapper<AbilityTestResult> wrapper = new LambdaQueryWrapper<AbilityTestResult>()
+                .in(AbilityTestResult::getStudentId, ids);
+        if (StringUtils.hasText(query.getAssessmentYear())) {
+            wrapper.eq(AbilityTestResult::getAssessmentYear, query.getAssessmentYear().trim());
+        }
+        return abilityTestResultMapper.selectList(wrapper);
+    }
+
+    private List<VideoReview> selectAuditVideos(Set<Long> ids, ExchangeQuery query) {
+        LambdaQueryWrapper<VideoReview> wrapper = new LambdaQueryWrapper<VideoReview>()
+                .in(VideoReview::getStudentId, ids);
+        if (StringUtils.hasText(query.getAssessmentYear())) {
+            wrapper.eq(VideoReview::getAssessmentYear, query.getAssessmentYear().trim());
+        }
+        return videoReviewMapper.selectList(wrapper);
+    }
+
+    private <T extends cn.edu.gpnu.platform.common.entity.BaseEntity> Map<StudentYearKey, T> latestByKey(
+            List<T> values, Function<T, StudentYearKey> keyFunction) {
+        return values.stream().filter(item -> keyFunction.apply(item) != null)
+                .collect(Collectors.toMap(keyFunction, Function.identity(),
+                        (left, right) -> left.getId() > right.getId() ? left : right,
+                        LinkedHashMap::new));
+    }
+
+    private StudentYearKey key(Long studentId, String assessmentYear) {
+        return studentId == null || !StringUtils.hasText(assessmentYear)
+                ? null : new StudentYearKey(studentId, assessmentYear.trim());
+    }
+
+    private boolean matchesAuditQuery(StudentYearKey key, Student student, TrainingProfile training,
+                                      List<Certificate> certificates, ExchangeQuery query) {
+        if (student == null) {
+            return false;
+        }
+        if (StringUtils.hasText(query.getInternalMajorCode())
+                && (training == null || !query.getInternalMajorCode().trim().equals(training.getInternalMajorCode()))) {
+            return false;
+        }
+        if (StringUtils.hasText(query.getAuditStatus())
+                && (training == null || !query.getAuditStatus().trim().equals(training.getStatus()))) {
+            return false;
+        }
+        Certificate certificate = selectAuditCertificate(certificates, query.getCertStatus());
+        if (StringUtils.hasText(query.getCertStatus()) && certificate == null) {
+            return false;
+        }
+        String trainingGoal = certificate == null && training != null
+                ? training.getTrainingGoal() : certificate == null ? null : certificate.getTrainingGoal();
+        if (StringUtils.hasText(query.getTrainingGoal())
+                && !query.getTrainingGoal().trim().equals(trainingGoal)) {
+            return false;
+        }
+        String segment = certificate == null && training != null
+                ? training.getTeachingSegment() : certificate == null ? null : certificate.getTeachingSegment();
+        if (StringUtils.hasText(query.getTeachingSegment())
+                && !query.getTeachingSegment().trim().equals(segment)) {
+            return false;
+        }
+        if (!StringUtils.hasText(query.getKeyword())) {
+            return true;
+        }
+        String keyword = query.getKeyword().trim();
+        String lowered = keyword.toLowerCase(Locale.ROOT);
+        boolean studentMatch = containsIgnoreCase(student.getStudentNo(), lowered)
+                || containsIgnoreCase(student.getName(), lowered)
+                || Objects.equals(student.getIdCardHmac(),
+                idCardProtectionService.hmac(normalizeIdCardLookup(keyword)));
+        return studentMatch || certificates.stream().anyMatch(item -> containsIgnoreCase(item.getCertNo(), lowered));
+    }
+
+    private boolean containsIgnoreCase(String value, String loweredKeyword) {
+        return StringUtils.hasText(value) && value.toLowerCase(Locale.ROOT).contains(loweredKeyword);
+    }
+
+    private Certificate selectAuditCertificate(List<Certificate> certificates, String requestedStatus) {
+        if (certificates == null || certificates.isEmpty()) {
+            return null;
+        }
+        if (StringUtils.hasText(requestedStatus)) {
+            return certificates.stream().filter(item -> requestedStatus.trim().equals(item.getStatus()))
+                    .max(Comparator.comparing(Certificate::getId)).orElse(null);
+        }
+        return certificates.stream()
+                .filter(item -> !CertificateStatus.VOIDED.name().equals(item.getStatus())
+                        && !CertificateStatus.REISSUED.name().equals(item.getStatus()))
+                .max(Comparator.comparing(Certificate::getId))
+                .orElseGet(() -> certificates.stream().max(Comparator.comparing(Certificate::getId)).orElse(null));
+    }
+
+    private List<ExchangeStandardRow> auditStandardRows(AuditExportContext context, boolean sensitive) {
+        String schoolCode = paramService.getString("cert.school.code", DEFAULT_SCHOOL_CODE);
+        SysDictItem school = dictItem("school", schoolCode);
+        String schoolName = school == null ? SCHOOL_NAME : school.getItemValue();
+        List<ExchangeStandardRow> rows = new ArrayList<>();
+        for (int index = 0; index < context.rows().size(); index++) {
+            AuditExportRow item = context.rows().get(index);
+            String plainIdCardNo = idCardProtectionService.decrypt(item.student().getIdCardNo());
+            rows.add(ExchangeExportRowBuilder.standardRow(item.certificate(), item.student(), item.training(),
+                    index + 1, sensitive, schoolCode, schoolName, plainIdCardNo));
+        }
+        return rows;
+    }
+
+    private Map<Long, String> reviewerNames(
+            List<AuditExportRow> rows,
+            Map<StudentYearKey, List<ProcessMaterial>> materials,
+            Map<StudentYearKey, List<ExemptionRequest>> exemptions,
+            Map<StudentYearKey, AbilityTestResult> abilities,
+            Map<StudentYearKey, VideoReview> videos,
+            Map<Long, List<VideoReviewTask>> tasks) {
+        Set<Long> ids = new LinkedHashSet<>();
+        for (AuditExportRow row : rows) {
+            addIds(ids, row.student().getFirstReviewerId(), row.student().getSecondReviewerId());
+            if (row.training() != null) {
+                addIds(ids, row.training().getFirstReviewerId(), row.training().getSecondReviewerId());
+            }
+            materials.getOrDefault(row.key(), List.of()).forEach(item ->
+                    addIds(ids, item.getFirstReviewerId(), item.getSecondReviewerId()));
+            exemptions.getOrDefault(row.key(), List.of()).forEach(item ->
+                    addIds(ids, item.getFirstReviewerId(), item.getSecondReviewerId()));
+            AbilityTestResult ability = abilities.get(row.key());
+            if (ability != null) {
+                addIds(ids, ability.getUpdatedBy());
+            }
+            VideoReview video = videos.get(row.key());
+            if (video != null) {
+                addIds(ids, video.getArbitrateReviewer(), video.getConfirmedBy());
+                tasks.getOrDefault(video.getId(), List.of()).forEach(item -> addIds(ids, item.getReviewerId()));
+            }
+        }
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        return sysUserMapper.selectBatchIds(ids).stream().collect(Collectors.toMap(SysUser::getId,
+                item -> StringUtils.hasText(item.getRealName()) ? item.getRealName()
+                        : StringUtils.hasText(item.getUsername()) ? item.getUsername() : String.valueOf(item.getId())));
+    }
+
+    private void addIds(Set<Long> target, Long... values) {
+        for (Long value : values) {
+            if (value != null) {
+                target.add(value);
+            }
+        }
+    }
+
+    private String reviewerName(AuditExportContext context, Long reviewerId) {
+        if (reviewerId == null) {
+            return "";
+        }
+        return context.reviewerNames().getOrDefault(reviewerId, String.valueOf(reviewerId));
+    }
+
+    private String materialCategoryLabel(String category) {
+        SysDictItem item = dictItem("material_category", category);
+        return item == null ? nvl(category) : nvl(item.getItemValue());
+    }
+
+    private String time(LocalDateTime value) {
+        return value == null ? "" : value.toString();
+    }
+
+    private void validateStandardExportRows(List<ExchangeStandardRow> rows) {
+        for (int rowIndex = 0; rowIndex < rows.size(); rowIndex++) {
+            ExchangeStandardRow row = rows.get(rowIndex);
+            for (ExchangeColumn column : ExchangeColumn.ALL) {
+                if (column.required() && !StringUtils.hasText(column.value(row))) {
+                    throw new BizException("标准上报表第" + (rowIndex + 2) + "行“"
+                            + column.header() + "”不能为空");
+                }
+            }
+            if (!"education_master".equals(trim(row.getIdentityType()))) {
+                requireStandardExportText(rowIndex, row.getInternalMajorCode(), "校内专业代码");
+                requireStandardExportText(rowIndex, row.getInternalMajorName(), "校内专业名称");
+            }
+        }
+    }
+
+    private void requireStandardExportText(int rowIndex, String value, String header) {
+        if (!StringUtils.hasText(value)) {
+            throw new BizException("标准上报表第" + (rowIndex + 2) + "行“" + header + "”不能为空");
+        }
+    }
+
+    private void completeStandardExport(
+            List<Certificate> certificates, ExchangeQuery query, String fileName) {
+        TransactionTemplate template = new TransactionTemplate(transactionManager);
+        template.executeWithoutResult(status -> {
+            ImportExportBatch batch = recordExportBatch("export", ExchangeExportType.STANDARD.name(), query,
+                    certificates.size(), certificates.size(), 0, fileName);
+            for (Certificate certificate : certificates) {
+                String oldStatus = certificate.getStatus();
+                String newStatus = oldStatus;
+                if (CertificateStatus.ISSUED.name().equals(oldStatus)) {
+                    Certificate patch = new Certificate();
+                    patch.setStatus(CertificateStatus.EXPORTED.name());
+                    patch.setLocked(1);
+                    if (certificateMapper.update(patch, new LambdaUpdateWrapper<Certificate>()
+                            .eq(Certificate::getId, certificate.getId())
+                            .eq(Certificate::getStatus, CertificateStatus.ISSUED.name())) != 1) {
+                        throw new BizException("证书状态已变化，请重新导出");
+                    }
+                    newStatus = CertificateStatus.EXPORTED.name();
+                }
+                auditLogService.record("certificate", certificate.getId(),
+                        "certificate:" + certificate.getId() + ":export-batch:" + batch.getId(),
+                        "export", oldStatus, newStatus, "标准上报导出批次：" + batch.getBatchNo());
+            }
+        });
+    }
+
     private List<String> fullReviewHeaders() {
         List<String> headers = new ArrayList<>(ExchangeColumn.ALL.stream().map(ExchangeColumn::header).toList());
-        headers.addAll(List.of("基本信息状态", "培养信息状态", "材料状态", "视频终分", "视频结论", "证书状态"));
+        headers.addAll(List.of(
+                "基本信息初审人", "基本信息初审时间", "基本信息初审状态",
+                "基本信息复审人", "基本信息复审时间", "基本信息复审状态",
+                "培养信息初审人", "培养信息初审时间", "培养信息初审状态",
+                "培养信息复审人", "培养信息复审时间", "培养信息复审状态"));
+        for (String category : MATERIAL_CATEGORIES) {
+            String label = materialCategoryLabel(category);
+            headers.addAll(List.of(label + "状态", label + "初审人", label + "初审时间",
+                    label + "复审人", label + "复审时间"));
+        }
+        headers.addAll(List.of(
+                "免考科目", "免考状态", "免考初审人", "免考初审时间", "免考复审人", "免考复审时间",
+                "视频教师1分", "视频教师2分", "视频复评分", "视频终分", "视频结论", "视频确认人", "视频确认时间",
+                "测试成绩", "测试结论", "测试确认人",
+                "证书状态", "证书编号", "签发人", "签发日期", "有效期限"));
         return headers;
     }
 
-    private List<List<String>> fullReviewRows(List<Certificate> certificates, List<ExchangeStandardRow> standardRows,
-            Map<Long, Student> students, Map<Long, List<TrainingProfile>> trainingByStudent,
-            Map<Long, List<VideoReview>> videosByStudent, Map<Long, List<ProcessMaterial>> materialsByStudent) {
+    private List<List<String>> fullReviewRows(
+            AuditExportContext context, List<ExchangeStandardRow> standardRows) {
         List<List<String>> rows = new ArrayList<>();
-        for (int i = 0; i < certificates.size(); i++) {
-            Certificate cert = certificates.get(i);
+        for (int i = 0; i < context.rows().size(); i++) {
+            AuditExportRow auditRow = context.rows().get(i);
             ExchangeStandardRow standard = standardRows.get(i);
             List<String> values = ExchangeColumn.ALL.stream().map(col -> nvl(col.value(standard))).collect(Collectors.toCollection(ArrayList::new));
-            Student student = students.get(cert.getStudentId());
-            TrainingProfile training = trainingFor(trainingByStudent, cert.getStudentId(), cert.getAssessmentYear());
-            VideoReview video = videoFor(videosByStudent, cert.getStudentId(), cert.getAssessmentYear());
-            values.add(student == null ? "" : student.getStatus());
-            values.add(training == null ? "" : training.getStatus());
-            values.add(materialSummaryFor(materialsByStudent, cert.getStudentId(), cert.getAssessmentYear()));
+            Student student = auditRow.student();
+            TrainingProfile training = auditRow.training();
+            values.add(reviewerName(context, student.getFirstReviewerId()));
+            values.add(time(student.getFirstReviewTime()));
+            values.add(firstReviewStatus(student.getStatus(), student.getFirstReviewTime(), student.getSecondReviewTime()));
+            values.add(reviewerName(context, student.getSecondReviewerId()));
+            values.add(time(student.getSecondReviewTime()));
+            values.add(secondReviewStatus(student.getStatus(), student.getSecondReviewTime()));
+            values.add(training == null ? "" : reviewerName(context, training.getFirstReviewerId()));
+            values.add(training == null ? "" : time(training.getFirstReviewTime()));
+            values.add(training == null ? "" : firstReviewStatus(
+                    training.getStatus(), training.getFirstReviewTime(), training.getSecondReviewTime()));
+            values.add(training == null ? "" : reviewerName(context, training.getSecondReviewerId()));
+            values.add(training == null ? "" : time(training.getSecondReviewTime()));
+            values.add(training == null ? "" : secondReviewStatus(training.getStatus(), training.getSecondReviewTime()));
+            Map<String, ProcessMaterial> effectiveMaterials = context.materials()
+                    .getOrDefault(auditRow.key(), List.of()).stream()
+                    .collect(Collectors.toMap(ProcessMaterial::getCategory, Function.identity(),
+                            (left, right) -> left.getId() > right.getId() ? left : right,
+                            LinkedHashMap::new));
+            for (String category : MATERIAL_CATEGORIES) {
+                ProcessMaterial material = effectiveMaterials.get(category);
+                values.add(material == null ? "" : nvl(material.getStatus()));
+                values.add(material == null ? "" : reviewerName(context, material.getFirstReviewerId()));
+                values.add(material == null ? "" : time(material.getFirstReviewTime()));
+                values.add(material == null ? "" : reviewerName(context, material.getSecondReviewerId()));
+                values.add(material == null ? "" : time(material.getSecondReviewTime()));
+            }
+            appendExemptionColumns(values, context, auditRow.key());
+            VideoReview video = context.videos().get(auditRow.key());
+            List<VideoReviewTask> tasks = video == null
+                    ? List.of() : context.videoTasks().getOrDefault(video.getId(), List.of());
+            List<VideoReviewTask> reviewers = tasks.stream()
+                    .filter(item -> "REVIEWER".equals(item.getReviewerRole()))
+                    .sorted(Comparator.comparing(VideoReviewTask::getId)).toList();
+            VideoReviewTask third = tasks.stream()
+                    .filter(item -> "THIRD_EXPERT".equals(item.getReviewerRole()))
+                    .max(Comparator.comparing(VideoReviewTask::getId)).orElse(null);
+            values.add(taskScore(reviewers, 0));
+            values.add(taskScore(reviewers, 1));
+            values.add(third == null || third.getScore() == null ? "" : String.valueOf(third.getScore()));
             values.add(video == null || video.getFinalScore() == null ? "" : String.valueOf(video.getFinalScore()));
             values.add(video == null ? "" : nvl(video.getFinalConclusion()));
-            values.add(nvl(cert.getStatus()));
+            values.add(video == null ? "" : reviewerName(context, video.getConfirmedBy()));
+            values.add(video == null ? "" : time(video.getConfirmedAt()));
+            AbilityTestResult ability = context.abilities().get(auditRow.key());
+            values.add(ability == null ? "" : nvl(ability.getScore()));
+            values.add(ability == null ? "" : nvl(ability.getConclusion()));
+            values.add(ability == null ? "" : reviewerName(context, ability.getUpdatedBy()));
+            Certificate cert = auditRow.certificate();
+            values.add(cert == null ? "" : nvl(cert.getStatus()));
+            values.add(cert == null ? "" : nvl(cert.getCertNo()));
+            values.add(cert == null ? "" : nvl(cert.getIssuer()));
+            values.add(cert == null ? "" : nvl(cert.getIssueDate()));
+            values.add(cert == null ? "" : nvl(cert.getValidUntil()));
             rows.add(values);
         }
         return rows;
+    }
+
+    private void appendExemptionColumns(
+            List<String> values, AuditExportContext context, StudentYearKey key) {
+        List<ExemptionRequest> exemptions = context.exemptions().getOrDefault(key, List.of()).stream()
+                .sorted(Comparator.comparing(ExemptionRequest::getSubject)).toList();
+        values.add(joinExemptions(exemptions, item -> StringUtils.hasText(item.getSubjectLabel())
+                ? item.getSubjectLabel() : item.getSubject()));
+        values.add(joinExemptions(exemptions, ExemptionRequest::getFinalStatus));
+        values.add(joinExemptions(exemptions, item -> reviewerName(context, item.getFirstReviewerId())));
+        values.add(joinExemptions(exemptions, item -> time(item.getFirstReviewTime())));
+        values.add(joinExemptions(exemptions, item -> reviewerName(context, item.getSecondReviewerId())));
+        values.add(joinExemptions(exemptions, item -> time(item.getSecondReviewTime())));
+    }
+
+    private String joinExemptions(List<ExemptionRequest> exemptions, Function<ExemptionRequest, String> value) {
+        return exemptions.stream().map(value).map(this::nvl).collect(Collectors.joining(";"));
+    }
+
+    private String taskScore(List<VideoReviewTask> tasks, int index) {
+        return tasks.size() <= index || tasks.get(index).getScore() == null
+                ? "" : String.valueOf(tasks.get(index).getScore());
+    }
+
+    private String firstReviewStatus(String currentStatus, LocalDateTime firstTime, LocalDateTime secondTime) {
+        if (firstTime == null) {
+            return "";
+        }
+        if ("FIRST_REJECTED".equals(currentStatus)) {
+            return "RETURN";
+        }
+        if ("FAILED".equals(currentStatus) && secondTime == null) {
+            return "FAIL";
+        }
+        return "PASS";
+    }
+
+    private String secondReviewStatus(String currentStatus, LocalDateTime secondTime) {
+        if (secondTime == null) {
+            return "";
+        }
+        if ("SECOND_REJECTED".equals(currentStatus)) {
+            return "RETURN";
+        }
+        if ("FAILED".equals(currentStatus)) {
+            return "FAIL";
+        }
+        return "PASSED".equals(currentStatus) ? "PASS" : nvl(currentStatus);
     }
 
     private List<String> certSummaryHeaders() {
@@ -1221,169 +1419,133 @@ public class ExchangeServiceImpl implements ExchangeService {
         return List.of("学号", "姓名", "材料类别", "文件名", "材料状态", "审核人", "审核时间", "下载链接");
     }
 
-    private List<List<String>> attachmentRows(Set<Long> studentIds, ExchangeQuery query) {
-        if (studentIds.isEmpty()) {
-            return List.of();
-        }
-        Map<Long, Student> students = studentsByIds(studentIds);
-        LambdaQueryWrapper<ProcessMaterial> materialWrapper = new LambdaQueryWrapper<ProcessMaterial>()
-                .in(ProcessMaterial::getStudentId, studentIds)
-                .orderByAsc(ProcessMaterial::getStudentId)
-                .orderByAsc(ProcessMaterial::getCategory);
-        if (query != null && StringUtils.hasText(query.getAssessmentYear())) {
-            materialWrapper.eq(ProcessMaterial::getAssessmentYear, query.getAssessmentYear().trim());
-        }
-        List<List<String>> rows = new ArrayList<>();
-        for (ProcessMaterial material : materialMapper.selectList(materialWrapper)) {
-            Student student = students.get(material.getStudentId());
-            String link = "";
-            if (material.getFileId() != null && material.getFileId() > 0) {
-                link = nvl(query == null ? null : query.getContentBaseUrl())
+    private List<AttachmentExportItem> attachmentItems(
+            AuditExportContext context, ExchangeQuery query) {
+        List<AttachmentExportItem> items = new ArrayList<>();
+        Map<Long, List<ExemptionMaterial>> exemptionMaterials = exemptionMaterialsByRequest(context);
+        for (AuditExportRow row : context.rows()) {
+            Student student = row.student();
+            String studentDir = safeZipPart(student.getStudentNo()) + "_" + student.getId();
+            for (ProcessMaterial material : context.materials().getOrDefault(row.key(), List.of())) {
+                if (material.getFileId() == null || material.getFileId() <= 0) {
+                    continue;
+                }
+                FileObject file = fileService.readyFile(material.getFileId());
+                String fileName = StringUtils.hasText(material.getFileName())
+                        ? material.getFileName() : file.getOriginalName();
+                String link = nvl(query.getContentBaseUrl())
                         + "/api/material/preview/" + material.getId() + "/content";
+                List<String> manifestRow = List.of(
+                        nvl(student.getStudentNo()), nvl(student.getName()),
+                        materialCategoryLabel(material.getCategory()), nvl(fileName), nvl(material.getStatus()),
+                        reviewerName(context, material.getSecondReviewerId()), time(material.getSecondReviewTime()), link);
+                String entry = "学生材料/" + studentDir + "/材料/" + material.getId()
+                        + "-" + safeZipPart(fileName);
+                items.add(new AttachmentExportItem(manifestRow, material.getFileId(), file.getSize(), entry));
             }
-            rows.add(List.of(
-                    student == null ? "" : nvl(student.getStudentNo()),
-                    student == null ? "" : nvl(student.getName()),
-                    nvl(material.getCategory()),
-                    nvl(material.getFileName()),
-                    nvl(material.getStatus()),
-                    material.getSecondReviewerId() == null ? "" : String.valueOf(material.getSecondReviewerId()),
-                    material.getSecondReviewTime() == null ? "" : material.getSecondReviewTime().toString(),
-                    link
-            ));
+            for (ExemptionRequest request : context.exemptions().getOrDefault(row.key(), List.of())) {
+                for (ExemptionMaterial material : exemptionMaterials.getOrDefault(request.getId(), List.of())) {
+                    if (material.getFileId() == null || material.getFileId() <= 0) {
+                        continue;
+                    }
+                    FileObject file = fileService.readyFile(material.getFileId());
+                    String fileName = StringUtils.hasText(material.getFileName())
+                            ? material.getFileName() : file.getOriginalName();
+                    String subject = StringUtils.hasText(request.getSubjectLabel())
+                            ? request.getSubjectLabel() : nvl(request.getSubject());
+                    String link = nvl(query.getContentBaseUrl())
+                            + "/api/exemption/materials/" + material.getId() + "/content";
+                    List<String> manifestRow = List.of(
+                            nvl(student.getStudentNo()), nvl(student.getName()),
+                            "免考佐证-" + subject, nvl(fileName), nvl(request.getFinalStatus()),
+                            reviewerName(context, request.getSecondReviewerId()),
+                            time(request.getSecondReviewTime()), link);
+                    String entry = "学生材料/" + studentDir + "/免考佐证/" + request.getId()
+                            + "-" + material.getId() + "-" + safeZipPart(fileName);
+                    items.add(new AttachmentExportItem(manifestRow, material.getFileId(), file.getSize(), entry));
+                }
+            }
+            VideoReview video = context.videos().get(row.key());
+            if (video == null || video.getVideoFileId() == null || video.getVideoFileId() <= 0) {
+                continue;
+            }
+            FileObject file = fileService.readyFile(video.getVideoFileId());
+            String fileName = StringUtils.hasText(video.getVideoFileName())
+                    ? video.getVideoFileName() : file.getOriginalName();
+            String link = nvl(query.getContentBaseUrl())
+                    + "/api/video/reviews/" + video.getId() + "/content";
+            List<String> manifestRow = List.of(
+                    nvl(student.getStudentNo()), nvl(student.getName()), "教学能力视频", nvl(fileName),
+                    nvl(video.getStatus()), reviewerName(context, video.getConfirmedBy()),
+                    time(video.getConfirmedAt()), link);
+            String entry = "学生材料/" + studentDir + "/视频/" + video.getId()
+                    + "-" + safeZipPart(fileName);
+            items.add(new AttachmentExportItem(manifestRow, video.getVideoFileId(), file.getSize(), entry));
         }
-        for (VideoReview video : videoReviewRows(studentIds, query)) {
-            Student student = students.get(video.getStudentId());
-            rows.add(List.of(
-                    student == null ? "" : nvl(student.getStudentNo()),
-                    student == null ? "" : nvl(student.getName()),
-                    "教学能力视频",
-                    nvl(video.getVideoFileName()),
-                    nvl(video.getStatus()),
-                    video.getConfirmedBy() == null ? "" : String.valueOf(video.getConfirmedBy()),
-                    video.getConfirmedAt() == null ? "" : video.getConfirmedAt().toString(),
-                    ""
-            ));
-        }
-        return rows;
+        return items;
     }
 
-    private List<VideoReview> videoReviewRows(Set<Long> studentIds, ExchangeQuery query) {
-        LambdaQueryWrapper<VideoReview> wrapper = new LambdaQueryWrapper<VideoReview>()
-                .in(VideoReview::getStudentId, studentIds)
-                .orderByAsc(VideoReview::getStudentId);
-        if (query != null && StringUtils.hasText(query.getAssessmentYear())) {
-            wrapper.eq(VideoReview::getAssessmentYear, query.getAssessmentYear().trim());
+    private Map<Long, List<ExemptionMaterial>> exemptionMaterialsByRequest(AuditExportContext context) {
+        Map<Long, ExemptionRequest> requestsById = context.rows().stream()
+                .flatMap(row -> context.exemptions().getOrDefault(row.key(), List.of()).stream())
+                .filter(request -> request.getId() != null)
+                .collect(Collectors.toMap(ExemptionRequest::getId, Function.identity(), (left, right) -> left,
+                        LinkedHashMap::new));
+        if (requestsById.isEmpty()) {
+            return Map.of();
         }
-        return videoReviewMapper.selectList(wrapper);
+        Set<Long> studentIds = context.rows().stream().map(row -> row.student().getId())
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        return exemptionMaterialMapper.selectList(new LambdaQueryWrapper<ExemptionMaterial>()
+                        .in(ExemptionMaterial::getExemptionRequestId, requestsById.keySet())
+                        .in(ExemptionMaterial::getStudentId, studentIds)
+                        .orderByAsc(ExemptionMaterial::getExemptionRequestId)
+                        .orderByAsc(ExemptionMaterial::getId)).stream()
+                .filter(material -> {
+                    ExemptionRequest request = requestsById.get(material.getExemptionRequestId());
+                    return request != null && Objects.equals(request.getStudentId(), material.getStudentId());
+                })
+                .collect(Collectors.groupingBy(ExemptionMaterial::getExemptionRequestId,
+                        LinkedHashMap::new, Collectors.toList()));
     }
 
-    private byte[] zipSingleFile(String filename, byte[] content) {
-        try (ByteArrayOutputStream out = new ByteArrayOutputStream(); ZipOutputStream zip = new ZipOutputStream(out)) {
-            zip.putNextEntry(new ZipEntry(filename));
-            zip.write(content);
+    private void writeAttachmentZip(
+            java.io.OutputStream out, byte[] workbook, List<AttachmentExportItem> items) throws IOException {
+        try (ZipOutputStream zip = new ZipOutputStream(out, StandardCharsets.UTF_8)) {
+            zip.putNextEntry(new ZipEntry("附件清单.xlsx"));
+            zip.write(workbook);
             zip.closeEntry();
+            for (AttachmentExportItem item : items) {
+                zip.putNextEntry(new ZipEntry(item.entryName()));
+                try (InputStream input = fileService.openRange(item.fileId(), 0L, item.size())) {
+                    input.transferTo(zip);
+                }
+                zip.closeEntry();
+            }
             zip.finish();
-            return out.toByteArray();
-        } catch (IOException e) {
-            throw new BizException("生成压缩包失败");
         }
+    }
+
+    private String safeZipPart(String value) {
+        String source = StringUtils.hasText(value) ? value.trim() : "未命名文件";
+        String safe = source.replaceAll("[\\\\/:*?\"<>|\\p{Cntrl}]", "_");
+        return StringUtils.hasText(safe) ? safe : "未命名文件";
     }
 
     private Map<String, List<String>> dropdowns() {
-        Map<String, List<String>> values = new LinkedHashMap<>();
-        values.put("gender", dictCodes("gender"));
-        values.put("idCardType", dictCodes("id_card_type"));
-        values.put("identityType", dictCodes("identity_type"));
-        values.put("educationLevel", dictCodes("education_level"));
-        values.put("trainingGoal", dictCodes("training_goal"));
-        values.put("internshipOrgMode", dictCodes("internship_org_mode"));
-        values.put("internshipLocation", dictCodes("internship_location"));
-        values.put("teachingSegment", dictCodes("teaching_segment"));
-        values.put("teachingSubject", teachingSubjectMapper.selectList(new LambdaQueryWrapper<TeachingSubject>()
-                .eq(TeachingSubject::getStatus, 1)
-                .eq(TeachingSubject::getYearVersion, DEFAULT_YEAR_VERSION)
-                .orderByAsc(TeachingSubject::getSegmentCode)
-                .orderByAsc(TeachingSubject::getSubjectCode))
-                .stream()
-                .filter(item -> item.getIsCategory() == null || item.getIsCategory() == 0)
-                .map(TeachingSubject::getSubjectCode)
-                .toList());
-        values.put("interviewOrgMode", dictCodes("interview_org_mode"));
-        return values;
-    }
-
-    private List<String> dictCodes(String typeCode) {
-        return dictItems(typeCode).stream().map(SysDictItem::getItemCode).toList();
-    }
-
-    private List<SysDictItem> dictItems(String typeCode) {
-        return dictItemMapper.selectList(new LambdaQueryWrapper<SysDictItem>()
-                .eq(SysDictItem::getTypeCode, typeCode)
-                .eq(SysDictItem::getStatus, 1)
-                .eq(SysDictItem::getYearVersion, DEFAULT_YEAR_VERSION)
-                .orderByAsc(SysDictItem::getSort));
+        return dictionaryHelper.dropdowns();
     }
 
     private SysDictItem dictItem(String typeCode, String itemCode) {
-        if (!StringUtils.hasText(itemCode)) {
-            return null;
-        }
-        return dictItemMapper.selectOne(new LambdaQueryWrapper<SysDictItem>()
-                .eq(SysDictItem::getTypeCode, typeCode)
-                .eq(SysDictItem::getItemCode, itemCode.trim())
-                .eq(SysDictItem::getStatus, 1)
-                .last("LIMIT 1"));
+        return dictionaryHelper.item(typeCode, itemCode);
     }
 
     private Long resolveCollegeId(ExchangeStandardRow row) {
-        Long direct = parseLong(trim(row.getRemark()));
-        if (direct != null && collegeMapper.selectById(direct) != null) {
-            return direct;
-        }
-        SysMajor major = majorMapper.selectOne(new LambdaQueryWrapper<SysMajor>()
-                .eq(SysMajor::getInternalMajorCode, trim(row.getInternalMajorCode()))
-                .eq(SysMajor::getInternalMajorName, trim(row.getInternalMajorName()))
-                .eq(SysMajor::getYearVersion, DEFAULT_YEAR_VERSION)
-                .eq(SysMajor::getStatus, 1)
-                .last("LIMIT 1"));
-        if (major != null) {
-            return major.getCollegeId();
-        }
-        List<Long> allowed = allowedCollegeIds("exchange:import");
-        if (allowed.size() == 1) {
-            return allowed.get(0);
-        }
-        throw new BizException("无法识别导入行所属学院，请填写校内专业或在备注填学院ID");
-    }
-
-    private List<Long> allowedCollegeIds(String permission) {
-        DataScopeContext.Scope scope = dataScopeService.resolve(permission);
-        if (scope == null) {
-            throw new BizException(ResultCode.FORBIDDEN.getCode(), "无权导入该学院数据");
-        }
-        if (scope.allSchool()) {
-            return collegeMapper.selectList(new LambdaQueryWrapper<SysCollege>().eq(SysCollege::getStatus, 1))
-                    .stream().map(SysCollege::getId).toList();
-        }
-        if (scope.getScopeType() == DataScopeContext.ScopeType.COLLEGE) {
-            return new ArrayList<>(scope.getCollegeIds());
-        }
-        throw new BizException(ResultCode.FORBIDDEN.getCode(), "无权导入该学院数据");
+        return importValidator.resolveCollegeId(row);
     }
 
     private void ensureCanImportCollege(Long collegeId) {
-        DataScopeContext.Scope scope = dataScopeService.resolve("exchange:import");
-        if (scope == null) {
-            throw new BizException(ResultCode.FORBIDDEN.getCode(), "无权导入该学院数据");
-        }
-        if (scope.allSchool()) {
-            return;
-        }
-        if (scope.getScopeType() == DataScopeContext.ScopeType.COLLEGE && scope.getCollegeIds().contains(collegeId)) {
-            return;
-        }
-        throw new BizException(ResultCode.FORBIDDEN.getCode(), "无权导入该学院数据");
+        importValidator.ensureCanImportCollege(collegeId);
     }
 
     // Phase 37a-part2 (P0-7)：批次越权修复。全校/系统范围可访问所有批次，否则仅限本人创建的批次。
@@ -1425,47 +1587,11 @@ public class ExchangeServiceImpl implements ExchangeService {
     }
 
     private TrainingProfileSaveRequest trainingRequest(ExchangeStandardRow row, Long studentId) {
-        TrainingProfileSaveRequest request = new TrainingProfileSaveRequest();
-        request.setStudentId(studentId == null ? 0L : studentId);
-        request.setAssessmentYear(assessmentYear(row));
-        request.setSecondDisciplineCode(trim(row.getSecondDisciplineCode()));
-        request.setSecondDisciplineName(trim(row.getSecondDisciplineName()));
-        request.setInternalMajorCode(trim(row.getInternalMajorCode()));
-        request.setInternalMajorName(trim(row.getInternalMajorName()));
-        request.setEducationLevel(trim(row.getEducationLevel()));
-        request.setTrainingGoal(trim(row.getTrainingGoal()));
-        request.setInternshipOrgMode(trim(row.getInternshipOrgMode()));
-        request.setInternshipLocation(trim(row.getInternshipLocation()));
-        request.setTeachingSegment(trim(row.getTeachingSegment()));
-        request.setTeachingSubjectCode(trim(row.getTeachingSubject()));
-        request.setInterviewOrgMode(trim(row.getInterviewOrgMode()));
-        request.setAbilityTestConclusion("qualified");
-        return request;
-    }
-
-    private Student minimalStudent(ExchangeStandardRow row) {
-        Student student = new Student();
-        student.setStudentNo(trim(row.getStudentNo()));
-        student.setName(trim(row.getName()));
-        student.setGender(trim(row.getGender()));
-        student.setIdCardType(trim(row.getIdCardType()));
-        student.setIdCardNo(trim(row.getIdCardNo()));
-        student.setBirthDate(trim(row.getBirthDate()));
-        student.setIdentityType(trim(row.getIdentityType()));
-        return student;
+        return importValidator.trainingRequest(row, studentId);
     }
 
     private SysMajor majorByCodeName(Long collegeId, String code, String name) {
-        if (collegeId == null || !StringUtils.hasText(code) || !StringUtils.hasText(name)) {
-            return null;
-        }
-        return majorMapper.selectOne(new LambdaQueryWrapper<SysMajor>()
-                .eq(SysMajor::getCollegeId, collegeId)
-                .eq(SysMajor::getInternalMajorCode, code.trim())
-                .eq(SysMajor::getInternalMajorName, name.trim())
-                .eq(SysMajor::getYearVersion, DEFAULT_YEAR_VERSION)
-                .eq(SysMajor::getStatus, 1)
-                .last("LIMIT 1"));
+        return importValidator.majorByCodeName(collegeId, code, name);
     }
 
     private Student studentByNoForUpdate(String studentNo) {
@@ -1615,7 +1741,8 @@ public class ExchangeServiceImpl implements ExchangeService {
         errorMapper.insert(detail);
     }
 
-    private ImportErrorDetail toErrorDetail(ImportExportBatch batch, ExchangeExcelHelper.ReadRow readRow, ValidationError error) {
+    private ImportErrorDetail toErrorDetail(ImportExportBatch batch, ExchangeExcelHelper.ReadRow readRow,
+                                            ExchangeImportValidator.ValidationError error) {
         ImportErrorDetail detail = new ImportErrorDetail();
         detail.setBatchId(batch.getId());
         detail.setBatchNo(batch.getBatchNo());
@@ -1733,8 +1860,8 @@ public class ExchangeServiceImpl implements ExchangeService {
         return vo;
     }
 
-    private void recordExportBatch(String type, String exportType, ExchangeQuery query,
-                                   int total, int success, int fail, String fileName) {
+    private ImportExportBatch recordExportBatch(String type, String exportType, ExchangeQuery query,
+                                                int total, int success, int fail, String fileName) {
         ImportExportBatch batch = new ImportExportBatch();
         batch.setBatchNo(nextBatchNo("EXP"));
         batch.setType(type);
@@ -1754,6 +1881,7 @@ public class ExchangeServiceImpl implements ExchangeService {
                     StringUtils.hasText(fileName) ? "导出完成：" + fileName : "导出完成",
                     "import_export_batch", String.valueOf(batch.getId()));
         }
+        return batch;
     }
 
     private String nextBatchNo(String prefix) {
@@ -1791,53 +1919,7 @@ public class ExchangeServiceImpl implements ExchangeService {
     }
 
     private String assessmentYear(ExchangeStandardRow row) {
-        String certNo = required(row.getCertNo(), "证书编号不能为空");
-        if (certNo.length() >= 4) {
-            return certNo.substring(0, 4);
-        }
-        return required(row.getSequenceNo(), "考核年度不能为空");
-    }
-
-    private String certCode(String typeCode, String itemCode, String fieldName) {
-        SysDictItem item = dictItem(typeCode, itemCode);
-        if (item == null || !StringUtils.hasText(item.getExtJson())) {
-            throw new BizException(typeCode + "证书段码未配置: " + itemCode);
-        }
-        try {
-            JsonNode node = objectMapper.readTree(item.getExtJson());
-            String value = node.path(fieldName).asText(null);
-            if (!StringUtils.hasText(value)) {
-                throw new BizException(typeCode + "证书段码未配置: " + itemCode);
-            }
-            return value;
-        } catch (BizException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new BizException(typeCode + "证书段码解析失败: " + itemCode);
-        }
-    }
-
-    private String fixedDigits(String value, int length) {
-        String text = required(value, "参数不能为空");
-        if (!text.matches("^\\d{" + length + "}$")) {
-            throw new BizException("参数必须为" + length + "位数字");
-        }
-        return text;
-    }
-
-    private String normalizeDate(String value) {
-        String text = required(value, "日期不能为空");
-        for (DateTimeFormatter formatter : List.of(
-                DateTimeFormatter.ofPattern("yyyy/M/d"),
-                DateTimeFormatter.ofPattern("yyyy/MM/dd"),
-                DateTimeFormatter.ISO_LOCAL_DATE)) {
-            try {
-                LocalDate date = LocalDate.parse(text, formatter);
-                return date.getYear() + "/" + date.getMonthValue() + "/" + date.getDayOfMonth();
-            } catch (Exception ignored) {
-            }
-        }
-        throw new BizException("日期格式不正确");
+        return importValidator.assessmentYear(row);
     }
 
     private boolean overwrite(ImportStrategy strategy, String currentValue) {
@@ -1865,14 +1947,6 @@ public class ExchangeServiceImpl implements ExchangeService {
             return objectMapper.writeValueAsString(value);
         } catch (Exception e) {
             throw new BizException("JSON序列化失败");
-        }
-    }
-
-    private <T> T readJson(String json, Class<T> type) {
-        try {
-            return objectMapper.readValue(json, type);
-        } catch (Exception e) {
-            throw new BizException("JSON解析失败");
         }
     }
 
@@ -1904,14 +1978,6 @@ public class ExchangeServiceImpl implements ExchangeService {
         }
     }
 
-    private boolean jsonEquals(String left, String right) {
-        try {
-            return Objects.equals(normalizedSnapshot(left), normalizedSnapshot(right));
-        } catch (Exception e) {
-            return Objects.equals(left, right);
-        }
-    }
-
     static String importFailureMessage(Exception e) {
         Throwable cursor = e;
         while (cursor != null) {
@@ -1921,22 +1987,6 @@ public class ExchangeServiceImpl implements ExchangeService {
             cursor = cursor.getCause();
         }
         return "导入失败";
-    }
-
-    private JsonNode normalizedSnapshot(String json) throws IOException {
-        JsonNode node = objectMapper.readTree(json);
-        if (node instanceof ObjectNode objectNode) {
-            objectNode.remove(List.of("createdAt", "updatedAt", "createdBy", "updatedBy", "deleted", "idCardHmac"));
-            JsonNode storedIdCardNo = objectNode.get("idCardNo");
-            if (storedIdCardNo != null && storedIdCardNo.isTextual()
-                    && StringUtils.hasText(storedIdCardNo.asText())) {
-                String stored = storedIdCardNo.asText();
-                String plain = idCardProtectionService.isEncrypted(stored)
-                        ? idCardProtectionService.decrypt(stored) : stored;
-                objectNode.put("idCardNo", idCardProtectionService.hmac(plain));
-            }
-        }
-        return node;
     }
 
     private String required(String value, String message) {
@@ -1953,17 +2003,6 @@ public class ExchangeServiceImpl implements ExchangeService {
 
     private String nvl(String value) {
         return value == null ? "" : value;
-    }
-
-    private Long parseLong(String value) {
-        if (!StringUtils.hasText(value) || !value.matches("^\\d+$")) {
-            return null;
-        }
-        try {
-            return Long.parseLong(value);
-        } catch (NumberFormatException e) {
-            return null;
-        }
     }
 
     private static boolean violatesIndex(Throwable error, String indexName) {
@@ -1985,23 +2024,35 @@ public class ExchangeServiceImpl implements ExchangeService {
         void accept(String value);
     }
 
-    private record ValidationError(String fieldName, String errorValue, String errorReason, String suggestion) {
+    private record StudentYearKey(Long studentId, String assessmentYear) {
+    }
+
+    private record AuditExportRow(
+            StudentYearKey key, Student student, TrainingProfile training, Certificate certificate) {
+    }
+
+    private record AuditExportContext(
+            List<AuditExportRow> rows,
+            Map<StudentYearKey, List<ProcessMaterial>> materials,
+            Map<StudentYearKey, List<ExemptionRequest>> exemptions,
+            Map<StudentYearKey, AbilityTestResult> abilities,
+            Map<StudentYearKey, VideoReview> videos,
+            Map<Long, List<VideoReviewTask>> videoTasks,
+            Map<Long, String> reviewerNames) {
+
+        private static AuditExportContext empty() {
+            return new AuditExportContext(List.of(), Map.of(), Map.of(), Map.of(), Map.of(), Map.of(), Map.of());
+        }
+    }
+
+    private record AttachmentExportItem(
+            List<String> manifestRow, Long fileId, Long size, String entryName) {
     }
 
     private record PreviewPayload(Integer rowNo, ExchangeStandardRow row) {
     }
 
     private record ImportDecision(boolean success, String message) {
-    }
-
-    private record RollbackDecision(boolean success, String message) {
-    }
-
-    private record RollbackParentPlan(Map<Long, RollbackDecision> conflictByRefId) {
-
-        private RollbackDecision conflictFor(ImportRecordRef ref) {
-            return conflictByRefId.get(ref.getId());
-        }
     }
 
     private static final class ImportExecutionStoppedException extends RuntimeException {

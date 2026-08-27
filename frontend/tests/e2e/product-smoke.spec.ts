@@ -160,6 +160,48 @@ test('RBAC hides unavailable menus, blocks direct access, and keeps identity mas
   expectClean(api)
 })
 
+test('modular chart renders and notice read filter remains interactive', async ({ page }) => {
+  const user = currentUser({ permissions: ['stats:view', 'notice:view'] })
+  const noticeReadQueries: Array<string | null> = []
+  const api = await installApiMock(page, {
+    user,
+    handler: async ({ route, request, path, url }) => {
+      if (/^\/stats\/[^/]+$/.test(path) && request.method() === 'GET') {
+        await ok(route, {
+          type: 'submission',
+          title: '办理进度',
+          assessmentYear: '2026',
+          denominatorRule: '按当前办理状态统计',
+          metrics: [],
+          rows: [
+            { dimension: 'college-a', dimensionLabel: '教育学院', status: 'DONE', statusLabel: '已完成', count: 6, values: {} },
+            { dimension: 'college-b', dimensionLabel: '外国语学院', status: 'PENDING', statusLabel: '待处理', count: 4, values: {} }
+          ],
+          details: []
+        })
+        return true
+      }
+      if (path === '/notice' && request.method() === 'GET') {
+        noticeReadQueries.push(url.searchParams.get('read'))
+        await ok(route, pageResult([]))
+        return true
+      }
+      return false
+    }
+  })
+
+  await page.goto('/')
+  await expect(page.locator('canvas').first()).toBeVisible()
+  const resources = await page.evaluate(() => performance.getEntriesByType('resource').map((entry) => entry.name))
+  expect(resources.some((name) => /\/assets\/charts-[^/]+\.js$/.test(name))).toBe(true)
+  expect(resources.some((name) => /\/assets\/naive-[^/]+\.js$/.test(name))).toBe(false)
+
+  await page.goto('/notice')
+  await page.locator('.n-radio-group').getByText('未读', { exact: true }).click()
+  await expect.poll(() => noticeReadQueries.at(-1)).toBe('false')
+  expectClean(api)
+})
+
 test('import prevalidation shows row outcomes and confirms the selected strategy', async ({ page }) => {
   const user = currentUser({ permissions: ['exchange:template', 'exchange:prevalidate', 'exchange:import'] })
   let confirmPayload: unknown
@@ -232,6 +274,49 @@ test('import prevalidation shows row outcomes and confirms the selected strategy
   await expect(page.getByText('导入完成：成功 1，失败 1')).toBeVisible()
 
   expect(confirmPayload).toEqual({ strategy: 'OVERWRITE' })
+  expectClean(api)
+})
+
+test('material qualification uses the explicitly selected student row', async ({ page }) => {
+  const user = currentUser({ permissions: ['material:firstReview'] })
+  const statusRequests: Array<{ studentId: string; year: string | null }> = []
+  const api = await installApiMock(page, {
+    user,
+    handler: async ({ route, request, path, url }) => {
+      if (path === '/material' && request.method() === 'GET') {
+        await ok(route, pageResult([
+          material('material-a', 'student-a', '20260006', '材料学生甲'),
+          material('material-b', 'student-b', '20260007', '材料学生乙')
+        ]))
+        return true
+      }
+      const statusMatch = path.match(/^\/material\/process-status\/(.+)$/)
+      if (statusMatch && request.method() === 'GET') {
+        statusRequests.push({ studentId: statusMatch[1], year: url.searchParams.get('year') })
+        await ok(route, {
+          studentId: statusMatch[1], assessmentYear: '2026', qualified: false,
+          categories: [{
+            category: 'MORAL', categoryLabel: '思想品德及师德素养', passed: false,
+            totalCount: 1, passedCount: 0, failedCount: 0
+          }]
+        })
+        return true
+      }
+      return false
+    }
+  })
+
+  await page.goto('/materials')
+  const targetRow = page.getByRole('row').filter({ hasText: '材料学生乙' })
+  await expect(targetRow).toBeVisible()
+  await targetRow.getByRole('button', { name: '合格判定', exact: true }).click()
+
+  const dialog = page.getByRole('dialog').filter({ hasText: '过程性考核合格判定' })
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByText('20260007', { exact: true })).toBeVisible()
+  await expect(dialog.getByText('材料学生乙', { exact: true })).toBeVisible()
+  await expect(dialog.getByText('2026 年度', { exact: true })).toBeVisible()
+  expect(statusRequests).toEqual([{ studentId: 'student-b', year: '2026' }])
   expectClean(api)
 })
 
@@ -364,5 +449,14 @@ function student(studentNo: string, name: string, idCardNo: string) {
     birthDate: '2000-01-01', identityType: 'NORMAL', sourceProvince: '44', sourceCity: '4401',
     sourceDistrict: '440106', sourceFull: '广东省广州市', collegeId: 'college-1', internalMajorCode: '040101',
     grade: '2026', className: '1班', assessmentYear: '2026', status: 'DRAFT', statusLabel: '草稿', locked: 0
+  }
+}
+
+function material(id: string, studentId: string, studentNo: string, studentName: string) {
+  return {
+    id, studentId, studentNo, studentName, collegeId: 'college-1', assessmentYear: '2026',
+    category: 'MORAL', categoryLabel: '思想品德及师德素养', fileId: `file-${id}`,
+    fileName: `${studentNo}.pdf`, fileSize: 1024, contentType: 'application/pdf', uploaderId: studentId,
+    uploadTime: '2026-08-21T10:00:00', status: 'FIRST_REVIEW', statusLabel: '待初审', locked: 0
   }
 }

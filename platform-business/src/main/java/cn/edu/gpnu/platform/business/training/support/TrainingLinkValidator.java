@@ -81,6 +81,18 @@ public class TrainingLinkValidator {
         return readJsonArray(requireConfig(trainingGoal).getAllowedInternshipLocationsJson());
     }
 
+    /**
+     * 证书更正复用培养信息的培养目标、学段、学科联动规则。
+     */
+    public TeachingSubject validateCertificateLink(String trainingGoal, String segment, String subjectCode) {
+        TrainingGoalConfig config = requireConfig(trainingGoal);
+        String normalizedSegment = requiredTrim(segment, "任教学段不能为空");
+        if (!readJsonArray(config.getAllowedSegmentsJson()).contains(normalizedSegment)) {
+            throw new BizException("任教学段不在培养目标允许范围");
+        }
+        return requireSubject(normalizedSegment, subjectCode);
+    }
+
     private void ensureMajorGoal(Long majorId, String goal) {
         Long count = majorTrainingGoalMapper.selectCount(new LambdaQueryWrapper<MajorTrainingGoal>()
                 .eq(MajorTrainingGoal::getMajorId, majorId)

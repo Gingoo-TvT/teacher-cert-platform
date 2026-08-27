@@ -6,6 +6,9 @@ import lombok.Data;
 @Data
 public class CertificateCorrectRequest {
 
+    @NotBlank(message = "证书记录版本不能为空，请刷新后重试")
+    private String correctionRevision;
+
     private String certNo;
     private String validUntil;
     private String teachingSubjectCode;

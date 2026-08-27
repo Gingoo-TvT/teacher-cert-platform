@@ -11,8 +11,10 @@ import io.minio.errors.ServerException;
 import io.minio.errors.XmlParserException;
 import io.minio.messages.AbortIncompleteMultipartUpload;
 import io.minio.messages.ErrorResponse;
+import io.minio.messages.Expiration;
 import io.minio.messages.LifecycleConfiguration;
 import io.minio.messages.LifecycleRule;
+import io.minio.messages.NoncurrentVersionExpiration;
 import io.minio.messages.RuleFilter;
 import io.minio.messages.Status;
 import lombok.RequiredArgsConstructor;
@@ -43,6 +45,11 @@ public class FileMaintenanceService {
 
     /** 我们这条生命周期规则的稳定 id（用于幂等识别/更新，不误伤运维手工添加的其它规则） */
     static final String ABORT_RULE_ID = "tcp-abort-incomplete-multipart-uploads";
+    /** 备份产物保留规则的稳定 id；只替换本规则，保留桶上其它生命周期配置。 */
+    static final String BACKUP_RETENTION_RULE_ID = "tcp-db-backup-retention";
+    static final String DEFAULT_BACKUP_PREFIX = "db-backup/";
+    private static final int DEFAULT_BACKUP_RETENTION_DAYS = 30;
+    private static final int BACKUP_NONCURRENT_EXPIRATION_DAYS = 1;
 
     private final MinioClient minioClient;
     private final MinioProperties props;
@@ -93,6 +100,85 @@ public class FileMaintenanceService {
                     classifyLifecycleFailure(e));
             return false;
         }
+    }
+
+    /**
+     * 确保备份目标桶上存在「指定前缀当前版本保留 N 天、非当前版本保留 1 天」规则。
+     * 已有规则完全匹配时不写入；需要更新时只替换本服务管理的规则并保留其它规则。
+     *
+     * @param backupBucket 备份实际写入的桶；为空时复用业务桶
+     * @param backupPrefix 备份实际写入的前缀；为空时使用 {@code db-backup/}
+     * @param days 备份产物保留天数；非正数回退 30 天
+     * @return 是否成功确保（含幂等命中）；读取或写入失败时返回 false
+     */
+    public boolean ensureBackupRetentionLifecycle(String backupBucket, String backupPrefix, int days) {
+        String bucket = backupBucket == null || backupBucket.isBlank()
+                ? props.getBucket()
+                : backupBucket;
+        String prefix = normalizePrefix(backupPrefix);
+        int retentionDays = days > 0 ? days : DEFAULT_BACKUP_RETENTION_DAYS;
+        try {
+            List<LifecycleRule> existing = currentRules(bucket);
+            LifecycleRule managedRule = null;
+            int managedRuleCount = 0;
+            for (LifecycleRule rule : existing) {
+                if (BACKUP_RETENTION_RULE_ID.equals(rule.id())) {
+                    managedRule = rule;
+                    managedRuleCount++;
+                }
+            }
+            if (managedRuleCount == 1 && matchesBackupRetention(managedRule, prefix, retentionDays)) {
+                log.info("MinIO 桶 {} 已存在备份保留规则(prefix={}, days={})，跳过",
+                        bucket, prefix, retentionDays);
+                return true;
+            }
+
+            List<LifecycleRule> rules = new ArrayList<>();
+            for (LifecycleRule rule : existing) {
+                if (!BACKUP_RETENTION_RULE_ID.equals(rule.id())) {
+                    rules.add(rule);
+                }
+            }
+            rules.add(new LifecycleRule(
+                    Status.ENABLED,
+                    null,
+                    new Expiration((java.time.ZonedDateTime) null, retentionDays, null),
+                    new RuleFilter(prefix),
+                    BACKUP_RETENTION_RULE_ID,
+                    new NoncurrentVersionExpiration(BACKUP_NONCURRENT_EXPIRATION_DAYS),
+                    null,
+                    null));
+            minioClient.setBucketLifecycle(SetBucketLifecycleArgs.builder()
+                    .bucket(bucket)
+                    .config(new LifecycleConfiguration(rules))
+                    .build());
+            log.info("MinIO 桶 {} 已设置备份保留生命周期规则：prefix={}，当前版本保留 {} 天，非当前版本保留 1 天",
+                    bucket, prefix, retentionDays);
+            return true;
+        } catch (Exception e) {
+            log.warn("MinIO 备份保留生命周期规则确保失败(稍后可重试，category={})",
+                    classifyLifecycleFailure(e));
+            return false;
+        }
+    }
+
+    private static boolean matchesBackupRetention(LifecycleRule rule, String prefix, int days) {
+        return rule != null
+                && rule.status() == Status.ENABLED
+                && rule.expiration() != null
+                && Integer.valueOf(days).equals(rule.expiration().days())
+                && rule.noncurrentVersionExpiration() != null
+                && rule.noncurrentVersionExpiration().noncurrentDays()
+                        == BACKUP_NONCURRENT_EXPIRATION_DAYS
+                && rule.filter() != null
+                && prefix.equals(rule.filter().prefix());
+    }
+
+    private static String normalizePrefix(String prefix) {
+        if (prefix == null || prefix.isBlank()) {
+            return DEFAULT_BACKUP_PREFIX;
+        }
+        return prefix.endsWith("/") ? prefix : prefix + "/";
     }
 
     private List<LifecycleRule> currentRules(String bucket) throws Exception {

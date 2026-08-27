@@ -2,6 +2,7 @@ package cn.edu.gpnu.platform.boot.config;
 
 import cn.edu.gpnu.platform.business.video.support.VideoFinalizationObjectLifecycleService;
 import cn.edu.gpnu.platform.business.video.support.VideoFinalizationObjectReconciler;
+import cn.edu.gpnu.platform.system.observability.ScheduledJobMetrics;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -32,15 +33,18 @@ public class VideoFinalizationReconciliationScheduleConfig {
     private final VideoFinalizationObjectLifecycleService lifecycleService;
     private final VideoFinalizationObjectReconciler reconciler;
     private final Executor reconciliationExecutor;
+    private final ScheduledJobMetrics jobMetrics;
     private final AtomicBoolean reconciliationRunning = new AtomicBoolean();
 
     public VideoFinalizationReconciliationScheduleConfig(
             VideoFinalizationObjectLifecycleService lifecycleService,
             VideoFinalizationObjectReconciler reconciler,
-            @Qualifier(RECONCILIATION_EXECUTOR_BEAN) Executor reconciliationExecutor) {
+            @Qualifier(RECONCILIATION_EXECUTOR_BEAN) Executor reconciliationExecutor,
+            ScheduledJobMetrics jobMetrics) {
         this.lifecycleService = lifecycleService;
         this.reconciler = reconciler;
         this.reconciliationExecutor = reconciliationExecutor;
+        this.jobMetrics = jobMetrics;
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -57,6 +61,7 @@ public class VideoFinalizationReconciliationScheduleConfig {
 
     private void submitReconciliation(String trigger) {
         if (!reconciliationRunning.compareAndSet(false, true)) {
+            jobMetrics.skipped(ScheduledJobMetrics.Job.VIDEO_FINALIZATION_RECONCILIATION);
             log.info("视频定稿对象{}对账跳过：已有任务运行中", trigger);
             return;
         }
@@ -70,11 +75,14 @@ public class VideoFinalizationReconciliationScheduleConfig {
             });
         } catch (RuntimeException e) {
             reconciliationRunning.set(false);
+            jobMetrics.failed(ScheduledJobMetrics.Job.VIDEO_FINALIZATION_RECONCILIATION);
             log.error("视频定稿对象{}对账提交失败，后续周期将继续重试", trigger, e);
         }
     }
 
     private void runReconciliation(String trigger) {
+        ScheduledJobMetrics.Run run = jobMetrics.start(
+                ScheduledJobMetrics.Job.VIDEO_FINALIZATION_RECONCILIATION);
         try {
             int backfilled = lifecycleService.backfillLegacyCandidates();
             VideoFinalizationObjectReconciler.ReconcileResult result =
@@ -83,7 +91,13 @@ public class VideoFinalizationReconciliationScheduleConfig {
                 log.info("视频定稿对象{}对账完成 backfilled={} scanned={} cleaned={} failed={}",
                         trigger, backfilled, result.scanned(), result.cleaned(), result.failed());
             }
+            if (result.failed() > 0) {
+                run.failure();
+            } else {
+                run.success();
+            }
         } catch (Exception e) {
+            run.failure();
             log.error("视频定稿对象{}对账失败，后续周期将继续重试", trigger, e);
         }
     }

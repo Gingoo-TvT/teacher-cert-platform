@@ -52,6 +52,10 @@ minio:
 # 「仅供本地、切勿用于生产」的默认值：若设置了环境变量 JWT_SECRET 则优先用它，否则用该默认值。
 # 生产走 application-prod.yml（active=prod，不加载本文件）+ base 空默认 → 仍强制注入 JWT_SECRET，安全不削弱。
 platform:
+  observability:
+    prometheus:
+      username: ${PROMETHEUS_SCRAPE_USERNAME:dev-prometheus}
+      password: ${PROMETHEUS_SCRAPE_PASSWORD:dev-only-prometheus-password}
   security:
     # 仅供 dev/test 的固定非生产 secret；生产 profile 不加载本文件。
     id-card:

@@ -1,6 +1,7 @@
 package cn.edu.gpnu.platform.system.config;
 
 import cn.edu.gpnu.platform.system.entity.BackupRecord;
+import cn.edu.gpnu.platform.system.observability.ScheduledJobMetrics;
 import cn.edu.gpnu.platform.system.service.impl.DatabaseBackupService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -27,14 +28,18 @@ import org.springframework.scheduling.annotation.Scheduled;
 public class BackupScheduleConfig {
 
     private final DatabaseBackupService databaseBackupService;
+    private final ScheduledJobMetrics jobMetrics;
 
     @Scheduled(cron = "${platform.backup.schedule.cron:0 0 3 * * *}")
     public void scheduledFullBackup() {
+        ScheduledJobMetrics.Run run = jobMetrics.start(ScheduledJobMetrics.Job.DATABASE_BACKUP);
         try {
             BackupRecord record = databaseBackupService.backup("full", "scheduled", "定时全量备份", 0L);
             log.info("定时备份完成 id={} size={} tables={} rows={}",
                     record.getId(), record.getByteSize(), record.getTableCount(), record.getRowCount());
+            run.success();
         } catch (Exception e) {
+            run.failure();
             log.error("定时备份失败", e);
         }
     }

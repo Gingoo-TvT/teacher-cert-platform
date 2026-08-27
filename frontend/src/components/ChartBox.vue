@@ -1,5 +1,10 @@
 <script setup lang="ts">
-import * as echarts from 'echarts'
+import { BarChart, PieChart } from 'echarts/charts'
+import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components'
+import { init, use } from 'echarts/core'
+import { LabelLayout, UniversalTransition } from 'echarts/features'
+import { CanvasRenderer } from 'echarts/renderers'
+import type { EChartsOption } from 'echarts'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   chartAxisColor,
@@ -10,13 +15,24 @@ import {
   chartTooltipBorderColor
 } from '@/theme/tokens'
 
+use([
+  BarChart,
+  PieChart,
+  GridComponent,
+  LegendComponent,
+  TooltipComponent,
+  LabelLayout,
+  UniversalTransition,
+  CanvasRenderer
+])
+
 const props = defineProps<{
-  option: echarts.EChartsOption
+  option: EChartsOption
   height?: string
 }>()
 
 const el = ref<HTMLElement | null>(null)
-let chart: echarts.ECharts | null = null
+let chart: ReturnType<typeof init> | null = null
 let resizeObserver: ResizeObserver | null = null
 
 const chartLayout = computed(() => {
@@ -42,13 +58,13 @@ const normalizedOption = computed(() =>
   isPieOption(props.option) ? normalizePieOption(props.option) : normalizeOption(props.option)
 )
 
-function isPieOption(option: echarts.EChartsOption): boolean {
+function isPieOption(option: EChartsOption): boolean {
   const series = Array.isArray(option.series) ? option.series[0] : option.series
   return isObject(series) && series.type === 'pie'
 }
 
 // 饼/环形图：无坐标轴与 grid，只注入色板 + item 触发的 tooltip + 标签默认。
-function normalizePieOption(option: echarts.EChartsOption): echarts.EChartsOption {
+function normalizePieOption(option: EChartsOption): EChartsOption {
   const tooltip = isObject(option.tooltip) ? option.tooltip : {}
   return {
     color: [...chartPalette],
@@ -71,8 +87,9 @@ function resize() {
 
 onMounted(() => {
   if (!el.value) return
-  chart = echarts.init(el.value)
-  chart.setOption(normalizedOption.value)
+  const instance = init(el.value)
+  chart = instance
+  instance.setOption(normalizedOption.value)
   window.addEventListener('resize', resize)
   resizeObserver = new ResizeObserver(resize)
   resizeObserver.observe(el.value)
@@ -90,7 +107,7 @@ onBeforeUnmount(() => {
   chart?.dispose()
 })
 
-function normalizeOption(option: echarts.EChartsOption): echarts.EChartsOption {
+function normalizeOption(option: EChartsOption): EChartsOption {
   const { rotate, labelWidth, bottom } = chartLayout.value
   const tooltip = isObject(option.tooltip) ? option.tooltip : {}
   const tooltipTextStyle = isObject(tooltip.textStyle) ? tooltip.textStyle : {}
@@ -159,7 +176,7 @@ function normalizeOption(option: echarts.EChartsOption): echarts.EChartsOption {
         rotate,
         color: chartAxisColor
       }
-    })) as echarts.EChartsOption['xAxis'],
+    })) as EChartsOption['xAxis'],
     yAxis: normalizeAxis(option.yAxis, (axis) => {
       const splitLine = isObject(axis.splitLine) ? axis.splitLine : {}
       const lineStyle = isObject(splitLine.lineStyle) ? splitLine.lineStyle : {}
@@ -189,8 +206,8 @@ function normalizeOption(option: echarts.EChartsOption): echarts.EChartsOption {
           color: chartAxisColor
         }
       }
-    }) as echarts.EChartsOption['yAxis'],
-    series: normalizeSeries(option.series, seriesCount, isCategoryAxis(option.yAxis)) as echarts.EChartsOption['series']
+    }) as EChartsOption['yAxis'],
+    series: normalizeSeries(option.series, seriesCount, isCategoryAxis(option.yAxis)) as EChartsOption['series']
   }
 }
 
@@ -202,7 +219,7 @@ function normalizeAxis(
   return normalize(isObject(axis) ? axis : {})
 }
 
-function firstCategoryLabels(axis: echarts.EChartsOption['xAxis']) {
+function firstCategoryLabels(axis: EChartsOption['xAxis']) {
   const firstAxis = Array.isArray(axis) ? axis[0] : axis
   if (!isObject(firstAxis) || !Array.isArray(firstAxis.data)) return []
   return firstAxis.data.map((item) => {
@@ -217,7 +234,7 @@ function isCategoryAxis(axis: unknown): boolean {
   return isObject(first) && first.type === 'category'
 }
 
-function normalizeSeries(series: echarts.EChartsOption['series'], seriesCount: number, horizontal = false) {
+function normalizeSeries(series: EChartsOption['series'], seriesCount: number, horizontal = false) {
   const normalize = (item: unknown) => {
     if (!isObject(item) || item.type !== 'bar') return item
     const itemStyle = isObject(item.itemStyle) ? item.itemStyle : {}

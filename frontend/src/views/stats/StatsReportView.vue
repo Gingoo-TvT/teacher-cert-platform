@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, h, onMounted, reactive, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, h, onMounted, reactive, ref, watch } from 'vue'
 import type { EChartsOption } from 'echarts'
 import { useMessage, type DataTableColumns, type SelectOption } from 'naive-ui'
 import { BarChartOutline, GridOutline, ListOutline, PeopleOutline } from '@vicons/ionicons5'
@@ -8,10 +8,11 @@ import FilterBar from '@/components/FilterBar.vue'
 import PageContainer from '@/components/PageContainer.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import StatCard from '@/components/StatCard.vue'
-import ChartBox from '@/components/ChartBox.vue'
 import { exportStatsReport, getStatsReport, saveStatsBlob, type StatsDetail, type StatsQuery, type StatsReport, type StatsRow } from '@/api/stats'
 import { useUserStore } from '@/stores/user'
 import { useYearStore } from '@/stores/year'
+
+const ChartBox = defineAsyncComponent(() => import('@/components/ChartBox.vue'))
 
 interface StatsTypeOption {
   label: string

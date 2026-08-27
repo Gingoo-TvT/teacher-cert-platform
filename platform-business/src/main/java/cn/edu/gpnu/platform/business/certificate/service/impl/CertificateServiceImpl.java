@@ -25,6 +25,7 @@ import cn.edu.gpnu.platform.business.testresult.service.AbilityTestResultService
 import cn.edu.gpnu.platform.business.testresult.vo.AbilityTestValidityVO;
 import cn.edu.gpnu.platform.business.training.entity.TrainingProfile;
 import cn.edu.gpnu.platform.business.training.mapper.TrainingProfileMapper;
+import cn.edu.gpnu.platform.business.training.support.TrainingLinkValidator;
 import cn.edu.gpnu.platform.business.training.support.TrainingStatus;
 import cn.edu.gpnu.platform.business.video.entity.VideoReview;
 import cn.edu.gpnu.platform.business.video.mapper.VideoReviewMapper;
@@ -38,6 +39,7 @@ import cn.edu.gpnu.platform.common.exception.BizException;
 import cn.edu.gpnu.platform.security.service.IdCardProtectionService;
 import cn.edu.gpnu.platform.system.entity.SysAuditLog;
 import cn.edu.gpnu.platform.system.entity.SysDictItem;
+import cn.edu.gpnu.platform.system.entity.TeachingSubject;
 import cn.edu.gpnu.platform.system.mapper.SysDictItemMapper;
 import cn.edu.gpnu.platform.system.service.AuditLogService;
 import cn.edu.gpnu.platform.system.service.DataScopeService;
@@ -54,10 +56,14 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
 
@@ -84,6 +90,7 @@ public class CertificateServiceImpl implements CertificateService {
     private final AuditLogService auditLogService;
     private final ObjectMapper objectMapper;
     private final IdCardProtectionService idCardProtectionService;
+    private final TrainingLinkValidator trainingLinkValidator;
 
     // Phase 44e（P1-1 真分页铺开）：由「全表 selectList 后 new PageResult<>(size, records)」改为
     // MyBatis-Plus Page + selectPage 真分页。@DataScope（CertificateController.list，alias=certificate）设置的
@@ -148,7 +155,7 @@ public class CertificateServiceImpl implements CertificateService {
             // 既有：证书编号唯一键 uk_certificate_cert_no 撞号
             throw new BizException("证书编号已存在，请重试");
         }
-        return toVO(entity);
+        return toPersistedVO(entity.getId());
     }
 
     @Override
@@ -160,9 +167,11 @@ public class CertificateServiceImpl implements CertificateService {
             throw new BizException("当前状态不可签发");
         }
         String oldStatus = entity.getStatus();
-        entity.setIssuer(requiredTrim(request.getIssuer(), "签发人不能为空"));
+        String expectedCertNo = entity.getCertNo();
+        entity.setIssuer(requireEnabledIssuer(request.getIssuer()));
         String issueDate = normalizeDate(requiredTrim(request.getIssueDate(), "签发日期不能为空"));
         entity.setIssueDate(issueDate);
+        ensureCertNoMatchesIssueYear(entity.getCertNo(), issueDate);
         entity.setValidUntil(validUntil(issueDate));
         entity.setStatus(CertificateStatus.ISSUED.name());
         entity.setLocked(1);
@@ -172,12 +181,14 @@ public class CertificateServiceImpl implements CertificateService {
         patch.setValidUntil(entity.getValidUntil());
         patch.setStatus(entity.getStatus());
         patch.setLocked(entity.getLocked());
-        // 状态流转仅写本次状态字段，避免把并发更正后的证书内容覆盖回旧快照。
+        // 状态流转仅写本次字段，并以读取时编号做 CAS，避免并发更正编号后仍按旧年份签发。
         if (certificateMapper.update(patch, new LambdaUpdateWrapper<Certificate>()
-                .eq(Certificate::getId, id).eq(Certificate::getStatus, oldStatus)) == 0) {
+                .eq(Certificate::getId, id)
+                .eq(Certificate::getStatus, oldStatus)
+                .eq(Certificate::getCertNo, expectedCertNo)) == 0) {
             throw new BizException("操作冲突：该记录已被其他操作更新，请刷新后重试");
         }
-        return toVO(entity);
+        return toPersistedVO(entity.getId());
     }
 
     @Override
@@ -198,7 +209,7 @@ public class CertificateServiceImpl implements CertificateService {
                 .eq(Certificate::getId, id).eq(Certificate::getStatus, oldStatus)) == 0) {
             throw new BizException("操作冲突：该记录已被其他操作更新，请刷新后重试");
         }
-        return toVO(entity);
+        return toPersistedVO(entity.getId());
     }
 
     @Override
@@ -219,7 +230,7 @@ public class CertificateServiceImpl implements CertificateService {
                 .eq(Certificate::getId, id).eq(Certificate::getStatus, oldStatus)) == 0) {
             throw new BizException("操作冲突：该记录已被其他操作更新，请刷新后重试");
         }
-        return toVO(entity);
+        return toPersistedVO(entity.getId());
     }
 
     @Override
@@ -248,7 +259,7 @@ public class CertificateServiceImpl implements CertificateService {
             throw new BizException("操作冲突：该记录已被其他操作更新，请刷新后重试");
         }
         recordAudit(entity, "void", oldStatus, entity.getStatus(), entity.getVoidReason());
-        return toVO(entity);
+        return toPersistedVO(entity.getId());
     }
 
     @Override
@@ -287,7 +298,12 @@ public class CertificateServiceImpl implements CertificateService {
     @Transactional(rollbackFor = Exception.class)
     public CertificateVO correct(Long id, CertificateCorrectRequest request) {
         ensureSchoolWrite("cert:correct");
-        Certificate entity = requireCertificate(id);
+        Certificate entity = requireCertificateForUpdate(id);
+        String expectedRevision = requiredTrim(
+                request.getCorrectionRevision(), "证书记录版本不能为空，请刷新后重试");
+        if (!expectedRevision.equals(correctionRevision(entity))) {
+            throw new BizException("证书记录已更新，请刷新后重试");
+        }
         CertificateStatus status = CertificateStatus.of(entity.getStatus());
         if (status == CertificateStatus.VOIDED || status == CertificateStatus.REISSUED || status == CertificateStatus.ARCHIVED) {
             throw new BizException("当前状态不可更正");
@@ -320,59 +336,68 @@ public class CertificateServiceImpl implements CertificateService {
         if (StringUtils.hasText(request.getTrainingGoal())) {
             entity.setTrainingGoal(request.getTrainingGoal().trim());
         }
-        // Phase 48 §7.4（P2）：更正 任教学段 或 证书编号 时，校验 18 位标准证书号内嵌的
-        // 学历码（第10位/idx9）/学段码（第13位/idx12）与更正后的 学历层次/任教学段 一致，否则拒绝——
-        // 与导入端 ExchangeServiceImpl.validateCertificateNo 的段码校验、nextCertNo 的编排同一规则，
-        // 防止更正把「证书编号」与「学段/层次字段」改成互相矛盾。
+        // 更正编号时复用完整 V-11：年度、学校、学历、省码、学段与序号均需和当前证书/系统配置一致。
         if (StringUtils.hasText(request.getCertNo()) || StringUtils.hasText(request.getTeachingSegment())) {
-            ensureCertNoMatchesSegmentAndLevel(entity);
+            ensureStandardCertNo(entity);
+        }
+        if (StringUtils.hasText(request.getTrainingGoal())
+                || StringUtils.hasText(request.getTeachingSegment())
+                || StringUtils.hasText(request.getTeachingSubjectCode())
+                || StringUtils.hasText(request.getTeachingSubjectName())) {
+            TeachingSubject subject = trainingLinkValidator.validateCertificateLink(
+                    entity.getTrainingGoal(), entity.getTeachingSegment(), entity.getTeachingSubjectCode());
+            if (!subject.getSubjectName().equals(requiredTrim(entity.getTeachingSubjectName(), "任教学科名称不能为空"))) {
+                throw new BizException("任教学科代码与名称不一致");
+            }
         }
         entity.setCorrectionReason(requiredTrim(request.getReason(), "更正原因不能为空"));
         entity.setLocked(1);
-        Certificate patch = new Certificate();
-        patch.setCertNo(StringUtils.hasText(request.getCertNo()) ? entity.getCertNo() : null);
-        patch.setValidUntil(StringUtils.hasText(request.getValidUntil()) ? entity.getValidUntil() : null);
-        patch.setTeachingSubjectCode(StringUtils.hasText(request.getTeachingSubjectCode())
-                ? entity.getTeachingSubjectCode() : null);
-        patch.setTeachingSubjectName(StringUtils.hasText(request.getTeachingSubjectName())
-                ? entity.getTeachingSubjectName() : null);
-        patch.setTeachingSegment(StringUtils.hasText(request.getTeachingSegment())
-                ? entity.getTeachingSegment() : null);
-        patch.setTrainingGoal(StringUtils.hasText(request.getTrainingGoal()) ? entity.getTrainingGoal() : null);
-        patch.setCorrectionReason(entity.getCorrectionReason());
-        patch.setLocked(entity.getLocked());
-        LambdaUpdateWrapper<Certificate> update = new LambdaUpdateWrapper<Certificate>()
-                .eq(Certificate::getId, id)
-                .eq(Certificate::getStatus, oldStatus);
-        // 更正以读取时状态作 CAS，且不写 status；流转先提交时旧更正失败，反向顺序则保留更正内容。
-        if (certificateMapper.update(patch, update) == 0) {
+        // correct() 入口已锁定读取最新行，所有字段均基于同一数据库版本完成组装与校验。
+        // 更正后的最终标准编号也必须占用同一序列；后续证书更新或审计失败会随本事务一并回滚。
+        if (StringUtils.hasText(request.getCertNo())) {
+            reserveStandardSequence(entity.getCertNo());
+        }
+        if (certificateMapper.updateById(entity) == 0) {
             throw new BizException("操作冲突：该记录已被其他操作更新，请刷新后重试");
         }
         recordAudit(entity, "correct", oldStatus, entity.getStatus(), entity.getCorrectionReason());
-        return toVO(entity);
+        return toPersistedVO(entity.getId());
     }
 
-    /**
-     * 校验 18 位标准证书号内嵌段码与证书 学历层次/任教学段 一致：学历码在第 10 位（idx 9）、学段码在第 13 位（idx 12），
-     * 与 nextCertNo 的编排、导入端 ExchangeServiceImpl.validateCertificateNo 的校验同一规则。非 18 位历史/外部编号
-     * 无法映射，跳过校验（与 reserveImportedSequence 对历史/外部编号的取舍一致）。
-     */
-    private void ensureCertNoMatchesSegmentAndLevel(Certificate entity) {
-        String certNo = entity.getCertNo();
-        if (certNo == null || !certNo.matches("^\\d{18}$")) {
-            return;
+    private void ensureStandardCertNo(Certificate entity) {
+        String certNo = requiredTrim(entity.getCertNo(), "证书编号不能为空");
+        if (!certNo.matches("^\\d{18}$")) {
+            throw new BizException("证书编号必须为18位数字");
         }
-        if (StringUtils.hasText(entity.getEducationLevel())) {
-            String levelCode = certCode("education_level", entity.getEducationLevel(), "certLevelCode", "学历层次证书码未配置");
-            if (!certNo.substring(9, 10).equals(levelCode)) {
-                throw new BizException("证书编号内嵌学历码与学历层次不一致");
-            }
+        CertificateStatus status = CertificateStatus.of(entity.getStatus());
+        if (status == CertificateStatus.ISSUED || status == CertificateStatus.EXPORTED) {
+            ensureCertNoMatchesIssueYear(certNo, entity.getIssueDate());
+        } else if (!certNo.substring(0, 4)
+                .equals(requiredTrim(entity.getAssessmentYear(), "考核年度不能为空"))) {
+            throw new BizException("证书编号年份与考核年度不一致");
         }
-        if (StringUtils.hasText(entity.getTeachingSegment())) {
-            String segmentCode = certCode("teaching_segment", entity.getTeachingSegment(), "certSegmentCode", "任教学段证书码未配置");
-            if (!certNo.substring(12, 13).equals(segmentCode)) {
-                throw new BizException("证书编号内嵌学段码与任教学段不一致");
-            }
+        String schoolCode = fixedDigits(
+                paramService.getString("cert.school.code", DEFAULT_SCHOOL_CODE), 5, "学校代码");
+        if (!certNo.substring(4, 9).equals(schoolCode)) {
+            throw new BizException("证书编号内嵌学校代码与系统参数不一致");
+        }
+        String levelCode = certCode(
+                "education_level", entity.getEducationLevel(), "certLevelCode", "学历层次证书码未配置");
+        if (!certNo.substring(9, 10).equals(levelCode)) {
+            throw new BizException("证书编号内嵌学历码与学历层次不一致");
+        }
+        String provinceCode = fixedDigits(
+                paramService.getString("cert.province.code", DEFAULT_PROVINCE_CODE), 2, "省码");
+        if (!certNo.substring(10, 12).equals(provinceCode)) {
+            throw new BizException("证书编号内嵌省码与系统参数不一致");
+        }
+        String segmentCode = certCode(
+                "teaching_segment", entity.getTeachingSegment(), "certSegmentCode", "任教学段证书码未配置");
+        if (!certNo.substring(12, 13).equals(segmentCode)) {
+            throw new BizException("证书编号内嵌学段码与任教学段不一致");
+        }
+        if (Integer.parseInt(certNo.substring(13)) == 0) {
+            throw new BizException("证书编号序号必须大于0");
         }
     }
 
@@ -523,6 +548,10 @@ public class CertificateServiceImpl implements CertificateService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void reserveImportedSequence(String certNo) {
+        reserveStandardSequence(certNo);
+    }
+
+    private void reserveStandardSequence(String certNo) {
         String cert = certNo == null ? null : certNo.trim();
         // 仅本系统 18 位标准编号可映射到序列作用域；历史/外部编号无法映射，跳过占用（不阻断导入）。
         if (cert == null || !cert.matches("^\\d{18}$")) {
@@ -574,6 +603,7 @@ public class CertificateServiceImpl implements CertificateService {
         SysDictItem item = dictItemMapper.selectOne(new LambdaQueryWrapper<SysDictItem>()
                 .eq(SysDictItem::getTypeCode, typeCode)
                 .eq(SysDictItem::getItemCode, requiredTrim(itemCode, message))
+                .eq(SysDictItem::getYearVersion, "GLOBAL")
                 .eq(SysDictItem::getStatus, 1)
                 .last("LIMIT 1"));
         if (item == null || !StringUtils.hasText(item.getExtJson())) {
@@ -591,6 +621,20 @@ public class CertificateServiceImpl implements CertificateService {
         } catch (Exception e) {
             throw new BizException(message + ": " + itemCode);
         }
+    }
+
+    private String requireEnabledIssuer(String issuer) {
+        String name = requiredTrim(issuer, "签发人不能为空");
+        SysDictItem item = dictItemMapper.selectOne(new LambdaQueryWrapper<SysDictItem>()
+                .eq(SysDictItem::getTypeCode, "cert_issuer")
+                .eq(SysDictItem::getItemValue, name)
+                .eq(SysDictItem::getYearVersion, "GLOBAL")
+                .eq(SysDictItem::getStatus, 1)
+                .last("LIMIT 1"));
+        if (item == null) {
+            throw new BizException("签发人不在启用的证书签发人字典中");
+        }
+        return item.getItemValue().trim();
     }
 
     private String fixedDigits(String value, int length, String label) {
@@ -613,6 +657,16 @@ public class CertificateServiceImpl implements CertificateService {
     private String normalizeDate(String value) {
         LocalDate date = parseDate(value);
         return date.getYear() + "/" + date.getMonthValue() + "/" + date.getDayOfMonth();
+    }
+
+    private void ensureCertNoMatchesIssueYear(String certNo, String issueDate) {
+        if (!StringUtils.hasText(certNo) || !certNo.matches("^\\d{18}$")) {
+            throw new BizException("证书编号必须为18位数字");
+        }
+        String issueYear = String.valueOf(parseDate(issueDate).getYear());
+        if (!certNo.substring(0, 4).equals(issueYear)) {
+            throw new BizException("证书编号年份与签发日期年份不一致");
+        }
     }
 
     private LocalDate parseDate(String value) {
@@ -656,8 +710,53 @@ public class CertificateServiceImpl implements CertificateService {
         vo.setVoidReason(entity.getVoidReason());
         vo.setReissueOriginCertNo(entity.getReissueOriginCertNo());
         vo.setCorrectionReason(entity.getCorrectionReason());
+        vo.setCorrectionRevision(correctionRevision(entity));
         vo.setLocked(entity.getLocked());
         return vo;
+    }
+
+    /**
+     * 写响应必须基于数据库实际保存的聚合生成 revision。MySQL DATETIME 会截断亚秒，且部分状态流转使用
+     * patch 实体更新审计字段；直接映射内存实体会让响应 token 与下一次锁读得到的 token 不一致。
+     */
+    private CertificateVO toPersistedVO(Long id) {
+        return toVO(requireCertificate(id));
+    }
+
+    static String correctionRevision(Certificate entity) {
+        StringBuilder source = new StringBuilder();
+        appendRevisionPart(source, entity.getId());
+        appendRevisionPart(source, entity.getStudentId());
+        appendRevisionPart(source, entity.getAssessmentYear());
+        appendRevisionPart(source, entity.getEducationLevel());
+        appendRevisionPart(source, entity.getStatus());
+        appendRevisionPart(source, entity.getCertNo());
+        appendRevisionPart(source, entity.getValidUntil());
+        appendRevisionPart(source, entity.getTrainingGoal());
+        appendRevisionPart(source, entity.getTeachingSegment());
+        appendRevisionPart(source, entity.getTeachingSubjectCode());
+        appendRevisionPart(source, entity.getTeachingSubjectName());
+        appendRevisionPart(source, entity.getIssuer());
+        appendRevisionPart(source, entity.getIssueDate());
+        appendRevisionPart(source, entity.getVoidReason());
+        appendRevisionPart(source, entity.getVoidOperatorId());
+        appendRevisionPart(source, entity.getVoidTime());
+        appendRevisionPart(source, entity.getReissueOriginCertNo());
+        appendRevisionPart(source, entity.getCorrectionReason());
+        appendRevisionPart(source, entity.getLocked());
+        appendRevisionPart(source, entity.getUpdatedBy());
+        appendRevisionPart(source, entity.getUpdatedAt());
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            return HexFormat.of().formatHex(digest.digest(source.toString().getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 algorithm is unavailable", e);
+        }
+    }
+
+    private static void appendRevisionPart(StringBuilder source, Object value) {
+        String text = value == null ? "" : value.toString();
+        source.append(text.length()).append(':').append(text).append('|');
     }
 
     private void ensureSchoolWrite(String permissionCode) {
@@ -697,6 +796,17 @@ public class CertificateServiceImpl implements CertificateService {
             throw new BizException("证书ID不能为空");
         }
         Certificate entity = certificateMapper.selectById(id);
+        if (entity == null) {
+            throw new BizException(ResultCode.NOT_FOUND.getCode(), "证书不存在");
+        }
+        return entity;
+    }
+
+    private Certificate requireCertificateForUpdate(Long id) {
+        if (id == null) {
+            throw new BizException("证书ID不能为空");
+        }
+        Certificate entity = certificateMapper.selectByIdForUpdate(id);
         if (entity == null) {
             throw new BizException(ResultCode.NOT_FOUND.getCode(), "证书不存在");
         }

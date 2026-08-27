@@ -30,7 +30,35 @@ logging:
   level:
     cn.edu.gpnu.platform: info
 
+# WS-11：业务健康探针仍走 /api/health/*；Actuator 只暴露 Prometheus，且由 SecurityConfig 要求认证。
+management:
+  endpoints:
+    web:
+      exposure:
+        include: prometheus
+  endpoint:
+    prometheus:
+      access: unrestricted
+  prometheus:
+    metrics:
+      export:
+        enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
 platform:
+  readiness:
+    # Compose 给健康命令 5 秒；应用总预算固定留出序列化与进程调度余量。
+    timeout: ${READINESS_TIMEOUT:3s}
+    minio-connect-timeout: ${READINESS_MINIO_CONNECT_TIMEOUT:1s}
+    minio-read-timeout: ${READINESS_MINIO_READ_TIMEOUT:2s}
+    minio-call-timeout: ${READINESS_MINIO_CALL_TIMEOUT:2s}
+  observability:
+    prometheus:
+      # 独立机器账号；不复用业务 JWT，因此抓取不依赖 Redis 会话或业务用户表。
+      username: ${PROMETHEUS_SCRAPE_USERNAME:}
+      password: ${PROMETHEUS_SCRAPE_PASSWORD:}
   audit:
     # 仅列出直接连接后端、且会覆盖转发头的代理 IP；留空时忽略全部 XFF/X-Real-IP。
     trusted-proxies: ${AUDIT_TRUSTED_PROXIES:}

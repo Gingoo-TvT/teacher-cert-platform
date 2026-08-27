@@ -15,19 +15,354 @@
 
 ---
 
-## [2026-08-27] DOC-README 项目首页与当前进度重构
-- 做了什么：按当前源码、`PROGRESS.md`、`HANDOFF.md` 与统一执行计划重写根 README；新增项目定位、功能范围、
-  技术版本、模块结构、本地启动、测试门禁、安全约束、部署边界和文档导航，并把分散在首页的大段证书续期、
-  升级与恢复细节收敛为权威运行手册链接。
-- 关键决策与理由：README 只承担入口和概览，不复制整份治理账本；进度明确分开 114/114 核心任务、收官后阶段、
-  scoped/stage PASS 与项目级 `CHANGES_REQUESTED / NO-GO`，避免把私有 `main` 快照或局部测试误写成发布授权。
-- 问题与解决：旧 README 的运维细节与当前 WS-8/V33 状态混杂，后续容易漂移；新版本以
-  `docs/CURRENT-EXECUTION-PLAN.md`、`PROGRESS.md`、正式报告为权威来源，并保留 V32/V33、Phase 44 禁止混部和
-  生产凭据 fail-closed 的首页提示。
-- 与规格的偏差/疑问：无业务、API、权限、Flyway、部署实现或状态账本变更；仅文档重构。用户已明确授权提交并
-  推送到私有仓库 `main`。
-- 测试：README 本地链接、引用路径、Markdown 空白与示例命令静态校验；未因纯文档变更重跑后端、前端或运行期门禁。
-- 下一步：提交 README/DEVLOG 文档增量，推送并核验远端 `main` SHA 与 private 属性。
+## [2026-08-27] REPO-R5 最新仓库快照与 README 状态校准
+- 做了什么：发现此前 private 仓库发布取自桌面旧工作区，未包含受控 worktree 中已经完成的最终功能 R5；先将该
+  worktree 的完整候选固化为本地快照 `a9ac685b`，再逐树同步到当前发布分支。重新生成 README，将 WS-8、WS-9、
+  WS-11、WS-12、WS-14、最终功能完整性 R5 与 U-005 的真实状态置于首页，并补齐 V33/V34/V35、健康指标、备份
+  生命周期、前端 bundle 门禁和第二次发布导航。
+- 关键决策与理由：以 `PROGRESS.md` 当前焦点和 `HANDOFF.md` 最新证据链为权威来源，不沿用旧 README 中按开发批次
+  叙述的历史状态；明确区分“最终功能 R5 已通过”“U-005 源码增量已通过”和“项目动态发布 GO 尚未取得”。本次
+  private `main` 更新只作为版本归档与协作基线，不冒充 release carrier，也不触发部署、迁移或切流。
+- 问题与解决：同一仓库存在两个工作区，桌面分支只包含早期快照，而最新实现仍以 tracked + untracked 候选存在于
+  `81bf` worktree。采用显式 `git add -u` 加安全 untracked 清单固化候选，排除 `.claude/tmp-audit-prompt.txt`；同步后
+  校验目标树哈希完全一致，并保留桌面本地的 `ROUTEAUDIT_FINAL_REVISION_R1.md` 未跟踪草稿。
+- 与规格的偏差/疑问：无业务规格变更。U-005 仍为 `DYNAMIC_RELEASE_EVIDENCE_PENDING / NO-GO`；仓库推送由用户明确
+  授权，但不改写正式复核报告的发布边界。
+- 测试：本次未重跑完整动态门禁；静态核对 README 链接、迁移上限与进度表，并沿用 R5 正式证据记录的 68 suites /
+  447 tests、九模块 package、视频指派 10/10、候选工具 6/6。提交前继续执行 diff/check、候选文件与敏感信息检查。
+- 下一步：将线性提交推送至 private 仓库 `Gingoo-TvT/teacher-cert-platform` 的 `main`，然后核对远端 SHA 与可见性；
+  发布工作仍按 U-005 新冻结候选补齐隔离动态门禁与 Hosted 证据。
+
+## [2026-08-23] U-005 第二次部署 R4 独立增量 PASS 同步
+- 做了什么：定位并全文核验正式 R4 报告，复算报告 SHA-256
+  `37cdbbdacef8a1940ea8d57e03828c21bdd8f6118a6affd5d321b0bbf2bbc32d`；报告精确绑定 HEAD `aa3509a`、
+  fingerprint `0ee662b7276ff1889c50b0b65c37339d919f3da5c63f6da5561dc77d1f355ed9` 与 manifest SHA-256
+  `47b476d6cfbfe5cd2e537205b13447b3c8997e84f108499ac72c0489422017bf`，正式结论为
+  `INDEPENDENT_INCREMENTAL_PASS（0C/0H/0M/0L）`；R3 唯一 Medium CLOSED。
+- 关键决策与理由：只把 R4 标为源码增量 PASS，U-005 总体保持进行中；正式 ingress、真实 Linux login-path、
+  clean-store、迁移/回退与 Hosted 均属于下一动态证据阶段，不能由本地源码结论替代。
+- 问题与解决：R4 manifest 在治理同步前独立 verify PASS（220 tracked changed / 220 untracked）。治理同步本身会改变
+  候选字节，因此明确要求物化 carrier 或执行 Hosted 前重新 capture + verify 新 manifest，并让全部动态证据绑定
+  同一新候选，避免挪用 R4 指纹。
+- 与规格的偏差/疑问：无。正式报告不授权 carrier、Hosted、push、merge、部署或切流；项目继续 `NO-GO`。
+- 测试：R4 manifest 在治理同步前独立 verify PASS；治理同步后 public-entry 双路径行为合同、second-release、WS-7、
+  WS-8/V33 三项 Python 合同、candidate manifest 工具 6/6 与 `git diff --check` 全部 PASS。
+- 下一步：在获得外部动作授权后，以新的同一冻结候选完成一次性隔离动态门禁与全新 Hosted，再交用户做项目级发布复核。
+
+## [2026-08-23] U-005 第二次部署 R3 单路径 Medium 最小整改（R4 待独立增量复核）
+- 做了什么：复验 R3 manifest fingerprint
+  `9383ccc22ffc9d5e4c81ce4e9878b0eff3c078b1be9efee3f71572a4c5f09c2e`、manifest SHA-256
+  `e53730f79c8ab3b4163a25330fded09d8e5a9e1676111af9a00824cb5d479045`，并核验正式报告 SHA-256
+  `c5fd8a5f1d20ae59e8f7c43b08bfec215d848c7ca48b92212ce07e928fd9a78b` 与
+  `CHANGES_REQUESTED（0C/0H/1M/0L）`。将 `verify-public-entry-closed.sh` 从单根路径改为同次探测根路径及固定
+  派生的同源 `/api/health`，两条路径分别执行原有精确 marker/连接拒绝合同；发布手册同步双路径要求。
+- 关键决策与理由：直接从已授权根 URL 派生固定只读健康路径，避免增加第二个可能误配到不同 origin 的变量；
+  不扩展到业务写接口、真实网络或额外防御性机制，只关闭正式报告给出的路径分流失败条件。
+- 问题与解决：原测试桩只能为一次 curl 提供统一响应，无法表达路径分流；改为按请求 URL 分别返回 root/API
+  响应，并新增“根 503+精确 marker、API 200”必须失败且确实发出两次请求的反例。
+- 与规格的偏差/疑问：无。R4 只作为 `LOCAL_REMEDIATION_READY / INDEPENDENT_INCREMENTAL_REVIEW_PENDING`；
+  不自签 PASS，不授权 carrier、Hosted、部署或切流。
+- 测试：公开入口双路径合同 PASS；login-path、MySQL container-network、second-release preflight、Phase 44 identity
+  四项 shell 回归 PASS；second-release、WS-7、WS-8/V33 三项 Python 合同 PASS；candidate manifest 工具 6/6 PASS；
+  `git diff --check` PASS。
+- 下一步：冻结并 verify 仓库外 R4 release-prep manifest，交用户按 R3 唯一 Medium 做独立增量复核。
+
+## [2026-08-22] U-005 第二次部署 R2 两项 Medium 最小整改（R3 待独立增量复核）
+- 做了什么：核验正式报告精确绑定 R2 fingerprint
+  `f190ddde8832b639a20fffa49f3b4ebec5d3267666e19dd7ac94e1b957b080e4`、manifest SHA-256
+  `3e52ce47e4fa82baa64174beaaec3136ead516078a77f19bda9f62869c989110`，报告 SHA-256
+  `0a12b69258fef4c1419b3210568a7247d8680e4504c4587e535cf3624554b49a`，接受
+  `CHANGES_REQUESTED（0C/0H/2M/0L）`。新增 `scripts/init-mysql-preflight-login-path.sh`，容器进程使用当前
+  宿主 UID/GID 和专用 `HOME` 生成 login-path，随后强制核对 owner、`0600` 与当前操作者可读性；新增
+  `scripts/verify-public-entry-closed.sh`，只接受精确维护 marker 的 HTTP 503，或经明确授权的 curl exit 7。
+- 关键决策与理由：不为普通 503、DNS、TLS 或超时保留宽松分支，避免把不可达或业务故障误报为维护态；不在
+  文档中内联 root 容器生成凭据，保证普通发布操作者可完成强制 preflight。整改保持最小范围，不连接服务器、
+  不运行真实 Docker 动态门禁，不修改现有五服务/四卷。
+- 问题与解决：Windows Git Bash/NTFS 不呈现真实 POSIX `0600`，初版夹具因此被生产强校验正确拒绝；未放宽生产
+  脚本，而是让合同测试用可记录的 `chmod/stat` 桩验证 UID/GID、`chmod 600` 与失败传播，真实 Linux 权限行为留给
+  后续独立隔离动态门禁。
+- 与规格的偏差/疑问：无。R3 仅关闭 R2 两项原失败条件；不自签 PASS，不授权 carrier、Hosted、部署或切流。
+- 测试：`test-init-mysql-preflight-login-path.sh` PASS；`test-verify-public-entry-closed.sh` PASS（拒绝未授权
+  connection refusal、DNS、TLS、超时、无 marker 503、错误 marker 与业务 200）；既有 MySQL network、second
+  release preflight、Phase 44 identity 三项 shell 合同 PASS；`test_second_release_contract.py`、WS-7、WS-8/V33、
+  candidate manifest 6/6 与 `git diff --check` 全绿。
+- 下一步：冻结并 verify 仓库外 R3 release-prep manifest，交用户按两项原失败条件做独立增量复核；正式结论前
+  不物化 carrier，不复用旧 Hosted，不执行部署。
+
+## [2026-08-22] U-005 第二次部署 R1 四项 Medium 最小整改（R2 待独立增量复核）
+- 做了什么：核验正式报告精确绑定 R1 fingerprint
+  `bb3a31dc6e51a89b8fe03679770b39a6046a6bc3db4887fc2d9f0b6502925f88`、manifest SHA-256
+  `b321c2a35cd82667772af6fe00cff37bdb7745d724e472a5926ebc90fcc6ce4b`，报告 SHA-256
+  `9322af640cbcb6976131cc3c49b001278a183c4ed1818ceb2af4b6235442a265`，接受
+  `CHANGES_REQUESTED（0C/0H/4M/0L）`。按四项原失败条件整改：Phase 44 通过一次性 `--rm` 客户端共享已 inspect
+  MySQL 完整 container ID 的网络命名空间并精确比较授权 `server_uuid`；CPU-v1 overlay 为 Redis 使用本地 tag，
+  preflight 比较完整 image ID；停机顺序先关闭/验证公开 frontend，再停旧 backend，frontend 只在
+  `OPEN_TRAFFIC` 启动；归档首版原样 Compose/CPU overlay/init，并给出旧五镜像导出、身份、校验与精确回退命令。
+- 关键决策与理由：不开放宿主 3306、不读取容器环境变量；MySQL login-path 文件只读挂入一次性客户端，查询前后
+  再核对完整 container/image ID。升级与回退都叠加 `deploy/compose.existing-volumes.yml`，以预检所得四卷名声明
+  external，避免只复用 `-p` 却创建空 project 卷。旧 `dfdfb91` 应用只使用首版自己的 `/api/health`、内部 80 和
+  端口映射合同，不把旧 tag 套入当前 `/readiness`、8080 `/healthz` Compose。
+- 问题与解决：首版三份源资产从首次部署包逐字节复核，SHA-256 分别为 compose
+  `810db7a2...370c3b`、CPU overlay `4735a66a...e1df`、init `55b67bc3...b7d90`，仓内
+  `SHA256SUMS` 3/3 通过。本机稳定容器只做一次获准的只读 image identity 观察，未把本机相似 tag/ID 充当目标
+  回退清单；目标旧五镜像大归档尚未生成，手册明确要求从预检核验的目标容器导出，未虚报已具备。
+- 与规格的偏差/疑问：无业务规则、Java、前端、API、Flyway 或权限变化。clean-store `load → up redis --pull
+  never → healthy`、迁移 backend healthy 时公开入口仍关闭、V32 新栈迁移前失败后 `dfdfb91` 五服务 healthy，
+  以及 V32→V35/Phase 41/Phase 00/Phase 47 均留一次性独立环境执行；提交方不自行关闭 4 Medium 或签 PASS。
+  未 push/merge/deploy/cutover，未停止、重建或写入现有五容器/四卷。
+- 测试：Phase 44 合同（含缺失/错误 UUID）、container-network wrapper、第二次发布 preflight stub 三项均 PASS；
+  `scripts/test_second_release_contract.py`、WS-7、WS-8/V33、candidate manifest 6/6 均 PASS；新/旧两套 Compose
+  展开确认 Redis 本地 tag、四卷 external、首版 health/端口；rollback `SHA256SUMS` 3/3、shell `bash -n`、
+  `git diff --check` PASS。未运行任何常驻服务或真实发布动作。
+- 下一步：全部治理字节稳定后 capture/verify 仓外 R2 manifest，提交四项增量复核。独立认可后才原样物化
+  carrier，运行全新同候选 Hosted 与上述隔离动态门禁；项目继续 `NO-GO`。
+
+## [2026-08-22] U-005 第二次部署发布准备（首版 `dfdfb91` 基线）
+- 做了什么：从首次部署任务 `019f87b1-0553-7de1-a1b9-cdcfcf55ad60` 还原稳定基线
+  `dfdfb9199215d856b70abb653cb65b6f9ed46282`、CPU x86-64-v1 兼容组合与离线五服务路径；核验 R5
+  fingerprint `e98305d4...079a0` 的正式结论为 `INDEPENDENT_INCREMENTAL_PASS（0C/0H/0M/0L）`。
+  新增 CPU-v1 Compose 覆盖层、第二次部署手册和只读目标包装预检；Phase 44 输出并校验 database、只读主体摘要、
+  server UUID target marker，且已接入权威停机步骤。把 `Phase41BackupIT` 的最高成功 Flyway 版本断言从 34
+  同步为当前 V35，并勘误生成列 4 表口径。
+- 关键决策与理由：第二次部署复用原 Compose project 与四个数据卷，使用预载五镜像、
+  `--no-build --pull never` 和 MySQL 8.0.36/CPU-v1 MinIO 覆盖层；不在新目录隐式创建空卷。V32→V35
+  采用停写、停尽旧节点、建立 V33 前数据库/对象恢复点、单新 backend 完成 V33–V35 与 callback、全量同摘要
+  启动后再放流的停机升级，V33 开始后禁止旧 binary 重连。没有增加业务功能或可选 WS-15 复杂度。
+- 问题与解决：当前通用 Compose 固定较新 MySQL/MinIO，且命名卷没有固定外部名称，不能直接照搬首次
+  `up -d --build`；用小型覆盖层和显式 project/卷预检收口。Git Bash 在受限沙箱内两次因 Win32 error 5
+  无法创建 signal pipe，随后仅获准在沙箱外运行同一自然退出的语法/stub 合同，断言未降低并通过。
+- 与规格的偏差/疑问：无业务规格变更。正式域名/证书、MinIO HTTPS gateway、目标服务器当前 project/卷、
+  备份恢复点及隔离真实依赖仍须在获授权环境证明；R5 后治理/发布字节构成新候选，不能复用 R5 或历史 Hosted
+  证据。未读取或覆盖目标 `.env`，未 push/merge/deploy/cutover，未停止或重建本机稳定五容器与四卷。
+- 测试：candidate manifest 工具 **6/6**；WS-7、WS-8/V33 合同 PASS；Phase 44 target marker 正反例与第二次
+  发布预检 fail-closed 合同 PASS；三份 shell `bash -n` PASS；基础 Compose + CPU-v1 overlay `config --quiet`
+  PASS；九模块 `test-compile` BUILD SUCCESS、启动模块 82 个测试源编译、Checkstyle 0。
+- 下一步：所有仓库字节稳定后在仓库外 capture/verify 新的 release-prep manifest。随后由独立流程原样物化
+  carrier、运行全新同候选 Hosted 与隔离 V32→V35/Phase 41/Phase 00/Phase 47 门禁；项目级发布复核 PASS
+  且用户明确授权后，才可进入实际停服与迁移。
+
+## [2026-08-22] FINAL-FUNCTIONAL-R5 当前评审人数参数迁移整改
+- 做了什么：核验 R4 正式报告绑定 HEAD `aa3509a`、fingerprint `29b030794b6d693c3486b6320e5f0f150a51a76d4f2cc30dabd567cac5e9f784`，manifest SHA-256 `fcfe2c578d29bfa22b1ed0dce737f5b1ed9008a0646bebe140b6cd8f1af44c0e`，报告 SHA-256 `37dc0a95a0b52a6a083e961e2c2c09b52541c601bd968316a2d147293d44727b`，接受 `CHANGES_REQUESTED（0C/0H/1M/0L）`。V35 在历史 `reviewer_count` 全部回填后，把当前 `video.reviewerCount` 小于 2 的值归一为 2、大于 10 的值归一为 10。
+- 关键决策与理由：只修升级后新评审无法创建这一正常业务失败条件。历史无任务快照若由旧参数 11 冻结仍保持 11，当前参数才改为 10；旧参数 1 的历史单任务最低冻结 2，当前参数改为 2。生产 `VideoReviewServiceImpl` 已正确限制新评审为 2..10，无需改 Java、接口、前端或增加迁移编号。
+- 问题与解决：原 V35 同时兼容历史 11 人快照和新建 2..10，却遗漏升级后当前参数收口；迁移 IT 现在同时断言“历史无任务快照仍为 11、当前参数已为 10”，固定先冻结后归一的顺序，并保留 11 人任务与 3 份已提交结果。Phase 7 IT 另验证参数 10 可正常新建评审。
+- 与规格的偏差/疑问：无需求扩张。V35 尚未发布且仍为未跟踪候选迁移，因此原位整改，未新增 V36。当前机器只有共享 `*-prod` MySQL/Redis/MinIO，未连接或写入；未启动常驻服务，未 merge/push/deploy/cutover。提交方不自行把唯一 Medium 标为 CLOSED/PASS。
+- 测试：九模块 `mvn -B -ntp -o test` **68 suites / 447 tests**，0 failure/error/skip、Checkstyle 0；视频指派聚焦 **10/10**；九模块 package PASS，启动模块 82 个测试源编译成功；candidate 工具 **6/6**、WS-7 与 WS-8/V33 合同 PASS。V35 与 Phase 7 新增真实依赖场景已编译，留独立隔离环境执行。
+- 下一步：所有治理字节稳定后生成并立即 verify 仓外 R5 manifest；状态保持 `LOCAL_REMEDIATION_READY / INDEPENDENT_INCREMENTAL_REREVIEW_PENDING`，由用户对唯一 Medium 与隔离真实依赖场景独立裁定。项目继续 `CHANGES_REQUESTED / NO-GO`。
+
+## [2026-08-22] FINAL-FUNCTIONAL-R4 两项相邻业务 finding 最小整改
+- 做了什么：核验 R3 正式报告绑定 HEAD `aa3509a`、fingerprint `a43d5a758a6d3942102cd994e1a74f0e6f19144846af82bcb535830cef156c80`，报告 SHA-256 `5765c347958227ca5812079d8a5b881b6bf7ae48294a0c6dcf51f3b114335abe`，接受 `CHANGES_REQUESTED（0C/0H/2M/0L）`。所有证书写成功响应统一按 id 重读持久化行后映射 VO；V35 对历史有效任务数 `>=2` 原样冻结，指派后若全部有效任务已提交则立即尝试结算并留痕。
+- 关键决策与理由：只修报告给出的正常业务失败条件。证书不删减 revision 字段，也不新增版本列；新建评审仍使用 2..10 参数边界，历史数据按实际合法任务事实兼容，包括旧参数页曾允许形成的 11 人记录；自动结算复用既有 `settleIfReady`，不另建状态机。
+- 问题与解决：写接口内存实体保留纳秒时间且缺少数据库补齐的审计字段，直接 `toVO(entity)` 会让响应 token 与 DATETIME(0) 持久化结果不同，改为统一持久化重读。旧 11 人记录升级后被压到至多 10 且全员已提交时没有可触发结算的动作，迁移改为保留实际任务数，并在指派事务内补现有结算调用。
+- 与规格的偏差/疑问：无需求扩张。V35 尚未发布且仍是候选中的未跟踪迁移，因此按原编号修正；未新增 V36。当前机器只有共享 `*-prod` MySQL/Redis/MinIO，未连接或写入，未启动常驻服务、未 merge/push/deploy/cutover。提交方不自行把两项 finding 标为 CLOSED/PASS。
+- 测试：证书/视频聚焦 **15/15**；九模块 `mvn -B -ntp -o test` **68 suites / 447 tests**，0 failure/error/skip、Checkstyle 0；九模块 package PASS，启动模块 82 个测试源编译成功；candidate 工具 **6/6**、WS-7、WS-8/V33 与 `git diff --check` PASS。Phase 7、Phase 9、V35 新增真实依赖场景均已编译但未在共享生产依赖上执行。
+- 下一步：所有治理字节稳定后生成并立即 verify 仓外 R4 manifest；状态保持 `LOCAL_REMEDIATION_READY / INDEPENDENT_INCREMENTAL_REREVIEW_PENDING`，由用户在隔离依赖环境独立裁定。项目继续 `CHANGES_REQUESTED / NO-GO`。
+
+## [2026-08-21] FINAL-FUNCTIONAL-R3 两项独立复核 finding 最小整改
+- 做了什么：核验 R2 正式报告绑定 HEAD `aa3509a`、fingerprint `6baa7079dcea8c6609c89a0f63d018e1fb1ca18efc4d1bd09450936cb81dfcd3`，报告 SHA-256 `41c7d71ac5a2e4498618a02a300da907df2acb4dbc948a02e63f87058a844b3f`，接受 `CHANGES_REQUESTED（0C/0H/2M/0L）`。为证书更正增加服务端聚合 revision，行锁后先比较再进入序列/更新/审计；为 V35 历史单评审保留已提交任务与成绩并开放只补派路径。
+- 关键决策与理由：只补正常协作和人员状态变化可触发的业务不变量。revision 由现有证书聚合快照计算，不新增数据库列；视频恢复沿用冻结人数与任务软删模型，不引入评审轮次或人工旁路。已提交教师后续停用不抹除历史结果，新加入及未提交教师仍执行当前资格校验。
+- 问题与解决：只读交叉复核发现 Phase 9 IT 把 JSON null 转为字面量 `"null"`，会在首笔更正提前失败，已改为前端真实空字符串；又发现停用的历史已提交评审人会被资格重验阻断补派，已仅跳过已提交任务的当前资格重验并补单元/真实依赖场景。交叉复核修正后未发现本轮剩余可执行问题，但不代替用户独立复核。
+- 与规格的偏差/疑问：无需求扩张、无新 Flyway。当前未连接或修改现有 MySQL/Redis/MinIO/生产容器；Phase 7、Phase 9、V35 动态场景已编译，留用户一次性隔离环境执行。提交方不自行把两项 finding 标为 CLOSED/PASS。
+- 测试：九模块 `mvn -B -ntp -o test` **68 suites / 445 tests**，0 failure/error/skip、Checkstyle 0；九模块 package PASS。证书聚焦 5/5、视频指派 8/8；前端 lint、双 type-check、build、Vitest 16/16、Playwright 7/7；候选工具、WS-7、WS-8/V33 与 `git diff --check` PASS。
+- 下一步：所有治理字节稳定后生成并立即 verify 仓外 R3 manifest；状态保持 `LOCAL_REMEDIATION_READY / INDEPENDENT_INCREMENTAL_REREVIEW_PENDING`，由用户对两项 finding 与隔离真实依赖场景独立裁定。项目继续 `CHANGES_REQUESTED / NO-GO`。
+
+## [2026-08-21] FINAL-FUNCTIONAL-R2 六项独立复核 finding 最小整改
+- 做了什么：核验 R1 正式报告绑定 HEAD `aa3509a`、fingerprint `9cc342c0e274f868ccb2afa3e5b7e52a88677432cb90728939ae6240485da880`，报告 SHA-256 `3cad9705cf66028c21c20a2483f58e126bb8bcbd2e5d91da8c2334a997827c61`，接受 `CHANGES_REQUESTED（0C/1H/5M/0L）`。按六项原失败条件完成证书更正序列占用与锁定最新聚合、附件 ZIP 免考佐证、STANDARD 条件可空、视频时长参数范围、V35 评审人数冻结及并发更正一致性整改。
+- 关键决策与理由：只修正常业务操作可触发的不变量。证书更正复用既有 `cert_sequence` 预留函数和事务；视频只增加每轮人数快照列，参数仅对新评审生效；附件继续使用现有同步流式 ZIP；没有引入异步框架、通用配置 schema 或可选 WS-15。
+- 问题与解决：总复查发现 Phase 7 旧 IT 仍断言“人数等于系统参数”，与新“本轮冻结人数”语义漂移，已只改断言文本。R10 同步 `plan.md`、Phase 7/9/10 文档，明确参数范围、实例生效、证书更正序列与附件/条件必填规则。
+- 与规格的偏差/疑问：无需求扩张；V35 是关闭在途评审热变更 finding 的最小迁移。当前未连接或修改现有 MySQL/Redis/MinIO/生产容器；Phase 7、Phase 9、V35 动态场景已编译，留用户一次性隔离环境执行。提交方不自行把六项 finding 标为 CLOSED/PASS。
+- 测试：九模块 `mvn -B -ntp -o test` **68 suites / 440 tests**，0 failure/error/skip、Checkstyle 0；九模块 package PASS、启动模块 82 个测试源编译成功。聚焦证书 3/3、视频/参数 15/15、附件/导出 12/12、身份语义/行构建 7/7；candidate 工具 6/6、WS-7、WS-8/V33 与 `git diff --check` PASS。
+- 下一步：治理字节稳定后生成并立即 verify 仓外 R2 manifest；状态保持 `LOCAL_REMEDIATION_READY / INDEPENDENT_INCREMENTAL_REREVIEW_PENDING`，由用户对六项 finding 与隔离真实依赖场景独立裁定。项目继续 `CHANGES_REQUESTED / NO-GO`。
+
+## [2026-08-21] FINAL-FUNCTIONAL-R1 八项独立复核 finding 最小整改
+- 做了什么：核验正式报告绑定 HEAD `aa3509a`、fingerprint `aaad823edca27d5691c655bf09497575e84955b250baa5de6f2a4a4dadd5d3c8`，报告 SHA-256 `bf976b4151d94ac1fb9e101f95f894cd5d70665adb7f49aee6eed4434556bee7`，接受 `CHANGES_REQUESTED（0C/3H/4M/1L）`。按八项原失败条件完成视频当前评审集合与结算、FULL_REVIEW/真实附件 ZIP、证书年份与正式字段、STANDARD 上报资格/批次/状态、UPDATE_EMPTY 学科原子组、参数业务边界和材料页显式学生目标整改。
+- 关键决策与理由：只补正常授权业务路径的不变量与交付内容，不引入评审轮次、异步导出、异步审计或通用参数 schema；带分改派直接拒绝，未评分改派复用现有软删任务模型；大附件继续同步流式 ZIP。可选 WS-15 仍不作为功能前置。
+- 问题与解决：完整后端首轮回归仅有 `ExchangeExportGuardTest` 两个旧隐私夹具缺新版 STANDARD 必填学生/培养字段；补齐真实字段后定向 8/8 与全量回归均通过，未弱化生产校验。Playwright 新用例首轮仅因 Naive Modal 无 accessible name 定位失败，改为按 dialog 内容定位后定向 1/1、全量 7/7；截图中的业务目标始终正确。
+- 与规格的偏差/疑问：无业务规格扩张。当前本机只有生产容器，未连接或修改它们；新增 Phase 7/9/10/48 真实依赖 IT 已编译但留用户一次性隔离环境执行。提交方不自行把八项 finding 标为 CLOSED，不签发最终功能 PASS，不 merge/push/deploy/cutover。
+- 测试：九模块 `mvn -B -ntp -o test` **67 suites / 430 tests**，0 failure/error/skip、Checkstyle 0；视频聚焦 10/10、参数 8/8、Exchange 附件链接 1/1、导出行 4/4、隐私导出 8/8。前端 lint、双 type-check、build、Vitest 16/16、Playwright 7/7 全绿。candidate manifest 工具 6/6、WS-7、WS-8/V33 与 `git diff --check` PASS。
+- 下一步：治理字节稳定后生成并立即 verify 仓外 R1 manifest；状态保持 `LOCAL_REMEDIATION_READY / INDEPENDENT_INCREMENTAL_REREVIEW_PENDING`，由用户对八项 finding 和隔离真实依赖场景独立裁定。项目继续 `CHANGES_REQUESTED / NO-GO`。
+
+## [2026-08-21] GOV-070 WS-14 R2 独立 PASS，进入最终功能完整性复核
+- 做了什么：现场验证 R2 外置 manifest fingerprint `4a1674636fc69fe1305003b0bdedbae8ee9df69ce627455b06073b6e9c69cb80`、SHA-256 `e4097df14a5d30f2ed1bed6703b8356623aeaf3362b11b1b2c149b0709f2d630` 与 HEAD `aa3509a` 一致；核验正式报告 SHA-256 `8ade2dd744116306553bb06c1cef3e9e7c2e4df1bd6efe650ea6924a8686be61`，结论为 `INDEPENDENT_INCREMENTAL_PASS（0C/0H/0M/1L）`，首轮两项 Medium 均 CLOSED。
+- 关键决策与理由：唯一 Low 是递归统计混入历史 Phase 41 XML，正确口径为当前九模块 66 suites / 421 tests、聚焦 27/27；只更正文档，不为口径勘误重跑。WS-15 是现有同步审计可接受前提下的纯收益优化，按用户“功能完整、避免额外复杂度”口径暂不实施，直接准备最终功能完整性独立复核。
+- 问题与解决：正式报告目录只有 `review.md`、无根 `SHA256SUMS`；诚实记录直接复算的报告哈希，不虚报证据包闭包。报告未执行隔离 `Phase00ParameterMatrixIT` / `Phase47CleanupIT`，明确其不构成功能 finding，保留为稳定发布前证据。
+- 与规格的偏差/疑问：下一轮先按用户明确范围确认业务主流程、规则与数据一致性；不把 scoped PASS 扩写为 merge、deploy、cutover 或项目 GO。
+- 测试：R2 manifest 现场 verify PASS（208 tracked / 193 untracked）；正式报告确认当前 Surefire 66 suites / 421 tests、聚焦 27/27 全绿。治理同步后执行文档合同、候选工具测试与 `git diff --check`。
+- 下一步：冻结当前工作树的最终功能完整性复核外置 manifest，交用户独立裁定；项目继续 `CHANGES_REQUESTED / NO-GO`。
+
+## [2026-08-21] WS14-R2 两项 Medium 最小整改
+- 做了什么：核验 WS-14 首轮正式报告绑定 HEAD `aa3509a`、fingerprint `e6971aae225e1e7e49888f82a34d1587bfd9fd80f131c058410db4db25ac962f`，报告 SHA-256 `24b3487d0739f6f0027c50eb41584bd2cc89332f53ec73fd88e3a505d139c7b2`，结论为 `CHANGES_REQUESTED（0C/0H/2M/0L）`。按报告在备份生命周期同一规则加入 `NoncurrentVersionExpiration(1)`；新增 V34 将 `cleanup.backup.retentionDays=30` 作为 editable `int/global` 参数种入 fresh schema，并在既有参数更新路径只对该键要求正整数。
+- 关键决策与理由：只关闭正式 finding，不新增 delete-marker 规则、通用参数框架或前端入口。V34 遇到既有参数时保留学校已配置的 `param_value`，只补齐元数据和 active 状态，避免升级把 45/90 天重置为 30；记录侧继续只删过期终态行，对象侧继续由 MinIO 生命周期负责。
+- 问题与解决：首轮参数聚焦测试仅因 MyBatis-Plus `updateById` 新旧重载让 Mockito 的无类型 `any()` 产生编译歧义；改为 `any(SysParam.class)` 后通过，未改生产逻辑。当前 Docker 仅有 prod 栈，默认 MinIO 端点会命中生产；因此未连接或修改现有容器，也未执行会写删数据的 `Phase47CleanupIT`。
+- 与规格的偏差/疑问：无。新增迁移是正式复核确认 fresh-schema 缺项后的必要整改；未改业务 API、权限、备份状态机或清理责任边界。提交方不自行把两项 finding 标为 CLOSED，不签发 WS-14 PASS，不 merge/push/deploy/cutover。
+- 测试：`FileMaintenanceServiceTest` 20/20；`SystemManagementServiceImplTest` + `RetentionCleanupServiceTest` 4/4；`CleanupScheduleConfigTest` 3/3；九模块 `mvn -B -ntp -o clean test` **66 suites / 421 tests**，全部 0 failure/error/skip、Checkstyle 0（原 82/567 混入历史 Phase 41 的 16 suites / 146 tests，后续按正式报告勘误）；`mvn -B -ntp -o -DskipTests package` PASS；WS-7、WS-8/V33 与 candidate manifest 合同 PASS；`git diff --check` PASS。fresh-schema `Phase00ParameterMatrixIT` 与真实清理 `Phase47CleanupIT` 留独立隔离环境执行。
+- 下一步：所有治理字节稳定后冻结新的仓外 WS-14 整改 manifest，状态保持 `LOCAL_REMEDIATION_READY / INDEPENDENT_INCREMENTAL_REREVIEW_PENDING`；独立 PASS 前不领取 WS-15/最终全量重审，项目继续 `CHANGES_REQUESTED / NO-GO`。
+
+## [2026-08-21] WS14 备份生命周期与记录归档本地完成
+- 做了什么：在现有 Phase 47 清理框架内新增备份前缀生命周期托管规则 `tcp-db-backup-retention`，目标桶/前缀复用 `platform.backup.*`；将 `backup_record` 接入既有分批保留清理。对象与记录共用 `cleanup.backup.retentionDays`（默认 30 天）。
+- 关键决策与理由：保持一个参数口径，避免对象与记录保留期分叉；记录侧只物理删除过期 `COMPLETED/FAILED`，保留 `PENDING/RUNNING`，且绝不直接删对象。生命周期完全匹配时跳写，更新时只替换自己的稳定规则并保留其它规则。无新框架、无 Flyway。
+- 问题与解决：WS-14 旧提示要求生成 demo 视频，但 Phase 53 已换成真实样本。只读复核得到 1,605,702 B、H.264 Baseline、320×180、900 秒/900 帧，ffmpeg 首帧解码 exit 0，且初始化与播放链都引用该对象，因此不重复修改二进制。当前仅有正在运行的 prod 容器，未连接或改动；真实依赖 IT 留独立隔离环境。
+- 与规格的偏差/疑问：无。未改业务 API、权限、数据库结构或业务规则；未执行攻击性检查、merge、push、deploy 或 cutover。
+- 测试：九模块 `mvn -B -ntp -o clean test` **64 suites / 416 tests**，0 failure/error/skip；`FileMaintenanceServiceTest` 19/19、`CleanupScheduleConfigTest` 3/3；Checkstyle 0。`Phase47CleanupIT` 已覆盖旧终态删、近期终态留、旧 RUNNING 留及记录清理不删对象，但未在当前 prod 容器上执行。
+- 下一步：同步手册与治理材料，冻结外置 WS-14 manifest，状态置 `LOCAL_IMPLEMENTATION_COMPLETE / INDEPENDENT_REVIEW_PENDING`；独立 PASS 前不领取 WS-15/最终全量重审，项目继续 `CHANGES_REQUESTED / NO-GO`。
+
+## [2026-08-21] GOV-069 WS-12 独立增量 PASS，领取 WS-14
+- 做了什么：核验正式报告绑定整改 fingerprint `1c8b8821437e7f8bb6c110737ad07e5e67c0aaaab1aeb42f475b80fb8db0ae7b`、HEAD `aa3509a` 与外置 manifest SHA-256 `f73b29b46b765e6c029acc7bfb319667ada0459c8fa49d243b47f87126e1f5e6`；现场 manifest verify 再次 PASS。报告 SHA-256 为 `38b3f390519e432916b22ae45196769eb826bad866a92d06c681b72592aa42d4`，裁定 `INDEPENDENT_INCREMENTAL_PASS（0C/0H/0M/0L）`，上一轮唯一 gzip 口径 Medium CLOSED。按统一队列领取 WS-14。
+- 关键决策与理由：只按正式报告关闭 WS-12；WS-14 保持最小范围，实施 `db-backup/` 生命周期与 `backup_record` 保留清理，demo 视频先核对 Phase 53 既有产物，避免重复改造。
+- 问题与解决：报告目录只有 `review.md`、没有 `SHA256SUMS`；本轮诚实记录直接复算的报告哈希，并以报告内绑定、外置 manifest 哈希和现场 verify 三路核对候选身份，不虚报证据包闭包。
+- 与规格的偏差/疑问：无。WS-12 PASS 只放行后续开发，不授权 merge、push、deploy、cutover 或项目 GO；未执行攻击性检查。
+- 测试：`candidate_source_manifest.py verify` PASS，201 tracked / 188 untracked，fingerprint 与正式报告一致。
+- 下一步：完成 WS-14 两项备份运维逻辑与聚焦测试，状态置待独立复核；项目继续 `CHANGES_REQUESTED / NO-GO`。
+
+## [2026-08-21] WS12-R1 生产与预算 gzip 口径 Medium 最小整改
+- 做了什么：核验首轮外置候选 manifest 在整改前仍为 fingerprint `21f784c39023d6b7dae4c46b94ad3c78f5a01ea4208e80ebcbbd7a860ebbef4e`、HEAD `aa3509a`、201 tracked / 187 untracked，随后读取正式报告并接受 `CHANGES_REQUESTED（0C/0H/1M/0L）`。唯一 Medium 是生产 Nginx 默认 gzip level 1、预算脚本按 level 6 计算，当前 charts 在生产口径已经超预算但 CI 假绿。现仅在 Nginx 显式配置 level 6，在预算脚本显式传同一常量，并让现有预算合同解析生产配置、要求两端等级相同。
+- 关键决策与理由：采用正式报告列出的最小方案，不为一个确定性配置漂移继续瘦身图表、引入预压缩制品或新构建框架。生产与 CI 以同一 level 6 对同一文件计数，保留现有 190 KiB 产品预算和全部路由/按需加载实现。
+- 问题与解决：独立复算同一 `charts-DVjqAqKK.js` 得到 level 1 为 **199,104 B**、level 6 为 **176,597 B**、预算为 **194,560 B**，准确复现报告失败条件。正式报告目录只包含 `review.md`、未提供 `SHA256SUMS`；本轮直接复算报告 SHA-256 为 `3d39b2660f6731fbd5e3d4677de7ae6fc86d0906ef362a2a4b79051f3ea5564e`，不虚报独立证据包校验和闭包。Vitest/Playwright 首次在受限沙箱内分别因子进程 `spawn EPERM` 未启动测试，按相同命令在获准环境重跑后 16/16 与 6/6 全绿，不计产品失败。
+- 与规格的偏差/疑问：无。未改业务 API、后端、数据库、Flyway、权限、路由或业务规则；未执行攻击性检查、merge、push、deploy 或 cutover。整改结果不由提交方标记 finding CLOSED，WS-14 继续不放行。
+- 测试：frontend lint、应用/测试双 type-check、production build PASS；Vitest **4 files / 16 tests**、Playwright **6/6**；`bundle:check` 与预算正例/强制超预算/图表泄漏/生产 gzip 等级合同均 PASS；入口/登录/普通管理/charts/总 JS 为 **119.6/148.0/291.6/172.5/662.6 KiB**；`git diff --check` PASS。
+- 下一步：全部治理字节稳定后在仓库外生成新的 WS-12 整改 manifest 并立即 verify，状态保持 `LOCAL_REMEDIATION_READY / INDEPENDENT_INCREMENTAL_REREVIEW_PENDING`；只交用户复核这 1 个 Medium，PASS 前不领取 WS-14，项目继续 `CHANGES_REQUESTED / NO-GO`。
+
+## [2026-08-21] GOV-068 WS-11 R2 独立 PASS，WS-12 bundle 拆分待复核
+- 做了什么：核验 WS-11 R2 正式独立报告及同目录 `SHA256SUMS`，报告绑定 fingerprint `85606aed4cd42b28dc66245a5013bf28263657d6e46eda3cff49a334c129161f`，裁定 `INDEPENDENT_INCREMENTAL_PASS（0C/0H/0M/0L）`，首轮三项 Medium 全部 CLOSED。按权威队列领取 WS-12：保留统计页路由懒加载并将 `ChartBox` 设为第二层异步边界；ECharts 改为按图表/组件/渲染器注册，Naive UI 改自动按需导入；CI 新增真实产物 gzip 闭包预算与正反例。
+- 关键决策与理由：只优化用户真实首屏与普通管理路径，不做全站 UI 重写、依赖大升级或额外防御框架。预算检查读取 Vite manifest 并计算依赖闭包，避免仅看单文件产生假绿；阈值给当前稳定产物留少量波动空间，入口/登录/普通管理不得携带 charts/echarts，超预算或泄漏直接失败。
+- 问题与解决：按需导入暴露出通知中心使用了 Naive UI 不存在的 `n-segmented`，旧全局插件会静默渲染未知元素；最小替换为 `n-radio-group`/`n-radio-button` 并补运行期交互回归。`unplugin-vue-components` 选择兼容项目 Node ≥18.12 的 v29，未升级运行时基线。Playwright 初次点击隐藏 input 被组件 label 拦截，测试改为点击真实可交互标签后 6/6。可选 `test:ws4-gap-gate` 依赖人工预先启动的 18099 服务，按 AGENTS 未由 exec 启动常驻服务，因此未把该非 WS-12/CI 门禁冒充已运行。
+- 与规格的偏差/疑问：无后端、业务 API、数据库、迁移、权限或业务规则变化。受保护脏工作树保持 detached HEAD，未 reset/checkout/clean、未 commit/push/merge/deploy/cutover。WS-12 新字节尚未独立复核，不自签 PASS，WS-14 未放行。
+- 测试：frontend lint、type-check、tests type-check、production build 全绿；Vitest **4 files / 16 tests**；CSP、logout、Dashboard latest-request、WS-4 video/auth 与 WS-7 supply-chain 合同均通过；bundle budget 正例及强制 1-byte 超预算、图表泄漏反例均按预期；Playwright 产品冒烟 **6/6**；`git diff --check` PASS。gzip 闭包为入口 **119.6 KiB**、登录 **148.0 KiB**、普通管理 **291.6 KiB**、charts **172.5 KiB**、总 JS **662.6 KiB**。
+- 下一步：冻结 WS-12 外置候选 manifest，提交 `LOCAL_IMPLEMENTATION_COMPLETE / INDEPENDENT_REVIEW_PENDING` 材料给用户独立复核。PASS 前不领取 WS-14，项目继续 `CHANGES_REQUESTED / NO-GO`。
+
+## [2026-08-21] WS11-R2 三项 Medium 最小整改
+- 做了什么：核验 WS-11 首轮正式独立报告（SHA-256 `bb3e5d907814f99159ac6434ea0c4ab7f511249dcfd210c1f368ae34393c8e8a`），其绑定 fingerprint `ea6cf944b0c3229090a3f47477243600d0475aec35a41d9abdbacb3fb1857418` 并裁定 `CHANGES_REQUESTED（0C/0H/3M/0L）`。按三项 finding 分别增加 Prometheus 独立机器 Basic 认证链、readiness 独立短超时与总预算、五类后台作业真实结果指标。
+- 关键决策与理由：整改严格对齐报告，不改业务 API、业务规则、数据库或迁移。Prometheus 机器身份不经过业务 JWT/Redis/DB；readiness 复用现有 MinIO endpoint/凭据/region，但使用独立 1/2/2 秒短超时并以 3 秒总预算、单 worker 零队列限制重入，业务 MinIO 10/30/900 秒配置保持不变；作业指标只使用固定 `job,outcome` 标签，不含业务 ID、异常文本或动态基数。
+- 问题与解决：首次半开恢复用例中，短超时 MinIO 客户端未显式复用既有 region，恢复 stub 收到了额外 bucket-location 请求而未回到 UP；补上现有 region 后，半开连续 503、无堆积和恢复 200 均通过。全量单测首次发现两个手工 Spring Security 测试上下文未注入新机器凭据，补齐测试 fixture 后全绿；均未改变生产业务逻辑。
+- 与规格的偏差/疑问：无。正式报告尚未复核本轮新字节，三项 finding 不能由提交方自行标记 CLOSED；WS-12 不放行。未 commit/push/merge/deploy/cutover。
+- 测试：九模块 Surefire **411/411**；Phase 14 + WS-11 Failsafe **18/18**（其中 WS-11 4/4）；全部 0 failure/error/skip；Checkstyle 0。真实 MySQL/Redis/MinIO 下 Flyway 验证 34 项、schema V33；MinIO 半开反例连续三次在 Compose 5 秒预算内返回 503，恢复后返回 200。
+- 下一步：本轮外置候选 manifest 已冻结；提交 `LOCAL_REMEDIATION_READY / INDEPENDENT_INCREMENTAL_REREVIEW_PENDING` 材料，等待用户独立增量复核。项目继续 `CHANGES_REQUESTED / NO-GO`。
+
+## [2026-08-21] WS11 健康就绪与指标最小功能闭环
+- 做了什么：保留 `/api/health` 作为存活兼容入口，新增 `/api/health/liveness` 与 `/api/health/readiness`；readiness 逐项检查 MySQL、Redis、MinIO 和 Flyway 迁移状态并在未就绪时返回 HTTP 503。引入 Actuator/Micrometer/Prometheus，暴露 HTTP、Hikari 和四项依赖状态指标；Prometheus 要求登录。生产 Compose healthcheck 改用 readiness，README 同步操作入口。
+- 关键决策与理由：只实现审计要求的业务可用性闭环，不引入额外监控框架或攻击性检查；liveness 不依赖外部服务，避免依赖故障被误判为进程死亡。保留旧 `/api/health` 语义以兼容既有调用方，运行就绪由新端点承担。
+- 问题与解决：首轮真实依赖 IT 中 Prometheus 因未显式开放端点而返回 404；补齐单一 endpoint exposure/export 配置后，端点仅在认证后返回指标，复跑通过。未放宽鉴权，也未改变业务 API、数据库或迁移。
+- 与规格的偏差/疑问：无。工作树继续保护既有大量未提交资产；仅建立本地 `feature/ws11-health-metrics` 分支指针，未切换/重置/清理、未 commit/push/merge/deploy。
+- 测试：focused 单元 **6/6**；真实依赖 WS-11 **3/3**；最终空库九模块 `mvn -B -ntp -o clean verify`（Phase 14 + WS-11 selector）BUILD SUCCESS，Surefire **406/406**、Failsafe **17/17**，0 failure/error/skip，Checkstyle 0；Flyway 34 项验证至 V33，`git diff --check` PASS。
+- 下一步：状态置 `LOCAL_FUNCTIONAL_READY / INDEPENDENT_REVIEW_PENDING`，提交用户独立功能复核。PASS 前不领取 WS-12；项目继续 `CHANGES_REQUESTED / NO-GO`。
+
+## [2026-08-20] GOV-067 WS-9 独立增量 PASS，领取 WS-11
+- 做了什么：核验正式报告 `ws09-integration-independent-rereview-20260820-df1f1950-local/review.md` 与同目录 `SHA256SUMS`，报告 SHA-256 为 `e8b8b0cb1e6b7a82f13198683bfa1163c3d0d656766575da2168351163555722`。报告绑定 fingerprint `df1f1950...b2f45`，裁定 `WS9-INT-M1 CLOSED / INDEPENDENT_INCREMENTAL_PASS`，0 open finding。
+- 关键决策与理由：仅按正式报告关闭 WS-9 并领取权威队列下一项 WS-11；后续治理与 WS-11 字节不冒充已复核 WS-9 候选。WS-11 坚持功能优先，只实现依赖 readiness 与关键指标，不扩展无关框架或攻击性检查。
+- 问题与解决：同步纠正旧类级测试租约数值笔误：原值为 1 秒/0.2 秒，当前专用续租用例才使用 5 秒/1 秒；该勘误不影响正式 PASS。
+- 与规格的偏差/疑问：无。该 PASS 只放行后续开发，不授权 merge、deploy、cutover 或项目 GO。
+- 测试：正式复核确认 Surefire 400/400、Phase 7/10/14/39 87/87、证据包 7/7 exact closure。
+- 下一步：实施 WS-11 liveness/readiness 与 Prometheus 指标，完成后交用户独立复核；项目继续 `CHANGES_REQUESTED / NO-GO`。
+
+## [2026-08-20] WS09-INT-M1 真实依赖回归证据整改
+- 做了什么：核验正式 WS-9 功能报告（SHA-256 `0553a3963eccbffaecbc1f55b0db220ac9ef60244f8b2ca9df2aa5a5e64b2ea1`），结论为 `CHANGES_REQUESTED（0 个生产代码缺陷 / 1 个 Medium）`。唯一 Medium 是七个 helper 抽取后缺少 Phase 7/10/14 的真实依赖回归；因回滚锁逻辑搬移，同批补跑 Phase 39。
+- 关键决策与理由：不修改生产业务。前两轮 Phase 7 失败方法在不同普通上传场景间漂移，根因是测试类把 1 秒/0.2 秒故障注入租约误用于全部 44 个业务用例；移除类级短租约，只在专门的续租/接管用例内设置 5 秒/1 秒，普通业务恢复生产默认 2 分钟/30 秒，同时保留跨 TTL、接管和旧 owner 拒绝覆盖。
+- 问题与解决：类级短租约下先后出现 1、3 个漂移失败；单用例立即复跑通过，Redis/MySQL/MinIO 无重启或资源异常。隔离测试时钟后，同一全新构建全部通过。
+- 与规格的偏差/疑问：无生产代码、API、数据库、事务、锁序、CAS、审计或业务规则变化；未执行攻击性检查。
+- 测试：`mvn ... clean verify` BUILD SUCCESS；Surefire **400/400**；Phase 7 **44/44**、Phase 10 **18/18**、Phase 14 **14/14**、Phase 39 **11/11**，合计 **87/87**，全部 0 failure/error/skip；Checkstyle 0。
+- 下一步：冻结新 manifest 并提交 XML/摘要给用户独立增量复核。当前 `LOCAL_INTEGRATION_REMEDIATION_READY / INDEPENDENT_INCREMENTAL_REVIEW_PENDING`；PASS 前不领取 WS-11，项目继续 `CHANGES_REQUESTED / NO-GO`。
+
+## [2026-08-20] WS09 服务职责拆分本地功能完成
+- 做了什么：完成七个目标职责的最小等价抽取。视频侧落地 `VideoReviewSettlement`、`VideoUploadComposer`、
+  `VideoReviewVoMapper`；Exchange 侧落地 `ExchangeImportValidator`、`ExchangeExportRowBuilder`、
+  `ExchangeRollbackService` 与 `ExchangeDictionaryHelper`。`ExchangeServiceImpl` 从 R6 候选的 2134 行降至 1430 行，
+  `VideoReviewServiceImpl` 从 2617 行降至 2384 行。
+- 关键决策与理由：只搬纯计算、字段投影和已锁定引用的补偿内核；事务、数据库/对象存储 I/O、锁顺序、CAS、
+  审计、权限与状态机仍由原 service 编排。保持 API、DTO/VO、数据库与业务规则不变，不为结构整齐引入新框架。
+- 问题与解决：全仓单元测试首次发现旧 `ExchangeExportGuardTest` 未注入新字典 helper，2 条标准导出用例空指针；
+  仅补齐测试装配后 8/8 通过，未修改生产逻辑。回滚抽取另由只读复查逐项对照 R6 候选，未发现行为漂移。
+- 与规格的偏差/疑问：无功能规格变化；未连接或修改用户现有 MySQL/Redis/MinIO 容器，也未运行攻击性检查。
+- 测试：七个 helper focused **31/31**；全仓 Surefire **400/400**（0 failure/error/skip）；九模块
+  `test-compile` BUILD SUCCESS；Checkstyle 0、`git diff --check` 通过。需要真实依赖的 Phase 7/10/39 IT 本轮未在
+  隔离环境复跑，不挪用 R6 的旧结果作为 WS-9 新候选证明。
+- 下一步：状态置 `LOCAL_FUNCTIONAL_READY / USER_REVIEW_PENDING`，交用户独立确认功能完整性；通过前不自行签发
+  WS-9 PASS、不领取 WS-11，项目继续 `CHANGES_REQUESTED / NO-GO`。
+
+## [2026-08-20] WS09-1 抽取视频评审结算纯业务逻辑
+- 做了什么：新增无 Spring/数据库状态的 `VideoReviewSettlement`，从 `VideoReviewServiceImpl` 搬出初评两两分差、
+  结论一致、均分取整、第三专家最小差配对及并列保留首对算法；输入结论规范化也统一由该 helper 提供。
+- 关键决策与理由：service 继续负责 reviewerCount/阈值/合格线参数读取、`FOR UPDATE` 查询、提交时间排序、事务、
+  状态赋值、条件 CAS 和审计。只搬纯计算，避免行为和并发语义变化。
+- 问题与解决：第三专家最小差并列时旧实现只在 `diff < best` 时替换，且仲裁人取列表中首个
+  `THIRD_EXPERT`，即使其不在获胜 pair；focused 单测显式锁定这两个容易在重构中误改的细节。
+- 与规格的偏差/疑问：无 API、DTO/VO、数据库、权限、事务、锁序或状态机变化；未引入通用策略框架。
+- 测试：`VideoReviewSettlementTest` **7/7**；`platform-business -am test` BUILD SUCCESS；9 模块
+  `test-compile` BUILD SUCCESS，Checkstyle 0。现有真实依赖 Phase 7 IT 仍需隔离环境，不连接或修改当前运行中的
+  用户容器。
+- 下一步：抽取 `ExchangeExportRowBuilder`，补导出行字段快照，再统一跑 Phase 7/10 真实依赖回归。
+
+## [2026-08-20] GOV-066 WS-8 R6 功能增量 PASS，领取 WS-9
+- 做了什么：核验 R6 独立功能增量报告
+  `C:\Users\wenbibuhaoqwq\Documents\脚本\ws08-r6-functional-independent-rereview-20260820-7e077df1-local\review.md`
+  （SHA-256 `43660de6a5c97b38df8f3bf3190c5ff902f10b20ced1da92d7b12cde65153def`）。报告确认 R5 的 2 Medium / 1 Low
+  全部 CLOSED，R6 scoped functional remediation PASS，0 open finding。用户随后明确只以功能完整性作为后续
+  开发门槛，授权继续推进。
+- 关键决策与理由：不再把 Hosted/供应链证据作为 WS-9 开发前置；WS-9 先做最小等价重构，只抽无状态纯业务
+  helper，事务、锁、CAS、审计和 API 保持原位，避免 overengineering。
+- 问题与解决：最新报告的 release 维度仍写 Hosted pending；本次不把它改写为发布 PASS，而是明确区分
+  `INDEPENDENT_FUNCTIONAL_PASS` 与项目发布门槛。已创建本地 `feature/ws09-split-services` 指针但不切换/重置脏工作树。
+- 与规格的偏差/疑问：按用户 2026-08-20 明确口径，开发排序从“Hosted 后进入 WS-9”调整为“功能独立 PASS 后进入
+  WS-9”；项目继续 `CHANGES_REQUESTED / NO-GO`，不授权 merge、deploy 或 cutover。
+- 测试：R6 既有真实依赖六套 49/49、Phase 39 + Phase 10 29/29；WS-9 首切片另跑 focused 单测与 Phase 7 回归。
+- 下一步：抽取 `VideoReviewSettlement` 并保持结算行为完全等价。
+
+## [2026-08-20] WS08-R6 Phase 10 三项业务数据整改
+- 做了什么：核验 R5 正式功能独立复核报告
+  `C:\Users\wenbibuhaoqwq\Documents\脚本\ws08-r5-functional-independent-rereview-20260820-c649a065-run31808005960\review.md`
+  （SHA-256 `d849887762ae8ee7cc5eaa9b21010c7216ba5a49e555722534560eae3f4dc493`）。报告确认 R5 scoped 合同整改
+  PASS、R5 Hosted evidence PASS，但 WS-8 full stage 仍为
+  `CHANGES_REQUESTED（0 Critical / 0 High / 2 Medium / 1 Low）`。本轮同批整改 V-13 规范化前计数、UPDATE
+  回滚不能恢复 NULL 却报告成功、预校验失败数混用错误明细数三项 finding。
+- 关键决策与理由：V-13 计数和逐行判断直接复用现有 `IdCardValidator` 的规范化结果，不维护第二套大小写规则；
+  失败数单独按含错误的 Excel 行累计，错误明细仍逐条保存；student/training/certificate UPDATE 回滚改用显式字段
+  更新还原完整 before 快照（含 NULL），且只有影响行数恰为 1 才记成功。只修正式 finding，不拆服务、不改 API、
+  schema、权限或导入策略。
+- 问题与解决：MyBatis-Plus `updateById(before)` 默认跳过 NULL，无法承担快照恢复；改为三类专用
+  `LambdaUpdateWrapper` 显式 `SET`。新增居民证 x/X、港澳通行证 a/A 等价重复、单行多错误计数及三实体
+  NULL→非空→rollback→NULL 的真实 MySQL 回归，并核对完整实体快照与批次统计。
+- 与规格的偏差/疑问：无需求扩张；只在 `plan.md §15.7` 与 Phase 10 文档明确既有“重复、按行统计、恢复到导入前”
+  的可测语义。本地通过不等于独立 PASS，不扩入 WS-9，不执行攻击性/cyber 检查。项目保持
+  `CHANGES_REQUESTED / NO-GO`。
+- 测试：编译与测试编译 PASS；真实隔离 MySQL/Redis/MinIO 下 Phase 10 18/18 + Phase 39 11/11 = **29/29**；
+  WS-8 六套为 `IdCardProtectionServiceTest` 7/7、`RuntimeProfileGuardTest` 11/11、`Phase3StudentIT` 9/9、
+  `Phase10ExchangeIT` 18/18、`V33IdCardProtectionMigrationIT` 3/3、`Phase41BackupIT` 1/1，合计 **49/49**，均
+  0 failure/error/skip。三只任务专用临时依赖容器已精确删除，既有项目容器未触碰。
+- 下一步：全部治理字节稳定后冻结仓库外 R6 manifest；候选改变后不得复用 R5 manifest/carrier/run。取得明确授权
+  后才原样物化 R6 carrier / Draft PR 并运行 fresh Hosted workflow，再交用户独立增量复核；正式 PASS 前 WS-9
+  不启动。
+
+## [2026-08-14] WS08-R5 七段历史归档完整闭包整改
+- 做了什么：接受 R4 fingerprint `4ef707be...08729` 的用户独立增量结论
+  `CHANGES_REQUESTED（0 Critical / 0 High / 1 Medium / 0 Low）`。合同正常测试虽 PASS，但向七个 WS-7 历史
+  归档追加普通同义授权措辞后仍 7/7 被接受；本地扩展为四类措辞逐段复现，旧 validator 接受 28/28。
+- 关键决策与理由：没有继续枚举同义词。七段均为已复核且不可变的有界历史归档，因此只对各段去除全部空白后
+  的非空白内容锁定 SHA-256；纯空白调整可接受，任何非空白内容增删改均失败关闭。R4 的 token、精确边界、冲突句和历史
+  verdict/count 检查保留用于精确诊断，但不再承担自然语言完备性证明。
+- 问题与解决：固定授权句及“构成/等于项目 GO”只能覆盖已知表达，无法排除普通同义句与原负向句共存；新增
+  四类同义追加 × 七段共 28 个可执行反例，全部由完整内容闭包拒绝，同时纯 Markdown 折行仍被归一化忽略。
+- 与规格的偏差/疑问：无产品代码、迁移、workflow、profile、权限、接口、业务或运行配置变化；R4 正式结论未
+  另行落盘，不误用旧 R2 报告。本地整改不等于独立 PASS，不扩入 WS-9，项目保持 `CHANGES_REQUESTED / NO-GO`。
+- 测试：`python -B scripts/test_ws7_supply_chain_contract.py` PASS；
+  `python -B scripts/test_ws8_v33_release_contract.py` PASS；`python -B scripts/test_candidate_source_manifest.py`
+  6/6 PASS；`git diff --check` PASS。未启动服务、容器或后台进程。
+- 下一步：冻结仓库外 R5 manifest；取得明确授权后才创建新 carrier / Draft PR 并运行整体 Hosted workflow。
+  同候选 Hosted 证据仅交用户独立重核；正式阶段 PASS 前 WS-9 不启动。
+
+## [2026-08-13] WS08-R4 非 GO 语义假绿最小整改
+- 做了什么：接受用户负责的独立复核任务 `019ff958-9b0d-72f1-b15b-2487f4fd3e2b` 最终结论
+  `CHANGES_REQUESTED（0 Critical / 0 High / 1 Medium / 0 Low）`。R3 fingerprint `4b39e52c...11d3a` 的
+  Hosted run `31664938044` 已证明整体 4/4、六-suite 46/46、V33、双镜像/SBOM、身份与校验和证据成立；唯一
+  finding 是 WS-7 历史非 GO validator 可在否定语义翻转或保留负向句同时追加冲突授权后假绿。
+- 关键决策与理由：只修改供应链合同。七个有界 WS-7 归档分别绑定完整非 GO 原句与冲突正向句，正常验证同时
+  要求负向句存在、正向句不存在，并拒绝通用正向“构成/等于项目 GO”；每段执行替换、追加对应授权、追加通用
+  项目 GO 三类反例。历史 stage/remediation 精确 finding 数和结构化 `INDEPENDENT_*PASS` 冲突也一并锁定。
+- 问题与解决：首版只证明“替换后因负向句缺失而失败”，未阻止负向句与正向授权并存；交叉审查复现后把正向句
+  禁令加入实际 validator，并补两类追加反例。Markdown 换行空白在比较前移除，避免仅因人工折行位置假红。
+- 与规格的偏差/疑问：无产品代码、迁移、workflow、profile、权限、业务或运行配置变化；不扩入 WS-9，也不把
+  本地门禁写成独立 PASS。独立报告最终消息尚未另行落盘，治理材料明确绑定其任务 ID，未误用包内旧 R2 报告。
+- 测试：`python -B scripts/test_ws7_supply_chain_contract.py` PASS；
+  `python -B scripts/test_ws8_v33_release_contract.py` PASS；`git diff --check` PASS。未启动服务、容器或后台进程。
+- 下一步：冻结仓库外 R4 manifest；取得明确授权后才创建新 carrier / Draft PR 并重跑整体 Hosted workflow。
+  全绿证据仅提交用户独立重核；正式阶段 PASS 前 WS-9 不启动，项目继续 `CHANGES_REQUESTED / NO-GO`。
 
 ## [2026-08-13] WS08-R3 过期 WS-7 当前态合同整改
 - 做了什么：接受 R2 Hosted 独立重核正式

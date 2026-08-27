@@ -1,0 +1,14 @@
+# 第二次部署只复用预检确认的首版四个命名卷，禁止按新 project 隐式创建空卷。
+volumes:
+  mysql-data:
+    external: true
+    name: ${TCP_RELEASE_EXPECTED_MYSQL_VOLUME:?TCP_RELEASE_EXPECTED_MYSQL_VOLUME must be the inspected first-release volume}
+  redis-data:
+    external: true
+    name: ${TCP_RELEASE_EXPECTED_REDIS_VOLUME:?TCP_RELEASE_EXPECTED_REDIS_VOLUME must be the inspected first-release volume}
+  minio-data:
+    external: true
+    name: ${TCP_RELEASE_EXPECTED_MINIO_VOLUME:?TCP_RELEASE_EXPECTED_MINIO_VOLUME must be the inspected first-release volume}
+  video-probe-temp:
+    external: true
+    name: ${TCP_RELEASE_EXPECTED_PROBE_VOLUME:?TCP_RELEASE_EXPECTED_PROBE_VOLUME must be the inspected first-release volume}

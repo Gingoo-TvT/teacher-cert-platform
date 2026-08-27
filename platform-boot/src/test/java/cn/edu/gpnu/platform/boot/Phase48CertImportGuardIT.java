@@ -184,15 +184,44 @@ class Phase48CertImportGuardIT {
         assertThat(unchanged.getTeachingSegment()).isEqualTo("junior_middle_school");
         assertThat(unchanged.getCertNo()).isEqualTo(JUNIOR_CERT_NO_3);
 
-        // ② 学段与编号同时改成自洽（高中 + 第13位=4）→ 通过
+        // ② 学段、编号、培养目标与学科同时改成自洽 → 通过
         JsonNode ok = correctCert(academic.accessToken(), certId, Map.of(
                 "teachingSegment", "senior_middle_school",
                 "certNo", SENIOR_CERT_NO,
-                "reason", "学段与编号同时更正到自洽"));
+                "trainingGoal", "senior_middle_school_teacher",
+                "teachingSubjectCode", "sms_chinese",
+                "teachingSubjectName", "语文",
+                "reason", "证书编号与培养学科联动同时更正到自洽"));
         assertThat(ok.at("/code").asInt()).describedAs(ok.toString()).isEqualTo(0);
         Certificate corrected = certificateMapper.selectById(certId);
         assertThat(corrected.getTeachingSegment()).isEqualTo("senior_middle_school");
         assertThat(corrected.getCertNo()).isEqualTo(SENIOR_CERT_NO);
+        assertThat(corrected.getTrainingGoal()).isEqualTo("senior_middle_school_teacher");
+        assertThat(corrected.getTeachingSubjectCode()).isEqualTo("sms_chinese");
+        assertThat(corrected.getTeachingSubjectName()).isEqualTo("语文");
+
+        assertCorrectionRejected(academic.accessToken(), certId, Map.of(
+                "certNo", "204899999344400902",
+                "reason", "错误学校代码"), "学校代码");
+        assertCorrectionRejected(academic.accessToken(), certId, Map.of(
+                "certNo", "204810588399400902",
+                "reason", "错误省码"), "省码");
+        assertCorrectionRejected(academic.accessToken(), certId, Map.of(
+                "certNo", "204910588344400902",
+                "reason", "错误年份"), "年份");
+        assertCorrectionRejected(academic.accessToken(), certId, Map.of(
+                "teachingSubjectCode", "sms_math",
+                "teachingSubjectName", "语文",
+                "reason", "学科代码名称不匹配"), "代码与名称不一致");
+        assertCorrectionRejected(academic.accessToken(), certId, Map.of(
+                "teachingSubjectCode", "jms_chinese",
+                "teachingSubjectName", "语文",
+                "reason", "跨学段学科"), "不属于当前学段");
+
+        Certificate afterRejectedChanges = certificateMapper.selectById(certId);
+        assertThat(afterRejectedChanges.getCertNo()).isEqualTo(SENIOR_CERT_NO);
+        assertThat(afterRejectedChanges.getTeachingSubjectCode()).isEqualTo("sms_chinese");
+        assertThat(afterRejectedChanges.getTeachingSubjectName()).isEqualTo("语文");
     }
 
     // ---------- 导入行构造（与 Phase43CertRoundTripIT 的合法初中行同构） ----------
@@ -272,9 +301,22 @@ class Phase48CertImportGuardIT {
     }
 
     private JsonNode correctCert(String token, long certId, Map<String, Object> body) throws Exception {
-        ResponseEntity<String> response = exchange("/api/cert/" + certId + "/correct", HttpMethod.PUT, token, body);
+        ResponseEntity<String> current = exchange("/api/cert/" + certId, HttpMethod.GET, token, null);
+        JsonNode currentRoot = json(current);
+        assertThat(currentRoot.at("/code").asInt()).describedAs(currentRoot.toString()).isZero();
+        Map<String, Object> request = new java.util.HashMap<>(body);
+        request.putIfAbsent("correctionRevision", currentRoot.at("/data/correctionRevision").asText());
+        ResponseEntity<String> response = exchange(
+                "/api/cert/" + certId + "/correct", HttpMethod.PUT, token, request);
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         return json(response);
+    }
+
+    private void assertCorrectionRejected(String token, long certId, Map<String, Object> body, String message)
+            throws Exception {
+        JsonNode response = correctCert(token, certId, body);
+        assertThat(response.at("/code").asInt()).describedAs(response.toString()).isEqualTo(1000);
+        assertThat(response.at("/msg").asText()).contains(message);
     }
 
     private Certificate requireCertByNo(String certNo) {

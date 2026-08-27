@@ -33,6 +33,9 @@ M14 扩展点预留、后端/前端 Dockerfile、生产 docker-compose、兼容�
   - `ADMIN_INITIAL_PASSWORD_HASH`（**必须**，BCrypt cost≥10，且不得对应公开 dev 口令；Compose `.env` 中以单引号包住完整 `$2...` 哈希）。
   - `STAFF_INITIAL_PASSWORD`（**必须**，12-64 位且含大小写字母、数字、特殊字符；不得使用公开 dev/示例口令）。
   - `DB_PASSWORD` / `REDIS_PASSWORD`（**必须**强口令）。
+  - `MYSQL_CPU_V1_IMAGE` / `REDIS_CPU_V1_IMAGE` / `MINIO_CPU_V1_IMAGE`（第二次离线部署）：必须是
+    `docker load` 后可直接解析且已绑定 image ID 的本地 tag；CPU-v1 覆盖层不得让 Redis 回退继承根 Compose 的
+    `tag@digest` 引用。升级必须叠加 `deploy/compose.existing-volumes.yml`，按预检所得精确名称复用首版四卷。
   - `TLS_SERVER_NAME` / `TLS_CERTIFICATE_DIR` / `TLS_CERTIFICATE_GID` / `FRONTEND_HTTPS_PORT`（WS-5/T1、WS-7）：正式前端域名、宿主机证书目录、宿主专用证书读取组的数字 GID 与 HTTPS 发布端口；同一端口进入 HTTP 301 的目标地址，非 443 部署不会丢失。部署前必须核对该宿主 GID 对应的组名和成员，且不得把容器 nginx 主组 `101:101` 或含无关成员的宿主组直接作为证书读取组。证书目录以只读方式挂载到前端容器，必须包含 UID 101 可经补充组读取的 `fullchain.pem` / `privkey.pem` 实体文件（或完整位于挂载根内的可解析链接）；私钥不得入库或设为全局可读。续期、密钥匹配、`nginx -t`、reload、外部证书核验、30 天提醒和回退步骤见 `README.md`。
   - `MINIO_PUBLIC_ENDPOINT`（WS-3/WS-5 联动）：HTTPS 前端必须配置浏览器可达的单一 `https` origin，不能使用通配、Compose 内部 DNS 或明文 `http`，其证书与反代由独立文件服务器侧提供；同一值同时传给前端 CSP，仅进入 `connect-src`，供预签名直传使用。生产 Compose 的 MinIO API/console 只绑定宿主回环，backend 不发布宿主端口；公网业务入口仅为前端 80/HTTPS 端口。
   - `DICT_CACHE_WRITER_LEASE` / `DICT_CACHE_WRITER_RENEW_INTERVAL`（Phase 44）：字典缓存跨节点写窗口的逐 owner 崩溃回收租约与续租周期，默认 `2m` / `20s`。两者必须为正，且 `RENEW_INTERVAL <= LEASE / 3`；所有后端实例必须使用同一组值，非法组合在启动期失败关闭。
@@ -53,8 +56,10 @@ V33 删除旧明文生成列/唯一键并改由新 binary 写 AES-GCM 密文与 
 空 HMAC，因此本次升级必须是停机切换，不支持滚动发布或应用二进制单独回滚。
 
 1. **FREEZE_WRITES**：进入获批维护窗，在网关/前端及所有外部入口冻结 Student、Certificate、Exchange 的新增、
-   修改、导入、回滚与导出批次写入；排空已进入事务。记录 V32 旧镜像身份、V33 新镜像 digest、目标数据库身份、
-   当前 Flyway 最高成功版本和受控 AES key/HMAC pepper 版本引用，记录中不得出现 secret 值。
+   修改、导入、回滚与导出批次写入；排空已进入事务。外层 ingress 先进入固定维护状态（如有），再先于旧 backend
+   停止首版 frontend，并从独立客户端证明公开入口不能转发业务；frontend/入口必须持续关闭到
+   `OPEN_TRAFFIC`。记录 V32 旧镜像身份、V33 新镜像 digest、目标数据库身份、当前 Flyway 最高成功版本和受控
+   AES key/HMAC pepper 版本引用，记录中不得出现 secret 值。
 2. **STOP_ALL_OLD**：停止所有宿主上的全部旧 backend/worker，确认其进程、任务、连接均退出，并由数据库只读
    连接视图留存“无旧应用写连接”的证据。未证明旧写入者为零，不得继续；禁止仅摘流量但保留旧 worker。
 3. **BACKUP_V32**：在旧节点全停且数据库最高成功版本仍为 V32 时，完成全库 schema+data 备份、必要的 MinIO
@@ -68,7 +73,7 @@ V33 删除旧明文生成列/唯一键并改由新 binary 写 AES-GCM 密文与 
    `v1:` 密文，未删 Student 及 Certificate HMAC 均为 64 位小写 hex 且无冲突，已删 Student HMAC 为 NULL，
    Exchange 预览/范围/错误/快照无可读证件号。再抽样验证可解密、普通投影脱敏、授权明文/敏感导出留审计、
    同一证件号查重仍拒绝。
-7. **OPEN_TRAFFIC**：全部新节点和上述验收均通过后，才恢复前端/网关与外部写入口；记录放流时点并观察启动、
+7. **OPEN_TRAFFIC**：全部新节点和上述验收均通过后，才最后启动新 frontend、恢复网关与外部写入口；记录放流时点并观察启动、
    迁移、重复键、解密失败和审计告警。
 
 **回滚边界**：在 V33-capable 进程开始执行迁移之前，且确认数据库仍为 V32，可中止变更并恢复旧 fleet。一旦
@@ -104,18 +109,33 @@ Flyway 最高版本为 32 后，才可启动旧 fleet。V33 放流后已有新�
 - **Phase 44 字典缓存协议停机切换（禁止滚动混部）**：
   1. 在所有目标实例上固定同一 `DICT_CACHE_WRITER_LEASE` / `DICT_CACHE_WRITER_RENEW_INTERVAL`（默认 `2m` / `20s`，且续租周期不超过租约三分之一），先完成配置审查，不得让部分实例回退应用内默认值、部分实例使用覆盖值。
   2. 在网关或运维入口停止字典管理写请求（字典类型/字典项的新增、修改、删除），排空已进入的字典写事务；读流量可保持到旧节点停机。
-  3. 停止**全部**旧后端节点并确认进程、任务与连接均已退出；从此刻起不得再有旧节点创建 `P:<uuid>` pending、旧 `{v,items}` 包络或大小写别名键。
-  4. 在没有任何后端写入者的前提下，等待上一协议 pending 的 60 秒 TTL 到期，并核对 `dict:items-version:*` 不再存在 `P:*` 值。若因历史人工配置导致残留，只能在维护窗口内按已确认的具体 typeCode 定向清理对应 `dict:items:<typeCode>` payload 与 `dict:items-version:<typeCode>`；禁止 `FLUSHDB`/`FLUSHALL`、禁止删除无关 Redis 数据，也不得在新节点启动后人工删除 `dict:items-writers:*`。
-  5. 使用同一 Phase 44 新 binary 一次性启动全部后端实例；在全部实例健康前不得恢复字典写流量，也不得把任何旧 binary 放回负载均衡。
-  6. 逐实例核对镜像 digest/候选版本一致、启动日志没有字典租约配置校验错误，且 `/api/health` 通过；再用只读字典查询确认大小写别名返回相同数据、Redis 旧包络被 schema v2 失败关闭并重建为 canonical 小写 identity。
-  7. 全部检查通过后才恢复字典管理写流量，并观察租约丢失、Redis 回源/回填失败和健康状态告警。
-  8. Phase 44 新协议上线后，禁止回滚旧 binary 承接任何字典读写；故障时保持字典写入口冻结并以前向修复或同协议新构建替换。旧 binary 会重新产生大小写敏感键和旧包络，不能作为回滚路径。
+  3. 在字典写入已冻结、旧节点尚未停止时，按 `docs/第二次部署发布手册.md` 由获授权操作者运行
+     `scripts/preflight-second-release.sh`。包装器以一次性 `--rm` 客户端共享已 inspect MySQL 完整 container ID 的
+     网络命名空间，不发布宿主 3306；授权清单中的 expected server UUID 必须与查询值精确相等。发布证据必须
+     归档 Compose project、五容器镜像 ID、四卷名、新 Redis 本地 tag/image ID、查询前后不变的 MySQL
+     container/image ID，以及 `DATABASE()`、脱敏 `CURRENT_USER()` 摘要、MySQL server UUID 和 Phase 44 PASS marker；任何目标
+     marker 缺失或不匹配都立即中止发布。
+  4. 停止**全部**旧后端节点并确认进程、任务与连接均已退出；从此刻起不得再有旧节点创建 `P:<uuid>` pending、旧 `{v,items}` 包络或大小写别名键。
+  5. 在没有任何后端写入者的前提下，等待上一协议 pending 的 60 秒 TTL 到期，并核对 `dict:items-version:*` 不再存在 `P:*` 值。若因历史人工配置导致残留，只能在维护窗口内按已确认的具体 typeCode 定向清理对应 `dict:items:<typeCode>` payload 与 `dict:items-version:<typeCode>`；禁止 `FLUSHDB`/`FLUSHALL`、禁止删除无关 Redis 数据，也不得在新节点启动后人工删除 `dict:items-writers:*`。
+  6. 使用同一 Phase 44 新 binary 一次性启动全部后端实例；在全部实例健康前不得恢复字典写流量，也不得把任何旧 binary 放回负载均衡。
+  7. 逐实例核对镜像 digest/候选版本一致、启动日志没有字典租约配置校验错误，且 `/api/health` 通过；再用只读字典查询确认大小写别名返回相同数据、Redis 旧包络被 schema v2 失败关闭并重建为 canonical 小写 identity。
+  8. 全部检查通过后才恢复字典管理写流量，并观察租约丢失、Redis 回源/回填失败和健康状态告警。
+  9. Phase 44 新协议上线后，禁止回滚旧 binary 承接任何字典读写；故障时保持字典写入口冻结并以前向修复或同协议新构建替换。旧 binary 会重新产生大小写敏感键和旧包络，不能作为回滚路径。
 - **当前 WS-3 发布闸门（2026-07-24）**：第六轮独立复核 `reviews/ws-03-sixth-remediation-rereview-2026-07-24.md` 为 **PASS**，第五轮新增的 scheduler trigger 隔离与 V32 candidate 全量备份覆盖 2 Medium 全部关闭；双 scheduler、blocked-backup 调度隔离、37 表备份与 candidate scratch restore/真实对账续跑证据成立。唯一新增 Low 是迁移数量应写“32 个迁移、最终 V32”，不阻断 WS-3/U-002。Phase 39、Phase 42、Phase 41、Phase 47、Phase 53、Phase 44 与 Phase 0 后续独立报告均已 PASS；最终全量审计已另行给出 CHANGES_REQUESTED / NO-GO，当前状态只在统一执行计划维护。
 - **当前 Phase 41 恢复闸门（2026-07-25）**：动态证据报告 `reviews/phase-41-second-remediation-dynamic-evidence-rereview-2026-07-25.md` 冻结代码点 `b5ed7f5`、材料/HEAD `ef6b550`，核验 Surefire **149/149**、`Phase41BackupIT` **1/1**、真实 MySQL 8.4 CLI 恢复，以及 sourced/executable 初始化账号与精确授权两项门禁均 PASS；上一轮 1 High / 2 Medium / 1 Low 全部关闭，Phase 41 正式 **PASS** 并放行 Phase 47 进入既有整改。正式 PASS 时新增的 Gate A 冷认证缓存前置 1 Low 已在后续由 JDBC 示例、runner fail-fast、恢复手册和纯 stub CI 契约闭环；原报告保留当时计数。该门禁只证明应用逻辑快照，不替代物理全备、PITR、生产切换或 RPO/RTO 验收。
 - **当前 Phase 47 生命周期闸门（2026-07-26）**：第二轮独立报告 `reviews/phase-47-second-remediation-rereview-2026-07-26.md` 确认 SDK 8.5.12 no-config null 合同、首次规则创建、异常/畸形响应失败关闭、外部规则保留与六类安全日志分类成立，第一轮 1 Medium / 1 Low 全部关闭，正式 **PASS** 并放行 Phase 53。报告当时新增的 1 个日志测试 raw 参数数组 Low 已在 PASS 后由 `191a3ad` 以单一生产枚举、raw 敏感哨兵、负向自证和 unknown code + HTTP 503 反例闭环；原报告保留复核时的 1 Low 计数。
 - **当前 Phase 53 demo 发布闸门（2026-07-26）**：整改候选 `b9abc6c` 已把真实媒体 manifest、SHA-256 内容版本 object key、同 key 污染失败关闭、可信视频探测和单事务数据库引用切换落地；旧固定 key 保留，不做破坏性覆盖/删除。上一轮正式报告 `reviews/phase-53-remediation-rereview-2026-07-26.md` 已确认原 Major/补充 High 行为闭环，但因 12 个日志未提交以 1 Medium / 2 Low 退回。证据整改提交 `34e4d51` 经 `reviews/phase-53-evidence-remediation-rereview-2026-07-26.md` 独立复核确认 12/12 日志四路哈希同源、tracked-path 与 `-text -diff` 成立、旧完整秘密值移除，独立离线 195/195、报告 lint 与 diff check 全绿；正式结论 **PASS（0 Critical / 0 High / 0 Medium / 3 Low，均非阻断）**。
 - **Phase 53 对象并发与发布边界**：上述“同 key 污染失败关闭”仅指检查时已预存的污染对象；`stat(MISSING) → put` 的极窄外部并发写窗口没有对象存储 CAS，必须使用专用隔离 bucket 并与外部写入串行。packaged MP4 自动探测、凭据派生片段/secret-lint 可复现性和日志本机路径清理 3 个 Low 留稳定发布前处理；Phase 53 PASS 当时只放行 Phase 44 整改，后续 Phase 44 已独立 PASS，但两者均不构成 merge、部署、切流或项目发布 GO。
-- **当前 Phase 44 字典缓存闸门（2026-07-27）**：第四轮独立报告 `reviews/phase-44-fourth-remediation-rereview-2026-07-27.md` 为 **PASS（0 Critical / 0 High / 0 Medium / 1 Low）**。专用全新 MySQL/Redis 栈精确 16/16、棕地只读 identity preflight 与 Compose 默认/覆盖值双向展开成立，第三轮 owner-loss Medium 与原 4 Low 的失败条件关闭。新增 Low 为 preflight 尚未接入本节权威停机切换步骤且包装器证据缺 target marker；稳定发布前闭环，不阻断 Phase 44 放行 Phase 0。
+- **当前 Phase 44 字典缓存闸门（2026-08-22）**：第四轮独立报告 `reviews/phase-44-fourth-remediation-rereview-2026-07-27.md` 为 **PASS（0 Critical / 0 High / 0 Medium / 1 Low）**。专用全新 MySQL/Redis 栈精确 16/16、棕地只读 identity preflight 与 Compose 默认/覆盖值双向展开成立，第三轮 owner-loss Medium 与原 4 Low 的失败条件关闭。原非阻断 Low 所要求的权威步骤与 target marker 已进入上方第 3 步及第二次部署只读包装器；是否正式关闭仍由最终发布候选的独立复核裁定。
+- **当前第二次部署准备闸门（2026-08-23）**：R1 fingerprint `bb3a31dc...925f88` 的正式报告为
+  `CHANGES_REQUESTED（0C/0H/4M/0L）`，R1 不得物化 carrier。R2 已按原失败条件补齐绑定已 inspect MySQL
+  container ID + expected UUID、Redis 本地 tag/image ID、公开入口先关后开、首版原样 Compose/CPU/init、旧五镜像
+  归档流程与 external 原卷覆盖层。R2 fingerprint `f190ddde...80e4` 的正式报告为
+  `CHANGES_REQUESTED（0C/0H/2M/0L）`，R2 不得物化 carrier。R3 关闭 login-path finding，但 fingerprint
+  `9383ccc2...f09c2e` 的正式结论仍为 `CHANGES_REQUESTED（0C/0H/1M/0L）`。R4 fingerprint
+  `0ee662b7...355ed9` 已让 helper 同时探测正式根路径与同源 `/api/health`，并以“根 503+marker、API 200”反例
+  失败关闭，正式取得 `INDEPENDENT_INCREMENTAL_PASS（0C/0H/0M/0L）`。该 PASS 只覆盖源码增量；clean-store、
+  真实入口/Linux login-path、V32 迁移前首版回退、V32→V35 与同候选 Hosted 仍须独立动态门禁，不构成发布 GO。
 - **WS-2 发布切换**：新版 JWT 含毫秒级签发时间 `iatMs`、口令凭据版本 `credentialVersion` 和 Redis 持久会话代次 `sessionGeneration`；缺少或不匹配任一新 claim 的存量 token 会被拒绝，logout 通过原子增代使旧 access/refresh 立即失效。发布时必须同时替换/重启全部后端实例并通知用户重新登录；禁止旧实例在滚动窗口继续签发旧格式 token。
 
 ## 4. 非功能收口（plan §十二）
@@ -136,7 +156,29 @@ Flyway 最高版本为 32 后，才可启动旧 fleet。V33 放流后已有新�
   fingerprint `d5ea9863...9e24` 已取得 `INDEPENDENT_STAGE_PASS（0C/0H/0M/1L）`。Hosted run
   `31507732334` 的双 SPDX、镜像身份、校验和与 artifact 已独立核验，唯一 Low（临时 evidence remote）已后续
   清除。该结论只放行 WS-8，不替代生产部署、切流或项目级发布 GO。
-- [~] WS-8 R2 Hosted 六-suite **46/46**、0 failure/error/skip 已关闭 profile Medium，但仅构成 scoped PASS；最新阶段结论仍为 **CHANGES_REQUESTED（0 Critical / 0 High / 1 Medium / 1 Low）**。过期 WS-7 当前态合同导致整条 workflow 红灯、V33 静态合同和最终镜像/SBOM 跳过；R3 已改为有界历史证据合同，外部证据根清单也已 17/17 闭合。当前为 `LOCAL_REMEDIATION_R3_READY / HOSTED_WHOLE_WORKFLOW_PENDING`；新候选整体绿灯与独立阶段 PASS 前不得进入 WS-9。
+- [x] WS-8 R5 fingerprint `c649a065...d601` 的 Hosted run `31808005960` 已整体 4/4 success；历史六-suite
+  **46/46**、0 failure/error/skip，WS-7/V33 合同、最终双镜像/双 SPDX、身份与根/嵌套校验和均通过。正式报告只判
+  R5 scoped 合同整改与 Hosted evidence PASS；WS-8 full stage 仍为
+  **CHANGES_REQUESTED（0 Critical / 0 High / 2 Medium / 1 Low）**。R6 已同批最小整改 V-13 规范化计数、含 NULL
+  的完整 UPDATE 快照回滚和失败行统计；R6 独立功能增量报告确认三项全部关闭、0 open finding，真实依赖
+  六-suite **49/49**、Phase 39 + Phase 10 **29/29**。用户按功能完整性放行 WS-9 开发；WS-9 七个目标职责已
+  等价抽取。fingerprint `df1f1950...b2f45` 的正式增量复核确认 Surefire **400/400**、Phase 7/10/14/39
+  **87/87**，原唯一 Medium `WS9-INT-M1` CLOSED，状态为 `INDEPENDENT_INCREMENTAL_PASS（0 open finding）`。
+  WS-11 R2 已取得正式独立增量 PASS，当前进入 WS-12；Hosted/供应链只作附加发布证据，不改变下一条项目发布门槛。
+- [x] WS-11 R2 正式独立增量报告绑定 fingerprint `85606aed...9161f`（报告 SHA-256
+  `38c9896d...9d50a`），确认首轮三项 Medium 全部 CLOSED，裁定
+  `INDEPENDENT_INCREMENTAL_PASS（0C/0H/0M/0L）`。Surefire **411/411**、Phase 14 + WS-11 Failsafe
+  **18/18**；该结论不等于项目发布 GO。
+- [x] WS-12 整改 fingerprint `1c8b8821...0ae7b` 已取得正式
+  `INDEPENDENT_INCREMENTAL_PASS（0C/0H/0M/0L）`；上一轮唯一生产/预算 gzip 等级分叉 Medium CLOSED。
+  gzip 闭包为入口 **119.6 KiB**、登录 **148.0 KiB**、普通管理 **291.6 KiB**、charts **172.5 KiB**；该 PASS
+  只放行 WS-14，不等于项目 GO。
+- [x] WS-14 R2 fingerprint `4a167463...9cb80` 已取得正式
+  `INDEPENDENT_INCREMENTAL_PASS（0C/0H/0M/1L）`，首轮两项 Medium CLOSED。托管 MinIO 规则同时设置当前版本
+  N 天与非当前版本 1 天并精确匹配；V34 在 fresh schema 种入 editable int
+  `cleanup.backup.retentionDays=30`，管理端拒绝 0/负数，对象和终态记录侧均验证读取 45 天。Phase 53 demo
+  样本无需重做。九模块正确口径为 **66 suites / 421 tests**、focused **27/27**；唯一 Low 是历史 XML 混入原统计，
+  已勘误且不阻断。隔离 Phase00/Phase47 IT 留稳定发布前证据；本 PASS 不等于项目发布 GO。
 - [ ] 上述范围化 PASS 不构成生产部署或发布授权；正式域名、受信证书、公网 DNS、真实外部 MinIO TLS gateway 与生产切流仍须在授权发布环境核验。
 
 ## 6. AT 整体复验矩阵

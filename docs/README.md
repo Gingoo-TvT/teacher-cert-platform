@@ -79,8 +79,15 @@
 | 13 | 系统管理与审计 | M13 | P0 | T-104~108 | AT-12 | `phase-13-系统管理与审计.md` |
 | 14 | 非功能/部署/验收 | M14+收口 | P2 | T-109~114 | 全部 AT 复验 | `phase-14-非功能部署验收.md` |
 
+第二次部署（首版 `dfdfb91` → 当前候选）的停机升级、CPU-v1 覆盖层、原 project/卷复用、V32→V35
+迁移与回退，以 `第二次部署发布手册.md` 为权威运行步骤；它不替代独立项目级发布复核或用户部署授权。
+其 R4 `0ee662b7...355ed9` 已正式取得源码范围的
+`INDEPENDENT_INCREMENTAL_PASS（0C/0H/0M/0L）`，R3 唯一 Medium 已由正式根路径与同源 `/api/health` 双探针及
+“根维护、API 200”失败反例关闭。该结论不授权 carrier、Hosted 或部署；PASS 后治理同步产生的新字节须重新冻结，
+再以同一新候选完成隔离动态门禁与全新 Hosted。
+
 ## 6. 系统参数清单（`sys_param`，贯穿各阶段，Phase 13 统一管理）
-> 下表是当前全部 V1–V32 Flyway migration 在 fresh schema 上形成的 **32 个 active 参数**，
+> 下表是当前全部 V1–V35 Flyway migration 在 fresh schema 上形成的 **33 个 active 参数**，
 > 不是业务参数抽样。`Phase00ParameterMatrixIT` 对整张 active key 集合及每项 value/type 做 exact 比较，
 > 任一未知项、缺失项或值/类型漂移均失败。
 
@@ -117,6 +124,7 @@
 | `validate.idcard.checksum` | `false` | `bool` | 身份证校验码开关 | Phase 3 |
 | `student.autoCreateAccount` | `false` | `bool` | 是否导入即创建学生账号（WS-2 安全默认关闭） | Phase 3 |
 | `student.defaultPwd` | `random` | `string` | 随机占位哈希时账号停用待重置；禁止 PII 派生 | Phase 3 |
+| `cleanup.backup.retentionDays` | `30`(天) | `int` | 数据库备份对象与终态记录共享保留天数（必须大于 0） | Phase 14 / V34 |
 | `current_assessment_year` | `2026`（当前基线） | `int` | 当前考核年度；上线后按学校年度配置 | 全局 |
 
 > 以上默认值若学校另有口径，改 `sys_param` 即可，无需改代码。开放项见 `待确认事项确认单.md`（**20 项已于 2026-06-14 确认**；原业务取值变更 `validate.name.mode`→`loose`，见 `V6__confirmed_params.sql`；#17/#18 后由 WS-2 安全整改取代为 `false/random`，见 `V27__ws02_credential_hardening_defaults.sql`）。

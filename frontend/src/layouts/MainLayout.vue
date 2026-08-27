@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, h, onBeforeUnmount, onMounted, ref, watch, type HTMLAttributes } from 'vue'
+import { computed, h, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
-import { NBadge, NButton, NDropdown, NIcon, NTag, type MenuOption, type SelectOption, useMessage } from 'naive-ui'
+import { NBadge, NButton, NDropdown, NIcon, NTag, type MenuNodeProps, type MenuOption, type SelectOption, useMessage } from 'naive-ui'
 import {
   BarChartOutline,
   HomeOutline,
@@ -223,7 +223,7 @@ function updateExpandedKeys(keys: Array<string | number>) {
   expandedKeys.value = keys.map(String)
 }
 
-function menuNodeProps(option: MenuOption): HTMLAttributes {
+function menuNodeProps(option: MenuOption): ReturnType<MenuNodeProps> {
   const key = String(option.key ?? '')
   if (!key.startsWith('g-')) return {}
   const menuCollapsed = !isMobile.value && collapsed.value
@@ -240,7 +240,7 @@ function menuNodeProps(option: MenuOption): HTMLAttributes {
         ? [...expandedKeys.value.filter((item) => item !== key), key]
         : expandedKeys.value.filter((item) => item !== key)
     }
-  }
+  } as ReturnType<MenuNodeProps>
 }
 
 function syncMobileLayout(matches: boolean) {

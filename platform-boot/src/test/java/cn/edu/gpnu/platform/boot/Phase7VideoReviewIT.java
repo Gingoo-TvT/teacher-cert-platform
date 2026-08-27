@@ -23,6 +23,7 @@ import cn.edu.gpnu.platform.business.video.support.VideoFinalizationObjectStore;
 import cn.edu.gpnu.platform.business.video.support.VideoMediaInspection;
 import cn.edu.gpnu.platform.business.video.support.VideoMediaProbe;
 import cn.edu.gpnu.platform.business.video.support.VideoProbeInfrastructureException;
+import cn.edu.gpnu.platform.business.video.support.VideoProbeProperties;
 import cn.edu.gpnu.platform.file.config.MinioProperties;
 import cn.edu.gpnu.platform.file.entity.FileObject;
 import cn.edu.gpnu.platform.file.mapper.FileObjectMapper;
@@ -80,6 +81,7 @@ import java.net.URI;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -106,9 +108,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @Import(Phase7VideoReviewIT.ProbeTestConfiguration.class)
 @TestPropertySource(properties = {
         "platform.security.jwt.secret=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-        "platform.security.jwt.access-ttl-seconds=30",
-        "platform.video.probe.lease-duration=PT1S",
-        "platform.video.probe.lease-renew-interval=PT0.2S"
+        "platform.security.jwt.access-ttl-seconds=30"
 })
 class Phase7VideoReviewIT {
 
@@ -200,6 +200,9 @@ class Phase7VideoReviewIT {
 
     @Autowired
     private VideoFinalizeSingleFlight videoFinalizeSingleFlight;
+
+    @Autowired
+    private VideoProbeProperties videoProbeProperties;
 
     @Autowired
     private VideoFinalizationObjectReconciler finalizationObjectReconciler;
@@ -936,6 +939,172 @@ class Phase7VideoReviewIT {
     }
 
     @Test
+    void unsubmittedReassignmentReplacesEffectiveSetAndRestoresRemovedReviewerTask() throws Exception {
+        LoginResult student = readyLogin("test_student");
+        LoginResult auditor = readyLogin("test_college_auditor");
+        LoginResult reviewerA = readyLogin("test_review_teacher");
+        LoginResult reviewerB = readyLogin("test_review_teacher_b");
+        LoginResult reviewerC = readyLogin("test_review_teacher_c");
+        long reviewerAId = 800000000000003005L;
+
+        long reviewId = uploadValidatedVideo(student.accessToken(), 9001L, "P7-REASSIGN-SETTLE");
+        assign(auditor.accessToken(), reviewId, reviewerAId, REVIEWER_B_USER_ID);
+        long removedTaskA = taskIdByReview(reviewerA.accessToken(), reviewId);
+
+        assign(auditor.accessToken(), reviewId, REVIEWER_B_USER_ID, REVIEWER_C_USER_ID);
+        assertThat(activeReviewerIds(reviewId))
+                .containsExactlyInAnyOrder(REVIEWER_B_USER_ID, REVIEWER_C_USER_ID);
+        assertThat(taskMapper.selectById(removedTaskA)).isNull();
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT deleted FROM video_review_task WHERE id = ?", Integer.class, removedTaskA)).isEqualTo(1);
+
+        score(reviewerB.accessToken(), taskIdByReview(reviewerB.accessToken(), reviewId), 82, "PASS");
+        score(reviewerC.accessToken(), taskIdByReview(reviewerC.accessToken(), reviewId), 84, "PASS");
+        VideoReview settled = reviewMapper.selectById(reviewId);
+        assertThat(settled.getStatus()).isEqualTo("REVIEW_COMPLETED");
+        assertThat(settled.getFinalScore()).isEqualTo(83);
+
+        long restoreReviewId = uploadValidatedVideo(student.accessToken(), 9001L, "P7-REASSIGN-RESTORE");
+        assign(auditor.accessToken(), restoreReviewId, reviewerAId, REVIEWER_B_USER_ID);
+        long originalTaskA = taskIdByReview(reviewerA.accessToken(), restoreReviewId);
+        assign(auditor.accessToken(), restoreReviewId, REVIEWER_B_USER_ID, REVIEWER_C_USER_ID);
+        assign(auditor.accessToken(), restoreReviewId, reviewerAId, REVIEWER_C_USER_ID);
+
+        assertThat(activeReviewerIds(restoreReviewId))
+                .containsExactlyInAnyOrder(reviewerAId, REVIEWER_C_USER_ID);
+        assertThat(taskIdByReview(reviewerA.accessToken(), restoreReviewId)).isEqualTo(originalTaskA);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT deleted FROM video_review_task WHERE id = ?", Integer.class, originalTaskA)).isZero();
+        assertThatThrownBy(() -> taskIdByReview(reviewerB.accessToken(), restoreReviewId))
+                .hasMessageContaining("task not found");
+    }
+
+    @Test
+    void submittedReviewerCannotBeRemovedAndOriginalPairSettles() throws Exception {
+        LoginResult student = readyLogin("test_student");
+        LoginResult auditor = readyLogin("test_college_auditor");
+        LoginResult reviewerA = readyLogin("test_review_teacher");
+        LoginResult reviewerB = readyLogin("test_review_teacher_b");
+        long reviewerAId = 800000000000003005L;
+        long reviewId = uploadValidatedVideo(student.accessToken(), 9001L, "P7-REASSIGN-BLOCKED");
+
+        assign(auditor.accessToken(), reviewId, reviewerAId, REVIEWER_B_USER_ID);
+        score(reviewerA.accessToken(), taskIdByReview(reviewerA.accessToken(), reviewId), 85, "PASS");
+
+        ResponseEntity<String> reassigned = exchange(
+                "/api/video/reviews/" + reviewId + "/assign", HttpMethod.POST, auditor.accessToken(),
+                Map.of("reviewerIds", List.of(REVIEWER_B_USER_ID, REVIEWER_C_USER_ID)));
+        assertThat(json(reassigned).at("/code").asInt()).isEqualTo(1000);
+        assertThat(json(reassigned).at("/msg").asText()).contains("已有评审成绩");
+        assertThat(activeReviewerIds(reviewId))
+                .containsExactlyInAnyOrder(reviewerAId, REVIEWER_B_USER_ID);
+
+        score(reviewerB.accessToken(), taskIdByReview(reviewerB.accessToken(), reviewId), 80, "PASS");
+        VideoReview settled = reviewMapper.selectById(reviewId);
+        assertThat(settled.getStatus()).isEqualTo("REVIEW_COMPLETED");
+        assertThat(settled.getFinalScore()).isEqualTo(83);
+    }
+
+    @Test
+    void migratedSubmittedDisabledReviewerCanBePreservedThenCompletedByAddedReviewer() throws Exception {
+        LoginResult student = readyLogin("test_student");
+        LoginResult auditor = readyLogin("test_college_auditor");
+        LoginResult reviewerB = readyLogin("test_review_teacher_b");
+        long reviewerAId = 800000000000003005L;
+        long reviewId = uploadValidatedVideo(student.accessToken(), 9001L, "P7-V35-SINGLE");
+
+        VideoReview review = reviewMapper.selectById(reviewId);
+        VideoReviewTask submittedA = new VideoReviewTask();
+        submittedA.setVideoReviewId(reviewId);
+        submittedA.setStudentId(review.getStudentId());
+        submittedA.setCollegeId(review.getCollegeId());
+        submittedA.setReviewerId(reviewerAId);
+        submittedA.setReviewerRole("REVIEWER");
+        submittedA.setScore(85);
+        submittedA.setConclusion("PASS");
+        submittedA.setSubmitted(1);
+        submittedA.setSubmitTime(LocalDateTime.now());
+        assertThat(taskMapper.insert(submittedA)).isEqualTo(1);
+        review.setReviewerCount(2);
+        review.setStatus("REVIEWING");
+        assertThat(reviewMapper.updateById(review)).isEqualTo(1);
+        assertThat(userMapper.update(null, new LambdaUpdateWrapper<SysUser>()
+                .eq(SysUser::getId, reviewerAId)
+                .set(SysUser::getStatus, "DISABLED"))).isEqualTo(1);
+
+        assign(auditor.accessToken(), reviewId, reviewerAId, REVIEWER_B_USER_ID);
+
+        VideoReviewTask preservedA = taskMapper.selectById(submittedA.getId());
+        assertThat(preservedA).isNotNull();
+        assertThat(preservedA.getReviewerId()).isEqualTo(reviewerAId);
+        assertThat(preservedA.getSubmitted()).isEqualTo(1);
+        assertThat(preservedA.getScore()).isEqualTo(85);
+        assertThat(activeReviewerIds(reviewId))
+                .containsExactlyInAnyOrder(reviewerAId, REVIEWER_B_USER_ID);
+
+        score(reviewerB.accessToken(), taskIdByReview(reviewerB.accessToken(), reviewId), 80, "PASS");
+        VideoReview settled = reviewMapper.selectById(reviewId);
+        assertThat(settled.getStatus()).isEqualTo("REVIEW_COMPLETED");
+        assertThat(settled.getFinalScore()).isEqualTo(83);
+        assertThat(settled.getFinalConclusion()).isEqualTo("PASS");
+    }
+
+    @Test
+    void legacyElevenReviewerSnapshotCanFinishAfterThreeSubmittedResults() throws Exception {
+        LoginResult student = readyLogin("test_student");
+        long reviewId = uploadValidatedVideo(student.accessToken(), 9001L, "P7-V35-ELEVEN");
+        List<Long> reviewerIds = new ArrayList<>(List.of(
+                800000000000003005L, REVIEWER_B_USER_ID, REVIEWER_C_USER_ID));
+        List<String> remainingUsernames = new ArrayList<>();
+        for (int index = 1; index <= 8; index++) {
+            long reviewerId = 800000000000003100L + index;
+            long userRoleId = 800000000000004100L + index;
+            String username = "test_review_teacher_legacy_" + index;
+            ensureReviewer(username, reviewerId, userRoleId, "历史评审教师" + index);
+            reviewerIds.add(reviewerId);
+            remainingUsernames.add(username);
+        }
+
+        VideoReview review = reviewMapper.selectById(reviewId);
+        review.setReviewerCount(11);
+        review.setStatus("REVIEWING");
+        assertThat(reviewMapper.updateById(review)).isEqualTo(1);
+        for (int index = 0; index < reviewerIds.size(); index++) {
+            VideoReviewTask task = new VideoReviewTask();
+            task.setVideoReviewId(reviewId);
+            task.setStudentId(review.getStudentId());
+            task.setCollegeId(review.getCollegeId());
+            task.setReviewerId(reviewerIds.get(index));
+            task.setReviewerRole("REVIEWER");
+            if (index < 3) {
+                task.setScore(80);
+                task.setConclusion("PASS");
+                task.setSubmitted(1);
+                task.setSubmitTime(LocalDateTime.now());
+            } else {
+                task.setSubmitted(0);
+            }
+            assertThat(taskMapper.insert(task)).isEqualTo(1);
+        }
+        assertThat(activeReviewerIds(reviewId)).hasSize(11);
+        assertThat(taskMapper.selectCount(new LambdaQueryWrapper<VideoReviewTask>()
+                .eq(VideoReviewTask::getVideoReviewId, reviewId)
+                .eq(VideoReviewTask::getReviewerRole, "REVIEWER")
+                .eq(VideoReviewTask::getSubmitted, 1))).isEqualTo(3);
+
+        for (String username : remainingUsernames) {
+            LoginResult reviewer = readyLogin(username);
+            score(reviewer.accessToken(), taskIdByReview(reviewer.accessToken(), reviewId), 80, "PASS");
+        }
+
+        VideoReview settled = reviewMapper.selectById(reviewId);
+        assertThat(settled.getReviewerCount()).isEqualTo(11);
+        assertThat(settled.getStatus()).isEqualTo("REVIEW_COMPLETED");
+        assertThat(settled.getFinalScore()).isEqualTo(80);
+        assertThat(settled.getFinalConclusion()).isEqualTo("PASS");
+    }
+
+    @Test
     void diffOverThresholdOrConclusionConflictRequiresReviewAndThirdExpertPairMinSettles() throws Exception {
         LoginResult student = readyLogin("test_student");
         LoginResult auditor = readyLogin("test_college_auditor");
@@ -1114,11 +1283,16 @@ class Phase7VideoReviewIT {
         long reviewId = uploadValidatedVideo(student.accessToken(), 9001L, "P7-PARAM-DIFF");
         assign(auditor.accessToken(), reviewId, 800000000000003005L, REVIEWER_B_USER_ID);
         score(reviewerA.accessToken(), taskIdByReview(reviewerA.accessToken(), reviewId), 85, "PASS");
-        score(reviewerB.accessToken(), taskIdByReview(reviewerB.accessToken(), reviewId), 60, "PASS");
-        assertThat(reviewMapper.selectById(reviewId).getStatus()).isEqualTo("REVIEW_COMPLETED");
 
         updateParam("video.reviewerCount", "3");
+        assertThat(reviewMapper.selectById(reviewId).getReviewerCount()).isEqualTo(2);
+        score(reviewerB.accessToken(), taskIdByReview(reviewerB.accessToken(), reviewId), 60, "PASS");
+        VideoReview twoReviewerSettled = reviewMapper.selectById(reviewId);
+        assertThat(twoReviewerSettled.getStatus()).isEqualTo("REVIEW_COMPLETED");
+        assertThat(twoReviewerSettled.getFinalScore()).isEqualTo(73);
+
         long threeReviewerId = uploadValidatedVideo(student.accessToken(), 9001L, "P7-PARAM-COUNT");
+        assertThat(reviewMapper.selectById(threeReviewerId).getReviewerCount()).isEqualTo(3);
         assign(auditor.accessToken(), threeReviewerId, 800000000000003005L, REVIEWER_B_USER_ID, REVIEWER_C_USER_ID);
         score(reviewerA.accessToken(), taskIdByReview(reviewerA.accessToken(), threeReviewerId), 80, "PASS");
         score(reviewerB.accessToken(), taskIdByReview(reviewerB.accessToken(), threeReviewerId), 82, "PASS");
@@ -1127,6 +1301,10 @@ class Phase7VideoReviewIT {
         assertThat(threeReviewerSettled.getStatus()).isEqualTo("REVIEW_COMPLETED");
         assertThat(threeReviewerSettled.getFinalScore()).isEqualTo(82);
         assertThat(threeReviewerSettled.getFinalConclusion()).isEqualTo("PASS");
+
+        updateParam("video.reviewerCount", "10");
+        long tenReviewerId = uploadValidatedVideo(student.accessToken(), 9001L, "P7-PARAM-COUNT-10");
+        assertThat(reviewMapper.selectById(tenReviewerId).getReviewerCount()).isEqualTo(10);
     }
 
     @Test
@@ -1164,7 +1342,7 @@ class Phase7VideoReviewIT {
         ResponseEntity<String> shortAssign = exchange("/api/video/reviews/" + shortReviewId + "/assign", HttpMethod.POST,
                 auditor.accessToken(), Map.of("groupId", shortGroupId));
         assertThat(json(shortAssign).at("/code").asInt()).isEqualTo(1000);
-        assertThat(json(shortAssign).at("/msg").asText()).contains("评审教师人数需等于系统参数");
+        assertThat(json(shortAssign).at("/msg").asText()).contains("评审教师人数需等于本轮冻结人数");
 
         ResponseEntity<String> crossMember = exchange("/api/video/reviewer-groups/" + groupId + "/members", HttpMethod.POST,
                 auditor.accessToken(), Map.of("reviewerUserId", REVIEWER_D_USER_ID));
@@ -2111,33 +2289,42 @@ class Phase7VideoReviewIT {
     @Test
     void redisLeaseOwnerCannotAbaAfterLockStateIsLost()
             throws InterruptedException {
-        String uploadId = "P7-LEASE-" + System.nanoTime();
-        String lockKey = "video:finalize:{" + uploadId + "}:lock";
-        VideoFinalizeSingleFlight.Lease first = videoFinalizeSingleFlight.tryAcquire(uploadId);
-        VideoFinalizeSingleFlight.Lease successor = null;
+        Duration originalLeaseDuration = videoProbeProperties.getLeaseDuration();
+        Duration originalRenewInterval = videoProbeProperties.getLeaseRenewInterval();
         try {
-            assertThat(first).isNotNull();
-            Thread.sleep(1_500L);
-            first.assertOwned();
-            assertThat(videoFinalizeSingleFlight.tryAcquire(uploadId)).isNull();
+            videoProbeProperties.setLeaseDuration(Duration.ofSeconds(5));
+            videoProbeProperties.setLeaseRenewInterval(Duration.ofSeconds(1));
+            String uploadId = "P7-LEASE-" + System.nanoTime();
+            String lockKey = "video:finalize:{" + uploadId + "}:lock";
+            VideoFinalizeSingleFlight.Lease first = videoFinalizeSingleFlight.tryAcquire(uploadId);
+            VideoFinalizeSingleFlight.Lease successor = null;
+            try {
+                assertThat(first).isNotNull();
+                Thread.sleep(5_500L);
+                first.assertOwned();
+                assertThat(videoFinalizeSingleFlight.tryAcquire(uploadId)).isNull();
 
-            assertThat(stringRedisTemplate.delete(lockKey)).isTrue();
-            successor = videoFinalizeSingleFlight.tryAcquire(uploadId);
-            assertThat(successor).isNotNull();
-            successor.assertOwned();
-            assertThatThrownBy(first::renewOrThrow)
-                    .hasMessageContaining("执行权已转移");
-            assertThatThrownBy(first::assertOwned)
-                    .hasMessageContaining("执行权已失效");
+                assertThat(stringRedisTemplate.delete(lockKey)).isTrue();
+                successor = videoFinalizeSingleFlight.tryAcquire(uploadId);
+                assertThat(successor).isNotNull();
+                successor.assertOwned();
+                assertThatThrownBy(first::renewOrThrow)
+                        .hasMessageContaining("执行权已转移");
+                assertThatThrownBy(first::assertOwned)
+                        .hasMessageContaining("执行权已失效");
 
-            first.close();
-            successor.assertOwned();
-            assertThat(videoFinalizeSingleFlight.tryAcquire(uploadId)).isNull();
-        } finally {
-            first.close();
-            if (successor != null) {
-                successor.close();
+                first.close();
+                successor.assertOwned();
+                assertThat(videoFinalizeSingleFlight.tryAcquire(uploadId)).isNull();
+            } finally {
+                first.close();
+                if (successor != null) {
+                    successor.close();
+                }
             }
+        } finally {
+            videoProbeProperties.setLeaseDuration(originalLeaseDuration);
+            videoProbeProperties.setLeaseRenewInterval(originalRenewInterval);
         }
     }
 
@@ -2576,6 +2763,16 @@ class Phase7VideoReviewIT {
     private Long taskCount(long reviewId) {
         return taskMapper.selectCount(new LambdaQueryWrapper<VideoReviewTask>()
                 .eq(VideoReviewTask::getVideoReviewId, reviewId));
+    }
+
+    private List<Long> activeReviewerIds(long reviewId) {
+        return taskMapper.selectList(new LambdaQueryWrapper<VideoReviewTask>()
+                        .eq(VideoReviewTask::getVideoReviewId, reviewId)
+                        .eq(VideoReviewTask::getReviewerRole, "REVIEWER")
+                        .orderByAsc(VideoReviewTask::getReviewerId))
+                .stream()
+                .map(VideoReviewTask::getReviewerId)
+                .toList();
     }
 
     private boolean hasCandidate(JsonNode candidates, long userId) {

@@ -6,8 +6,8 @@
 ## 1. 范围
 分片上传（断点续传/秒传/进度/重传）、视频校验、评审任务分配、独立评分、分差结算、第三专家/学院仲裁、鉴权播放与动态水印。
 
-## 2. 数据库（V13__video.sql / V28 / V29 / V30 / V31 / V32）
-- `video_review`：student_id, assessment_year, video_file_id, duration_seconds, format_check, status, final_score, final_conclusion, arbitrate_reviewer, arbitrate_mode。
+## 2. 数据库（V13__video.sql / V28 / V29 / V30 / V31 / V32 / V35）
+- `video_review`：student_id, assessment_year, video_file_id, duration_seconds, format_check, status, reviewer_count, final_score, final_conclusion, arbitrate_reviewer, arbitrate_mode。V35 对已有至少 2 个有效普通任务的记录按实际任务数回填，旧版本形成的 >10 人在途记录也原样保留；历史单任务记录按迁移时有效参数冻结，非法参数回退 2；未指派记录按迁移时有效参数回填，并收紧为 `NOT NULL`。历史快照全部冻结后，当前 `video.reviewerCount` 再按 `<2→2`、`>10→10` 归一，不能反向改写历史快照。迁移不改既有任务、分数或提交态。
 - `video_review_task`：video_review_id, reviewer_id, score, dimension_scores_json, comment, conclusion(合格/不合格), submitted, submit_time。唯一 `(video_review_id, reviewer_id)`。
 - `file_object`：V29 增加 `checksum_algorithm/content_hash_verified/media_codec/media_validation_policy_hash/media_probe_version`，区分客户端声明摘要与服务端读取对象后验真的内容指纹，并记录验证时的编码、策略版本与探测器版本。V29 每个列/索引变更均先查 `information_schema` 再动态执行，允许 MySQL 非事务 DDL 部分成功后安全重跑。
 - `video_upload_session`：V30 增加 `finalization_token`；V31 将历史 `NULL` 归一为 `0`，并改为 `BIGINT NOT NULL DEFAULT 0` 的永久高水位。`PRESIGNED_MULTIPART` complete 与 `SERVER_CHUNK` merge 每次认领都在数据库行锁内递增世代，完成/失败后也不回退、不清空。Redis 只保存随机 UUID owner 并承担活跃租约，不再生成可因过期或恢复而 ABA 的数字序列；只有数据库世代与仍存活的 Redis owner 同时匹配才可提交定稿结果。
@@ -32,10 +32,12 @@
 - 探测工件由唯一管理器写入专用目录：严格版本化命名、owner heartbeat、启动/周期 TTL 清扫和目录独占锁共同防止崩溃残留耗尽空间。清扫使用持久词法游标轮转，单轮仅保留不超过 `scanLimit` 的两个有界候选堆；活跃、未过期或本轮删除失败的候选也推进游标，避免目录尾部长期饥饿。每个后端实例必须使用具有独立配额的专属目录/卷；目录锁失败即拒绝启动，禁止多实例共享，也禁止放置无关文件。
 
 ## 4. 视频校验（§6.11）
-定稿/合并后由服务端流式读取最终对象并计算 SHA-256 分片树指纹，再交由独立工作 JVM 以 JCodec 探测实际 MP4 容器，要求恰好一个视频轨道并校验 `video.allowedCodecs`（默认 H264）与可解码首帧。探测器完整扫描样本，将容器头时长、样本时间线跨度和样本时长累计值按 `video.timelineToleranceSeconds`（默认 2s）两两交叉核对；三者一致后，可信实际时长才可继续校验 `video.durationTarget`（默认 900s）± `video.durationTolerance`（默认 60s）。实际大小必须与会话严格一致；客户端声明的 MIME、摘要和时长均不能单独使校验通过。V4 探测协议把解析器报告的损坏媒体归为明确内容不合格，置“校验失败”并允许重传；真实对象存储、源/结果 I/O、进程、磁盘和结果协议故障保留 `MERGING` 恢复语义并提示稍后重试。
+定稿/合并后由服务端流式读取最终对象并计算 SHA-256 分片树指纹，再交由独立工作 JVM 以 JCodec 探测实际 MP4 容器，要求恰好一个视频轨道并校验 `video.allowedCodecs`（默认 H264）与可解码首帧。探测器完整扫描样本，将容器头时长、样本时间线跨度和样本时长累计值按 `video.timelineToleranceSeconds`（默认 2s）两两交叉核对；三者一致后，可信实际时长才可继续校验 `video.durationTarget`（默认 900s，允许 1..86400s）± `video.durationTolerance`（默认 60s，允许 0..3600s）。实际大小必须与会话严格一致；客户端声明的 MIME、摘要和时长均不能单独使校验通过。V4 探测协议把解析器报告的损坏媒体归为明确内容不合格，置“校验失败”并允许重传；真实对象存储、源/结果 I/O、进程、磁盘和结果协议故障保留 `MERGING` 恢复语义并提示稍后重试。
 
 ## 5. 评审流程与结算（§15.2-B / §15.5）
-- 分配 `video.reviewerCount`（默认 2）位教师 → "评审中"，任务下发，**提交前互不可见**他人分数/意见。
+- 新建评审时把 `video.reviewerCount`（默认 2，允许 2..10）冻结到 `video_review.reviewer_count`；指派、改派与结算只读本轮冻结值，参数调整只影响之后新建的评审。任务下发后进入“评审中”，**提交前互不可见**他人分数/意见。
+- V35 升级按“先冻结历史、后归一当前参数”执行：旧值小于 2 时历史最低冻结为 2、当前参数归一为 2；旧值大于 10 时已有历史快照仍可保留原人数，当前参数归一为 10，随后新评审可正常创建。
+- 历史有效任务少于冻结人数时允许补派至冻结人数：目标集合必须保留全部已提交评审教师，只能增加或替换未提交教师。已提交教师之后停用、离职或失去角色不抹除历史结果，也不阻断补派；新增及仍未提交教师继续校验当前启用状态、所属学院与 `REVIEW_TEACHER` 角色。新评审仍限 2..10 人，历史 >10 人快照只为兼容完成既有在途业务；指派后若任务已经齐备且全部提交，立即执行结算。
 - 维度评分（字典 `video_score_dimension`，9 维，权重在 `ext_json`），合格线 `video.passLine`（默认 60）。
 - 全部提交后判定：
   - `|s1−s2| ≤ video.diffThreshold`（默认 12）**且**结论一致 → 终分 `round((s1+s2)/2)`，结论取一致结论。
@@ -64,7 +66,10 @@
 - [x] 分差 ≤ 阈值且结论一致 → 终分=均分，自动判合格线。
 - [x] **分差 > 阈值 或 一合格一不合格 → 进入"需复评"**（AT-08 关键）。
 - [x] 复评（第三专家或学院仲裁）产生唯一终分与结论并留痕。
-- [x] 合格线/阈值/评审人数/容差均来自 `sys_param`，改参数即生效。
+- [x] 合格线/阈值/评审人数/容差均来自 `sys_param`；评审人数按新评审实例生效，既有在途评审保持冻结人数。
+- [x] V35 历史单评审已提交记录可保留 A 并补派 B；A 后续停用不阻断恢复，B 提交后按冻结人数完成结算。
+- [x] V35 历史 11 人在途记录按实际任务数冻结；已有 3 份成绩不丢，余下评审提交后可完成结算。
+- [x] V35 在历史快照冻结后把当前评审人数参数归一到 2..10；历史人数不变，后续新评审可按归一值创建。
 - [ ] 播放需鉴权；复制播放链接未登录不可访问；播放页有动态水印。
   **代码候选已完成；当前应用取流的真实 HTTP/MinIO/浏览器动态证据待补。**
 
@@ -96,6 +101,10 @@
 - T-VID-10（迁移恢复反例）：V29 前两条 DDL 已落库但 Flyway 尚未记成功 → 重跑 V29 可补齐剩余列/索引/参数并成功记录历史。
 - T-VID-11（高水位迁移反例）：从 V30 升 V31 时历史 `NULL` 归一为 0、已有正世代保持不变，并断言列为 `NOT NULL DEFAULT 0`、Flyway 历史成功。
 - T-VID-12（对象台账迁移反例）：从 V31 隔离 schema 升 V32，校验候选表、唯一键/到期/对象/会话索引、5 个清理参数和 Flyway 成功历史；预置已逻辑删除的同键参数时保留原 ID、恢复启用并更新默认值。
+- T-VID-13（人数热变更）：双人评审已有一分后把参数改为 3，旧评审仍按冻结的 2 人结算；随后新建评审冻结为 3。V35 迁移另验证已有任务数回填、未指派记录取参数及非空默认值。
+- T-VID-14（历史单评审恢复）：V34 构造参数 1、A 已提交的 `REVIEWING` 记录；V35 保留 A 的任务/分数/提交态并冻结为 2。A 随后停用仍可补派合格的 B，B 提交后正常结算；不得移除 A，新增或未提交教师不合格时仍拒绝。
+- T-VID-15（历史多人恢复）：V34 以旧参数形成 11 个有效普通任务且 3 人已提交；V35 后 `reviewer_count=11`，任务与成绩原样保留，剩余 8 人提交后正常结算。若指派动作结束时任务已全部提交，也须在该动作内结算。
+- T-VID-16（旧参数域迁移）：V34 分别预置参数 1/11 及对应历史记录；升级 V35 后历史任务、成绩和快照按原规则保留，当前全局参数分别归一为 2/10，并能按合法端点正常创建后续新评审。
 
 ## 10. DoD
 分片上传 + 校验 + 双盲评审 + 分差/复评结算 + 鉴权水印播放全部可用；AT-08 自测（含两类需复评反例）通过。

@@ -44,6 +44,13 @@ interface StatusRow {
   failedCount: number
 }
 
+interface ProcessStatusTarget {
+  studentId: string
+  studentNo: string
+  studentName: string
+  assessmentYear: string
+}
+
 const message = useMessage()
 const userStore = useUserStore()
 const yearStore = useYearStore()
@@ -69,6 +76,7 @@ const categories = ref<DictItem[]>([])
 const reviewing = ref<{ material: ProcessMaterial; stage: 'first' | 'second' } | null>(null)
 const processQualified = ref(false)
 const statusRows = ref<StatusRow[]>([])
+const statusTarget = ref<ProcessStatusTarget | null>(null)
 const uploadDrawerRef = ref<InstanceType<typeof MaterialUploadDrawer> | null>(null)
 const previewModalRef = ref<InstanceType<typeof MaterialPreviewModal> | null>(null)
 let listRequestSequence = 0
@@ -153,6 +161,9 @@ const columns: DataTableColumns<ProcessMaterial> = [
         if (canUpload.value) {
           actions.push(h(NButton, { size: 'small', quaternary: true, disabled: !dataFresh.value, onClick: () => openReplace(row) }, { default: () => '替换' }))
           actions.push(h(NButton, { size: 'small', quaternary: true, disabled: !dataFresh.value, onClick: () => submit(row) }, { default: () => '提交' }))
+        }
+        if (!selfMode.value) {
+          actions.push(h(NButton, { size: 'small', quaternary: true, disabled: !dataFresh.value, onClick: () => showProcessStatus(row) }, { default: () => '合格判定' }))
         }
         if (canFirstReview.value) {
           actions.push(h(NButton, { size: 'small', quaternary: true, disabled: !dataFresh.value, onClick: () => openReview(row, 'first') }, { default: () => '初审' }))
@@ -307,14 +318,32 @@ async function saveReview(payload: ReviewPayload) {
   }
 }
 
-async function showProcessStatus() {
-  const studentId = uploadDrawerRef.value?.getStudentId() || records.value[0]?.studentId || userStore.currentUser?.studentId || ''
-  if (!studentId) {
-    message.error('请选择或查询到一个学生')
+async function showProcessStatus(row?: ProcessMaterial) {
+  const selfRecord = selfMode.value
+    ? records.value.find((item) => item.studentId === userStore.currentUser?.studentId)
+    : undefined
+  const target = row
+    ? {
+        studentId: row.studentId,
+        studentNo: row.studentNo || '-',
+        studentName: row.studentName || '-',
+        assessmentYear: row.assessmentYear
+      }
+    : selfMode.value && userStore.currentUser?.studentId
+      ? {
+          studentId: userStore.currentUser.studentId,
+          studentNo: selfRecord?.studentNo || userStore.username,
+          studentName: selfRecord?.studentName || userStore.realName,
+          assessmentYear: assessmentYear.value
+        }
+      : null
+  if (!target) {
+    message.error('请从学生材料行选择合格判定')
     return
   }
   try {
-    const res = await getProcessStatus(studentId, assessmentYear.value)
+    const res = await getProcessStatus(target.studentId, target.assessmentYear)
+    statusTarget.value = target
     processQualified.value = res.data.qualified
     statusRows.value = res.data.categories.map((item) => ({
       label: item.categoryLabel,
@@ -451,7 +480,6 @@ watch(
         @refresh="loadRecords"
       >
         <template #actions>
-          <n-button size="small" :disabled="!dataFresh" @click="showProcessStatus">合格判定</n-button>
           <n-button v-if="canBatchDownload" size="small" @click="batchDownload">批量下载</n-button>
           <n-button v-if="canUpload && records.length > 0" type="primary" size="small" :disabled="!dataFresh" @click="openUpload()">上传材料</n-button>
         </template>
@@ -492,6 +520,11 @@ watch(
       style="width: min(var(--overlay-wide), var(--overlay-modal-max))"
     >
       <n-space vertical>
+        <div v-if="statusTarget" class="status-target">
+          <strong>{{ statusTarget.studentNo }}</strong>
+          <span>{{ statusTarget.studentName }}</span>
+          <span>{{ statusTarget.assessmentYear }} 年度</span>
+        </div>
         <n-alert :type="processQualified ? 'success' : 'warning'" :bordered="false">
           {{ processQualified ? '四类材料均已复审通过' : '仍有材料类别缺失或未复审通过' }}
         </n-alert>
@@ -519,6 +552,13 @@ watch(
 .file-size {
   color: var(--text-muted);
   font-size: 12px;
+}
+
+.status-target {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--text-secondary);
 }
 
 </style>

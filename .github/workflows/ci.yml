@@ -239,6 +239,8 @@ jobs:
           npm run test:dashboard-latest-request
           npm run test:ws4-video-auth-state-contract
           npm run build
+          npm run bundle:check
+          npm run test:bundle-budget
       - name: 安装 Chromium
         working-directory: frontend
         run: npx playwright install --with-deps chromium

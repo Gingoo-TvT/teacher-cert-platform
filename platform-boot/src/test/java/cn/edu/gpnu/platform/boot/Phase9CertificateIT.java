@@ -174,10 +174,82 @@ class Phase9CertificateIT {
         JsonNode vocationalCert = generateOk(academic.accessToken(), vocational, "2026");
         assertThat(vocationalCert.at("/certNo").asText()).isEqualTo("202610588344500001");
 
-        JsonNode firstHalf = issueOk(academic.accessToken(), seniorCert.at("/id").asLong(), "校长", "2022/3/15");
-        assertThat(firstHalf.at("/validUntil").asText()).isEqualTo("2025/6/30");
-        JsonNode secondHalf = issueOk(academic.accessToken(), vocationalCert.at("/id").asLong(), "校长", "2022-09-01");
-        assertThat(secondHalf.at("/validUntil").asText()).isEqualTo("2025/12/31");
+        JsonNode firstHalf = issueOk(academic.accessToken(), seniorCert.at("/id").asLong(), "校长", "2026/3/15");
+        assertThat(firstHalf.at("/validUntil").asText()).isEqualTo("2029/6/30");
+        JsonNode secondHalf = issueOk(academic.accessToken(), vocationalCert.at("/id").asLong(), "校长", "2026-09-01");
+        assertThat(secondHalf.at("/validUntil").asText()).isEqualTo("2029/12/31");
+    }
+
+    @Test
+    void everyCertificateWriteResponseUsesThePersistedCorrectionRevision() throws Exception {
+        LoginResult academic = readyLogin("test_academic_admin");
+        long lifecycleStudent = seedEligibleStudent(
+                "P9REVW", COLLEGE_A, "2036", SENIOR_SEGMENT, SENIOR_SUBJECT_CODE, "语文");
+        JsonNode generated = generateOk(academic.accessToken(), lifecycleStudent, "2036");
+        assertResponseRevisionMatchesDetail(academic.accessToken(), generated);
+
+        JsonNode corrected = json(exchange(
+                "/api/cert/" + generated.at("/id").asLong() + "/correct",
+                HttpMethod.PUT,
+                academic.accessToken(),
+                Map.of(
+                        "correctionRevision", generated.at("/correctionRevision").asText(),
+                        "validUntil", "2039/6/30",
+                        "reason", "校验写响应版本"
+                ))).at("/data");
+        assertResponseRevisionMatchesDetail(academic.accessToken(), corrected);
+
+        JsonNode issued = issueOk(
+                academic.accessToken(), generated.at("/id").asLong(), "校长", "2036/3/15");
+        assertResponseRevisionMatchesDetail(academic.accessToken(), issued);
+
+        JsonNode exported = json(exchange(
+                "/api/cert/" + generated.at("/id").asLong() + "/export",
+                HttpMethod.POST, academic.accessToken(), Map.of())).at("/data");
+        assertResponseRevisionMatchesDetail(academic.accessToken(), exported);
+
+        JsonNode archived = json(exchange(
+                "/api/cert/" + generated.at("/id").asLong() + "/archive",
+                HttpMethod.POST, academic.accessToken(), Map.of())).at("/data");
+        assertResponseRevisionMatchesDetail(academic.accessToken(), archived);
+
+        long reissueStudent = seedEligibleStudent(
+                "P9REVR", COLLEGE_A, "2037", SENIOR_SEGMENT, SENIOR_SUBJECT_CODE, "语文");
+        JsonNode original = generateOk(academic.accessToken(), reissueStudent, "2037");
+        JsonNode voided = json(exchange(
+                "/api/cert/" + original.at("/id").asLong() + "/void",
+                HttpMethod.POST, academic.accessToken(), Map.of("reason", "验证作废响应版本"))).at("/data");
+        assertResponseRevisionMatchesDetail(academic.accessToken(), voided);
+
+        JsonNode reissued = json(exchange(
+                "/api/cert/" + original.at("/id").asLong() + "/reissue",
+                HttpMethod.POST, academic.accessToken(), Map.of())).at("/data");
+        assertThat(reissued.at("/id").asLong()).isNotEqualTo(original.at("/id").asLong());
+        assertResponseRevisionMatchesDetail(academic.accessToken(), reissued);
+    }
+
+    @Test
+    void issueRejectsUnknownIssuerAndCrossYearDate() throws Exception {
+        LoginResult academic = readyLogin("test_academic_admin");
+        long studentId = seedEligibleStudent(
+                "P9ISSUER", COLLEGE_A, "2027", SENIOR_SEGMENT, SENIOR_SUBJECT_CODE, "语文");
+        long certId = generateOk(academic.accessToken(), studentId, "2027").at("/id").asLong();
+
+        ResponseEntity<String> unknownIssuer = exchange(
+                "/api/cert/" + certId + "/issue", HttpMethod.POST, academic.accessToken(),
+                Map.of("issuer", "未配置签发人", "issueDate", "2027/3/15"));
+        assertThat(json(unknownIssuer).at("/code").asInt()).isEqualTo(1000);
+        assertThat(json(unknownIssuer).at("/msg").asText()).contains("签发人字典");
+
+        ResponseEntity<String> crossYear = exchange(
+                "/api/cert/" + certId + "/issue", HttpMethod.POST, academic.accessToken(),
+                Map.of("issuer", "校长", "issueDate", "2028/3/15"));
+        assertThat(json(crossYear).at("/code").asInt()).isEqualTo(1000);
+        assertThat(json(crossYear).at("/msg").asText()).contains("签发日期年份");
+
+        Certificate unchanged = certificateMapper.selectById(certId);
+        assertThat(unchanged.getStatus()).isEqualTo("GENERATED");
+        assertThat(unchanged.getIssuer()).isNull();
     }
 
     @Test
@@ -241,10 +313,103 @@ class Phase9CertificateIT {
     }
 
     @Test
+    void correctedNumberAdvancesSequenceBeforeNextGenerate() throws Exception {
+        LoginResult academic = readyLogin("test_academic_admin");
+        String year = "2028";
+        long firstStudent = seedEligibleStudent(
+                "P9SEQCA", COLLEGE_A, year, SENIOR_SEGMENT, SENIOR_SUBJECT_CODE, "语文");
+        long nextStudent = seedEligibleStudent(
+                "P9SEQCB", COLLEGE_A, year, SENIOR_SEGMENT, SENIOR_SUBJECT_CODE, "语文");
+
+        JsonNode first = generateOk(academic.accessToken(), firstStudent, year);
+        assertThat(first.at("/certNo").asText()).isEqualTo("202810588344400001");
+
+        ResponseEntity<String> corrected = exchange(
+                "/api/cert/" + first.at("/id").asLong() + "/correct",
+                HttpMethod.PUT,
+                academic.accessToken(),
+                Map.of(
+                        "correctionRevision", first.at("/correctionRevision").asText(),
+                        "certNo", "202810588344400002",
+                        "reason", "顺延证书编号")
+        );
+        assertThat(json(corrected).at("/code").asInt()).isZero();
+        assertThat(json(corrected).at("/data/certNo").asText()).isEqualTo("202810588344400002");
+
+        JsonNode next = generateOk(academic.accessToken(), nextStudent, year);
+        assertThat(next.at("/certNo").asText()).isEqualTo("202810588344400003");
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT current_seq FROM cert_sequence WHERE scope_key = ? AND deleted = 0",
+                Integer.class,
+                "10588:2028:4"
+        )).isEqualTo(3);
+    }
+
+    @Test
+    @Timeout(90)
+    void failedCorrectionRollsBackReservedSequence() throws Exception {
+        LoginResult academic = readyLogin("test_academic_admin");
+        String year = "2028";
+        long targetStudent = seedEligibleStudent(
+                "P9SEQRA", COLLEGE_A, year, SENIOR_SEGMENT, SENIOR_SUBJECT_CODE, "语文");
+        long conflictingStudent = seedEligibleStudent(
+                "P9SEQRB", COLLEGE_A, year, SENIOR_SEGMENT, SENIOR_SUBJECT_CODE, "语文");
+        long nextStudent = seedEligibleStudent(
+                "P9SEQRC", COLLEGE_A, year, SENIOR_SEGMENT, SENIOR_SUBJECT_CODE, "语文");
+        JsonNode target = generateOk(academic.accessToken(), targetStudent, year);
+        assertThat(target.at("/certNo").asText()).isEqualTo("202810588344400001");
+
+        staleWriteSqlBarrier.arm(
+                StaleWriteSqlBarrier.Mutation.CERTIFICATE_ISSUE,
+                StaleWriteSqlBarrier.Mutation.CERTIFICATE_CORRECT);
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        Future<ResponseEntity<String>> failedCorrection = null;
+        try {
+            failedCorrection = pool.submit(() -> exchange(
+                    "/api/cert/" + target.at("/id").asLong() + "/correct",
+                    HttpMethod.PUT,
+                    academic.accessToken(),
+                    Map.of(
+                            "correctionRevision", target.at("/correctionRevision").asText(),
+                            "certNo", "202810588344400005",
+                            "reason", "模拟更新失败回滚")
+            ));
+            awaitLateMutation(failedCorrection, "已占用序列的证书更正");
+
+            Certificate conflict = new Certificate();
+            conflict.setStudentId(conflictingStudent);
+            conflict.setCollegeId(COLLEGE_A);
+            conflict.setAssessmentYear(year);
+            conflict.setCertNo("202810588344400005");
+            conflict.setStudentNo("P9SEQRB");
+            conflict.setStatus("GENERATED");
+            conflict.setLocked(1);
+            assertThat(certificateMapper.insert(conflict)).isEqualTo(1);
+
+            staleWriteSqlBarrier.releaseLate();
+            ResponseEntity<String> rejected = failedCorrection.get(15, TimeUnit.SECONDS);
+            assertThat(json(rejected).at("/code").asInt()).isNotZero();
+            assertThat(certificateMapper.selectById(target.at("/id").asLong()).getCertNo())
+                    .isEqualTo("202810588344400001");
+            assertThat(jdbcTemplate.queryForObject(
+                    "SELECT current_seq FROM cert_sequence WHERE scope_key = ? AND deleted = 0",
+                    Integer.class,
+                    "10588:2028:4"
+            )).isEqualTo(1);
+
+            JsonNode next = generateOk(academic.accessToken(), nextStudent, year);
+            assertThat(next.at("/certNo").asText()).isEqualTo("202810588344400002");
+        } finally {
+            releaseAndClose(pool, failedCorrection);
+        }
+    }
+
+    @Test
     void lockedCertificateRejectsDirectCriticalChangeButCorrectionLeavesAudit() throws Exception {
         LoginResult academic = readyLogin("test_academic_admin");
         long studentId = seedEligibleStudent("P9LOCK", COLLEGE_A, "2030", SENIOR_SEGMENT, SENIOR_SUBJECT_CODE, "语文");
-        long certId = generateOk(academic.accessToken(), studentId, "2030").at("/id").asLong();
+        JsonNode generated = generateOk(academic.accessToken(), studentId, "2030");
+        long certId = generated.at("/id").asLong();
 
         ResponseEntity<String> duplicateGenerate = exchange("/api/cert/generate", HttpMethod.POST, academic.accessToken(),
                 Map.of("studentId", studentId, "assessmentYear", "2030"));
@@ -253,6 +418,7 @@ class Phase9CertificateIT {
 
         ResponseEntity<String> corrected = exchange("/api/cert/" + certId + "/correct", HttpMethod.PUT,
                 academic.accessToken(), Map.of(
+                        "correctionRevision", generated.at("/correctionRevision").asText(),
                         "teachingSubjectCode", "sms_math",
                         "teachingSubjectName", "数学",
                         "validUntil", "2029/6/30",
@@ -269,12 +435,57 @@ class Phase9CertificateIT {
     }
 
     @Test
+    void staleFullCorrectionFormCannotRestoreAnEarlierSubject() throws Exception {
+        LoginResult academic = readyLogin("test_academic_admin");
+        long studentId = seedEligibleStudent(
+                "P9STALE", COLLEGE_A, "2034", SENIOR_SEGMENT, SENIOR_SUBJECT_CODE, "语文");
+        JsonNode opened = generateOk(academic.accessToken(), studentId, "2034");
+        long certId = opened.at("/id").asLong();
+        String openedRevision = opened.at("/correctionRevision").asText();
+        assertThat(openedRevision).isNotBlank();
+
+        ResponseEntity<String> firstCorrection = exchange(
+                "/api/cert/" + certId + "/correct", HttpMethod.PUT, academic.accessToken(), Map.of(
+                        "correctionRevision", openedRevision,
+                        "certNo", opened.at("/certNo").asText(),
+                        "validUntil", "",
+                        "trainingGoal", opened.at("/trainingGoal").asText(),
+                        "teachingSegment", opened.at("/teachingSegment").asText(),
+                        "teachingSubjectCode", "sms_math",
+                        "teachingSubjectName", "数学",
+                        "reason", "管理员A更正任教学科"
+                ));
+        assertThat(json(firstCorrection).at("/code").asInt()).isZero();
+
+        ResponseEntity<String> staleCorrection = exchange(
+                "/api/cert/" + certId + "/correct", HttpMethod.PUT, academic.accessToken(), Map.of(
+                        "correctionRevision", openedRevision,
+                        "certNo", opened.at("/certNo").asText(),
+                        "validUntil", "2037/12/31",
+                        "trainingGoal", opened.at("/trainingGoal").asText(),
+                        "teachingSegment", opened.at("/teachingSegment").asText(),
+                        "teachingSubjectCode", opened.at("/teachingSubjectCode").asText(),
+                        "teachingSubjectName", opened.at("/teachingSubjectName").asText(),
+                        "reason", "管理员B从旧表单更正有效期"
+                ));
+        JsonNode rejected = json(staleCorrection);
+        assertThat(rejected.at("/code").asInt()).isEqualTo(1000);
+        assertThat(rejected.at("/msg").asText()).contains("记录已更新，请刷新后重试");
+
+        Certificate after = certificateMapper.selectById(certId);
+        assertThat(after.getTeachingSubjectCode()).isEqualTo("sms_math");
+        assertThat(after.getTeachingSubjectName()).isEqualTo("数学");
+        assertThat(after.getValidUntil()).isNull();
+    }
+
+    @Test
     @Timeout(90)
-    void issueCommitBeforeStaleCorrectionRejectsContentAndKeepsIssuedState() throws Exception {
+    void correctionRowLockSerializesConcurrentIssueAndPreservesCorrectedContent() throws Exception {
         LoginResult academic = readyLogin("test_academic_admin");
         long studentId = seedEligibleStudent(
                 "P9RACEIF", COLLEGE_A, "2030", SENIOR_SEGMENT, SENIOR_SUBJECT_CODE, "语文");
-        long certId = generateOk(academic.accessToken(), studentId, "2030").at("/id").asLong();
+        JsonNode generated = generateOk(academic.accessToken(), studentId, "2030");
+        long certId = generated.at("/id").asLong();
         staleWriteSqlBarrier.arm(
                 StaleWriteSqlBarrier.Mutation.CERTIFICATE_ISSUE,
                 StaleWriteSqlBarrier.Mutation.CERTIFICATE_CORRECT);
@@ -285,37 +496,38 @@ class Phase9CertificateIT {
         try {
             staleCorrection = pool.submit(() -> exchange(
                     "/api/cert/" + certId + "/correct", HttpMethod.PUT, academic.accessToken(), Map.of(
+                            "correctionRevision", generated.at("/correctionRevision").asText(),
                             "teachingSubjectCode", "sms_math",
                             "teachingSubjectName", "数学",
-                            "reason", "F-03 迟到更正"
+                            "reason", "F-03 锁定更正"
                     )));
-            awaitLateMutation(staleCorrection, "证书迟到更正");
+            awaitLateMutation(staleCorrection, "证书锁定更正");
 
             firstIssue = pool.submit(() -> exchange(
                     "/api/cert/" + certId + "/issue", HttpMethod.POST, academic.accessToken(), Map.of(
-                            "issuer", "F-03签发人",
+                            "issuer", "校长",
                             "issueDate", "2030/3/15"
                     )));
+            assertThat(staleWriteSqlBarrier.awaitFirstAtUpdate(15, TimeUnit.SECONDS))
+                    .as("并发签发必须到达真实 MyBatis UPDATE")
+                    .isTrue();
+            assertThat(staleWriteSqlBarrier.awaitFirstCompletion(500, TimeUnit.MILLISECONDS))
+                    .as("更正持有 certificate 行锁时，并发签发不得先完成")
+                    .isFalse();
+
+            staleWriteSqlBarrier.releaseLate();
+            ResponseEntity<String> corrected = staleCorrection.get(15, TimeUnit.SECONDS);
+            assertThat(json(corrected).at("/code").asInt()).isEqualTo(0);
             awaitFirstCommit("证书签发");
             ResponseEntity<String> issued = firstIssue.get(15, TimeUnit.SECONDS);
             assertThat(json(issued).at("/code").asInt()).isEqualTo(0);
 
-            Certificate committed = certificateMapper.selectById(certId);
-            assertThat(committed.getStatus()).isEqualTo("ISSUED");
-            assertThat(committed.getTeachingSubjectCode()).isEqualTo(SENIOR_SUBJECT_CODE);
-            assertThat(committed.getTeachingSubjectName()).isEqualTo("语文");
-
-            staleWriteSqlBarrier.releaseLate();
-            ResponseEntity<String> rejected = staleCorrection.get(15, TimeUnit.SECONDS);
-            JsonNode rejectedBody = json(rejected);
-            assertThat(rejectedBody.at("/code").asInt()).isEqualTo(1000);
-            assertThat(rejectedBody.at("/msg").asText()).contains("操作冲突");
-
             Certificate after = certificateMapper.selectById(certId);
             assertThat(after.getStatus()).isEqualTo("ISSUED");
-            assertThat(after.getTeachingSubjectCode()).isEqualTo(SENIOR_SUBJECT_CODE);
-            assertThat(after.getTeachingSubjectName()).isEqualTo("语文");
-            assertThat(after.getIssuer()).isEqualTo("F-03签发人");
+            assertThat(after.getTeachingSubjectCode()).isEqualTo("sms_math");
+            assertThat(after.getTeachingSubjectName()).isEqualTo("数学");
+            assertThat(after.getCorrectionReason()).isEqualTo("F-03 锁定更正");
+            assertThat(after.getIssuer()).isEqualTo("校长");
         } finally {
             releaseAndClose(pool, staleCorrection, firstIssue);
         }
@@ -327,7 +539,8 @@ class Phase9CertificateIT {
         LoginResult academic = readyLogin("test_academic_admin");
         long studentId = seedEligibleStudent(
                 "P9RACECF", COLLEGE_A, "2031", SENIOR_SEGMENT, SENIOR_SUBJECT_CODE, "语文");
-        long certId = generateOk(academic.accessToken(), studentId, "2031").at("/id").asLong();
+        JsonNode generated = generateOk(academic.accessToken(), studentId, "2031");
+        long certId = generated.at("/id").asLong();
         staleWriteSqlBarrier.arm(
                 StaleWriteSqlBarrier.Mutation.CERTIFICATE_CORRECT,
                 StaleWriteSqlBarrier.Mutation.CERTIFICATE_ISSUE);
@@ -338,13 +551,14 @@ class Phase9CertificateIT {
         try {
             staleIssue = pool.submit(() -> exchange(
                     "/api/cert/" + certId + "/issue", HttpMethod.POST, academic.accessToken(), Map.of(
-                            "issuer", "F-03签发人",
+                            "issuer", "校长",
                             "issueDate", "2031/9/1"
                     )));
             awaitLateMutation(staleIssue, "证书迟到签发");
 
             firstCorrection = pool.submit(() -> exchange(
                     "/api/cert/" + certId + "/correct", HttpMethod.PUT, academic.accessToken(), Map.of(
+                            "correctionRevision", generated.at("/correctionRevision").asText(),
                             "teachingSubjectCode", "sms_math",
                             "teachingSubjectName", "数学",
                             "reason", "F-03 先提交更正"
@@ -368,7 +582,55 @@ class Phase9CertificateIT {
             assertThat(after.getTeachingSubjectCode()).isEqualTo("sms_math");
             assertThat(after.getTeachingSubjectName()).isEqualTo("数学");
             assertThat(after.getCorrectionReason()).isEqualTo("F-03 先提交更正");
-            assertThat(after.getIssuer()).isEqualTo("F-03签发人");
+            assertThat(after.getIssuer()).isEqualTo("校长");
+        } finally {
+            releaseAndClose(pool, staleIssue, firstCorrection);
+        }
+    }
+
+    @Test
+    @Timeout(90)
+    void correctionChangingCertNoBeforeStaleIssueMakesIssueCasFail() throws Exception {
+        LoginResult academic = readyLogin("test_academic_admin");
+        long studentId = seedEligibleStudent(
+                "P9RACENO", COLLEGE_A, "2033", SENIOR_SEGMENT, SENIOR_SUBJECT_CODE, "语文");
+        JsonNode generated = generateOk(academic.accessToken(), studentId, "2033");
+        long certId = generated.at("/id").asLong();
+        String correctedCertNo = "203310588344499999";
+        staleWriteSqlBarrier.arm(
+                StaleWriteSqlBarrier.Mutation.CERTIFICATE_CORRECT,
+                StaleWriteSqlBarrier.Mutation.CERTIFICATE_ISSUE);
+
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        Future<ResponseEntity<String>> staleIssue = null;
+        Future<ResponseEntity<String>> firstCorrection = null;
+        try {
+            staleIssue = pool.submit(() -> exchange(
+                    "/api/cert/" + certId + "/issue", HttpMethod.POST, academic.accessToken(), Map.of(
+                            "issuer", "校长",
+                            "issueDate", "2033/3/15"
+                    )));
+            awaitLateMutation(staleIssue, "证书迟到签发");
+
+            firstCorrection = pool.submit(() -> exchange(
+                    "/api/cert/" + certId + "/correct", HttpMethod.PUT, academic.accessToken(), Map.of(
+                            "correctionRevision", generated.at("/correctionRevision").asText(),
+                            "certNo", correctedCertNo,
+                            "reason", "F-03 先更正证书编号"
+                    )));
+            awaitFirstCommit("证书编号更正");
+            assertThat(json(firstCorrection.get(15, TimeUnit.SECONDS)).at("/code").asInt()).isZero();
+
+            staleWriteSqlBarrier.releaseLate();
+            JsonNode rejected = json(staleIssue.get(15, TimeUnit.SECONDS));
+            assertThat(rejected.at("/code").asInt()).isEqualTo(1000);
+            assertThat(rejected.at("/msg").asText()).contains("操作冲突");
+
+            Certificate after = certificateMapper.selectById(certId);
+            assertThat(after.getCertNo()).isEqualTo(correctedCertNo);
+            assertThat(after.getStatus()).isEqualTo("GENERATED");
+            assertThat(after.getIssuer()).isNull();
+            assertThat(after.getIssueDate()).isNull();
         } finally {
             releaseAndClose(pool, staleIssue, firstCorrection);
         }
@@ -558,6 +820,16 @@ class Phase9CertificateIT {
         JsonNode root = json(response);
         assertThat(root.at("/code").asInt()).isEqualTo(0);
         return root.at("/data");
+    }
+
+    private void assertResponseRevisionMatchesDetail(String token, JsonNode writeResponse) throws Exception {
+        String responseRevision = writeResponse.at("/correctionRevision").asText();
+        assertThat(responseRevision).isNotBlank();
+        ResponseEntity<String> detailResponse = exchange(
+                "/api/cert/" + writeResponse.at("/id").asLong(), HttpMethod.GET, token, null);
+        JsonNode detail = json(detailResponse);
+        assertThat(detail.at("/code").asInt()).isZero();
+        assertThat(detail.at("/data/correctionRevision").asText()).isEqualTo(responseRevision);
     }
 
     private long seedEligibleStudent(String prefix, long collegeId, String year, String segment,

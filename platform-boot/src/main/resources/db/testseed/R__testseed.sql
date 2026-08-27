@@ -6,7 +6,7 @@
 -- 幂等：全部 INSERT ... ON DUPLICATE KEY UPDATE，可安全重跑（校验和变更时 Flyway 会重放）。
 -- 主键 id 与原 V8/V9/V10/V12 完全一致，保证 IT（引用学院 201/202、学生 9001/9002、test_* 账号）可解析。
 -- 状态对齐 V8 原始种子：test_* 账号 must_change_pwd=1、密码哈希 = bcrypt("ChangeMe123!")、ENABLED。
--- 注意：本文件不新增任何 mock 数据，仅“搬运”既有测试种子（每角色 mock 数据属后续阶段）。
+-- 注意：除业务合同所需的最小参考项外，本文件仅“搬运”既有测试种子（每角色 mock 数据属后续阶段）。
 -- =============================================================
 
 -- ---- 测试学院（原 V8）：Phase2 权限测试学院 A/B ----
@@ -135,6 +135,19 @@ JOIN sys_role r ON r.code = seed.role_code AND r.deleted = 0
 ON DUPLICATE KEY UPDATE
     user_id = VALUES(user_id),
     role_id = VALUES(role_id),
+    updated_at = NOW(),
+    deleted = 0;
+
+-- ---- 证书签发合同测试项：生产仍由学校在 cert_issuer 字典中维护，版本化迁移保持初始置空 ----
+INSERT INTO sys_dict_item
+(id, type_code, item_code, item_value, parent_code, sort, status, year_version, ext_json, created_at, updated_at, deleted)
+VALUES
+(120000000000003001, 'cert_issuer', 'test_school_principal', '校长', NULL, 1, 1, 'GLOBAL', NULL, NOW(), NOW(), 0)
+ON DUPLICATE KEY UPDATE
+    item_value = VALUES(item_value),
+    sort = VALUES(sort),
+    status = VALUES(status),
+    year_version = VALUES(year_version),
     updated_at = NOW(),
     deleted = 0;
 

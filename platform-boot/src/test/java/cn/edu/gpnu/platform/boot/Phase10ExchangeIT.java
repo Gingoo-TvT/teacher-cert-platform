@@ -3,10 +3,14 @@ package cn.edu.gpnu.platform.boot;
 import cn.edu.gpnu.platform.PlatformApplication;
 import cn.edu.gpnu.platform.business.certificate.entity.Certificate;
 import cn.edu.gpnu.platform.business.certificate.mapper.CertificateMapper;
+import cn.edu.gpnu.platform.business.material.entity.ProcessMaterial;
+import cn.edu.gpnu.platform.business.material.mapper.ProcessMaterialMapper;
 import cn.edu.gpnu.platform.business.student.entity.Student;
 import cn.edu.gpnu.platform.business.student.mapper.StudentMapper;
 import cn.edu.gpnu.platform.business.training.entity.TrainingProfile;
 import cn.edu.gpnu.platform.business.training.mapper.TrainingProfileMapper;
+import cn.edu.gpnu.platform.business.video.entity.VideoReview;
+import cn.edu.gpnu.platform.business.video.mapper.VideoReviewMapper;
 import cn.edu.gpnu.platform.exchange.entity.ImportErrorDetail;
 import cn.edu.gpnu.platform.exchange.entity.ImportExportBatch;
 import cn.edu.gpnu.platform.exchange.mapper.ImportErrorDetailMapper;
@@ -15,6 +19,8 @@ import cn.edu.gpnu.platform.exchange.model.ExchangeColumn;
 import cn.edu.gpnu.platform.exchange.model.ExchangeStandardRow;
 import cn.edu.gpnu.platform.exchange.support.ExchangeExcelHelper;
 import cn.edu.gpnu.platform.exchange.support.ExchangeImportHook;
+import cn.edu.gpnu.platform.file.entity.FileObject;
+import cn.edu.gpnu.platform.file.service.FileService;
 import cn.edu.gpnu.platform.security.service.IdCardProtectionService;
 import cn.edu.gpnu.platform.system.entity.SysUser;
 import cn.edu.gpnu.platform.system.mapper.SysUserMapper;
@@ -64,6 +70,7 @@ import org.springframework.util.MultiValueMap;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.Statement;
 import java.time.LocalDateTime;
@@ -83,6 +90,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -134,6 +143,15 @@ class Phase10ExchangeIT {
 
     @Autowired
     private CertificateMapper certificateMapper;
+
+    @Autowired
+    private ProcessMaterialMapper processMaterialMapper;
+
+    @Autowired
+    private VideoReviewMapper videoReviewMapper;
+
+    @Autowired
+    private FileService fileService;
 
     @Autowired
     private ImportExportBatchMapper batchMapper;
@@ -194,6 +212,186 @@ class Phase10ExchangeIT {
     }
 
     @Test
+    void fullReviewIncludesAnnualMaterialStudentWithoutTrainingOrCertificate() throws Exception {
+        LoginResult academic = readyLogin("test_academic_admin");
+        seedCertificateSnapshot("P10FULL", COLLEGE_A, "2026", "P10FULL", "F12345678",
+                "202610588344300181", "2029/6/30");
+        Student student = studentMapper.selectOne(new LambdaQueryWrapper<Student>()
+                .eq(Student::getStudentNo, "P10FULL").last("LIMIT 1"));
+        jdbcTemplate.update("DELETE FROM certificate WHERE student_id = ?", student.getId());
+        jdbcTemplate.update("DELETE FROM training_profile WHERE student_id = ?", student.getId());
+
+        ProcessMaterial material = new ProcessMaterial();
+        material.setStudentId(student.getId());
+        material.setCollegeId(COLLEGE_A);
+        material.setAssessmentYear("2026");
+        material.setCategory("morality_teacher_ethics");
+        material.setFileId(990000000000000181L);
+        material.setFileName("full-review.pdf");
+        material.setFilePath("phase10/full-review.pdf");
+        material.setFileSize(4L);
+        material.setContentType("application/pdf");
+        material.setUploaderId(0L);
+        material.setUploadTime(LocalDateTime.now());
+        material.setStatus("PASSED");
+        material.setLocked(1);
+        processMaterialMapper.insert(material);
+
+        ResponseEntity<byte[]> exported = download("/api/exchange/export/FULL_REVIEW", HttpMethod.POST,
+                academic.accessToken(), Map.of("assessmentYear", "2026", "keyword", "P10FULL"));
+
+        assertThat(exported.getStatusCode()).isEqualTo(HttpStatus.OK);
+        try (Workbook workbook = new XSSFWorkbook(new ByteArrayInputStream(exported.getBody()))) {
+            DataFormatter formatter = new DataFormatter();
+            Row header = workbook.getSheetAt(0).getRow(0);
+            Row data = workbook.getSheetAt(0).getRow(1);
+            assertThat(formatter.formatCellValue(data.getCell(3))).isEqualTo("P10FULL");
+            List<String> headers = new ArrayList<>();
+            for (int i = 0; i < header.getLastCellNum(); i++) {
+                headers.add(formatter.formatCellValue(header.getCell(i)));
+            }
+            assertThat(headers).contains("基本信息初审人", "培养信息复审时间",
+                    "思想品德及师德素养状态", "免考科目", "视频教师1分", "测试确认人", "证书状态");
+        }
+    }
+
+    @Test
+    void attachmentZipStreamsMaterialAndVideoForAuthorizedStudentWithoutCertificate() throws Exception {
+        LoginResult clerk = readyLogin("test_college_clerk");
+        assertThat(userMapper.selectByUsername("test_college_clerk").getCollegeId()).isEqualTo(COLLEGE_A);
+        byte[] allowedMaterial = "phase10-authorized-material".getBytes(StandardCharsets.UTF_8);
+        byte[] allowedVideo = "phase10-authorized-video".getBytes(StandardCharsets.UTF_8);
+        byte[] foreignMaterial = "phase10-foreign-material".getBytes(StandardCharsets.UTF_8);
+        byte[] foreignVideo = "phase10-foreign-video".getBytes(StandardCharsets.UTF_8);
+        AttachmentSeed allowed = seedAttachmentOnlyStudent(
+                "P10ZIPA", COLLEGE_A, "ZA1234567", "202610588344300191",
+                allowedMaterial, allowedVideo);
+        AttachmentSeed foreign = seedAttachmentOnlyStudent(
+                "P10ZIPB", COLLEGE_B, "ZB1234567", "202610588344300192",
+                foreignMaterial, foreignVideo);
+
+        try {
+            ResponseEntity<byte[]> response = download("/api/exchange/export/attachments", HttpMethod.POST,
+                    clerk.accessToken(), Map.of("assessmentYear", "2026", "keyword", "P10ZIP"));
+
+            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+            Map<String, byte[]> entries = unzip(response.getBody());
+            String studentDirectory = "学生材料/P10ZIPA_" + allowed.studentId();
+            String materialEntry = studentDirectory + "/材料/" + allowed.materialId() + "-P10ZIPA-material.txt";
+            String videoEntry = studentDirectory + "/视频/" + allowed.videoReviewId() + "-P10ZIPA-video.mp4";
+            assertThat(entries.keySet()).containsExactlyInAnyOrder(
+                    "附件清单.xlsx", materialEntry, videoEntry);
+            assertThat(entries.get(materialEntry)).isEqualTo(allowedMaterial);
+            assertThat(entries.get(videoEntry)).isEqualTo(allowedVideo);
+
+            try (Workbook workbook = new XSSFWorkbook(
+                    new ByteArrayInputStream(entries.get("附件清单.xlsx")))) {
+                DataFormatter formatter = new DataFormatter();
+                List<String> studentNos = new ArrayList<>();
+                List<String> fileNames = new ArrayList<>();
+                for (int i = 1; i <= workbook.getSheetAt(0).getLastRowNum(); i++) {
+                    Row row = workbook.getSheetAt(0).getRow(i);
+                    studentNos.add(formatter.formatCellValue(row.getCell(0)));
+                    fileNames.add(formatter.formatCellValue(row.getCell(3)));
+                }
+                assertThat(studentNos).containsExactly("P10ZIPA", "P10ZIPA");
+                assertThat(fileNames).containsExactlyInAnyOrder(
+                        "P10ZIPA-material.txt", "P10ZIPA-video.mp4");
+                assertThat(studentNos).doesNotContain("P10ZIPB");
+            }
+        } finally {
+            fileService.delete(allowed.materialFileId());
+            fileService.delete(allowed.videoFileId());
+            fileService.delete(foreign.materialFileId());
+            fileService.delete(foreign.videoFileId());
+        }
+    }
+
+    @Test
+    void standardExportFiltersInvalidStatesTransitionsIssuedAndLinksBatchAudit() throws Exception {
+        LoginResult academic = readyLogin("test_academic_admin");
+        Map<String, String> states = new LinkedHashMap<>();
+        states.put("P10STI", "ISSUED");
+        states.put("P10STE", "EXPORTED");
+        states.put("P10STA", "ARCHIVED");
+        states.put("P10STG", "GENERATED");
+        states.put("P10STV", "VOIDED");
+        states.put("P10STR", "REISSUED");
+        int sequence = 182;
+        for (Map.Entry<String, String> entry : states.entrySet()) {
+            String certNo = "202610588344300" + sequence++;
+            seedCertificateSnapshot(entry.getKey(), COLLEGE_A, "2026", entry.getKey(),
+                    entry.getKey().substring(5, 6) + "12345678", certNo, "2029/6/30");
+            Certificate certificate = certificateMapper.selectOne(new LambdaQueryWrapper<Certificate>()
+                    .eq(Certificate::getStudentNo, entry.getKey()).last("LIMIT 1"));
+            certificate.setStatus(entry.getValue());
+            certificateMapper.updateById(certificate);
+        }
+
+        ResponseEntity<byte[]> exported = download("/api/exchange/export/STANDARD", HttpMethod.POST,
+                academic.accessToken(), Map.of("assessmentYear", "2026", "keyword", "P10ST"));
+
+        assertThat(exported.getStatusCode()).isEqualTo(HttpStatus.OK);
+        List<String> studentNos = new ArrayList<>();
+        try (Workbook workbook = new XSSFWorkbook(new ByteArrayInputStream(exported.getBody()))) {
+            DataFormatter formatter = new DataFormatter();
+            for (int i = 1; i <= workbook.getSheetAt(0).getLastRowNum(); i++) {
+                studentNos.add(formatter.formatCellValue(workbook.getSheetAt(0).getRow(i).getCell(3)));
+            }
+        }
+        assertThat(studentNos).containsExactlyInAnyOrder("P10STI", "P10STE", "P10STA");
+        Certificate transitioned = certificateMapper.selectOne(new LambdaQueryWrapper<Certificate>()
+                .eq(Certificate::getStudentNo, "P10STI").last("LIMIT 1"));
+        assertThat(transitioned.getStatus()).isEqualTo("EXPORTED");
+        ImportExportBatch batch = batchMapper.selectOne(new LambdaQueryWrapper<ImportExportBatch>()
+                .eq(ImportExportBatch::getStrategy, "STANDARD")
+                .orderByDesc(ImportExportBatch::getId).last("LIMIT 1"));
+        assertThat(batch.getTotal()).isEqualTo(3);
+        Integer auditCount = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM audit_log
+                WHERE operation = 'export' AND target LIKE ? AND deleted = 0
+                """, Integer.class, "%:export-batch:" + batch.getId());
+        assertThat(auditCount).isEqualTo(3);
+    }
+
+    @Test
+    void updateEmptyPreservesTeachingSubjectGroupAndOverwriteReplacesIt() throws Exception {
+        LoginResult academic = readyLogin("test_academic_admin");
+        String certNo = "202610588344300188";
+        seedCertificateSnapshot("P10SUBJ", COLLEGE_A, "2026", "P10SUBJ", "U12345678",
+                certNo, "2029/6/30");
+        ExchangeStandardRow incoming = row("P10SUBJ", "2026", certNo);
+        incoming.setIdCardType("hm_travel_permit");
+        incoming.setIdCardNo("U12345678");
+        incoming.setBirthDate("2000/12/31");
+        incoming.setTeachingSubject("jms_math");
+
+        JsonNode updateEmptyPre = prevalidate(academic.accessToken(), List.of(incoming)).at("/data");
+        JsonNode updateEmpty = confirm(
+                academic.accessToken(), updateEmptyPre.at("/batchId").asLong(), "UPDATE_EMPTY").at("/data");
+        assertThat(updateEmpty.at("/successCount").asInt()).isEqualTo(1);
+        Student student = studentMapper.selectOne(new LambdaQueryWrapper<Student>()
+                .eq(Student::getStudentNo, "P10SUBJ").last("LIMIT 1"));
+        TrainingProfile preserved = trainingProfileMapper.selectOne(new LambdaQueryWrapper<TrainingProfile>()
+                .eq(TrainingProfile::getStudentId, student.getId())
+                .eq(TrainingProfile::getAssessmentYear, "2026").last("LIMIT 1"));
+        assertThat(preserved.getTeachingSubjectCode()).isEqualTo("jms_chinese");
+        assertThat(preserved.getTeachingSubjectName()).isEqualTo("语文");
+
+        JsonNode overwritePre = prevalidate(academic.accessToken(), List.of(incoming)).at("/data");
+        JsonNode overwrite = confirm(
+                academic.accessToken(), overwritePre.at("/batchId").asLong(), "OVERWRITE").at("/data");
+        assertThat(overwrite.at("/successCount").asInt()).isEqualTo(1);
+        TrainingProfile replaced = trainingProfileMapper.selectById(preserved.getId());
+        assertThat(replaced.getTeachingSubjectCode()).isEqualTo("jms_math");
+        assertThat(replaced.getTeachingSubjectName()).isEqualTo("数学");
+        Certificate certificate = certificateMapper.selectOne(new LambdaQueryWrapper<Certificate>()
+                .eq(Certificate::getCertNo, certNo).last("LIMIT 1"));
+        assertThat(certificate.getTeachingSubjectCode()).isEqualTo("jms_math");
+        assertThat(certificate.getTeachingSubjectName()).isEqualTo("数学");
+    }
+
+    @Test
     void prevalidateReportsAllV01ToV13AndDoesNotImportInvalidRows() throws Exception {
         LoginResult academic = readyLogin("test_academic_admin");
         List<ExchangeStandardRow> invalid = new ArrayList<>();
@@ -249,6 +447,71 @@ class Phase10ExchangeIT {
     }
 
     @Test
+    void prevalidateCountsCanonicalIdCardDuplicates() throws Exception {
+        LoginResult academic = readyLogin("test_academic_admin");
+
+        ExchangeStandardRow residentLower = row("P10CAN01", "2026", "202610588344300171");
+        residentLower.setIdCardNo("44010620001231001x");
+        ExchangeStandardRow residentUpper = row("P10CAN02", "2026", "202610588344300172");
+        residentUpper.setIdCardNo("44010620001231001X");
+
+        ExchangeStandardRow travelUpper = row("P10CAN03", "2026", "202610588344300173");
+        travelUpper.setIdCardType("hm_travel_permit");
+        travelUpper.setIdCardNo("A12345678");
+        travelUpper.setBirthDate("2000/12/31");
+        ExchangeStandardRow travelLower = row("P10CAN04", "2026", "202610588344300174");
+        travelLower.setIdCardType("hm_travel_permit");
+        travelLower.setIdCardNo("a12345678");
+        travelLower.setBirthDate("2000/12/31");
+
+        JsonNode result = prevalidate(academic.accessToken(),
+                List.of(residentLower, residentUpper, travelUpper, travelLower)).at("/data");
+
+        assertThat(result.at("/total").asInt()).isEqualTo(4);
+        assertThat(result.at("/successCount").asInt()).isZero();
+        assertThat(result.at("/failCount").asInt()).isEqualTo(4);
+        assertThat(result.at("/previewRows").size()).isZero();
+        List<Integer> duplicateRows = new ArrayList<>();
+        for (JsonNode error : result.at("/errors")) {
+            if ("身份证件号码".equals(error.at("/fieldName").asText())
+                    && error.at("/errorReason").asText().contains("V-13")) {
+                duplicateRows.add(error.at("/rowNo").asInt());
+            }
+        }
+        assertThat(duplicateRows).containsExactlyInAnyOrder(2, 3, 4, 5);
+    }
+
+    @Test
+    void prevalidateCountsFailedRowsSeparatelyFromErrorDetails() throws Exception {
+        LoginResult academic = readyLogin("test_academic_admin");
+        ExchangeStandardRow invalid = row("P10STAT", "2026", "202610588344300175");
+        invalid.setStudentNo("1.23E+5");
+        invalid.setName("");
+
+        JsonNode result = prevalidate(academic.accessToken(), List.of(invalid)).at("/data");
+
+        assertThat(result.at("/total").asInt()).isEqualTo(1);
+        assertThat(result.at("/successCount").asInt()).isZero();
+        assertThat(result.at("/failCount").asInt()).isEqualTo(1);
+        assertThat(result.at("/previewRows").size()).isZero();
+        assertThat(result.at("/errors").size()).isGreaterThanOrEqualTo(2);
+        long batchId = result.at("/batchId").asLong();
+        assertThat(batchMapper.selectById(batchId).getFailCount()).isEqualTo(1);
+
+        JsonNode records = json(exchange("/api/exchange/batches?type=import&page=1&size=100",
+                HttpMethod.GET, academic.accessToken(), null)).at("/data/records");
+        JsonNode listedBatch = null;
+        for (JsonNode record : records) {
+            if (record.at("/id").asLong() == batchId) {
+                listedBatch = record;
+                break;
+            }
+        }
+        assertThat(listedBatch).isNotNull();
+        assertThat(listedBatch.at("/failCount").asInt()).isEqualTo(1);
+    }
+
+    @Test
     void importStrategiesRollbackConflictAndLeadingZerosWork() throws Exception {
         LoginResult academic = readyLogin("test_academic_admin");
         seedCertificateSnapshot("P10DUP", COLLEGE_A, "2026", "P10DUPNO", "44010620001231020X",
@@ -275,15 +538,17 @@ class Phase10ExchangeIT {
         assertThat(inserted).isNotNull();
         assertThat(inserted.getStudentNo()).isEqualTo("00123");
 
+        JsonNode rolledBack = rollback(academic.accessToken(), pre.at("/batchId").asLong()).at("/data");
+        assertThat(rolledBack.at("/conflictCount").asInt()).isZero();
+        assertThat(studentMapper.selectCount(new LambdaQueryWrapper<Student>().eq(Student::getStudentNo, "00123"))).isZero();
+
+        seedCertificateSnapshot("P10LEAD", COLLEGE_A, "2026", "00123", "H87654321",
+                "202610588344300122", "2029/6/30");
         ResponseEntity<byte[]> exported = download("/api/exchange/export/STANDARD", HttpMethod.POST,
                 academic.accessToken(), Map.of("assessmentYear", "2026", "keyword", "00123"));
         try (Workbook workbook = new XSSFWorkbook(new ByteArrayInputStream(exported.getBody()))) {
             assertThat(new DataFormatter().formatCellValue(workbook.getSheetAt(0).getRow(1).getCell(3))).isEqualTo("00123");
         }
-
-        JsonNode rolledBack = rollback(academic.accessToken(), pre.at("/batchId").asLong()).at("/data");
-        assertThat(rolledBack.at("/conflictCount").asInt()).isZero();
-        assertThat(studentMapper.selectCount(new LambdaQueryWrapper<Student>().eq(Student::getStudentNo, "00123"))).isZero();
 
         ExchangeStandardRow conflictRow = row("P10CONFLICT", "2026", "202610588344300123");
         conflictRow.setIdCardType("hm_travel_permit");
@@ -297,6 +562,70 @@ class Phase10ExchangeIT {
         JsonNode conflictRollback = rollback(academic.accessToken(), conflictPre.at("/batchId").asLong()).at("/data");
         assertThat(conflictRollback.at("/conflictCount").asInt()).isGreaterThan(0);
         assertThat(studentMapper.selectById(changed.getId()).getName()).isEqualTo("后续修改");
+    }
+
+    @Test
+    void rollbackRestoresNullFieldsAndCompleteSnapshotsForUpdatedAggregates() throws Exception {
+        LoginResult academic = readyLogin("test_academic_admin");
+        String studentNo = "P10NULL";
+        String certNo = "202610588344300176";
+        seedCertificateSnapshot("P10NULL", COLLEGE_A, "2026", studentNo, "N12345678",
+                certNo, "2029/6/30");
+
+        Student seededStudent = studentMapper.selectOne(new LambdaQueryWrapper<Student>()
+                .eq(Student::getStudentNo, studentNo)
+                .last("LIMIT 1"));
+        TrainingProfile seededTraining = trainingProfileMapper.selectOne(new LambdaQueryWrapper<TrainingProfile>()
+                .eq(TrainingProfile::getStudentId, seededStudent.getId())
+                .eq(TrainingProfile::getAssessmentYear, "2026")
+                .last("LIMIT 1"));
+        Certificate seededCertificate = certificateMapper.selectOne(new LambdaQueryWrapper<Certificate>()
+                .eq(Certificate::getCertNo, certNo)
+                .last("LIMIT 1"));
+        assertThat(studentMapper.update(null, new LambdaUpdateWrapper<Student>()
+                .eq(Student::getId, seededStudent.getId())
+                .set(Student::getSourceFull, null))).isEqualTo(1);
+        assertThat(trainingProfileMapper.update(null, new LambdaUpdateWrapper<TrainingProfile>()
+                .eq(TrainingProfile::getId, seededTraining.getId())
+                .set(TrainingProfile::getInternalMajorName, null))).isEqualTo(1);
+        assertThat(certificateMapper.update(null, new LambdaUpdateWrapper<Certificate>()
+                .eq(Certificate::getId, seededCertificate.getId())
+                .set(Certificate::getIssuer, null))).isEqualTo(1);
+
+        Student beforeStudent = studentMapper.selectById(seededStudent.getId());
+        TrainingProfile beforeTraining = trainingProfileMapper.selectById(seededTraining.getId());
+        Certificate beforeCertificate = certificateMapper.selectById(seededCertificate.getId());
+        assertThat(beforeStudent.getSourceFull()).isNull();
+        assertThat(beforeTraining.getInternalMajorName()).isNull();
+        assertThat(beforeCertificate.getIssuer()).isNull();
+
+        ExchangeStandardRow overwrite = row(studentNo, "2026", certNo);
+        overwrite.setIdCardType("hm_travel_permit");
+        overwrite.setIdCardNo("N12345678");
+        overwrite.setBirthDate("2000/12/31");
+        JsonNode prevalidated = prevalidate(academic.accessToken(), List.of(overwrite)).at("/data");
+        assertThat(prevalidated.at("/successCount").asInt()).isEqualTo(1);
+        JsonNode imported = confirm(academic.accessToken(), prevalidated.at("/batchId").asLong(), "OVERWRITE")
+                .at("/data");
+        assertThat(imported.at("/successCount").asInt()).isEqualTo(1);
+        assertThat(studentMapper.selectById(beforeStudent.getId()).getSourceFull()).isNotNull();
+        assertThat(trainingProfileMapper.selectById(beforeTraining.getId()).getInternalMajorName()).isNotNull();
+        assertThat(certificateMapper.selectById(beforeCertificate.getId()).getIssuer()).isNotNull();
+
+        JsonNode rolledBack = rollback(academic.accessToken(), prevalidated.at("/batchId").asLong()).at("/data");
+        assertThat(rolledBack.at("/rolledBackCount").asInt()).isEqualTo(3);
+        assertThat(rolledBack.at("/conflictCount").asInt()).isZero();
+        assertThat(rolledBack.at("/status").asText()).isEqualTo("ROLLED_BACK");
+
+        Student restoredStudent = studentMapper.selectById(beforeStudent.getId());
+        TrainingProfile restoredTraining = trainingProfileMapper.selectById(beforeTraining.getId());
+        Certificate restoredCertificate = certificateMapper.selectById(beforeCertificate.getId());
+        assertThat(restoredStudent.getSourceFull()).isNull();
+        assertThat(restoredTraining.getInternalMajorName()).isNull();
+        assertThat(restoredCertificate.getIssuer()).isNull();
+        assertThat(restoredStudent).usingRecursiveComparison().isEqualTo(beforeStudent);
+        assertThat(restoredTraining).usingRecursiveComparison().isEqualTo(beforeTraining);
+        assertThat(restoredCertificate).usingRecursiveComparison().isEqualTo(beforeCertificate);
     }
 
     @Test
@@ -1138,6 +1467,65 @@ class Phase10ExchangeIT {
         return row;
     }
 
+    private AttachmentSeed seedAttachmentOnlyStudent(String studentNo, long collegeId, String idCardNo,
+                                                      String certNo, byte[] materialBytes, byte[] videoBytes) {
+        seedCertificateSnapshot(studentNo, collegeId, "2026", studentNo, idCardNo, certNo, "2029/6/30");
+        Student student = studentMapper.selectOne(new LambdaQueryWrapper<Student>()
+                .eq(Student::getStudentNo, studentNo).last("LIMIT 1"));
+        jdbcTemplate.update("DELETE FROM certificate WHERE student_id = ?", student.getId());
+        jdbcTemplate.update("DELETE FROM training_profile WHERE student_id = ?", student.getId());
+
+        FileObject materialFile = fileService.upload(new ByteArrayInputStream(materialBytes),
+                studentNo + "-material.txt", "text/plain", materialBytes.length, "process-material");
+        ProcessMaterial material = new ProcessMaterial();
+        material.setStudentId(student.getId());
+        material.setCollegeId(collegeId);
+        material.setAssessmentYear("2026");
+        material.setCategory("morality_teacher_ethics");
+        material.setFileId(materialFile.getId());
+        material.setFileName(materialFile.getOriginalName());
+        material.setFilePath(materialFile.getObjectKey());
+        material.setFileSize(materialFile.getSize());
+        material.setContentType(materialFile.getContentType());
+        material.setUploaderId(0L);
+        material.setUploadTime(LocalDateTime.now());
+        material.setStatus("PASSED");
+        material.setLocked(1);
+        processMaterialMapper.insert(material);
+
+        FileObject videoFile = fileService.upload(new ByteArrayInputStream(videoBytes),
+                studentNo + "-video.mp4", "video/mp4", videoBytes.length, "teaching-video");
+        VideoReview video = new VideoReview();
+        video.setStudentId(student.getId());
+        video.setCollegeId(collegeId);
+        video.setAssessmentYear("2026");
+        video.setVideoFileId(videoFile.getId());
+        video.setVideoFileName(videoFile.getOriginalName());
+        video.setDurationSeconds(900);
+        video.setFormatCheck("PASS");
+        video.setStatus("CONFIRMED");
+        video.setFinalScore(90);
+        video.setFinalConclusion("PASS");
+        video.setConfirmedBy(0L);
+        video.setConfirmedAt(LocalDateTime.now());
+        video.setLocked(1);
+        videoReviewMapper.insert(video);
+        return new AttachmentSeed(student.getId(), material.getId(), video.getId(),
+                materialFile.getId(), videoFile.getId());
+    }
+
+    private Map<String, byte[]> unzip(byte[] content) throws Exception {
+        Map<String, byte[]> entries = new LinkedHashMap<>();
+        try (ZipInputStream zip = new ZipInputStream(new ByteArrayInputStream(content), StandardCharsets.UTF_8)) {
+            ZipEntry entry;
+            while ((entry = zip.getNextEntry()) != null) {
+                entries.put(entry.getName(), zip.readAllBytes());
+                zip.closeEntry();
+            }
+        }
+        return entries;
+    }
+
     private void seedCertificateSnapshot(String prefix, long collegeId, String year, String studentNo,
                                          String idCardNo, String certNo, String validUntil) {
         String normalizedIdCardNo = idCardNo.toLowerCase(Locale.ROOT);
@@ -1350,6 +1738,12 @@ class Phase10ExchangeIT {
                 WHERE batch_no LIKE 'IMP-%' OR batch_no LIKE 'EXP-%'
                    OR batch_no LIKE 'P10PAGE-%' OR batch_no LIKE 'P10F01-%'
                 """);
+        jdbcTemplate.update("DELETE FROM process_material WHERE student_id IN "
+                + "(SELECT id FROM student WHERE student_no LIKE 'P10%' OR student_no = '00123')");
+        jdbcTemplate.update("DELETE FROM video_review_task WHERE student_id IN "
+                + "(SELECT id FROM student WHERE student_no LIKE 'P10%' OR student_no = '00123')");
+        jdbcTemplate.update("DELETE FROM video_review WHERE student_id IN "
+                + "(SELECT id FROM student WHERE student_no LIKE 'P10%' OR student_no = '00123')");
         jdbcTemplate.update("DELETE FROM certificate WHERE student_no LIKE 'P10%' OR student_no = '00123'");
         jdbcTemplate.update("DELETE FROM training_profile WHERE student_id IN (SELECT id FROM student WHERE student_no LIKE 'P10%' OR student_no = '00123')");
         jdbcTemplate.update("DELETE FROM student WHERE student_no LIKE 'P10%' OR student_no = '00123'");
@@ -1760,5 +2154,9 @@ class Phase10ExchangeIT {
     }
 
     private record ErrorExportRow(String batchNo, String fieldName, String errorValue) {
+    }
+
+    private record AttachmentSeed(long studentId, long materialId, long videoReviewId,
+                                  long materialFileId, long videoFileId) {
     }
 }

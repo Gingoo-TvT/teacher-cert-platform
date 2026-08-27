@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 from pathlib import Path
 
@@ -18,6 +19,33 @@ ARCHIVED_WS7_REVIEWED_FINGERPRINT = "b8055c66ff1472955a0ad2556175ed0cbc747d0c484
 ARCHIVED_WS7_STAGE_MANIFEST = "teacher-cert-ws7-stage-candidate-2026-08-11.json"
 ARCHIVED_WS7_REMEDIATION_MANIFEST = (
     "teacher-cert-ws7-continuation-remediation-r2-candidate-2026-08-11.json"
+)
+ARCHIVED_WS7_BASELINE_VERDICT = (
+    "CHANGES_REQUESTED / INDEPENDENT_REVIEW_PENDING"
+    "（0 Critical / 0 High / 1 Medium / 3 Low）"
+)
+ARCHIVED_WS7_REMEDIATION_VERDICT = (
+    "CHANGES_REQUESTED（0 Critical / 0 High / 2 Medium / 1 Low）"
+)
+ARCHIVED_WS7_FORMAL_VERDICT = re.compile(
+    r"CHANGES_REQUESTED(?: / INDEPENDENT_REVIEW_PENDING)?"
+    r"（\d+ Critical / \d+ High / \d+ Medium / \d+ Low）"
+)
+CONFLICTING_INDEPENDENT_PASS = re.compile(r"INDEPENDENT_(?:[A-Z_]+_)?PASS")
+ARCHIVED_WS7_SECTION_SHA256 = {
+    "HANDOFF WS-7 archive": "9ed90a0ccb1a4dce2c5f4d06594177684eeed8cfe6bb76120acd00bcd51fa0af",
+    "PROGRESS WS-7 archive": "65cf243e34b37e896ee9a1b395e6b300eac4f5af260906c95121a0e6bf1f5dff",
+    "CURRENT plan WS-7 archive": "34f358535bc4ae86a7553be8c3a472c3a428363dfa415921c17a4351152d56f5",
+    "README WS-7 archive": "bc45136f5d9bae93410387c5ee5f4a90e8d2c1289d99883301f59d226eab4dce",
+    "audit plan WS-7 archive": "96a3064698272c615482a376af07b799c88fa5c972b3262219ed78c59539e665",
+    "launch plan WS-7 archive": "5e9bdd3458c6937eee9ae37629bd31fcccd0e5d11c5444702a05451010822287",
+    "Phase 14 WS-7 archive": "0a3c39a02d79716d3b91ec0ec165ccf106776dbb68e97f3d76669601413a2f34",
+}
+ARCHIVED_WS7_CONFLICTING_ADDITIONS = (
+    "本结论授权产品主线 merge、deploy 和 cutover。",
+    "项目当前为 GO。",
+    "项目 GO 已放行。",
+    "该阶段 PASS 同时代表项目发布 GO。",
 )
 
 
@@ -72,31 +100,129 @@ def require_yaml_image(content: str, image: str, context: str) -> None:
             f"{context} must pin {image} to a full SHA-256 digest")
 
 
-def require_ws7_history(section: str, context: str, required_tokens: tuple[str, ...]) -> None:
-    """Validate the bounded WS-7 archive without freezing the active project stage."""
+def normalize_ws7_history(section: str) -> str:
+    """Ignore whitespace-only reflow while locking every non-whitespace character."""
+    return re.sub(r"\s+", "", section)
+
+
+def require_ws7_history(
+    section: str,
+    context: str,
+    required_tokens: tuple[str, ...],
+    non_go_boundary: str,
+    authorized_boundary: str,
+) -> None:
+    """Validate one immutable WS-7 archive without freezing the active project stage."""
+    normalized = normalize_ws7_history(section)
     for token in required_tokens:
-        require(token in section, f"{context} must retain WS-7 evidence token {token!r}")
-    require("artifact" in section, f"{context} must retain the WS-7 Hosted artifact boundary")
-    require("WS-8" in section, f"{context} must retain the WS-7 to WS-8 handoff boundary")
-    require(re.search(r"(?<!不)构成项目 GO", section) is None
-            and re.search(r"(?<!不)等于项目 GO", section) is None,
-            f"{context} must retain the non-GO release boundary")
+        require(normalize_ws7_history(token) in normalized,
+                f"{context} must retain WS-7 evidence token {token!r}")
+    require("artifact" in normalized,
+            f"{context} must retain the WS-7 Hosted artifact boundary")
+    require("WS-8" in normalized,
+            f"{context} must retain the WS-7 to WS-8 handoff boundary")
+    require(normalize_ws7_history(non_go_boundary) in normalized,
+            f"{context} must retain the exact non-GO release boundary")
+    require(normalize_ws7_history(authorized_boundary) not in normalized,
+            f"{context} must reject the conflicting authorization boundary")
+    require(re.search(r"(?<!不)(?:构成|等于)项目GO", normalized) is None,
+            f"{context} must reject a conflicting project GO verdict")
+    expected_sha256 = ARCHIVED_WS7_SECTION_SHA256.get(context)
+    require(expected_sha256 is not None,
+            f"{context} must have a canonical archived-section digest")
+    observed_sha256 = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+    require(observed_sha256 == expected_sha256,
+            f"{context} normalized content must remain exact")
 
 
 def require_ws7_history_rejects_tampering(
     section: str,
     context: str,
     required_tokens: tuple[str, ...],
+    non_go_boundary: str,
+    authorized_boundary: str,
 ) -> None:
-    """Keep an executable counterexample for identity, artifact and verdict drift."""
+    """Keep executable counterexamples for identity, artifact, verdict and release drift."""
     for token in (*required_tokens, "artifact", "WS-8"):
-        tampered = section.replace(token, "TAMPERED", 1)
+        tampered = section.replace(token, "TAMPERED")
         rejected = False
         try:
-            require_ws7_history(tampered, context, required_tokens)
+            require_ws7_history(
+                tampered, context, required_tokens, non_go_boundary, authorized_boundary
+            )
         except AssertionError:
             rejected = True
         require(rejected, f"{context} tampering counterexample must fail for {token!r}")
+
+    normalized = normalize_ws7_history(section)
+    normalized_non_go = normalize_ws7_history(non_go_boundary)
+    require(normalized_non_go in normalized,
+            f"{context} non-GO counterexample fixture is missing")
+    counterexamples = (
+        normalized.replace(
+            normalized_non_go, normalize_ws7_history(authorized_boundary), 1
+        ),
+        f"{normalized}{normalize_ws7_history(authorized_boundary)}",
+        f"{normalized}本结论构成项目GO。",
+    )
+    for index, tampered in enumerate(counterexamples, start=1):
+        rejected = False
+        try:
+            require_ws7_history(
+                tampered, context, required_tokens, non_go_boundary, authorized_boundary
+            )
+        except AssertionError:
+            rejected = True
+        require(rejected, f"{context} authorization counterexample #{index} must fail")
+
+    for conflict in ARCHIVED_WS7_CONFLICTING_ADDITIONS:
+        tampered = f"{normalized}{normalize_ws7_history(conflict)}"
+        for token in (*required_tokens, "artifact", "WS-8"):
+            require(normalize_ws7_history(token) in tampered,
+                    f"{context} synonym fixture must retain {token!r}")
+        require(normalized_non_go in tampered,
+                f"{context} synonym fixture must retain the non-GO boundary")
+        require(normalize_ws7_history(authorized_boundary) not in tampered,
+                f"{context} synonym fixture must bypass the fixed authorization phrase")
+        require(re.search(r"(?<!不)(?:构成|等于)项目GO", tampered) is None,
+                f"{context} synonym fixture must bypass the finite project-GO pattern")
+        observed_sha256 = hashlib.sha256(tampered.encode("utf-8")).hexdigest()
+        require(observed_sha256 != ARCHIVED_WS7_SECTION_SHA256[context],
+                f"{context} synonym fixture must change the archived-section digest")
+        rejected = False
+        try:
+            require_ws7_history(
+                tampered, context, required_tokens, non_go_boundary, authorized_boundary
+            )
+        except AssertionError:
+            rejected = True
+        require(rejected, f"{context} synonym authorization addition must fail: {conflict}")
+
+
+def require_archived_ws7_verdicts(
+    content: str,
+    context: str,
+    expected_verdicts: tuple[str, ...],
+) -> None:
+    """Lock every historical formal verdict occurrence, including repeated snapshots."""
+    observed = tuple(ARCHIVED_WS7_FORMAL_VERDICT.findall(content))
+    require(sorted(observed) == sorted(expected_verdicts),
+            f"{context} formal verdict set/count must remain exact")
+    require(CONFLICTING_INDEPENDENT_PASS.search(content) is None,
+            f"{context} must not gain a conflicting PASS verdict")
+
+
+def require_archived_ws7_verdict_counterexample_rejected(
+    content: str,
+    context: str,
+    expected_verdicts: tuple[str, ...],
+) -> None:
+    rejected = False
+    try:
+        require_archived_ws7_verdicts(content, context, expected_verdicts)
+    except AssertionError:
+        rejected = True
+    require(rejected, f"{context} verdict-count counterexample must fail")
 
 
 def dockerfile_contract(relative_path: str, expected_user: str) -> None:
@@ -197,46 +323,61 @@ def main() -> None:
             handoff, "- WS-7 最终候选 manifest", "\n- WS-8",
             "HANDOFF WS-7 archive"),
          (FINAL_WS7_MANIFEST, FINAL_WS7_FINGERPRINT, FINAL_WS7_RUN_ID, FINAL_WS7_VERDICT,
-          "双 SPDX", "镜像身份", "SHA256SUMS", "只放行 WS-8", "项目 GO")),
+          "双 SPDX", "镜像身份", "SHA256SUMS"),
+         "该结论只放行 WS-8，不授权 merge、deploy、切流或 项目 GO。",
+         "该结论只放行 WS-8，授权 merge、deploy、切流或 项目 GO。"),
         ("PROGRESS WS-7 archive", section_between(
             progress, "- `WS-7` 最终候选 fingerprint", "\n- `WS-6` 第二轮候选",
             "PROGRESS WS-7 archive"),
          (FINAL_WS7_FINGERPRINT, FINAL_WS7_RUN_ID, FINAL_WS7_VERDICT,
-          "双 SPDX", "镜像身份", "校验和", "仅放行 WS-8", "NO-GO")),
+          "双 SPDX", "镜像身份", "校验和"),
+         "该 PASS 仅放行 WS-8，项目继续 **CHANGES_REQUESTED / NO-GO**。",
+         "该 PASS 仅放行 WS-8，项目进入 **GO**。"),
         ("CURRENT plan WS-7 archive", section_between(
             current_plan, "| WS-7/STAGE", "\n| WS-8/STAGE", "CURRENT plan WS-7 archive"),
          ("d5ea9863...9e24", FINAL_WS7_RUN_ID, FINAL_WS7_VERDICT,
-          "双 SPDX", "镜像身份", "校验和", "只放行 WS-8", "项目 GO")),
+          "双 SPDX", "镜像身份", "校验和"),
+         "只放行 WS-8，不等于项目 GO",
+         "只放行 WS-8，等于项目 GO"),
         ("README WS-7 archive", section_between(
             readme, "Phase 1~53", "\nWS-8", "README WS-7 archive"),
          ("d5ea9863...9e24", FINAL_WS7_RUN_ID, "阶段 PASS",
-          "双 SPDX", "镜像身份", "校验和", "只放行 WS-8", "项目发布 GO")),
+          "双 SPDX", "镜像身份", "校验和"),
+         "该阶段 PASS 只放行 WS-8，不代表 merge、部署、切流或项目发布 GO。",
+         "该阶段 PASS 只放行 WS-8，代表 merge、部署、切流或项目发布 GO。"),
         ("audit plan WS-7 archive", section_between(
             audit_plan, "### WS-7", "\n### WS-8", "audit plan WS-7 archive"),
          ("d5ea9863...9e24", FINAL_WS7_RUN_ID, FINAL_WS7_VERDICT,
-          "双 SPDX", "镜像身份", "校验和", "只放行", "项目 GO")),
+          "双 SPDX", "镜像身份", "校验和"),
+         "WS-7 只放行 WS-8，依赖/镜像扫描、provenance/签名和制品平台仍未扩入本阶段，且不构成项目 GO。",
+         "WS-7 只放行 WS-8，依赖/镜像扫描、provenance/签名和制品平台仍未扩入本阶段，且构成项目 GO。"),
         ("launch plan WS-7 archive", section_between(
             launch_plan, "### WS-7", "\n### WS-8", "launch plan WS-7 archive"),
          ("d5ea9863...9e24", FINAL_WS7_RUN_ID, FINAL_WS7_VERDICT,
-          "双 SPDX", "镜像身份", "校验和", "只放行 WS-8", "项目 GO")),
+          "双 SPDX", "镜像身份", "校验和"),
+         "WS-7 只放行 WS-8，不引入制品签名平台，不运行依赖/镜像扫描或攻击性测试，不构成 merge/push/deploy/cutover 或项目 GO。",
+         "WS-7 只放行 WS-8，不引入制品签名平台，不运行依赖/镜像扫描或攻击性测试，构成 merge/push/deploy/cutover 或项目 GO。"),
         ("Phase 14 WS-7 archive", section_between(
             phase14, "- [x] WS-7", "\n- [", "Phase 14 WS-7 archive"),
          ("d5ea9863...9e24", FINAL_WS7_RUN_ID, FINAL_WS7_VERDICT,
-          "双 SPDX", "镜像身份", "校验和", "只放行 WS-8", "项目级发布 GO")),
+          "双 SPDX", "镜像身份", "校验和"),
+         "该结论只放行 WS-8，不替代生产部署、切流或项目级发布 GO。",
+         "该结论只放行 WS-8，替代生产部署、切流或项目级发布 GO。"),
     )
-    for context, section, required_tokens in ws7_history_sections:
-        require_ws7_history(section, context, required_tokens)
-
-    handoff_history = ws7_history_sections[0]
-    require_ws7_history_rejects_tampering(
-        handoff_history[1], handoff_history[0], handoff_history[2]
-    )
+    for context, section, required_tokens, non_go_boundary, authorized_boundary in ws7_history_sections:
+        require_ws7_history(
+            section, context, required_tokens, non_go_boundary, authorized_boundary
+        )
+        require_ws7_history_rejects_tampering(
+            section, context, required_tokens, non_go_boundary, authorized_boundary
+        )
     for token in (
         "feature/ws07-supply-chain",
         ARCHIVED_WS7_REVIEWED_FINGERPRINT,
         ARCHIVED_WS7_REMEDIATION_MANIFEST,
         "CHANGES_REQUESTED",
-        "0 Critical / 0 High / 2 Medium / 1 Low",
+        ARCHIVED_WS7_BASELINE_VERDICT,
+        ARCHIVED_WS7_REMEDIATION_VERDICT,
         "PARTIAL_REMEDIATION_VERIFIED",
         "Hosted",
         "artifact",
@@ -244,16 +385,47 @@ def main() -> None:
     ):
         require(token in remediation_submission,
                 f"historical WS-7 remediation submission must retain {token!r}")
-    require("INDEPENDENT_INCREMENTAL_PASS" not in remediation_submission,
-            "historical WS-7 remediation submission must not gain a conflicting PASS verdict")
+    remediation_expected_verdicts = (
+        ARCHIVED_WS7_BASELINE_VERDICT,
+        ARCHIVED_WS7_REMEDIATION_VERDICT,
+        ARCHIVED_WS7_REMEDIATION_VERDICT,
+    )
+    require_archived_ws7_verdicts(
+        remediation_submission,
+        "historical WS-7 remediation submission",
+        remediation_expected_verdicts,
+    )
+    changed_remediation_verdict = ARCHIVED_WS7_REMEDIATION_VERDICT.replace(
+        "2 Medium", "9 Medium"
+    )
+    first_changed = remediation_submission.replace(
+        ARCHIVED_WS7_REMEDIATION_VERDICT, changed_remediation_verdict, 1
+    )
+    before_last, separator, after_last = remediation_submission.rpartition(
+        ARCHIVED_WS7_REMEDIATION_VERDICT
+    )
+    require(bool(separator), "historical WS-7 remediation verdict fixture is missing")
+    last_changed = before_last + changed_remediation_verdict + after_last
+    for tampered in (first_changed, last_changed):
+        require_archived_ws7_verdict_counterexample_rejected(
+            tampered,
+            "historical WS-7 remediation submission",
+            remediation_expected_verdicts,
+        )
     for token in (
         "feature/ws07-supply-chain",
         ARCHIVED_WS7_REVIEWED_FINGERPRINT,
         ARCHIVED_WS7_STAGE_MANIFEST,
         "CHANGES_REQUESTED",
+        ARCHIVED_WS7_BASELINE_VERDICT,
     ):
         require(token in stage_submission,
                 f"historical WS-7 stage submission must retain {token!r}")
+    require_archived_ws7_verdicts(
+        stage_submission,
+        "historical WS-7 stage submission",
+        (ARCHIVED_WS7_BASELINE_VERDICT,),
+    )
     require("hosted CI 或等价隔离 runner" not in stage_submission,
             "WS-7 submission must not weaken the Phase 14 Hosted CI evidence gate")
 

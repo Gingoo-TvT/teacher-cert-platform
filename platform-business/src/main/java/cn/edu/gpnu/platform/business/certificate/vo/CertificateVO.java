@@ -27,5 +27,6 @@ public class CertificateVO {
     private String voidReason;
     private String reissueOriginCertNo;
     private String correctionReason;
+    private String correctionRevision;
     private Integer locked;
 }

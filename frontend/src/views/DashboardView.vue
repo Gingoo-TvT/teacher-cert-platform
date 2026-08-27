@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch, type Component } from 'vue'
+import { computed, defineAsyncComponent, onMounted, ref, watch, type Component } from 'vue'
 import { useRouter } from 'vue-router'
 import type { EChartsOption } from 'echarts'
 import {
@@ -21,7 +21,6 @@ import {
   VideocamOutline
 } from '@vicons/ionicons5'
 import { useMessage } from 'naive-ui'
-import ChartBox from '@/components/ChartBox.vue'
 import PageContainer from '@/components/PageContainer.vue'
 import StatCard from '@/components/StatCard.vue'
 import { listNotices, markNoticeRead, unreadNoticeCount, type NotificationItem } from '@/api/notice'
@@ -31,6 +30,8 @@ import { useYearStore } from '@/stores/year'
 import { designTokens } from '@/theme/tokens'
 import { formatDateTime } from '@/utils/format'
 import { LatestRequestGuard } from './dashboardLatestRequest'
+
+const ChartBox = defineAsyncComponent(() => import('@/components/ChartBox.vue'))
 
 interface DashboardProfile {
   statType: string

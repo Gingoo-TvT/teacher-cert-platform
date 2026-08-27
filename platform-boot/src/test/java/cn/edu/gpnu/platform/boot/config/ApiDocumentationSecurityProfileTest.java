@@ -7,6 +7,7 @@ import cn.edu.gpnu.platform.security.service.TokenRevocationService;
 import cn.edu.gpnu.platform.system.service.UserSecurityService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.test.util.TestPropertyValues;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.mock.web.MockServletContext;
@@ -73,6 +74,10 @@ class ApiDocumentationSecurityProfileTest {
         AnnotationConfigWebApplicationContext context = new AnnotationConfigWebApplicationContext();
         context.setServletContext(new MockServletContext());
         context.getEnvironment().setActiveProfiles(profile);
+        TestPropertyValues.of(
+                "platform.observability.prometheus.username=test-prometheus",
+                "platform.observability.prometheus.password=test-prometheus-password")
+                .applyTo(context);
         context.register(SecurityConfig.class, DocumentationSurfaceFixture.class);
         context.refresh();
         return context;

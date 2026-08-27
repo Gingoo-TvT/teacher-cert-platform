@@ -139,7 +139,7 @@
 - **P1 生产把 DB/Redis/MinIO 端口发布到主机 + Redis 无密码**（`docker-compose.yml:14/29/47`，`:28` redis 无 requirepass）→ 主机网可达=无认证 Redis（存登录锁/验证码/会话）。后端只需内部 DNS，无需 publish。**部分修复（Phase 41，已合并，见 §11）：** DB(3306)、Redis(6379，加 `--requirepass ${REDIS_PASSWORD}`) 已不再 publish 到主机。**MinIO(9000/9001) 本次未动**——`FileServiceImpl.presignedGet` 返回的预签名 URL 本就直接嵌入 `minio` 这一容器内部 DNS 名，浏览器端无论端口是否 publish 都无法解析，对外可达性是独立的架构问题（需反代或公网 endpoint 设计），非本次任务范围，留后续 phase 一并处理。
 - **P1 nginx `/api` 无 proxy 超时**（默认 60s）→ 万行导入/大视频上传 502/504，与 `client_max_body_size 2048m` 自相矛盾（`nginx.conf:8-17`）。
 - **P1 nginx 无安全响应头**（无 X-Frame-Options/CSP/X-Content-Type-Options/HSTS）。
-- **P1 健康端点是"静态谎言"**：`HealthController:23` 无条件返回 UP，却被用作容器 healthcheck+依赖门（`compose:94,108`）→ MySQL/Redis/MinIO 挂了后端仍"健康"，无重启/就绪信号。无 actuator/可观测性（无 metrics/trace）。
+- **P1 健康端点是“静态谎言”——✅ WS-11 R2 已独立关闭**：`/api/health` 仅保留 liveness 兼容语义，Compose 改用 `/api/health/readiness`；readiness 检查 MySQL/Redis/MinIO/Flyway，并以小于 5 秒的总预算处理 MinIO 半开；Prometheus 使用独立机器 Basic 身份；五类后台作业记录实际结果指标。R2 fingerprint `85606aed...9161f` 的正式报告确认首轮三项 Medium 全部 CLOSED，裁定 `INDEPENDENT_INCREMENTAL_PASS（0C/0H/0M/0L）`；该结论不等于项目发布 GO。
 - **P1 容器日志无上限无轮转**（compose 无 logging 块→ json-file 无 max-size）→ 磁盘涨满；无 prod 日志配置。
 - **P1 生产库被种入已知口令测试账号**（README:61 + V8/V13 seed `test_*` 全 `ChangeMe123!`）；**容器以 root 运行**（两个 Dockerfile 无 USER）。
 - **P2**：镜像 `:latest` 不定；dev/prod MySQL 漂移（8.0 vs 8.4，迁移只在 8.0 验证）；Flyway prod 未显式 `clean-disabled`/`baseline-on-migrate`（迁移本身无破坏性 DDL，已确认）；无优雅停机；JVM 无 `-XX:+ExitOnOutOfMemoryError`；nginx 无 gzip/缓存头；MyBatis-Plus 3.5.7 偏旧；dev compose 无 healthcheck/depends_on（"后端早于 mysql"竞态在 dev 仍可能，prod 已正确处理）。
@@ -377,7 +377,7 @@
   WS-7 只放行 WS-8，不引入制品签名平台，不运行依赖/镜像扫描或攻击性测试，不构成 merge/push/deploy/cutover
   或项目 GO。
 
-### WS-8（身份证件号应用层加密 + HMAC 唯一键，正式退回后整改候选待重核）
+### WS-8（身份证件号应用层加密 + HMAC 唯一键，功能增量 PASS；发布证据另行保留）
 - ☑ **实现**：V33 把 `student` / `certificate` 的证件号扩为应用层 AES-GCM 密文，并用普通
   `id_card_hmac` 列承担等值查询和活跃学生唯一约束；Spring `AFTER_MIGRATE` 回填 Student/Certificate、导入
   预览/筛选范围/错误明细/前后快照，重入不二次加密，伪造 `v1:` 密文失败关闭。业务写端同步维护密文和 HMAC，
@@ -387,16 +387,68 @@
   **52 suites / 364 tests**，全部 0 failure/error/skip。前端 lint、双 type-check、Vitest 16/16、4 项合同与
   production build，Compose config 和 diff check 均通过。逻辑备份/恢复验证密文、HMAC、密钥一致性及备份
   Base64 literal 不含已知证件号。
-- ❌ **R2 Hosted 正式重核仍退回**：fingerprint `09ee0c39...42ba` 的 run `31661893931` 已使原 profile Medium
-  关闭，六-suite **46/46**、0 failure/error/skip 仅构成 WS-8 scoped PASS；最新结论为
-  `CHANGES_REQUESTED（0 Critical / 0 High / 1 Medium / 1 Low）`。唯一 Medium 是过期 WS-7 当前态合同令整条
-  workflow 红灯，V33 静态合同和最终镜像/SBOM 被跳过；Low 是证据根清单漏一项。
-- ⏳ **当前状态/边界**：R3 只把 WS-7 合同改为有界历史 PASS/identity/artifact/非 GO 验证并保留篡改反例；
-  外部证据根清单已补为 17/17，Low 关闭。当前为
-  `LOCAL_REMEDIATION_R3_READY / HOSTED_WHOLE_WORKFLOW_PENDING`；R3 manifest 固定为
-  `C:\Users\wenbibuhaoqwq\Documents\脚本\teacher-cert-ws8-whole-workflow-remediation-r3-candidate-2026-08-13.json`。
-  待整体绿灯 Hosted workflow 和独立阶段 PASS；此前不领取 WS-9、不 merge 产品主线、deploy/cutover，项目继续
-  `CHANGES_REQUESTED / NO-GO`。
+- ❌ **R5 完整阶段独立复核仍退回**：R5 fingerprint `c649a065...d601` / carrier `6f6c678a...759f3` 的 run
+  `31808005960 / attempt 1` 已整体 4/4 success；历史六-suite **46/46**、WS-7/V33 合同、双镜像/双 SPDX、身份与
+  根 20/20、嵌套 3/3 校验和均通过。正式报告只判 R5 scoped 合同整改 PASS、R5 Hosted evidence PASS；WS-8
+  full stage 仍为 `CHANGES_REQUESTED（0 Critical / 0 High / 2 Medium / 1 Low）`，finding 为 V-13 规范化前计数、
+  UPDATE 回滚不能恢复 NULL 却报告成功、`failCount` 混用错误明细数。
+- ☑ **当前功能状态/边界**：R6 独立功能增量报告确认三项 finding 全部关闭、0 open finding；真实依赖六套
+  **49/49** 与 Phase 39 + Phase 10 **29/29** 均绿。WS-9 七个目标职责已完成最小等价抽取；fingerprint
+  `df1f1950...b2f45` 的正式增量复核确认 Surefire **400/400**、Phase 7/10/14/39 **87/87**，原唯一 Medium
+  `WS9-INT-M1` CLOSED，状态为 `INDEPENDENT_INCREMENTAL_PASS（0 open finding）`。WS-11 R2 fingerprint
+  `85606aed...9161f` 的正式独立增量报告确认首轮三项 Medium 全部 CLOSED；Surefire **411/411**、Phase 14 +
+  WS-11 Failsafe **18/18**，状态为 `INDEPENDENT_INCREMENTAL_PASS（0C/0H/0M/0L）`。WS-12 整改 fingerprint
+  `1c8b8821...0ae7b` 已取得 `INDEPENDENT_INCREMENTAL_PASS（0C/0H/0M/0L）`，上一轮唯一 gzip 口径 Medium
+  CLOSED。WS-14 R2 已取得 `INDEPENDENT_INCREMENTAL_PASS（0C/0H/0M/1L）`，唯一测试统计 Low 已勘误且不阻断。
+  随后的最终功能完整性 R2 独立报告绑定 `6baa7079...dfcd3` 并裁定 `CHANGES_REQUESTED（0C/0H/2M/0L）`；R3 已完成
+  最小功能整改，状态为 `LOCAL_REMEDIATION_READY / INDEPENDENT_INCREMENTAL_REREVIEW_PENDING`。不授权产品主线
+  merge、deploy/cutover，项目继续 `CHANGES_REQUESTED / NO-GO`。
+
+### WS-11（health readiness + 指标——R2 独立增量 PASS）
+- ✅ 正式独立增量报告绑定 fingerprint `85606aed...9161f`（报告 SHA-256 `38c9896d...9d50a`），确认 Prometheus
+  独立机器身份、readiness 总预算与后台作业真实结果指标三项 Medium 全部 CLOSED，0 open finding。
+- ✅ Surefire **411/411**、Phase 14 + WS-11 Failsafe **18/18**，全部 0 failure/error/skip。该 PASS 只关闭
+  WS-11 并放行 WS-12，不替代总审计或项目发布 GO。
+
+### WS-12（前端 bundle 拆分与体积预算——独立增量 PASS）
+- ☑ 统计页保持路由懒加载，`ChartBox` 再设异步边界；ECharts 改模块化注册，Naive UI 改自动按需导入；CI 对真实
+  manifest 计算入口、登录、普通管理、charts 与总体 gzip 闭包，超预算直接失败。
+- ⚠️ 首轮正式报告绑定 fingerprint `21f784c3...bef4e`，裁定 `CHANGES_REQUESTED（0C/0H/1M/0L）`：生产
+  Nginx 默认 level 1 时 charts 为 **199,104 B**，已超过 **194,560 B** 预算，而 CI 以 level 6 得到
+  **176,597 B** 并假绿。
+- ☑ 最小整改只增加生产 `gzip_comp_level 6`、预算计算显式 level 6，并让预算合同解析 Nginx 配置、要求两端
+  等级相同。当前闭包仍为入口 **119.6 KiB**、登录 **148.0 KiB**、普通管理 **291.6 KiB**、charts
+  **172.5 KiB**；lint、双 type-check、build、Vitest **16/16**、Playwright **6/6** 与预算正反例均通过。
+- ✅ 整改 fingerprint `1c8b8821...0ae7b` 的正式独立报告确认上一轮唯一 Medium CLOSED，裁定
+  `INDEPENDENT_INCREMENTAL_PASS（0C/0H/0M/0L）`；只放行 WS-14，不等于项目 GO。
+
+### WS-14（备份生命周期与记录归档——R2 独立增量 PASS）
+- ☑ `FileMaintenanceService` 新增稳定 ID `tcp-db-backup-retention` 的备份前缀生命周期确保：完全匹配跳写，
+  更新时只替换托管规则并保留外部规则，读取/写入失败返回 false；目标桶/前缀与 `platform.backup.*` 一致。
+- ☑ `RetentionCleanupService` 将 `backup_record` 纳入分批物理清理，只删 `COMPLETED/FAILED` 且
+  `finished_at` 到期的记录，保留 `PENDING/RUNNING`，不触碰 MinIO 对象。对象与记录共用
+  `cleanup.backup.retentionDays`（默认 30 天）。首轮正式报告（fingerprint `e6971aae...c962f`，报告 SHA-256
+  `24b3487d...9c7b2`）裁定 `CHANGES_REQUESTED（0C/0H/2M/0L）`：版本化桶缺少非当前版本清理，且 fresh schema
+  缺少该参数。
+- ☑ 最小整改：同一托管规则增加 `NoncurrentVersionExpiration(1)` 并要求匹配；V34 种入
+  `30/int/global/editable` 参数，保留棕地已配置值，管理端仅对该键要求 `>0`；对象和记录侧均覆盖 45 天读取。
+- ☑ Phase 53 的现有 `sample-video.mp4` 经 ffprobe/首帧解码确认是 H.264 Baseline、900 秒/900 帧且已被 demo
+  初始化与播放链引用，因此不重复生成媒体文件。
+- ☑ 九模块 `mvn -B -ntp -o clean test` 正确口径为 **66 suites / 421 tests**，0 failure/error/skip；整改聚焦
+  27/27，package、WS-7 与 WS-8/V33 合同均通过。R2 fingerprint `4a167463...9cb80` 的正式报告裁定
+  `INDEPENDENT_INCREMENTAL_PASS（0C/0H/0M/1L）`；唯一 Low 是原统计混入历史 Phase 41 XML，已勘误且不阻断。
+  `Phase00ParameterMatrixIT` / `Phase47CleanupIT` 留稳定发布前隔离证据；本 PASS 不等于项目发布 GO。
+
+### FINAL-FUNCTIONAL R3（最终功能完整性——本地整改完成、待独立增量复核）
+- ❌ R2 独立报告绑定 HEAD `aa3509a`、fingerprint `6baa7079...dfcd3`，报告 SHA-256 `41c7d71a...44b3f`，裁定
+  `CHANGES_REQUESTED（0C/0H/2M/0L）`：陈旧证书全量更正表单可覆盖已成功修改；V35 历史单评审已提交记录无法补人和结算。
+- ☑ R3 只按两项原失败条件整改：证书详情与请求携带服务端 `correctionRevision`，行锁后在任何写入前拒绝缺失/陈旧快照；
+  V35 保留历史任务、分数和提交态，允许只补派或替换未提交教师，并保留全部已提交教师。
+- ☑ 交叉复核补齐正常人员变更边界：已提交教师之后停用、离职或失去角色不抹除历史结果，也不阻断补派；新增及仍未提交教师继续校验当前资格。Phase 9 测试夹具的 JSON null 已改为真实前端空字符串。
+- ☑ 本地九模块 **68 suites / 445 tests**、package 全绿；前端 lint、双 type-check、build、Vitest **16/16**、
+  Playwright **7/7** 通过；候选工具、WS-7、WS-8/V33 和 diff check PASS。
+- 🟦 Phase 7、Phase 9 与 V35 真实依赖场景已编译，真实 MySQL/Redis/MinIO 场景留一次性隔离环境独立执行。提交方不裁定
+  finding CLOSED/PASS；外置 R3 manifest 冻结后不得再改候选字节。WS-15 不作为本轮前置，项目继续 NO-GO。
 
 ### Phase 45（本地/dev 启动崩溃修复 = 用户报告「点开是 500」的根因，Phase 45 —— 分支 `feature/phase45-dev-startup-jwt`，单 commit，已 ff-merge 入 main，mvn verify 114/114 绿 + 活体不带 JWT_SECRET 起栈成功）
 - ✅ **根因**：base `application.yml` 为 `secret: ${JWT_SECRET:}`（空默认、全 profile；prod 正确取舍——密钥不硬编码进包）但 dev 无覆盖 → 未注入 `JWT_SECRET` 时 `JwtService.init` 抛 `BizException("JWT密钥未配置")` → 后端启动失败、未起在 :8080 → 前端 Vite dev 把 `/api/*` 代理到空端口 → 浏览器 500。**与本会话已合并的分页/44f 无关**（活体逐一验证 7 端点均 200 code=0，含 `/api/audit/log` 4.2 万行真分页、`/api/system/user` total=17）。

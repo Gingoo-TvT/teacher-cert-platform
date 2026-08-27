@@ -13,7 +13,7 @@
 
 - **Git 本地私有**：无 remote、**永不 push**。每个 WS 一条分支（`feature/wsNN-...`）off `main`，`verify` 全绿后**单 commit**，然后**STOP 交人工/主控复核合并**（不要自行 merge、不要 commit 后 checkout main）。开工前后都 `git remote -v` 确认为空。
 - **构建门禁**：`mvn -B -ntp clean verify` 必须**全绿**；改前端另跑 `cd frontend && npm run type-check && npm run build`（既有 echarts/naive chunk 告警可忽略）。跑 verify 前先按**精确 PID** 释放 :8080：`PID=$(netstat -ano | grep ":8080" | grep LISTENING | head -1 | awk '{print $NF}'); [ -n "$PID" ] && taskkill //PID $PID //F`。**禁止广杀 java/所有 java 进程**（只杀那个 :8080 PID 或自己起的孤儿 JVM）。
-- **迁移编号（多 WS 抢号协调）**：库头当前 **V26**。**经 vetting 核实，真正需迁移的是 WS-3 / WS-8（必）+ WS-2（仅当走迁移而非纯 app-bootstrap 中和 admin）**（WS-3 扩 `video_upload_session`+`file_object` 状态；WS-8 idcard HMAC 列；WS-2 若走迁移则中和生产 admin——**WS-13/WS-14 无迁移**，勿列入）——**编号以自己开工时磁盘 max+1 为准**（先 `ls platform-boot/src/main/resources/db/migration | sort -V | tail -1`），**三者别都假定自己是 V27**；两个 WS 不占同号，冲突由主控在合并时统一顺延（V27/V28/V29）。不改已应用迁移。测试专用种子在 `db/testseed`（`R__` 可重复迁移），demo 数据在 `db/demo`（非 Flyway，由 `DemoDataInitializer` 门禁加载）。
+- **迁移编号（多 WS 抢号协调）**：本段原始排期时库头为 **V26**；后续已按磁盘实况推进至 V33。WS-14 首轮正式复核确认共享保留参数在 fresh schema 缺失，因此整改使用下一版 **V34** 种入 `cleanup.backup.retentionDays`；不改任何已应用迁移。测试专用种子仍在 `db/testseed`（`R__` 可重复迁移），demo 数据在 `db/demo`（非 Flyway，由 `DemoDataInitializer` 门禁加载）。
 - **verify 门禁必须串行**：多个 WS **排期/开发可并行，但 `mvn verify` 同一时刻只能跑一个**——共享同一 dev 库、:8080 jar 锁与 MinIO/Redis，两个 verify 并发必互相打挂。跑前确认没有别的 verify 在跑（`tasklist //FI "IMAGENAME eq java.exe"` 看是否有 surefire/failsafe JVM）。
 - **共享 dev 库**（docker 容器）：`tcp-mysql`（root/root123，db `teacher_cert`）、`tcp-redis`、`tcp-minio`（minioadmin/minioadmin123，bucket `teacher-cert`）。`mvn verify` 有两类已知残留：①把 `test_%` 账号翻成 `must_change_pwd=1`；②IT 的 `readyLogin` 首登改密流转会把种子账号密码从 `ChangeMe123!` 改成 `Changed123!`（手测口令"漂移"的根源，WS-1 有根治 stretch 项）。IT 若报 401 或手测登不上，先复位再跑：`docker exec tcp-mysql mysql -uroot -proot123 teacher_cert -e "UPDATE sys_user SET must_change_pwd=0 WHERE username LIKE 'test_%';"`（密码漂移可参照桌面 `测试账号.txt` 的哈希复位法）。
 - **⚠️ 关键陷阱（审计 #2 的直接成因）**：Phase 53 的 demo 数据（`platform.demo.enabled=true` 时装载）若**驻留**共享库，会污染**按全局计数断言**的 IT——审计里 `Phase2SecurityIT`（学院A clerk 学生 1→2）、`Phase7VideoReviewIT`（reviewerA 任务 3→6）就是被 demo 学生/视频任务撑翻。**WS-1 就是修这个**（让 IT 只按自身唯一 fixture 计数）。**WS-1 落地前**：跑 verify 先清 demo 行（demo 走开关随时可重载）；**WS-1 落地后**：demo 数据可**常驻**共享库且 verify 仍绿——这正是目标状态（一边带 demo 手测、一边门禁可信）。CI 用全新 `mysql:8.0` service，本就干净。
@@ -128,17 +128,15 @@
 ### WS-8 [Opus 4.8] 身份证号加密 + HMAC 唯一键（审计 #5；本分支迁移固定 V33）
 - `student` / `certificate` 的 `id_card_no` 应用层加密存储；唯一键从"明文生成列"改为 **`HMAC-SHA256(id_card_no, pepper)` 应用写入列**（V33 + 存量回填），并清理 Exchange 预览、回滚快照和证件号错误值中的可读明文。对外明文仅允许 `plainIdCard` 与上位规格已冻结、受权限和审计保护的 `exchange:export:sensitive`；普通投影/普通导出继续脱敏。加密 key 与 HMAC pepper 均为必配 secret，prod 缺失或仍为示例值时 fail-fast。
 - **验收**：相同证件号仍触发唯一约束；普通列表只返回脱敏；无敏感权限拿不到明文；备份抽样不出现可读证件号。**存量迁移风险高**，先在库快照上演练回填；注意与导入/导出（Exchange 明文列）与 V24 生成列的交互。
-- **当前状态（2026-08-13）**：首个 fingerprint `f4434bb8...c3f0df` 与第一轮整改
-  `dd8940dd...c9184` 保留为历史。R2 fingerprint `09ee0c39...42ba` 的 Hosted run `31661893931` 已关闭 profile
-  Medium，六-suite 46/46 仅构成 scoped PASS；最新正式结论仍为
-  `CHANGES_REQUESTED（0 Critical / 0 High / 1 Medium / 1 Low）`。唯一 Medium 是过期 WS-7 当前态合同导致整条
-  workflow 失败并跳过 V33 静态合同和最终镜像/SBOM；R3 已收敛为有界 WS-7 历史证据合同。Low 的证据根清单已
-  17/17 闭合。当前 `LOCAL_REMEDIATION_R3_READY / HOSTED_WHOLE_WORKFLOW_PENDING`；整体绿灯与独立阶段 PASS 前
-  WS-9 不启动。
+- **当前状态（2026-08-20）**：R6 fingerprint `7e077df1...f5c74b` 已关闭 R5 的 2 Medium / 1 Low；独立功能增量
+  报告确认 0 open finding，真实依赖六套 49/49 与 Phase 39 + Phase 10 29/29 均通过。用户明确以功能完整性作为
+  后续开发门槛，Hosted/供应链证据不再阻塞 WS-9，因此 WS-8 记为 `INDEPENDENT_FUNCTIONAL_PASS` 并领取 WS-9。
+  该口径只放行继续开发，不授权 merge、deploy、cutover 或项目 GO；项目继续 `CHANGES_REQUESTED / NO-GO`。
 
 ### WS-9 [Opus 4.8] 拆分巨型服务类（审计 #7）
 - `ExchangeServiceImpl`（~1547 行）抽 `ExchangeImportValidator`/`ExchangeExportRowBuilder`/`ExchangeRollbackService`/字典下拉 helper；`VideoReviewServiceImpl`（~1420 行）抽 `VideoUploadComposer`/`VideoReviewSettlement`/VO 转换。**先抽无状态纯函数 helper**，controller 依赖更窄接口。
 - **验收**：拆分前后 `Phase7/Phase10`、导出行字段快照、视频结算 IT 全绿；新 helper 补 focused 单测。**与 WS-3 有交叉**（都动 Video/Exchange 上传导出）——**WS-3 先行**，WS-9 在其之后拆（届时 WS-3 已把直传逻辑挪出，`VideoReviewServiceImpl` 上传段自然瘦身），避免双向冲突。
+- **当前状态（2026-08-20）**：七个目标职责等价抽取成立；fingerprint `df1f1950...b2f45` 的正式增量复核确认 Surefire 400/400、Phase 7/10/14/39 87/87，原唯一 Medium `WS9-INT-M1` CLOSED。WS-9 为 `[x] INDEPENDENT_INCREMENTAL_PASS（0 open finding）`，现领取 WS-11。
 
 ### WS-13 [Opus 4.8] RBAC 授权天花板——防自提权守卫（launch-readiness P1 遗留，审计未单列、经代码核实仍无守卫）
 - **现状**：`SystemSecurityController:51-152` 全部管理写只有 `@PreAuthorize`、无范围/层级约束；`assignRolePermissions`/`assignUserRoles` 接受**任意** permissionId/roleId → 持 `system:role:manage` 者可给自己/任何人授满 SYS_ADMIN 等价权、可重置更高权用户的密码。当前种子里仅 SYS_ADMIN 持这些权 → **潜伏**，但属设计级授权缺口（一旦给学院级自定义角色发了这权即刻可利用）。
@@ -156,20 +154,28 @@
 ### WS-11 [Opus 4.8] health readiness + 指标（审计 #10）
 - `/api/health` 拆 liveness（存活）与 readiness（探 MySQL/Redis/MinIO 连通 + 关键迁移状态）；接 Actuator/Micrometer/Prometheus 暴露 HTTP 时延/错误率/DB pool/Redis/MinIO/调度结果指标。
 - **验收**：Redis/MinIO 不可达时 liveness 仍 UP、readiness DOWN；Prometheus 有关键指标。
+- **当前状态（2026-08-21）**：`[x] INDEPENDENT_INCREMENTAL_PASS（0C/0H/0M/0L）`。R2 正式独立增量报告绑定 fingerprint `85606aed...9161f`（报告 SHA-256 `38c9896d...9d50a`），确认首轮 Prometheus 机器身份、readiness 总预算和后台作业指标三项 Medium 全部 CLOSED；Surefire 411/411、Phase 14 + WS-11 Failsafe 18/18。该 PASS 只关闭 WS-11 并放行 WS-12，不构成项目发布 GO。
 
 ### WS-12 [codex] 前端 bundle 拆分（审计 #11）
 - 统计/图表页 route-level 懒加载；ECharts 改**按需注册**图表/组件；naive 按需；设 bundle budget（超预算 CI 失败）。
 - **验收**：naive/echarts 不进登录与普通管理首屏关键路径；CI 超预算失败。**顺序**：放 WS-4 之后（D1 的 `themeOverrides`/组件收口会影响 naive 引入面，避免两头改）。
+- **当前状态（2026-08-21）**：整改 fingerprint `1c8b8821...0ae7b` 已取得正式 `INDEPENDENT_INCREMENTAL_PASS（0C/0H/0M/0L）`；首轮唯一生产/预算 gzip 等级分叉 Medium CLOSED，放行 WS-14。该 PASS 不等于项目 GO。
 
 ### WS-14 [codex] 运维收尾（Phase 41.2 / 53 遗留小项打包）
 - **备份产物保留**：MinIO `db-backup/` 前缀加生命周期规则（保留 N 天，仿 `FileMaintenanceService.ensureAbortIncompleteMultipartLifecycle` 的幂等确保模式）；`backup_record` 表纳入 `RetentionCleanupService`（照 Phase 47 模式：sys_param 化保留期 + 分批物理删；只删记录行，产物由生命周期管）。
 - **demo 可播视频**：本机若有 `ffmpeg`（先 `ffmpeg -version` 探测），生成 1–2s 真实 H.264+AAC 短片替换 `platform-boot/src/main/resources/db/demo/sample-video.mp4`（更新 `scripts/gen-demo-samples.py` 注释说明来源）；无 ffmpeg 则明确记录跳过。**为 WS-4 D0 走查的前置**（评审角色要能真播放）。
 - **验收**：IT 证 `backup_record` prune 逻辑（照 `Phase47CleanupIT` 模式直接调服务方法）；生命周期规则幂等在；（若做）demo 视频浏览器实测可播。
+- **当前状态（2026-08-21）**：`[x] INDEPENDENT_INCREMENTAL_PASS（0C/0H/0M/1L）`。
+  R2 fingerprint `4a167463...9cb80` 的正式报告确认首轮两项 Medium CLOSED：托管规则包含
+  `NoncurrentVersionExpiration(1)` 且纳入幂等匹配；V34 提供 editable int 参数种子并只接受正整数，对象和记录侧
+  共同读取 45 天。唯一 Low 是测试统计混入历史 XML，正确口径为 Surefire 66 suites / 421 tests、focused 27/27，
+  已勘误且不阻断。隔离 Phase00/Phase47 IT 留稳定发布前证据；该 PASS 不等于项目 GO。
 
 ### WS-15 [Opus 4.8，可选] 审计写异步重试（Phase 44b 诚实推迟项——44f 根因修复后已解锁）
 - **背景**：Phase 44b 曾完整实现 `@Async` 审计落库（请求线程捕获 ThreadLocal→异步写 + dev/test 用 `SyncTaskExecutor` 保 IT 确定性），但消融显示 `@EnableAsync` 后 Phase5/6 **通知路径**间歇 `Lock wait timeout` 而诚实回退。**Phase 44f 已查明并根治了该路径的根因**（`Db.saveBatch` 另开 SqlSession 与外层事务自锁互等）——当时"未查明的干扰源"大概率就是它，重试有了绿灯基础。
 - **做法**：重提 44b 原方案；**消融复验**为硬门槛——`@EnableAsync` 开启后连续 **3 次**全量 verify 零锁等待才可合并；仍复现则再次诚实回退（现状同步写可接受，本项纯收益优化）。
 - **收益**：每个 `@AuditLog` 写端点少一次同步阻塞落库。
+- **当前处置（2026-08-21）**：暂不实施。现有同步审计可接受，本项是纯收益优化，不作为功能完整性复核前置。
 
 ---
 

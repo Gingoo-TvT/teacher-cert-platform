@@ -1,10 +1,18 @@
 import { fileURLToPath, URL } from 'node:url'
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
+import Components from 'unplugin-vue-components/vite'
+import { NaiveUiResolver } from 'unplugin-vue-components/resolvers'
 
 // https://vitejs.dev/config/
 export default defineConfig({
-  plugins: [vue()],
+  plugins: [
+    vue(),
+    Components({
+      dts: 'src/components.d.ts',
+      resolvers: [NaiveUiResolver()]
+    })
+  ],
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url))
@@ -29,14 +37,23 @@ export default defineConfig({
     }
   },
   build: {
-    chunkSizeWarningLimit: 900,
+    manifest: true,
+    chunkSizeWarningLimit: 550,
     rollupOptions: {
       output: {
-        // 生产构建把大依赖拆成独立可缓存 chunk，减小主包、加快后续导航
-        manualChunks: {
-          echarts: ['echarts'],
-          naive: ['naive-ui'],
-          vue: ['vue', 'vue-router', 'pinia']
+        // 图表代码只由异步 ChartBox 请求；Naive UI 交给组件按需导入与路由分包，避免整库进入登录首屏。
+        manualChunks(id) {
+          const normalized = id.replace(/\\/g, '/')
+          if (normalized.includes('/node_modules/echarts/') || normalized.includes('/node_modules/zrender/')) {
+            return 'charts'
+          }
+          if (
+            normalized.includes('/node_modules/vue/')
+            || normalized.includes('/node_modules/vue-router/')
+            || normalized.includes('/node_modules/pinia/')
+          ) {
+            return 'vue'
+          }
         }
       }
     }

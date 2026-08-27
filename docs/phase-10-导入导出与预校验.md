@@ -13,6 +13,7 @@
 
 ## 3. 26 列模型与文本化（AT-01/AT-02）
 - A–Z `@ExcelProperty` 模型，**全部 String**；列顺序与名称固定（plan §7）。
+- 固定必填列按列定义校验；N/O 对 `education_master` 可空、对其它身份条件必填，Z 备注列可空。导入预校验与 STANDARD 导出使用相同身份语义。
 - 自定义写出处理器：单元格格式 `@`（文本），学校代码/学号/证件号/出生日期/证书编号/有效期限禁科学计数/日期序列/前导零丢失。
 - **H 列表头写"身份证件号码"**（修复模板空表头）。
 
@@ -34,12 +35,12 @@
 | V-10 | 任教学科来自学段库、中职专业课具体学科 | 学科库 |
 | V-11 | 证书编号 18 位各段合法 | 编号校验 |
 | V-12 | 有效期限规则 | `ValidityCalculator` |
-| V-13 | 重复（同证件号/同证书号） | 唯一约束 |
+| V-13 | 重复（同证件号/同证书号；证件号按 `IdCardValidator` 规范化值计数，包含 x/X、a/A 等等价形式） | 唯一约束 |
 
 ## 6. 导入两步 + 回滚（§15.7）
-1. **预校验（不入库）**：上传→全读为 String→逐行 V-01~V-13→产出 {总数/成功预览/失败明细}，可下载异常报告。
+1. **预校验（不入库）**：上传→全读为 String→逐行 V-01~V-13→产出 {总数/成功预览/失败明细}，可下载异常报告。总数、成功数、失败数按 Excel 行统计；一行可产生多条错误明细，但失败行数只累计一次。
 2. **确认导入**：策略（新增/覆盖/跳过重复/仅更新空字段）→原子认领 `PREVALIDATED → IMPORTING`。每个逐行 `REQUIRES_NEW` 事务及失败明细事务的第一项业务动作都必须对同一 batch 执行 `SELECT ... FOR UPDATE`，并只在数据库持久状态仍为 `IMPORTING` 时写业务数据、`import_record_ref` 或错误明细。
-3. **回滚**：按 batch_id 反向（INSERT→逻辑删除，UPDATE→还原 before_json），已被后续修改的跳过并提示冲突。rollback 在一个事务内将 batch `SELECT ... FOR UPDATE` 作为第一条数据库语句：先等待在途行提交并阻断后续行，再锁定当前完整 ref 集；在取得任何 student/training/certificate 业务子行锁之前，必须预解析所有 UPDATE `before_json` 中的目标 `collegeId`，去重并按 ID 升序执行 `deleted=0 FOR UPDATE`。目标学院缺失/已删除时必须 fail closed 或把该 ref 记为明确冲突，禁止恢复到无效父级。之后才锁对应业务记录、逆序补偿，并把补偿结果和 `ROLLED_BACK/PARTIAL_ROLLBACK` 原子提交。固定顺序为 `batch → refs → college IDs 升序 → business child`。
+3. **回滚**：按 batch_id 反向（INSERT→逻辑删除，UPDATE→逐字段还原完整 before_json，含原值为 NULL 的字段），已被后续修改的跳过并提示冲突。每条 UPDATE 恢复影响行数必须恰为 1，否则该 ref 记为冲突，不得报告恢复成功。rollback 在一个事务内将 batch `SELECT ... FOR UPDATE` 作为第一条数据库语句：先等待在途行提交并阻断后续行，再锁定当前完整 ref 集；在取得任何 student/training/certificate 业务子行锁之前，必须预解析所有 UPDATE `before_json` 中的目标 `collegeId`，去重并按 ID 升序执行 `deleted=0 FOR UPDATE`。目标学院缺失/已删除时必须 fail closed 或把该 ref 记为明确冲突，禁止恢复到无效父级。之后才锁对应业务记录、逆序补偿，并把补偿结果和 `ROLLED_BACK/PARTIAL_ROLLBACK` 原子提交。固定顺序为 `batch → refs → college IDs 升序 → business child`。
 4. **收尾守卫**：confirm 的 `IMPORTING → IMPORTED/FAILED` 条件更新必须恰好命中 1 行；未命中时重读数据库真实状态并返回“导入已停止”，禁止返回本地累计出的伪成功终态。
 5. **锁查询固定大小**：逐行导入与失败明细事务的 batch `FOR UPDATE` 只允许投影状态所需的固定大小字段（`status` 或 `id,status`），禁止随每行重复装载整批 `preview_json`；rollback 单次读取所需 batch 元数据不受此限制。
 6. **学院父子完整性**：每个逐行 `REQUIRES_NEW` 事务在直接新增或迁移 `student` 前，必须对解析且授权通过的目标学院执行 `deleted=0 FOR UPDATE`；与学院删除共用串行化边界，禁止标准导入成为绕过 Phase 39 父锁的旁路。
@@ -54,7 +55,7 @@ WS-8 存储边界：导入预览 `preview_json/scope_json`、错误明细中的�
 ## 8. 导出（§7.3 / §15.6）
 - 5 类：标准上报表（A–Z 固定）、完整审核表、证书获得者汇总表、异常数据表、附件清单表（列定义见 §15.6）。
 - 范围筛选：全校/学院/专业/班级/培养目标/学段/审核状态/证书状态；保留筛选条件。
-- 附件/视频批量打包；导出审计（操作人/时间/范围/文件）。普通导出中的证件号始终脱敏；保留既有
+- 附件按已授权学生与年度批量打包：清单和流式 ZIP 同时包含过程材料、免考佐证与教学能力视频的真实对象字节，不纳入范围外学院/学生文件。导出审计（操作人/时间/范围/文件）。普通导出中的证件号始终脱敏；保留既有
   `exchange:export:sensitive` 合同，仅在显式权限和完整审计成立时于响应边界解密导出。
 
 ## 9. 接口清单
@@ -74,21 +75,30 @@ WS-8 存储边界：导入预览 `preview_json/scope_json`、错误明细中的�
 - [x] 学校代码/学号/证件号/出生日期/证书编号/有效期限文本导出；重开 Excel **无科学计数、无日期序列、无前导零丢失**（AT-01）。
 - [x] 模板下拉项与系统字典一致；全列文本格式。
 - [x] V-01~V-13 **逐条**可触发，定位行号/字段/原因（13 条各一反例）。
+- [x] V-13 使用与单行校验相同的证件号规范化结果；居民证 x/X、港澳通行证 a/A 的文件内等价重复均逐行命中且不进入成功预览。
 - [x] 异常数据不静默入库；异常报告含行号/字段/错误值/原因/建议（AT-14）。
+- [x] 预校验失败数按失败行统计；单行多条错误不会把批次 `failCount` 放大为错误明细数。
 - [x] 4 种导入策略行为正确；批次可查；回滚后恢复到导入前。
+- [x] UPDATE 回滚可把 student/training/certificate 的可空字段恢复为 NULL，并核对完整 before 快照；影响行数不为 1 时明确记冲突。
 - [x] confirm 与 rollback 竞争同一 batch 行锁：rollback 返回终态后不得再出现迟到业务写/ref；在途行先取得锁时，rollback 必须等待其提交并补偿完整引用集。
 - [x] 标准导入的直接学生写入路径已接入目标学院父行锁，目标学院已逻辑删除时整行事务失败，不产生学生孤儿。
 - [x] **Phase 39 第二轮独立复核 PASS**：历史 student/training/certificate UPDATE ref 的 rollback 已在任何业务子行锁前解析、去重并升序预锁 `before_json` 目标学院；非法、缺失或已删除目标按 ref 明确冲突关闭，禁止恢复到无效父级。代码 `73406ed` 已完成 Phase 39 11/11、Phase 10 13/13、全量 334/334；正式报告 `docs/reviews/phase-39-second-remediation-rereview-2026-07-24.md` 确认第一轮 1 High / 1 Low 全部关闭且本增量 0/0/0。
 - [x] 5 类导出列与 §15.6 一致；导出留审计；敏感导出鉴权。
+- [x] STANDARD 允许教育类研究生 N/O 留空及任意身份 Z 留空，其他身份缺 N/O 时明确拒绝；附件 ZIP 包含同范围免考佐证真实字节且不含越权文件。
 - [x] WS-8 本地阶段候选：预览、筛选范围、错误明细与前后快照抽样无可读身份证件号码；普通导出保持脱敏，
   `exchange:export:sensitive` 授权导出仍可用且留审计。
 
 ## 11. 测试用例
 - T-EXP-1：导出后用 Excel + WPS 打开，证件号 `44010620001231XXXX` 完整显示（非 `4.4E+17`）（AT-01）。
 - T-EXP-2：导出表头逐列比对模板（A–Z）；H 列="身份证件号码"（AT-02）。
+- T-EXP-2A：教育类研究生 N/O 为空导出成功；普通师范生缺 N/O 导出失败；Z 为空导出成功。
+- T-EXP-2B：无证书但有免考佐证的授权学生导出附件包 → 清单与 ZIP 精确包含佐证真实字节；范围外学生材料不出现。
 - T-IMP-1（13 反例）：构造每条 V 规则各一错误行 → 预校验全部命中并定位。
+- T-IMP-1A（V-13 规范化重复）：居民证末位 x/X 与港澳通行证首字母 a/A 各构造一对等价号码 → 四行均命中 V-13，成功预览为空。
+- T-IMP-1B（失败行统计）：单行同时触发至少两条错误 → `total=1/success=0/fail=1`，错误明细不少于 2，批次详情与批次列表的 `failCount` 均为 1。
 - T-IMP-2：策略=跳过重复，含 1 重复证件号 → 跳过且批次记 fail。
 - T-IMP-3：导入后回滚 → 数据恢复；被后续修改的记录回滚时提示冲突。
+- T-IMP-3A（NULL 完整快照恢复）：student/training/certificate 各一可空字段按 NULL→覆盖为非空→rollback→NULL，断言完整实体快照一致、`rolledBackCount=3/conflictCount=0`。
 - T-IMP-4：前导零学号 `00123` 导入→导出保持 `00123`。
 - T-IMP-5A（rollback 先线性化）：两行导入在首行提交后暂停 → rollback 返回并持久化 `ROLLED_BACK` → 释放 confirm；confirm 必须返回“导入已停止/ROLLED_BACK”，两行均不得留下活跃 student/training/certificate，第二行不得产生迟到 ref。
 - T-IMP-5B（在途行先线性化）：第一行取得 batch 锁、尚未写业务数据时暂停 → rollback 发起但不得完成 → 释放行事务；rollback 必须看到并补偿该行完整 3 条 refs，终态 `ROLLED_BACK`，三类业务数据均无活跃记录且 refs 保留用于追溯。
@@ -108,3 +118,4 @@ WS-8 存储边界：导入预览 `preview_json/scope_json`、错误明细中的�
 - batch 锁查询不能使用 `SELECT *` 逐行重读 `preview_json`；否则 N 行预览会形成 O(N²) 数据传输/映射并破坏万行级导入时限。性能修复必须收窄投影，不能移除串行化锁。
 - 当前 `PARTIAL_ROLLBACK` 表示本次补偿遇到冲突；自动重试是否应跳过已成功补偿的 ref 属于既有语义债，本次 PG-H3 不重新定义，后续如需改变必须先明确规格并补幂等标记/反例。
 - 持久 `before_json` 是不受当前在线校验保护的历史输入；任何补偿恢复都必须重新验证父引用。不能因新版本已禁止跨学院导入更新，就假定历史 ref 不含跨学院快照。
+- 通用 ORM 的非空字段更新策略不能承担快照恢复；UPDATE 回滚必须显式把 before 快照中的 NULL 写回数据库并核验实际影响行数。

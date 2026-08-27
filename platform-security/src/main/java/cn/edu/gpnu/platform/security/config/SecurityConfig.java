@@ -11,6 +11,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.Order;
 import org.springframework.core.env.Environment;
 import org.springframework.core.env.Profiles;
 import org.springframework.http.HttpMethod;
@@ -23,8 +24,10 @@ import org.springframework.security.config.annotation.web.configurers.AbstractHt
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
+import org.springframework.security.provisioning.InMemoryUserDetailsManager;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.web.cors.CorsConfigurationSource;
@@ -32,11 +35,14 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
 
+import static org.springframework.security.config.Customizer.withDefaults;
+
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity
 @RequiredArgsConstructor
-@EnableConfigurationProperties({SecurityProperties.class, IdCardProtectionProperties.class})
+@EnableConfigurationProperties({SecurityProperties.class, IdCardProtectionProperties.class,
+        PrometheusAuthenticationProperties.class})
 public class SecurityConfig {
 
     private static final String[] API_DOCUMENTATION_PATHS = {
@@ -56,6 +62,30 @@ public class SecurityConfig {
     private final Environment environment;
 
     @Bean
+    @Order(1)
+    public SecurityFilterChain prometheusSecurityFilterChain(
+            HttpSecurity http,
+            PrometheusAuthenticationProperties properties,
+            PasswordEncoder passwordEncoder) throws Exception {
+        InMemoryUserDetailsManager machineIdentity = new InMemoryUserDetailsManager(
+                User.withUsername(properties.getUsername())
+                        .password(passwordEncoder.encode(properties.getPassword()))
+                        .authorities("metrics:scrape")
+                        .build());
+        http.securityMatcher("/actuator/prometheus")
+                .csrf(AbstractHttpConfigurer::disable)
+                .formLogin(AbstractHttpConfigurer::disable)
+                .logout(AbstractHttpConfigurer::disable)
+                .cors(AbstractHttpConfigurer::disable)
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .userDetailsService(machineIdentity)
+                .httpBasic(withDefaults())
+                .authorizeHttpRequests(auth -> auth.anyRequest().hasAuthority("metrics:scrape"));
+        return http.build();
+    }
+
+    @Bean
+    @Order(2)
     public SecurityFilterChain securityFilterChain(HttpSecurity http, CorsConfigurationSource corsConfigurationSource)
             throws Exception {
         boolean production = environment.acceptsProfiles(Profiles.of("prod"));
@@ -84,7 +114,8 @@ public class SecurityConfig {
                     // StreamingResponseBody 完成时会触发 ASYNC 再分派；权限已在初始 REQUEST 分派完成校验。
                     auth.dispatcherTypeMatchers(DispatcherType.ASYNC).permitAll()
                             .requestMatchers("/api/auth/captcha", "/api/auth/login", "/api/auth/refresh").permitAll()
-                            .requestMatchers("/api/health").permitAll();
+                            .requestMatchers("/api/health", "/api/health/**").permitAll()
+                            .requestMatchers("/actuator/**").authenticated();
                     if (production) {
                         auth.requestMatchers(API_DOCUMENTATION_PATHS).denyAll();
                     } else {

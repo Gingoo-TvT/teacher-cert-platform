@@ -13,8 +13,10 @@ import io.minio.errors.InvalidResponseException;
 import io.minio.errors.XmlParserException;
 import io.minio.messages.AbortIncompleteMultipartUpload;
 import io.minio.messages.ErrorResponse;
+import io.minio.messages.Expiration;
 import io.minio.messages.LifecycleConfiguration;
 import io.minio.messages.LifecycleRule;
+import io.minio.messages.NoncurrentVersionExpiration;
 import io.minio.messages.RuleFilter;
 import io.minio.messages.Status;
 import okhttp3.Protocol;
@@ -261,6 +263,106 @@ class FileMaintenanceServiceTest {
     }
 
     @Test
+    void noLifecycleConfigurationCreatesBackupRetentionRuleForActualDestination() throws Exception {
+        when(minioClient.getBucketLifecycle(any(GetBucketLifecycleArgs.class))).thenReturn(null);
+
+        assertThat(service.ensureBackupRetentionLifecycle("backup-bucket", "nightly", 12)).isTrue();
+
+        ArgumentCaptor<SetBucketLifecycleArgs> captor =
+                ArgumentCaptor.forClass(SetBucketLifecycleArgs.class);
+        verify(minioClient).setBucketLifecycle(captor.capture());
+        SetBucketLifecycleArgs args = captor.getValue();
+        assertThat(args.bucket()).isEqualTo("backup-bucket");
+        assertThat(args.config().rules())
+                .singleElement()
+                .satisfies(rule -> {
+                    assertThat(rule.id()).isEqualTo(FileMaintenanceService.BACKUP_RETENTION_RULE_ID);
+                    assertThat(rule.status()).isEqualTo(Status.ENABLED);
+                    assertThat(rule.expiration().days()).isEqualTo(12);
+                    assertThat(rule.noncurrentVersionExpiration().noncurrentDays()).isEqualTo(1);
+                    assertThat(rule.filter().prefix()).isEqualTo("nightly/");
+                    assertThat(rule.abortIncompleteMultipartUpload()).isNull();
+                });
+    }
+
+    @Test
+    void backupRetentionUpdatePreservesExternalRulesAndReplacesOnlyManagedRule() throws Exception {
+        LifecycleRule external = rule("operations-retention", 30);
+        LifecycleRule staleManaged = backupRule(
+                FileMaintenanceService.BACKUP_RETENTION_RULE_ID,
+                "db-backup/",
+                30,
+                Status.ENABLED,
+                null);
+        when(minioClient.getBucketLifecycle(any(GetBucketLifecycleArgs.class)))
+                .thenReturn(new LifecycleConfiguration(List.of(external, staleManaged)));
+
+        assertThat(service.ensureBackupRetentionLifecycle(BUCKET, "db-backup/", 30)).isTrue();
+
+        ArgumentCaptor<SetBucketLifecycleArgs> captor =
+                ArgumentCaptor.forClass(SetBucketLifecycleArgs.class);
+        verify(minioClient).setBucketLifecycle(captor.capture());
+        List<LifecycleRule> rules = captor.getValue().config().rules();
+        assertThat(rules).hasSize(2);
+        assertThat(rules.get(0)).isSameAs(external);
+        assertThat(rules)
+                .filteredOn(rule -> FileMaintenanceService.BACKUP_RETENTION_RULE_ID.equals(rule.id()))
+                .singleElement()
+                .satisfies(rule -> {
+                    assertThat(rule.expiration().days()).isEqualTo(30);
+                    assertThat(rule.noncurrentVersionExpiration().noncurrentDays()).isEqualTo(1);
+                    assertThat(rule.filter().prefix()).isEqualTo("db-backup/");
+                });
+    }
+
+    @Test
+    void wrongNoncurrentExpirationUpdatesBackupRetentionRule() throws Exception {
+        when(minioClient.getBucketLifecycle(any(GetBucketLifecycleArgs.class)))
+                .thenReturn(new LifecycleConfiguration(List.of(backupRule(
+                        FileMaintenanceService.BACKUP_RETENTION_RULE_ID,
+                        FileMaintenanceService.DEFAULT_BACKUP_PREFIX,
+                        30,
+                        Status.ENABLED,
+                        2))));
+
+        assertThat(service.ensureBackupRetentionLifecycle(null, null, 30)).isTrue();
+
+        ArgumentCaptor<SetBucketLifecycleArgs> captor =
+                ArgumentCaptor.forClass(SetBucketLifecycleArgs.class);
+        verify(minioClient).setBucketLifecycle(captor.capture());
+        assertThat(captor.getValue().config().rules())
+                .singleElement()
+                .satisfies(rule ->
+                        assertThat(rule.noncurrentVersionExpiration().noncurrentDays()).isEqualTo(1));
+    }
+
+    @Test
+    void matchingBackupRetentionRuleIsIdempotent() throws Exception {
+        when(minioClient.getBucketLifecycle(any(GetBucketLifecycleArgs.class)))
+                .thenReturn(new LifecycleConfiguration(List.of(backupRule(
+                        FileMaintenanceService.BACKUP_RETENTION_RULE_ID,
+                        FileMaintenanceService.DEFAULT_BACKUP_PREFIX,
+                        30,
+                        Status.ENABLED,
+                        1))));
+
+        assertThat(service.ensureBackupRetentionLifecycle(null, null, 0)).isTrue();
+
+        verify(minioClient, never()).setBucketLifecycle(any(SetBucketLifecycleArgs.class));
+    }
+
+    @Test
+    void backupRetentionReadFailureFailsClosedWithoutWriting() throws Exception {
+        when(minioClient.getBucketLifecycle(any(GetBucketLifecycleArgs.class)))
+                .thenThrow(new IOException(SENSITIVE_MESSAGE));
+
+        assertThat(service.ensureBackupRetentionLifecycle(BUCKET, "db-backup/", 30)).isFalse();
+
+        verify(minioClient, never()).setBucketLifecycle(any(SetBucketLifecycleArgs.class));
+        assertFailureLogged("TRANSPORT");
+    }
+
+    @Test
     void logAssertionRejectsExtraRawSensitiveArgument() throws Exception {
         when(minioClient.getBucketLifecycle(any(GetBucketLifecycleArgs.class)))
                 .thenThrow(minioError("InternalError", 500));
@@ -296,6 +398,21 @@ class FileMaintenanceServiceTest {
                 new RuleFilter(""),
                 id,
                 null,
+                null,
+                null);
+    }
+
+    private static LifecycleRule backupRule(
+            String id, String prefix, int days, Status status, Integer noncurrentDays) {
+        return new LifecycleRule(
+                status,
+                null,
+                new Expiration((java.time.ZonedDateTime) null, days, null),
+                new RuleFilter(prefix),
+                id,
+                noncurrentDays == null
+                        ? null
+                        : new NoncurrentVersionExpiration(noncurrentDays),
                 null,
                 null);
     }

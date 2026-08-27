@@ -183,6 +183,6 @@ public class ExchangeController {
         response.setContentType(file.contentType());
         response.setHeader("Content-Disposition", "attachment; filename*=UTF-8''"
                 + URLEncoder.encode(file.fileName(), StandardCharsets.UTF_8));
-        response.getOutputStream().write(file.content());
+        file.writeTo(response.getOutputStream());
     }
 }

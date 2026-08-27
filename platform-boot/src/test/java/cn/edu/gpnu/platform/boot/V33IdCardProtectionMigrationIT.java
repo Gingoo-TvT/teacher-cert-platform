@@ -103,9 +103,9 @@ class V33IdCardProtectionMigrationIT {
                         "SELECT id_card_hmac FROM student WHERE id = 9001"))
                         .isNull();
                 assertThat(value(connection, """
-                        SELECT version FROM flyway_schema_history
-                        WHERE success = 1 ORDER BY installed_rank DESC LIMIT 1
-                        """)).isEqualTo("33");
+                        SELECT success FROM flyway_schema_history
+                        WHERE version = '33'
+                        """)).isEqualTo("1");
                 assertThat(count(connection, """
                         SELECT COUNT(*) FROM information_schema.columns
                         WHERE table_schema = ? AND table_name = 'student'

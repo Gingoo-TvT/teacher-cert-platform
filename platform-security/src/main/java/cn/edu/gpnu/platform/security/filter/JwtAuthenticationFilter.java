@@ -39,6 +39,16 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private final TokenRevocationService tokenRevocationService;
 
     @Override
+    protected boolean shouldNotFilter(HttpServletRequest request) {
+        String uri = request.getRequestURI();
+        String contextPath = request.getContextPath();
+        if (StringUtils.hasText(contextPath) && uri.startsWith(contextPath)) {
+            uri = uri.substring(contextPath.length());
+        }
+        return "/actuator/prometheus".equals(uri);
+    }
+
+    @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
         try {

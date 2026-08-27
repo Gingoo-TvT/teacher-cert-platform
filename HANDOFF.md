@@ -1,12 +1,41 @@
 # HANDOFF.md — 交接说明（接手必读）
 
 > 目的：让后续 codex / Claude 在**本机（Windows + Git Bash）** 无障碍接手。
-> 顺序：先读本文件 → 再按 `AGENTS.md` §0 读其余文档。最终全量审计已经结束；F01–F07、WS-5、WS-6 与 WS-7 的范围化/阶段门禁均已独立通过。上述 PASS 均不是项目发布 GO；WS-8 Hosted 六-suite 已取得 scoped PASS，但最新阶段重核仍为 `CHANGES_REQUESTED（0C/0H/1M/1L）`，当前只修复过期 WS-7 当前态合同并重取整体绿灯，保持功能优先和非攻击性边界。
+> 顺序：先读本文件 → 再按 `AGENTS.md` §0 读其余文档。最终全量审计已经结束；F01–F07、WS-5、WS-6 与 WS-7 的范围化/阶段门禁均已独立通过。上述 PASS 均不是项目发布 GO；WS-8 R6、WS-9、WS-11 R2、WS-12 与 WS-14 R2 已分别取得正式独立功能/增量 PASS。最终功能完整性 R5 fingerprint `e98305d4...079a0` 已取得 `INDEPENDENT_INCREMENTAL_PASS（0C/0H/0M/0L）`；第二次部署准备 R4 fingerprint `0ee662b7...355ed9` 也已取得源码范围的 `INDEPENDENT_INCREMENTAL_PASS（0C/0H/0M/0L）`，后续动态发布证据仍待执行，可选 WS-15 暂不实施，项目仍不构成发布 GO。
 > 当前排期、逐阶段复核矩阵与所有历史计划的合并入口：`docs/CURRENT-EXECUTION-PLAN.md`。
 
 ---
 
-## 0. 当前接力快照（最新 2026-08-13；后续旧日期条目保留作历史追溯）
+## 0. 当前接力快照（最新 2026-08-23；后续旧日期条目保留作历史追溯）
+
+- 第二次部署发布准备以首次部署任务 `019f87b1-0553-7de1-a1b9-cdcfcf55ad60` 和稳定版本
+  `dfdfb9199215d856b70abb653cb65b6f9ed46282` 为基线。R1 正式报告位于
+  `C:\Users\wenbibuhaoqwq\.codex\visualizations\2026\08\13\019ff958-9b0d-72f1-b15b-2487f4fd3e2b\second-release-preparation-r1-independent-review-20260822-bb3a31dc-local\review.md`
+  （SHA-256 `9322af640cbcb6976131cc3c49b001278a183c4ed1818ceb2af4b6235442a265`），裁定
+  `CHANGES_REQUESTED（0C/0H/4M/0L）`，因此 R1 不得物化 carrier。R2 已最小补齐：①一次性客户端绑定已核验
+  MySQL container ID 且 expected `server_uuid` 精确相等；②Redis 本地 tag/image ID；③迁移前关闭并验证公开
+  frontend；④首版原样 Compose/CPU/init、旧五镜像归档流程与精确回退命令；另以 external-volume overlay 绑定
+  预检四卷。R2 fingerprint `f190ddde8832b639a20fffa49f3b4ebec5d3267666e19dd7ac94e1b957b080e4`
+  的正式报告位于
+  `C:\Users\wenbibuhaoqwq\.codex\visualizations\2026\08\13\019ff958-9b0d-72f1-b15b-2487f4fd3e2b\second-release-preparation-r2-independent-review-20260822-f190ddde-local\review.md`
+  （SHA-256 `0a12b69258fef4c1419b3210568a7247d8680e4504c4587e535cf3624554b49a`），裁定
+  `CHANGES_REQUESTED（0C/0H/2M/0L）`：普通操作者无法读取 root 生成的 login-path，以及公开入口将
+  curl 传输失败/普通 503 误判为已关闭。
+- R3 fingerprint `9383ccc22ffc9d5e4c81ce4e9878b0eff3c078b1be9efee3f71572a4c5f09c2e` 的正式报告位于
+  `C:\Users\wenbibuhaoqwq\.codex\visualizations\2026\08\13\019ff958-9b0d-72f1-b15b-2487f4fd3e2b\second-release-preparation-r3-independent-review-20260823-9383ccc2-local\review.md`
+  （SHA-256 `c5fd8a5f1d20ae59e8f7c43b08bfec215d848c7ca48b92212ce07e928fd9a78b`），裁定
+  `CHANGES_REQUESTED（0C/0H/1M/0L）`。login-path 所有权问题 CLOSED；剩余 Medium 是只探测根路径时，独立
+  `/api/` 代理仍可能转发旧 backend。
+- R4 fingerprint `0ee662b7276ff1889c50b0b65c37339d919f3da5c63f6da5561dc77d1f355ed9`、manifest SHA-256
+  `47b476d6cfbfe5cd2e537205b13447b3c8997e84f108499ac72c0489422017bf` 已取得正式
+  `INDEPENDENT_INCREMENTAL_PASS（0C/0H/0M/0L）`。报告位于
+  `C:\Users\wenbibuhaoqwq\.codex\visualizations\2026\08\13\019ff958-9b0d-72f1-b15b-2487f4fd3e2b\second-release-preparation-r4-independent-review-20260823-0ee662b7-local\review.md`
+  （SHA-256 `37cdbbdacef8a1940ea8d57e03828c21bdd8f6118a6affd5d321b0bbf2bbc32d`）。R3 唯一 Medium 已关闭：正式根路径与
+  固定派生的同源 `/api/health` 分别失败关闭，“根 503+marker、API 200”反例不能通过。
+- 该 PASS 只覆盖 R4 源码增量，不授权 carrier、Hosted、push、merge、部署或切流。本次 PASS 后治理同步会产生
+  新字节，后续物化前必须重新 capture + verify 新 release-prep manifest，不能把更新后的工作树冒充已复核 R4。
+  clean-store 五镜像、正式入口双路径、真实 Linux login-path、V32 迁移前 `dfdfb91` 回退、V32→V35、Phase 41/
+  Phase 00/Phase 47 与全新同候选 Hosted 仍须作为下一阶段的独立动态证据完成；项目继续 `NO-GO`。
 
 - F07 正式候选 HEAD `aa3509a`、fingerprint
   `091538b744b42019886655fb30136f582b34bba5e513512531f65bd6bdc0f8e7` 已取得
@@ -69,17 +98,78 @@
   会在 Spring 上下文前 fail-closed，无法形成六-suite artifact。
 - WS-8 R2 fingerprint `09ee0c395efc5322ce368b6a5fb307a3398f3471c71612c322275e8918a442ba` 的 Hosted
   run `31661893931` 已使原 profile Medium 关闭：backend/WS-8 selector/artifact upload 成功，六 suite **46/46**、
-  0 failure/error/skip。最新正式报告
+  0 failure/error/skip。最近落盘的 R2 正式报告（已被下方 R3 独立任务裁定取代）
   `C:\Users\wenbibuhaoqwq\Documents\脚本\ws08-hosted-independent-rereview-20260813-09ee0c39-run31661893931\review.md`
   （SHA-256 `CEAF031AB450392BE9CFE01EE440416289E6B2E76B3B801F8198F8DFA2F4D0B4`）仍裁定
   **CHANGES_REQUESTED（0 Critical / 0 High / 1 Medium / 1 Low）**：46/46 只构成 WS-8 scoped PASS；过期 WS-7
   当前态断言令整个 workflow 红灯、WS-8 V33 静态合同与最终镜像/SBOM 跳过。证据包 Low 已补齐根
   `SHA256SUMS`，当前为 17/17 exact closure（根清单 SHA-256 `9A70E6BE...7E178`），无需重跑旧 Hosted。
-- 当前分支仍为 `feature/ws08-idcard-encryption`，状态为
-  **LOCAL_REMEDIATION_R3_READY / HOSTED_WHOLE_WORKFLOW_PENDING**。R3 仅把 WS-7 合同从已过期的全局当前态改为
-  有界历史 PASS/identity/artifact/非 GO 合同，保留篡改反例；候选 manifest 固定为
-  `C:\Users\wenbibuhaoqwq\Documents\脚本\teacher-cert-ws8-whole-workflow-remediation-r3-candidate-2026-08-13.json`。
-  取得同候选整体绿灯 Hosted workflow 与独立阶段 PASS 前不放行 WS-9；项目继续 **CHANGES_REQUESTED / NO-GO**。
+- WS-8 R3 fingerprint `4b39e52c...11d3a`、Hosted run `31664938044 / attempt 1` 已取得整体 4/4 jobs
+  success；六 suite 46/46、V33 静态合同、双镜像/SBOM、镜像身份和校验和均通过。用户负责的独立复核任务
+  `019ff958-9b0d-72f1-b15b-2487f4fd3e2b` 最终裁定
+  **CHANGES_REQUESTED（0 Critical / 0 High / 1 Medium / 0 Low）**：候选身份和 Hosted 证据链 PASS，但七个
+  WS-7 历史归档的非 GO 合同可在否定语义翻转或追加冲突授权后假绿。
+- R4 fingerprint `4ef707be...08729` 已由用户独立复验，正式结论仍为
+  **CHANGES_REQUESTED（0 Critical / 0 High / 1 Medium / 0 Low）**：合同正常测试虽 PASS，但保留原非 GO 句并向
+  七段归档追加普通同义授权措辞时仍 7/7 被接受；R4 不放行 WS-9。
+- R5 fingerprint `c649a065...d601` 已原样物化为 carrier `6f6c678a...759f3` 和 Draft PR #4；全新 Hosted run
+  `31808005960 / attempt 1` 为 4/4 jobs success，六 suite **46/46**、WS-7/V33 合同、双镜像/双 SPDX、镜像与
+  source revision 身份、根 20/20 与嵌套 3/3 `SHA256SUMS` 均闭合。正式功能独立复核报告
+  `C:\Users\wenbibuhaoqwq\Documents\脚本\ws08-r5-functional-independent-rereview-20260820-c649a065-run31808005960\review.md`
+  （SHA-256 `d849887762ae8ee7cc5eaa9b21010c7216ba5a49e555722534560eae3f4dc493`）只判定 R5 scoped 合同整改 PASS、
+  R5 Hosted evidence PASS；WS-8 full stage 仍为 **CHANGES_REQUESTED（0 Critical / 0 High / 2 Medium / 1 Low）**。
+  三项 finding 是 V-13 在规范化前计数、UPDATE 回滚不能写回 NULL 却报告成功、`failCount` 混用错误明细数。
+- R6 fingerprint `7e077df1...f5c74b` 已关闭上述三项 finding；真实依赖六 suite **49/49** 与 Phase 39 +
+  Phase 10 **29/29** 均为 0 failure/error/skip。独立功能增量报告
+  `C:\Users\wenbibuhaoqwq\Documents\脚本\ws08-r6-functional-independent-rereview-20260820-7e077df1-local\review.md`
+  （SHA-256 `43660de6a5c97b38df8f3bf3190c5ff902f10b20ced1da92d7b12cde65153def`）判定三项整改全部关闭、
+  **R6 scoped functional remediation PASS（0 open finding）**。用户随后明确以功能完整性作为开发放行门槛。
+  `WS-9` 已抽出视频结算、上传组装、VO 转换及 Exchange 导入校验、导出行、回滚、字典 helper；首轮正式报告
+  `C:\Users\wenbibuhaoqwq\.codex\visualizations\2026\08\13\019ff958-9b0d-72f1-b15b-2487f4fd3e2b\ws09-functional-independent-review-20260820-6fd8e17b-local\review.md`
+  （SHA-256 `0553a3963eccbffaecbc1f55b0db220ac9ef60244f8b2ca9df2aa5a5e64b2ea1`）裁定
+  **CHANGES_REQUESTED（0 个生产代码缺陷 / 1 个 Medium）**：重构后缺少 Phase 7/10/14/39 的同候选真实依赖回归。
+  本轮把原类级 1 秒/0.2 秒测试租约移除，仅在专门续租用例内使用 5 秒/1 秒，普通业务用例恢复生产默认租约；生产代码未改。全新
+  `clean verify` 已取得 Surefire **400/400** 与四套 Failsafe **87/87**（44+18+14+11），均 0 failure/error/skip。
+  增量复核报告
+  `C:\Users\wenbibuhaoqwq\.codex\visualizations\2026\08\13\019ff958-9b0d-72f1-b15b-2487f4fd3e2b\ws09-integration-independent-rereview-20260820-df1f1950-local\review.md`
+  （SHA-256 `e8b8b0cb1e6b7a82f13198683bfa1163c3d0d656766575da2168351163555722`）确认四套真实依赖回归
+  **87/87**、Surefire **400/400** 与 7/7 证据闭包，裁定 `WS9-INT-M1 CLOSED / INDEPENDENT_INCREMENTAL_PASS`
+  （0 open finding）。WS-11 R2 外置候选 manifest
+  `C:\Users\wenbibuhaoqwq\Documents\脚本\teacher-cert-ws11-remediation-r2-candidate-2026-08-21.json`
+  绑定 fingerprint `85606aed4cd42b28dc66245a5013bf28263657d6e46eda3cff49a334c129161f`；正式独立增量报告
+  `C:\Users\wenbibuhaoqwq\.codex\visualizations\2026\08\13\019ff958-9b0d-72f1-b15b-2487f4fd3e2b\ws11-remediation-r2-independent-rereview-20260821-85606aed-local\review.md`
+  （SHA-256 `38c9896dff8ca133cff994140bb04c748c7c8797e7c7d9fb7e6c5e30f409d50a`）确认首轮三项 Medium 全部
+  CLOSED，裁定 `INDEPENDENT_INCREMENTAL_PASS（0C/0H/0M/0L）`。该 PASS 只关闭 WS-11 并放行 WS-12。
+  WS-12 首轮 fingerprint `21f784c3...bef4e` 的唯一 gzip 口径 Medium 已在整改候选
+  `1c8b8821437e7f8bb6c110737ad07e5e67c0aaaab1aeb42f475b80fb8db0ae7b` 上由正式独立增量复核关闭。
+  外置 manifest SHA-256 为 `f73b29b46b765e6c029acc7bfb319667ada0459c8fa49d243b47f87126e1f5e6`，
+  复核报告 SHA-256 为 `38b3f390519e432916b22ae45196769eb826bad866a92d06c681b72592aa42d4`；报告裁定
+  `INDEPENDENT_INCREMENTAL_PASS（0C/0H/0M/0L）`，现场 manifest verify 复验通过。该 PASS 关闭 WS-12 并
+  放行 WS-14。WS-14 首轮正式报告绑定 fingerprint `e6971aae...c962f`，报告 SHA-256
+  `24b3487d...9c7b2`，裁定 `CHANGES_REQUESTED（0C/0H/2M/0L）`。R2 外置 manifest fingerprint
+  `4a1674636fc69fe1305003b0bdedbae8ee9df69ce627455b06073b6e9c69cb80`、SHA-256
+  `e4097df14a5d30f2ed1bed6703b8356623aeaf3362b11b1b2c149b0709f2d630` 已现场 verify；正式报告 SHA-256
+  `8ade2dd744116306553bb06c1cef3e9e7c2e4df1bd6efe650ea6924a8686be61`，裁定
+  `INDEPENDENT_INCREMENTAL_PASS（0C/0H/0M/1L）`，首轮两项 Medium 均 CLOSED。唯一 Low 是历史 Phase 41
+  XML 被误计入本轮总数，正确口径为九模块 Surefire **66 suites / 421 tests**、聚焦 **27/27**；该勘误无需重跑，
+  不阻断 WS-14 功能通过。`Phase00ParameterMatrixIT` / `Phase47CleanupIT` 未在本轮隔离依赖执行，保留为稳定发布前
+  证据，不改写本次功能 PASS。可选 WS-15 因现有同步审计可接受而暂不实施；随后进入最终功能完整性复核，
+  不授权产品主线 merge、deploy、cutover 或项目 GO，项目继续 **CHANGES_REQUESTED / NO-GO**。
+- 最终功能完整性 R4 正式报告绑定 fingerprint
+  `29b030794b6d693c3486b6320e5f0f150a51a76d4f2cc30dabd567cac5e9f784`、HEAD `aa3509a`，报告 SHA-256
+  `37dc0a95a0b52a6a083e961e2c2c09b52541c601bd968316a2d147293d44727b`，裁定
+  **CHANGES_REQUESTED（0 Critical / 0 High / 1 Medium / 0 Low）**。报告正式确认 R3 两项 Medium CLOSED；唯一新
+  Medium 是 V35 冻结历史快照后未归一当前 `video.reviewerCount=1/11`，会阻断升级后的新评审创建。R5 只在
+  历史回填完成后把当前参数 `<2` 调为 2、`>10` 调为 10，不回写历史 `reviewer_count`；迁移 IT 覆盖低/高旧值、
+  历史任务与成绩保留、当前参数 2/10，Phase 7 IT 补新评审按上限 10 创建。本地后端 **68 suites / 447 tests**、
+  视频指派聚焦 **10/10**、九模块 package、候选工具与 WS-7/WS-8-V33 合同均绿。Phase 7、Phase 9 与 V35
+  真实依赖场景已编译；本机只有共享 `*-prod` 依赖，未连接或写入，留独立一次性隔离 MySQL/Redis/MinIO 执行。
+  R5 后续正式报告已绑定 fingerprint
+  `e98305d4eaf04e0594ee6073b7c30364bcfc172529a4501155f986745d2079a0` 并裁定
+  `INDEPENDENT_INCREMENTAL_PASS（0C/0H/0M/0L）`；报告 SHA-256
+  `4a1cf921f6b5f8678d0589a958ea5c2953aae8ecd50fba4d7139624a8851c5eb`。该结论只关闭最终功能范围，
+  不授权发布；提交材料见
+  `docs/reviews/final-functional-completeness-remediation-r5-submission-2026-08-22.md`。
 
 - **历史（已由上述 2026-08-10 F07 PASS 取代）**：统一候选 HEAD `aa3509a`、fingerprint `d2e3a7b10da2eeb357e39eecaffc492b4c2db8941ed8b4c002fa212a08c4105c`
   已完成用户独立增量动态复核：F01、F03、F04、F05、F06 均 `DYNAMIC_CLOSED`；F07 为 **PARTIAL / OPEN**。

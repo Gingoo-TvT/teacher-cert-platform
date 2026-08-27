@@ -25,6 +25,7 @@ export interface Certificate {
   voidReason?: string | null
   reissueOriginCertNo?: string | null
   correctionReason?: string | null
+  correctionRevision: string
   locked: number
 }
 
@@ -57,6 +58,7 @@ export interface CertificateIssuePayload {
 }
 
 export interface CertificateCorrectPayload {
+  correctionRevision: string
   certNo?: string | null
   validUntil?: string | null
   teachingSubjectCode?: string | null
